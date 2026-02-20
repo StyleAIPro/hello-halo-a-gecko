@@ -531,7 +531,8 @@ export async function ensureSessionWarm(
     stderrHandler: (data: string) => {
       console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data)
     },
-    mcpServers: enabledMcpServers
+    mcpServers: enabledMcpServers,
+    maxTurns: config.agent?.maxTurns
   })
 
   try {
