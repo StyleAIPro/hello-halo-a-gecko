@@ -243,7 +243,7 @@ npm run dev
 - [Issues](https://github.com/openkursar/hello-halo/issues) — Bug 报告与功能请求
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/915427da-1b61-4b91-a7a0-30e47f897eee" width="200" alt="微信群二维码">
+  <img src="https://github.com/user-attachments/assets/49f1040c-b858-4d43-841b-206310d3c33f" width="200" alt="微信群二维码">
 </p>
 
 <p align="center">
