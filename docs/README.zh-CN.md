@@ -117,6 +117,16 @@
   <img src="./assets/mobile_chat.jpg" width="45%" alt="移动端聊天">
 </p>
 
+AI 浏览器视频演示
+
+https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
+
+---
+
+## 更多功能演示
+
+[![📹 点击播放](https://img.shields.io/badge/📹_点击播放-FB7299?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1jEZYBaEcy/)
+
 ---
 
 ## 安装

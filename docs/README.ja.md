@@ -117,6 +117,16 @@ Model Context Protocol で機能を拡張。Claude Desktop MCP サーバーと�
   <img src="./assets/mobile_chat.jpg" width="45%" alt="モバイルチャット">
 </p>
 
+AI ブラウザビデオデモ
+
+https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
+
+---
+
+## 高度な機能デモ
+
+[![📹 動画を見る](https://img.shields.io/badge/📹_動画を見る-FB7299?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1jEZYBaEcy/)
+
 ---
 
 ## インストール

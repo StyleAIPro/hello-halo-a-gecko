@@ -117,6 +117,16 @@ Erweitere Fähigkeiten mit Model Context Protocol. Kompatibel mit Claude Desktop
   <img src="./assets/mobile_chat.jpg" width="45%" alt="Mobiler Chat">
 </p>
 
+KI-Browser Video-Demo
+
+https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
+
+---
+
+## Erweiterte Funktionen-Demo
+
+[![📹 Video Ansehen](https://img.shields.io/badge/📹_Video_Ansehen-FB7299?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1jEZYBaEcy/)
+
 ---
 
 ## Installation

@@ -117,6 +117,16 @@ Extiende capacidades con Model Context Protocol. Compatible con servidores MCP d
   <img src="./assets/mobile_chat.jpg" width="45%" alt="Chat Móvil">
 </p>
 
+Demo de Video del Navegador IA
+
+https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
+
+---
+
+## Demostración de Funciones Avanzadas
+
+[![📹 Ver Video](https://img.shields.io/badge/📹_Ver_Video-FB7299?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1jEZYBaEcy/)
+
 ---
 
 ## Instalación

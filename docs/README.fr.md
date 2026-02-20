@@ -117,6 +117,16 @@ Laissez l'IA contrôler un vrai navigateur intégré. Web scraping, remplissage 
   <img src="./assets/mobile_chat.jpg" width="45%" alt="Chat Mobile">
 </p>
 
+Démo Vidéo du Navigateur IA
+
+https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
+
+---
+
+## Démo des Fonctionnalités Avancées
+
+[![📹 Voir la Vidéo](https://img.shields.io/badge/📹_Voir_la_Vidéo-FB7299?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1jEZYBaEcy/)
+
 ---
 
 ## Installation
