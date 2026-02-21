@@ -83,7 +83,7 @@ function ThoughtItem({ thought }: { thought: Thought }) {
           {content && (
             <div className="text-muted-foreground/70 whitespace-pre-wrap break-words">
               {isContentExpanded || !needsTruncate ? content : content.substring(0, maxLen) + '...'}
-              {thought.type === 'thinking' && needsTruncate && (
+              {(thought.type === 'thinking' || thought.type === 'text') && needsTruncate && (
                 <button
                   onClick={() => setIsContentExpanded(!isContentExpanded)}
                   className="ml-1 text-primary/60 hover:text-primary"

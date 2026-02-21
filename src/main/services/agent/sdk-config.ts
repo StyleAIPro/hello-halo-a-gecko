@@ -187,17 +187,19 @@ async function resolveAnthropicPassthrough(
  * Network and filesystem access are intentionally permissive - the goal is not strict
  * security isolation, but rather to enable SDK's internal optimizations.
  *
+ * Note: Do NOT add `network.allowedDomains` config unless you actually need domain filtering.
+ * Setting this array (even to ['*']) triggers SDK's network proxy infrastructure, which:
+ *   - Starts HTTP + SOCKS proxy servers (performance overhead)
+ *   - Routes all network requests through the proxy (added latency)
+ *   - Has a bug where '*' wildcard is not properly handled (causes false blocks)
+ *
  * Security note: SDK has built-in filesystem restrictions (e.g., protecting Halo config files)
  * that are separate from these sandbox settings.
  */
 const SANDBOX_CONFIG = {
   enabled: true,
   autoAllowBashIfSandboxed: true,
-  network: {
-    allowedDomains: ['*'],        // Allow all domains
-    allowAllUnixSockets: true,    // Allow Docker, databases, etc.
-    allowLocalBinding: true       // Allow starting local servers
-  }
+  // No network config → proxy servers won't start → no performance overhead
 }
 let sandboxSettingsWritten = false
 

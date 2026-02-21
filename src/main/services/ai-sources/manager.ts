@@ -211,9 +211,11 @@ class AISourceManager {
       model: source.model
     }
 
-    // Set API type for OpenAI compatible providers
-    if (!isAnthropic) {
-      config.apiType = source.apiType || 'chat_completions'
+    // Set API type only if explicitly configured on the source.
+    // When not set, request-handler infers from URL suffix (/chat/completions or /responses).
+    // TODO: Add apiType selector in ProviderSelector UI for explicit control.
+    if (!isAnthropic && source.apiType) {
+      config.apiType = source.apiType
     }
 
     console.log('[AISourceManager] getBackendConfig result:', {

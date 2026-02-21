@@ -12,7 +12,6 @@ import type {
   // OpenAI Chat types
   OpenAIChatMessage,
   OpenAIChatSystemMessage,
-  OpenAIChatUserMessage,
   OpenAIChatAssistantMessage,
   OpenAIChatToolMessage,
   OpenAIChatContentPart,
@@ -28,7 +27,6 @@ import {
   anthropicBlockToResponsesInputPart,
   anthropicToolUseToResponsesFunctionCall,
   anthropicToolResultToResponsesFunctionCallOutput,
-  normalizeAnthropicContent,
   extractTextFromAnthropicBlocks,
   extractToolUseBlocks,
   extractToolResultBlocks
@@ -62,10 +60,10 @@ export function convertAnthropicSystemToOpenAIChat(
     if (textBlocks.length === 0) return null
 
     // If all blocks are plain text, return as content parts
+    // Note: cache_control is Anthropic-specific, strip it for OpenAI format
     const contentParts = textBlocks.map((block) => ({
       type: 'text' as const,
-      text: block.text,
-      ...(block.cache_control ? { cache_control: block.cache_control } : {})
+      text: block.text
     }))
 
     return { role: 'system', content: contentParts }
@@ -128,11 +126,6 @@ export function convertAnthropicMessagesToOpenAIChat(
           tool_call_id: toolResult.tool_use_id
         }
 
-        // Preserve cache_control if present
-        if (toolResult.cache_control) {
-          (toolMessage as any).cache_control = toolResult.cache_control
-        }
-
         result.push(toolMessage)
       }
 
@@ -147,17 +140,10 @@ export function convertAnthropicMessagesToOpenAIChat(
         for (const block of contentBlocks) {
           if (block.type === 'image') {
             hasImages = true
-            const imageBlock = block as any
-            const imageUrl = imageBlock.source?.type === 'base64'
-              ? `data:${imageBlock.source.media_type || 'image/png'};base64,${imageBlock.source.data}`
-              : imageBlock.source?.url
-
-            openaiContent.push({
-              type: 'image_url',
-              image_url: { url: imageUrl }
-            })
-          } else if (block.type === 'text') {
-            openaiContent.push(block as OpenAIChatContentPart)
+          }
+          const converted = anthropicBlockToOpenAIChatPart(block)
+          if (converted) {
+            openaiContent.push(converted)
           }
         }
 

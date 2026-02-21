@@ -106,22 +106,21 @@ export function ModelSelector() {
   // Get current model display name
   const currentModelName = getCurrentModelName(aiSources)
 
-  // Handle model selection for a source
+  // Handle model selection for a source (atomic: backend reads latest tokens from disk)
   const handleSelectModel = async (sourceId: string, modelId: string) => {
-    const newSources = aiSources.sources.map(s =>
-      s.id === sourceId
-        ? { ...s, model: modelId, updatedAt: new Date().toISOString() }
-        : s
-    )
-
-    const newAiSources: AISourcesConfig = {
-      version: 2,
-      currentId: sourceId,
-      sources: newSources
+    // Switch source first if needed, then set model
+    if (aiSources.currentId !== sourceId) {
+      const switchResult = await api.aiSourcesSwitchSource(sourceId)
+      if (!switchResult.success) {
+        console.error('[ModelSelector] Failed to switch source:', switchResult.error)
+        handleClose()
+        return
+      }
     }
-
-    await api.setConfig({ aiSources: newAiSources })
-    setConfig({ ...config, aiSources: newAiSources })
+    const result = await api.aiSourcesSetModel(modelId)
+    if (result.success && result.data) {
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
+    }
     handleClose()
   }
 
@@ -131,13 +130,10 @@ export function ModelSelector() {
 
     if (aiSources.currentId === sourceId) return
 
-    const newAiSources: AISourcesConfig = {
-      ...aiSources,
-      currentId: sourceId
+    const result = await api.aiSourcesSwitchSource(sourceId)
+    if (result.success && result.data) {
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
     }
-
-    await api.setConfig({ aiSources: newAiSources })
-    setConfig({ ...config, aiSources: newAiSources })
     handleClose()
   }
 

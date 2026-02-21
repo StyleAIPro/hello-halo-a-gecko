@@ -268,7 +268,7 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
                 } whitespace-pre-wrap break-words`}
               >
                 {isContentExpanded || !needsTruncate ? displayContent : truncatedContent + '...'}
-                {thought.type === 'thinking' && needsTruncate && (
+                {(thought.type === 'thinking' || thought.type === 'text') && needsTruncate && (
                   <button
                     onClick={() => setIsContentExpanded(!isContentExpanded)}
                     className="ml-1 text-primary/60 hover:text-primary not-italic"

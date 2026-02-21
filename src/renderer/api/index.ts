@@ -138,6 +138,42 @@ export const api = {
     return httpRequest('POST', '/api/config/refresh-ai-sources')
   },
 
+  // ===== AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens) =====
+  aiSourcesSwitchSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.aiSourcesSwitchSource(sourceId)
+    }
+    return httpRequest('POST', '/api/ai-sources/switch-source', { sourceId })
+  },
+
+  aiSourcesSetModel: async (modelId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.aiSourcesSetModel(modelId)
+    }
+    return httpRequest('POST', '/api/ai-sources/set-model', { modelId })
+  },
+
+  aiSourcesAddSource: async (source: unknown): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.aiSourcesAddSource(source)
+    }
+    return httpRequest('POST', '/api/ai-sources/sources', source as Record<string, unknown>)
+  },
+
+  aiSourcesUpdateSource: async (sourceId: string, updates: unknown): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.aiSourcesUpdateSource(sourceId, updates)
+    }
+    return httpRequest('PUT', `/api/ai-sources/sources/${sourceId}`, updates as Record<string, unknown>)
+  },
+
+  aiSourcesDeleteSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.aiSourcesDeleteSource(sourceId)
+    }
+    return httpRequest('DELETE', `/api/ai-sources/sources/${sourceId}`)
+  },
+
   // ===== Space =====
   getHaloSpace: async (): Promise<ApiResponse> => {
     if (isElectron()) {

@@ -30,6 +30,13 @@ export interface HaloAPI {
   validateApi: (apiKey: string, apiUrl: string, provider: string) => Promise<IpcResponse>
   refreshAISourcesConfig: () => Promise<IpcResponse>
 
+  // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
+  aiSourcesSwitchSource: (sourceId: string) => Promise<IpcResponse>
+  aiSourcesSetModel: (modelId: string) => Promise<IpcResponse>
+  aiSourcesAddSource: (source: unknown) => Promise<IpcResponse>
+  aiSourcesUpdateSource: (sourceId: string, updates: unknown) => Promise<IpcResponse>
+  aiSourcesDeleteSource: (sourceId: string) => Promise<IpcResponse>
+
   // Space
   getHaloSpace: () => Promise<IpcResponse>
   listSpaces: () => Promise<IpcResponse>
@@ -351,6 +358,13 @@ const api: HaloAPI = {
   validateApi: (apiKey, apiUrl, provider, model?) =>
     ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model),
   refreshAISourcesConfig: () => ipcRenderer.invoke('config:refresh-ai-sources'),
+
+  // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
+  aiSourcesSwitchSource: (sourceId) => ipcRenderer.invoke('ai-sources:switch-source', sourceId),
+  aiSourcesSetModel: (modelId) => ipcRenderer.invoke('ai-sources:set-model', modelId),
+  aiSourcesAddSource: (source) => ipcRenderer.invoke('ai-sources:add-source', source),
+  aiSourcesUpdateSource: (sourceId, updates) => ipcRenderer.invoke('ai-sources:update-source', sourceId, updates),
+  aiSourcesDeleteSource: (sourceId) => ipcRenderer.invoke('ai-sources:delete-source', sourceId),
 
   // Space
   getHaloSpace: () => ipcRenderer.invoke('space:get-halo'),

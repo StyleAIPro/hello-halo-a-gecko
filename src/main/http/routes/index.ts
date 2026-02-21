@@ -14,7 +14,7 @@ import * as agentController from '../../controllers/agent.controller'
 import * as spaceController from '../../controllers/space.controller'
 import * as conversationController from '../../controllers/conversation.controller'
 import * as configController from '../../controllers/config.controller'
-import { getEnabledAuthProviderConfigs } from '../../services/ai-sources'
+import { getEnabledAuthProviderConfigs, getAISourceManager } from '../../services/ai-sources'
 import {
   listArtifacts,
   listArtifactsTree,
@@ -131,6 +131,65 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     const { apiKey, apiUrl, provider, model } = req.body
     const result = await configController.validateApi(apiKey, apiUrl, provider, model)
     res.json(result)
+  })
+
+  // ===== AI Sources CRUD Routes (atomic operations) =====
+  // These routes read from disk before writing, ensuring rotating tokens are never overwritten.
+
+  app.post('/api/ai-sources/switch-source', async (req: Request, res: Response) => {
+    try {
+      const { sourceId } = req.body
+      const manager = getAISourceManager()
+      const result = manager.setCurrentSource(sourceId)
+      if (result.currentId !== sourceId) {
+        res.json({ success: false, error: `Source not found: ${sourceId}` })
+        return
+      }
+      res.json({ success: true, data: result })
+    } catch (error) {
+      res.json({ success: false, error: (error as Error).message })
+    }
+  })
+
+  app.post('/api/ai-sources/set-model', async (req: Request, res: Response) => {
+    try {
+      const { modelId } = req.body
+      const manager = getAISourceManager()
+      const result = manager.setCurrentModel(modelId)
+      res.json({ success: true, data: result })
+    } catch (error) {
+      res.json({ success: false, error: (error as Error).message })
+    }
+  })
+
+  app.post('/api/ai-sources/sources', async (req: Request, res: Response) => {
+    try {
+      const manager = getAISourceManager()
+      const result = manager.addSource(req.body)
+      res.json({ success: true, data: result })
+    } catch (error) {
+      res.json({ success: false, error: (error as Error).message })
+    }
+  })
+
+  app.put('/api/ai-sources/sources/:sourceId', async (req: Request, res: Response) => {
+    try {
+      const manager = getAISourceManager()
+      const result = manager.updateSource(req.params.sourceId, req.body)
+      res.json({ success: true, data: result })
+    } catch (error) {
+      res.json({ success: false, error: (error as Error).message })
+    }
+  })
+
+  app.delete('/api/ai-sources/sources/:sourceId', async (req: Request, res: Response) => {
+    try {
+      const manager = getAISourceManager()
+      const result = manager.deleteSource(req.params.sourceId)
+      res.json({ success: true, data: result })
+    } catch (error) {
+      res.json({ success: false, error: (error as Error).message })
+    }
   })
 
   // ===== Auth Routes (Read-only for remote access) =====

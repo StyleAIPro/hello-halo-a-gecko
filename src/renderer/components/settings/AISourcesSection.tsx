@@ -172,38 +172,36 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
   // Get current source
   const currentSource = aiSources.sources.find(s => s.id === aiSources.currentId)
 
-  // Handle switch source
+  // Handle switch source (atomic: backend reads latest tokens from disk)
   const handleSwitchSource = async (sourceId: string) => {
-    const newAiSources: AISourcesConfig = {
-      ...aiSources,
-      currentId: sourceId
+    const result = await api.aiSourcesSwitchSource(sourceId)
+    if (result.success && result.data) {
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
     }
-    await api.setConfig({ aiSources: newAiSources })
-    setConfig({ ...config, aiSources: newAiSources })
   }
 
   // Handle save source (add or update)
   const handleSaveSource = async (source: AISource) => {
     const existingIndex = aiSources.sources.findIndex(s => s.id === source.id)
 
-    let newSources: AISource[]
-    if (existingIndex >= 0) {
-      // Update existing
-      newSources = [...aiSources.sources]
-      newSources[existingIndex] = source
-    } else {
-      // Add new
-      newSources = [...aiSources.sources, source]
+    // Add or update source atomically (backend reads from disk, preserves tokens)
+    const saveResult = existingIndex >= 0
+      ? await api.aiSourcesUpdateSource(source.id, source)
+      : await api.aiSourcesAddSource(source)
+
+    if (!saveResult.success) {
+      console.error('[AISourcesSection] Failed to save source:', saveResult.error)
+      return
     }
 
-    const newAiSources: AISourcesConfig = {
-      version: 2,
-      currentId: source.id, // Set as current
-      sources: newSources
+    // Switch to saved source as current, get latest data from disk
+    const switchResult = await api.aiSourcesSwitchSource(source.id)
+    if (switchResult.success && switchResult.data) {
+      setConfig({ ...config, aiSources: switchResult.data as AISourcesConfig, isFirstLaunch: false })
     }
 
-    await api.setConfig({ aiSources: newAiSources, isFirstLaunch: false })
-    setConfig({ ...config, aiSources: newAiSources, isFirstLaunch: false })
+    // Persist isFirstLaunch flag (no aiSources in payload, safe)
+    await api.setConfig({ isFirstLaunch: false })
 
     setShowAddForm(false)
     setEditingSourceId(null)
@@ -211,22 +209,10 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
 
   // Handle delete source
   const handleDeleteSource = async (sourceId: string) => {
-    const newSources = aiSources.sources.filter(s => s.id !== sourceId)
-
-    // If deleting current, switch to first available
-    let newCurrentId = aiSources.currentId
-    if (aiSources.currentId === sourceId) {
-      newCurrentId = newSources.length > 0 ? newSources[0].id : null
+    const result = await api.aiSourcesDeleteSource(sourceId)
+    if (result.success && result.data) {
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
     }
-
-    const newAiSources: AISourcesConfig = {
-      version: 2,
-      currentId: newCurrentId,
-      sources: newSources
-    }
-
-    await api.setConfig({ aiSources: newAiSources })
-    setConfig({ ...config, aiSources: newAiSources })
     setDeletingSourceId(null)
   }
 
