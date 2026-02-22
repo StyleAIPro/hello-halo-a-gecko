@@ -155,7 +155,8 @@ export async function sendMessage(
         console.error(`[Agent][${conversationId}] CLI stderr:`, data)
         stderrBuffer += data  // Accumulate for error reporting
       },
-      mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null
+      mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
+      maxTurns: config.agent?.maxTurns
     })
 
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)

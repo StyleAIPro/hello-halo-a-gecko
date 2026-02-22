@@ -321,6 +321,10 @@ interface HaloConfig {
   system: {
     autoLaunch: boolean
   }
+  // Agent behavior configuration
+  agent?: {
+    maxTurns: number
+  }
   remoteAccess: {
     enabled: boolean
     port: number
@@ -437,6 +441,9 @@ const DEFAULT_CONFIG: HaloConfig = {
   },
   system: {
     autoLaunch: false
+  },
+  agent: {
+    maxTurns: 50
   },
   remoteAccess: {
     enabled: false,
@@ -755,6 +762,7 @@ export function getConfig(): HaloConfig {
       permissions: { ...DEFAULT_CONFIG.permissions, ...parsed.permissions },
       appearance: { ...DEFAULT_CONFIG.appearance, ...parsed.appearance },
       system: { ...DEFAULT_CONFIG.system, ...parsed.system },
+      agent: { ...DEFAULT_CONFIG.agent, ...parsed.agent },
       onboarding: { ...DEFAULT_CONFIG.onboarding, ...parsed.onboarding },
       // mcpServers is a flat map, just use parsed value or default
       mcpServers: parsed.mcpServers || DEFAULT_CONFIG.mcpServers,
@@ -787,6 +795,9 @@ export function saveConfig(config: Partial<HaloConfig>): HaloConfig {
   }
   if (config.system) {
     newConfig.system = { ...currentConfig.system, ...config.system }
+  }
+  if (config.agent) {
+    newConfig.agent = { ...currentConfig.agent, ...config.agent }
   }
   if (config.onboarding) {
     newConfig.onboarding = { ...currentConfig.onboarding, ...config.onboarding }

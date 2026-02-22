@@ -24,6 +24,7 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
   // System settings state
   const [autoLaunch, setAutoLaunch] = useState(config?.system?.autoLaunch || false)
   const [taskCompleteNotify, setTaskCompleteNotify] = useState(config?.notifications?.taskComplete || false)
+  const [maxTurns, setMaxTurnsState] = useState(config?.agent?.maxTurns ?? 50)
 
   // Health diagnostics state
   const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false)
@@ -77,6 +78,23 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
     } catch (error) {
       console.error('[SystemSection] Failed to update notification settings:', error)
       setTaskCompleteNotify(!enabled) // Revert on error
+    }
+  }
+
+  // Handle maxTurns change
+  const handleMaxTurnsChange = async (value: number) => {
+    const clamped = Math.max(10, Math.min(9999, value))
+    setMaxTurnsState(clamped)
+    try {
+      const updatedConfig = {
+        ...config,
+        agent: { ...config?.agent, maxTurns: clamped }
+      } as HaloConfig
+      await api.setConfig({ agent: updatedConfig.agent })
+      setConfig(updatedConfig)
+    } catch (error) {
+      console.error('[SystemSection] Failed to update maxTurns:', error)
+      setMaxTurnsState(config?.agent?.maxTurns ?? 50)
     }
   }
 
@@ -270,6 +288,43 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                 />
               </div>
             </label>
+          </div>
+
+          {/* Max Turns per Message */}
+          <div className="flex items-center justify-between pt-4 border-t border-border">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <p className="font-medium">{t('Max Turns per Message')}</p>
+                <span
+                  className="inline-flex items-center justify-center w-4 h-4 text-xs rounded-full bg-muted text-muted-foreground cursor-help"
+                  title={t('Maximum number of tool call rounds the AI agent can execute per message')}
+                >
+                  ?
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t('Maximum number of tool call rounds the AI agent can execute per message')}
+              </p>
+            </div>
+            <input
+              type="number"
+              min={10}
+              max={9999}
+              value={maxTurns}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10)
+                if (!isNaN(val)) {
+                  setMaxTurnsState(val)
+                }
+              }}
+              onBlur={(e) => {
+                const val = parseInt(e.target.value, 10)
+                if (!isNaN(val)) {
+                  handleMaxTurnsChange(val)
+                }
+              }}
+              className="w-24 px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
           </div>
 
           {/* Open Log Folder */}

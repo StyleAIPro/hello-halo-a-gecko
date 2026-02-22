@@ -108,6 +108,11 @@ export interface SystemConfig {
   autoLaunch: boolean;      // Launch on system startup
 }
 
+// Agent behavior configuration
+export interface AgentConfig {
+  maxTurns: number;         // Maximum tool call turns per message
+}
+
 // Remote access configuration
 export interface RemoteAccessConfig {
   enabled: boolean;
@@ -186,6 +191,7 @@ export interface HaloConfig {
   remoteAccess: RemoteAccessConfig;
   mcpServers: McpServersConfig;  // MCP servers configuration
   notifications?: NotificationConfig;  // Notification preferences
+  agent?: AgentConfig;  // Agent behavior settings
   layout?: LayoutConfig;  // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;
 }
@@ -640,6 +646,7 @@ export const DEFAULT_CONFIG: HaloConfig = {
     port: 3456
   },
   mcpServers: {},  // Empty by default
+  agent: { maxTurns: 50 },  // Agent defaults
   isFirstLaunch: true
 };
 
