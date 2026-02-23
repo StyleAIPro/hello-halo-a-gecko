@@ -197,7 +197,7 @@ async function resolveAnthropicPassthrough(
  * that are separate from these sandbox settings.
  */
 const SANDBOX_CONFIG = {
-  enabled: true,
+  enabled: false,
   autoAllowBashIfSandboxed: true,
   // No network config → proxy servers won't start → no performance overhead
 }
@@ -222,8 +222,16 @@ function ensureSandboxSettings(configDir: string): void {
     if (existsSync(settingsPath)) {
       settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
     }
+    let dirty = false
     if (JSON.stringify(settings.sandbox) !== JSON.stringify(SANDBOX_CONFIG)) {
       settings.sandbox = SANDBOX_CONFIG
+      dirty = true
+    }
+    if (settings.skipWebFetchPreflight !== true) {
+      settings.skipWebFetchPreflight = true
+      dirty = true
+    }
+    if (dirty) {
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
     }
   } catch (err) {

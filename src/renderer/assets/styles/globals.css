@@ -1092,3 +1092,59 @@ body {
 .pulse-item:hover {
   background-color: hsl(var(--secondary) / 0.5);
 }
+
+/* ============================================
+   Activity Timeline
+   ============================================ */
+
+/* Timeline entry staggered fade-in from below */
+@keyframes activity-entry-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.activity-entry-in {
+  animation: activity-entry-in 0.35s ease-out both;
+}
+
+/* Running node glow pulse */
+@keyframes timeline-node-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsl(var(--halo-success) / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 8px 3px hsl(var(--halo-success) / 0.25);
+  }
+}
+
+.timeline-node-running {
+  animation: timeline-node-pulse 2s ease-in-out infinite;
+}
+
+/* Running card ambient glow */
+.activity-running-card {
+  background: linear-gradient(
+    135deg,
+    hsl(var(--halo-success) / 0.06),
+    hsl(var(--halo-success) / 0.02) 60%,
+    transparent
+  );
+  border: 1px solid hsl(var(--halo-success) / 0.12);
+  border-radius: 0.5rem;
+}
+
+/* Timeline rail — vertical connecting line */
+.timeline-rail {
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    hsl(var(--border) / 0.6),
+    hsl(var(--border) / 0.2)
+  );
+}

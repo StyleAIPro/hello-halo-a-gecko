@@ -16,6 +16,7 @@ import { useAppStore } from '../../stores/app.store'
 import { api } from '../../api'
 import { TaskStatusDot } from '../pulse/TaskStatusDot'
 import { PulseSidebarSection } from '../pulse/PulseSidebarSection'
+import { AutomationBadge } from '../apps/AutomationBadge'
 import type { ConversationMeta } from '../../types'
 
 // Width constraints (in pixels)
@@ -299,6 +300,9 @@ export const ConversationList = memo(function ConversationList({
           </button>
         )}
       </div>
+
+      {/* Automation apps status badge — quick jump to AppsPage */}
+      <AutomationBadge />
 
       {/* Pinned section - pinned conversations at top of sidebar (skip when hidden to avoid pulse selector cost) */}
       {visible && <PulseSidebarSection />}

@@ -30,6 +30,7 @@ import {
 } from './helpers'
 import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../health'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
+import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
 
 // ============================================
 // Session Maps
@@ -520,6 +521,10 @@ export async function ensureSessionWarm(
   // Get enabled MCP servers
   const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
 
+  // Build MCP servers config (must match sendMessage to avoid session rebuild)
+  const mcpServers: Record<string, any> = enabledMcpServers ? { ...enabledMcpServers } : {}
+  mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
+
   // Build SDK options using shared configuration
   const sdkOptions = buildBaseSdkOptions({
     credentials: resolvedCredentials,
@@ -531,7 +536,7 @@ export async function ensureSessionWarm(
     stderrHandler: (data: string) => {
       console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data)
     },
-    mcpServers: enabledMcpServers
+    mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null
   })
 
   try {

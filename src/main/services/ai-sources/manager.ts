@@ -251,6 +251,63 @@ class AISourceManager {
     return !!source.accessToken
   }
 
+  /**
+   * Get backend request configuration for a specific source (used for per-app model overrides).
+   * Unlike getBackendConfig() which uses the current/global source, this targets a specific source+model.
+   */
+  getBackendConfigForSource(sourceId: string, modelId?: string): BackendRequestConfig | null {
+    const aiSources = this.getDecryptedAiSources()
+    const source = aiSources.sources.find(s => s.id === sourceId)
+
+    if (!source) {
+      console.warn(`[AISourceManager] getBackendConfigForSource: source not found: ${sourceId}`)
+      return null
+    }
+
+    // Check if source is configured
+    if (source.authType === 'api-key' && !source.apiKey) {
+      console.warn('[AISourceManager] getBackendConfigForSource: API key source missing apiKey')
+      return null
+    }
+    if (source.authType === 'oauth' && !source.accessToken) {
+      console.warn('[AISourceManager] getBackendConfigForSource: OAuth source missing accessToken')
+      return null
+    }
+
+    // OAuth: delegate to provider
+    if (source.authType === 'oauth') {
+      const provider = this.providers.get(source.provider)
+      if (!provider) {
+        console.warn(`[AISourceManager] No provider found for OAuth source: ${source.provider}`)
+        return null
+      }
+      const legacyConfig = this.buildLegacyOAuthConfig(source)
+      const config = provider.getBackendConfig(legacyConfig)
+      if (config && modelId) {
+        config.model = modelId
+      }
+      return config
+    }
+
+    // API Key: build config directly
+    const isAnthropic = isAnthropicProvider(source.provider)
+    const normalizedUrl = isAnthropic
+      ? source.apiUrl
+      : normalizeApiUrl(source.apiUrl, 'openai')
+
+    const config: BackendRequestConfig = {
+      url: normalizedUrl,
+      key: source.apiKey!,
+      model: modelId || source.model
+    }
+
+    if (!isAnthropic && source.apiType) {
+      config.apiType = source.apiType
+    }
+
+    return config
+  }
+
   // ========== Source CRUD Operations ==========
 
   /**

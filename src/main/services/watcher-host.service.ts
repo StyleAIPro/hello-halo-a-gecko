@@ -33,7 +33,8 @@ const pendingScans = new Map<string, {
 }>()
 
 // Callbacks for events from worker
-let onFsEventsCallback: ((spaceId: string, events: ProcessedFsEvent[]) => void) | null = null
+// fsEventsCallbacks supports multiple subscribers (artifact-cache + event-bus FileWatcherSource)
+const onFsEventsCallbacks = new Set<(spaceId: string, events: ProcessedFsEvent[]) => void>()
 let onSpaceReadyCallback: ((spaceId: string) => void) | null = null
 let onSpaceErrorCallback: ((spaceId: string, error: string) => void) | null = null
 
@@ -164,7 +165,11 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
     }
 
     case 'fs-events':
-      onFsEventsCallback?.(msg.spaceId, msg.events)
+      for (const cb of Array.from(onFsEventsCallbacks)) {
+        try { cb(msg.spaceId, msg.events) } catch (err) {
+          console.error('[WatcherHost] fs-events callback error:', err)
+        }
+      }
       break
 
     case 'log':
@@ -289,16 +294,25 @@ export function refreshIgnoreRules(spaceId: string, rootPath: string): void {
 }
 
 /**
- * Set the handler for file system events from worker.
- * Only one handler is supported; calling again overwrites the previous one.
+ * Register a handler for file system events from worker.
+ * Multiple handlers are supported simultaneously (artifact-cache + event-bus).
+ * Returns an unsubscribe function that removes this specific handler.
+ */
+export function addFsEventsHandler(
+  cb: (spaceId: string, events: ProcessedFsEvent[]) => void
+): () => void {
+  onFsEventsCallbacks.add(cb)
+  return () => { onFsEventsCallbacks.delete(cb) }
+}
+
+/**
+ * @deprecated Use addFsEventsHandler() for multi-subscriber support.
+ * Kept for backward compatibility; adds to the handler set (does not replace).
  */
 export function setFsEventsHandler(
   cb: (spaceId: string, events: ProcessedFsEvent[]) => void
 ): void {
-  if (onFsEventsCallback) {
-    console.warn('[WatcherHost] Overwriting existing FsEvents handler')
-  }
-  onFsEventsCallback = cb
+  onFsEventsCallbacks.add(cb)
 }
 
 /**

@@ -19,7 +19,7 @@
  */
 
 import { BrowserWindow } from 'electron'
-import { browserContext, BrowserContext } from './context'
+import { browserContext, BrowserContext, createScopedBrowserContext } from './context'
 import { browserViewManager } from '../browser-view.service'
 import {
   allTools,
@@ -34,6 +34,7 @@ import { createAIBrowserMcpServer, getAIBrowserSdkToolNames } from './sdk-mcp-se
 
 // Re-export SDK MCP server functions
 export { createAIBrowserMcpServer, getAIBrowserSdkToolNames }
+export { createScopedBrowserContext }
 
 // ============================================
 // Module Initialization

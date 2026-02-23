@@ -186,6 +186,7 @@ export interface HaloConfig {
   remoteAccess: RemoteAccessConfig;
   mcpServers: McpServersConfig;  // MCP servers configuration
   notifications?: NotificationConfig;  // Notification preferences
+  notificationChannels?: import('../../shared/types/notification-channels').NotificationChannelsConfig;  // External notification channels
   layout?: LayoutConfig;  // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;
 }
@@ -581,7 +582,7 @@ export type AgentEvent =
 // App State Types
 // ============================================
 
-export type AppView = 'splash' | 'gitBashSetup' | 'setup' | 'home' | 'space' | 'settings';
+export type AppView = 'splash' | 'gitBashSetup' | 'setup' | 'home' | 'space' | 'settings' | 'apps';
 
 export interface AppState {
   view: AppView;

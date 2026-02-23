@@ -228,6 +228,71 @@ export async function getApiCredentials(config: ReturnType<typeof getConfig>): P
 }
 
 /**
+ * Get API credentials for a specific AI source (used for per-app model overrides).
+ * Falls back to getApiCredentials() if the specified source is not found or not configured.
+ */
+export async function getApiCredentialsForSource(
+  config: ReturnType<typeof getConfig>,
+  sourceId: string,
+  modelId?: string
+): Promise<ApiCredentials> {
+  const manager = getAISourceManager()
+  await manager.ensureInitialized()
+
+  const aiSources = config.aiSources
+  const source = aiSources?.version === 2
+    ? aiSources.sources.find((s: any) => s.id === sourceId)
+    : null
+
+  if (!source) {
+    console.warn(`[AgentService] getApiCredentialsForSource: source ${sourceId} not found, falling back to global`)
+    return getApiCredentials(config)
+  }
+
+  // Ensure token is valid for OAuth sources
+  if (source.authType === 'oauth') {
+    const tokenResult = await manager.ensureValidToken(source.id)
+    if (!tokenResult.success) {
+      throw new Error('OAuth token expired or invalid. Please login again.')
+    }
+  }
+
+  const backendConfig = manager.getBackendConfigForSource(sourceId, modelId)
+  if (!backendConfig) {
+    console.warn(`[AgentService] getApiCredentialsForSource: no backend config for source ${sourceId}, falling back to global`)
+    return getApiCredentials(config)
+  }
+
+  // Determine provider type
+  let provider: 'anthropic' | 'openai' | 'oauth'
+  if (source.authType === 'oauth') {
+    provider = 'oauth'
+  } else if (source.provider === 'anthropic') {
+    provider = 'anthropic'
+  } else {
+    provider = 'openai'
+  }
+
+  const effectiveModelId = backendConfig.model || source.model
+  const modelOption = source.availableModels?.find((m: any) => m.id === effectiveModelId)
+  const displayModel = modelOption?.name || effectiveModelId
+
+  console.log(`[AgentService] Using per-app model override: source=${source.name}, model=${displayModel}`)
+
+  return {
+    baseUrl: backendConfig.url,
+    apiKey: backendConfig.key,
+    model: effectiveModelId,
+    displayModel,
+    provider,
+    customHeaders: backendConfig.headers,
+    apiType: backendConfig.apiType,
+    forceStream: backendConfig.forceStream,
+    filterContent: backendConfig.filterContent
+  }
+}
+
+/**
  * Infer OpenAI wire API type from URL or environment
  */
 export function inferOpenAIWireApi(apiUrl: string): 'responses' | 'chat_completions' {

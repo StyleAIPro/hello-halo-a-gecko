@@ -9,14 +9,15 @@
  * for seamless migration.
  *
  * Module Structure:
- * - types.ts          - Type definitions
- * - helpers.ts        - Utility functions
+ * - types.ts           - Type definitions
+ * - helpers.ts         - Utility functions
  * - session-manager.ts - V2 Session lifecycle management
- * - mcp-manager.ts    - MCP server status management
+ * - mcp-manager.ts     - MCP server status management
  * - permission-handler.ts - Tool permission handling
- * - message-utils.ts  - Message building and parsing
- * - send-message.ts   - Core message sending logic
- * - control.ts        - Generation control (stop, status)
+ * - message-utils.ts   - Message building and parsing
+ * - stream-processor.ts - Core stream processing (shared by send-message + app-chat)
+ * - send-message.ts    - Main conversation message sending
+ * - control.ts         - Generation control (stop, status)
  */
 
 // ============================================
@@ -48,6 +49,10 @@ export type {
 
 // Send message to agent
 export { sendMessage } from './send-message'
+
+// Stream processor (shared core for main agent + app chat)
+export { processStream } from './stream-processor'
+export type { ProcessStreamParams, StreamCallbacks, StreamResult } from './stream-processor'
 
 // Generation control
 export {

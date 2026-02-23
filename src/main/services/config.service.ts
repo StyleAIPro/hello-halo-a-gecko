@@ -331,6 +331,8 @@ interface HaloConfig {
   // MCP servers configuration (compatible with Cursor / Claude Desktop format)
   mcpServers: Record<string, McpServerConfig>
   isFirstLaunch: boolean
+  // External notification channels (email, WeCom, DingTalk, Feishu, webhook)
+  notificationChannels?: import('../../shared/types/notification-channels').NotificationChannelsConfig
   // Analytics configuration (auto-generated on first launch)
   analytics?: AnalyticsConfig
   // Global layout preferences (panel sizes and visibility)

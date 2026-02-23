@@ -1,21 +1,48 @@
 ---
-name: Halo Development Context
-description: Essential project context for AI developers working on Halo. Must read before writing any code.
+name: Halo Development Context v2
+description: Minimal onboarding skill for Halo development. Mandatory entry: CONTEXT.md, ARCHITECTURE.md, and quick.md. Use quick.md for hard rules, task routing, and fast implementation checklists.
 ---
 
-# Halo Development Context
+# Halo Development Context v2
 
-## Required Reading
+## Mandatory Entry (Read in Order)
 
-**Before writing any code**, read these documents in order:
+1. `CONTEXT.md` - what the product does and current implementation status.
+2. `ARCHITECTURE.md` - layer boundaries, init sequence, integration surfaces.
+3. `quick.md` - hard development rules and task-to-file fast routing.
 
-1. **CONTEXT.md** — Project vision, positioning, development principles, and code navigation
-2. **ARCHITECTURE.md** — Directory structure, type system, IPC channels, module design, and data flow
-3. **CHANGELOG.md** — Feature evolution history and key implementation details
+Do not start implementation before reading these three files.
 
-Do not skip this step. These documents contain architectural decisions, conventions, and constraints that directly affect how code should be written.
+## Why This Is Minimal
 
-All code changes must comply with the patterns, conventions, and structures described in **ARCHITECTURE.md**. This includes directory organization, IPC channel conventions, styling rules, state management patterns, and type definitions. If a change conflicts with the documented architecture, update the architecture document first with justification, then proceed.
+- `SKILL.md`: workflow entry only
+- `CONTEXT.md`: product and scope
+- `ARCHITECTURE.md`: structure and dependency contracts
+- `quick.md`: rules + practical execution
+
+This avoids large documentation trees while keeping execution guidance explicit.
+
+## Fast Navigation Policy
+
+After the mandatory entry docs:
+
+- Jump directly to touched module `DESIGN.md`:
+  - `src/main/apps/*/DESIGN.md`
+  - `src/main/platform/*/DESIGN.md`
+- For transport-level changes, inspect:
+  - `src/main/ipc/`
+  - `src/main/http/routes/index.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/api/index.ts`
+
+## Source of Truth Priority
+
+When docs and code differ:
+
+1. Actual code in `src/**`
+2. Module design docs (`src/main/apps/*/DESIGN.md`, `src/main/platform/*/DESIGN.md`)
+3. `quick.md`, `ARCHITECTURE.md`, `CONTEXT.md`
+4. Historical notes in `CHANGELOG.md`
 
 ## Keeping These Documents Updated
 

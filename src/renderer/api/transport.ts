@@ -45,7 +45,7 @@ export function clearAuthToken(): void {
  * HTTP Transport - Makes API calls to remote server
  */
 export async function httpRequest<T>(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
   path: string,
   body?: Record<string, unknown>
 ): Promise<{ success: boolean; data?: T; error?: string }> {
@@ -216,7 +216,12 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'ai-browser:active-view-changed': 'onAIBrowserActiveViewChanged',
       'artifact:tree-update': 'onArtifactTreeUpdate',
       'perf:snapshot': 'onPerfSnapshot',
-      'perf:warning': 'onPerfWarning'
+      'perf:warning': 'onPerfWarning',
+      'app:status_changed': 'onAppStatusChanged',
+      'app:activity_entry:new': 'onAppActivityEntry',
+      'app:escalation:new': 'onAppEscalation',
+      'app:navigate': 'onAppNavigate',
+      'notification:toast': 'onNotificationToast'
     }
 
     const method = methodMap[channel]

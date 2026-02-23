@@ -267,6 +267,7 @@ class BrowserViewManager {
 
     try {
       await view.webContents.loadURL(url)
+
       return true
     } catch (error) {
       console.error(`[BrowserView] Navigation failed: ${url}`, error)

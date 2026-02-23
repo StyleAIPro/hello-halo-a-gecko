@@ -22,7 +22,7 @@
 
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
-import { browserContext } from './context'
+import { browserContext, type BrowserContext } from './context'
 import { browserViewManager } from '../browser-view.service'
 
 // ============================================
@@ -69,21 +69,15 @@ function imageResult(text: string, data: string, mimeType: string) {
 
 /**
  * Determine how to fill a form element, handling combobox disambiguation.
- *
- * - combobox with option children → select-like (e.g. <select>), use selectOption.
- *   If no matching option is found, fall back to fillElement for editable comboboxes
- *   that happen to have autocomplete suggestions showing.
- * - combobox without option children → editable (e.g. search input), use fillElement.
- * - everything else → fillElement.
  */
-async function fillFormElement(uid: string, value: string): Promise<void> {
-  const element = browserContext.getElementByUid(uid)
+async function fillFormElement(ctx: BrowserContext, uid: string, value: string): Promise<void> {
+  const element = ctx.getElementByUid(uid)
 
   if (element && element.role === 'combobox') {
     const hasOptions = element.children?.some(child => child.role === 'option')
     if (hasOptions) {
       try {
-        await browserContext.selectOption(uid, value)
+        await ctx.selectOption(uid, value)
         return
       } catch (e) {
         // Only fall back for "option not found" — rethrow infrastructure errors (CDP failures, etc.)
@@ -94,16 +88,23 @@ async function fillFormElement(uid: string, value: string): Promise<void> {
       }
     }
     // Editable combobox (no options, or no matching option) — fill as text
-    await browserContext.fillElement(uid, value)
+    await ctx.fillElement(uid, value)
     return
   }
 
-  await browserContext.fillElement(uid, value)
+  await ctx.fillElement(uid, value)
 }
 
 // ============================================
 // Navigation Tools (8 tools)
 // ============================================
+
+/**
+ * Build all 26 AI Browser tools, closing over the provided BrowserContext.
+ * This allows each MCP server instance to operate on its own context
+ * (scoped activeViewId) while sharing the same browserViewManager session.
+ */
+function buildAllTools(ctx: BrowserContext) {
 
 const browser_list_pages = tool(
   'browser_list_pages',
@@ -140,7 +141,7 @@ const browser_select_page = tool(
     }
 
     const state = states[args.pageIdx]
-    browserContext.setActiveViewId(state.id)
+    ctx.setActiveViewId(state.id)
 
     return textResult(`Selected page [${args.pageIdx}]: ${state.title || 'Untitled'} - ${state.url}`)
   }
@@ -159,10 +160,11 @@ const browser_new_page = tool(
     try {
       const viewId = `ai-browser-${Date.now()}`
       await browserViewManager.create(viewId, args.url)
-      browserContext.setActiveViewId(viewId)
+      ctx.trackView(viewId)
+      ctx.setActiveViewId(viewId)
 
       // Wait for navigation with timeout protection (no busy-wait)
-      await browserContext.waitForNavigation(timeout)
+      await ctx.waitForNavigation(timeout)
 
       const finalState = browserViewManager.getState(viewId)
       return textResult(`Created new page: ${finalState?.title || 'Untitled'} - ${finalState?.url || args.url}`)
@@ -213,7 +215,7 @@ const browser_navigate = tool(
       return textResult('Either URL or a type is required.', true)
     }
 
-    const viewId = browserContext.getActiveViewId()
+    const viewId = ctx.getActiveViewId()
     if (!viewId) {
       return textResult('No active browser page. Use browser_new_page first.', true)
     }
@@ -222,15 +224,15 @@ const browser_navigate = tool(
       switch (navType) {
         case 'back':
           browserViewManager.goBack(viewId)
-          await browserContext.waitForNavigation(timeout)
+          await ctx.waitForNavigation(timeout)
           return textResult(`Successfully navigated back.`)
         case 'forward':
           browserViewManager.goForward(viewId)
-          await browserContext.waitForNavigation(timeout)
+          await ctx.waitForNavigation(timeout)
           return textResult(`Successfully navigated forward.`)
         case 'reload':
           browserViewManager.reload(viewId)
-          await browserContext.waitForNavigation(timeout)
+          await ctx.waitForNavigation(timeout)
           return textResult(`Successfully reloaded the page.`)
         case 'url':
         default:
@@ -238,7 +240,7 @@ const browser_navigate = tool(
             return textResult('A URL is required for navigation of type=url.', true)
           }
           await browserViewManager.navigate(viewId, args.url)
-          await browserContext.waitForNavigation(timeout)
+          await ctx.waitForNavigation(timeout)
           break
       }
 
@@ -261,7 +263,7 @@ const browser_wait_for = tool(
     const timeout = (args.timeout && args.timeout > 0) ? args.timeout : NAV_TIMEOUT
 
     try {
-      await browserContext.waitForText(args.text, timeout)
+      await ctx.waitForText(args.text, timeout)
       return textResult(`Element with text "${args.text}" found.`)
     } catch {
       return textResult(`Timeout waiting for text: "${args.text}"`, true)
@@ -277,12 +279,12 @@ const browser_resize = tool(
     height: z.number().describe('Page height')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
-      await browserContext.setViewportSize(args.width, args.height)
+      await ctx.setViewportSize(args.width, args.height)
       return textResult(`Viewport resized to: ${args.width}x${args.height}`)
     } catch (error) {
       return textResult(`Resize failed: ${(error as Error).message}`, true)
@@ -298,13 +300,13 @@ const browser_handle_dialog = tool(
     promptText: z.string().optional().describe('Optional prompt text to enter into the dialog.')
   },
   async (args) => {
-    const dialog = browserContext.getPendingDialog()
+    const dialog = ctx.getPendingDialog()
     if (!dialog) {
       return textResult('No open dialog found', true)
     }
 
     try {
-      await browserContext.handleDialog(args.action === 'accept', args.promptText)
+      await ctx.handleDialog(args.action === 'accept', args.promptText)
       return textResult(`Successfully ${args.action === 'accept' ? 'accepted' : 'dismissed'} the dialog`)
     } catch (error) {
       return textResult(`Failed to handle dialog: ${(error as Error).message}`, true)
@@ -324,13 +326,13 @@ const browser_click = tool(
     dblClick: z.boolean().optional().describe('Set to true for double clicks. Default is false.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page. Use browser_new_page first.', true)
     }
 
     try {
       await withTimeout(
-        browserContext.clickElement(args.uid, { dblClick: args.dblClick || false }),
+        ctx.clickElement(args.uid, { dblClick: args.dblClick || false }),
         TOOL_TIMEOUT,
         'browser_click'
       )
@@ -352,13 +354,13 @@ const browser_hover = tool(
     uid: z.string().describe('The uid of an element on the page from the page content snapshot')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
       await withTimeout(
-        browserContext.hoverElement(args.uid),
+        ctx.hoverElement(args.uid),
         TOOL_TIMEOUT,
         'browser_hover'
       )
@@ -377,13 +379,13 @@ const browser_fill = tool(
     value: z.string().describe('The value to fill in')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
       await withTimeout(
-        fillFormElement(args.uid, args.value),
+        fillFormElement(ctx, args.uid, args.value),
         TOOL_TIMEOUT,
         'browser_fill'
       )
@@ -404,7 +406,7 @@ const browser_fill_form = tool(
     })).describe('Elements from snapshot to fill out.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
@@ -413,7 +415,7 @@ const browser_fill_form = tool(
     for (const elem of args.elements) {
       try {
         await withTimeout(
-          fillFormElement(elem.uid, elem.value),
+          fillFormElement(ctx, elem.uid, elem.value),
           TOOL_TIMEOUT,
           'browser_fill_form'
         )
@@ -441,13 +443,13 @@ const browser_drag = tool(
     to_uid: z.string().describe('The uid of the element to drop into')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
       await withTimeout(
-        browserContext.dragElement(args.from_uid, args.to_uid),
+        ctx.dragElement(args.from_uid, args.to_uid),
         TOOL_TIMEOUT,
         'browser_drag'
       )
@@ -465,13 +467,13 @@ const browser_press_key = tool(
     key: z.string().describe('A key or a combination (e.g., "Enter", "Control+A", "Control++", "Control+Shift+R"). Modifiers: Control, Shift, Alt, Meta')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
       await withTimeout(
-        browserContext.pressKey(args.key),
+        ctx.pressKey(args.key),
         TOOL_TIMEOUT,
         'browser_press_key'
       )
@@ -490,18 +492,18 @@ const browser_upload_file = tool(
     filePath: z.string().describe('The local path of the file to upload')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
-      const element = browserContext.getElementByUid(args.uid)
+      const element = ctx.getElementByUid(args.uid)
       if (!element) {
         throw new Error(`Element not found: ${args.uid}`)
       }
 
       await withTimeout(
-        browserContext.sendCDPCommand('DOM.setFileInputFiles', {
+        ctx.sendCDPCommand('DOM.setFileInputFiles', {
           backendNodeId: element.backendNodeId,
           files: [args.filePath]
         }),
@@ -530,13 +532,13 @@ in the DevTools Elements panel (if any).`,
     filePath: z.string().optional().describe('The absolute path, or a path relative to the current working directory, to save the snapshot to instead of attaching it to the response.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page. Use browser_new_page first.', true)
     }
 
     try {
       const snapshot = await withTimeout(
-        browserContext.createSnapshot(args.verbose || false),
+        ctx.createSnapshot(args.verbose || false),
         TOOL_TIMEOUT,
         'browser_snapshot'
       )
@@ -566,7 +568,7 @@ const browser_screenshot = tool(
     filePath: z.string().optional().describe('The absolute path, or a path relative to the current working directory, to save the screenshot to instead of attaching it to the response.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
@@ -577,7 +579,7 @@ const browser_screenshot = tool(
     try {
       const format = args.format || 'png'
       const result = await withTimeout(
-        browserContext.captureScreenshot({
+        ctx.captureScreenshot({
           format,
           quality: format === 'png' ? undefined : args.quality,
           uid: args.uid,
@@ -630,7 +632,7 @@ Example with arguments: \`(el) => {
     })).optional().describe('An optional list of arguments to pass to the function.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
@@ -638,7 +640,7 @@ Example with arguments: \`(el) => {
       const elementArgs: unknown[] = []
       if (args.args && args.args.length > 0) {
         for (const arg of args.args) {
-          const element = browserContext.getElementByUid(arg.uid)
+          const element = ctx.getElementByUid(arg.uid)
           if (!element) {
             throw new Error(`Element not found: ${arg.uid}`)
           }
@@ -647,7 +649,7 @@ Example with arguments: \`(el) => {
       }
 
       const result = await withTimeout(
-        browserContext.evaluateScript(args.function, elementArgs),
+        ctx.evaluateScript(args.function, elementArgs),
         TOOL_TIMEOUT,
         'browser_evaluate'
       )
@@ -684,7 +686,7 @@ const browser_network_requests = tool(
   },
   async (args) => {
     try {
-      let requests = browserContext.getNetworkRequests(args.includePreservedRequests || false)
+      let requests = ctx.getNetworkRequests(args.includePreservedRequests || false)
 
       // Filter by resource type
       if (args.resourceTypes && args.resourceTypes.length > 0) {
@@ -753,9 +755,9 @@ const browser_network_request = tool(
       let request
 
       if (args.reqid !== undefined) {
-        request = browserContext.getNetworkRequest(String(args.reqid))
+        request = ctx.getNetworkRequest(String(args.reqid))
       } else {
-        const selectedReq = (browserContext as any).getSelectedNetworkRequest?.()
+        const selectedReq = (ctx as any).getSelectedNetworkRequest?.()
         if (!selectedReq) {
           return textResult('Nothing is currently selected in the DevTools Network panel.')
         }
@@ -838,7 +840,7 @@ const browser_console = tool(
   },
   async (args) => {
     try {
-      let messages = browserContext.getConsoleMessages(args.includePreservedMessages || false)
+      let messages = ctx.getConsoleMessages(args.includePreservedMessages || false)
 
       // Filter by type
       if (args.types && args.types.length > 0) {
@@ -902,7 +904,7 @@ const browser_console_message = tool(
   },
   async (args) => {
     try {
-      const message = browserContext.getConsoleMessage(String(args.msgid))
+      const message = ctx.getConsoleMessage(String(args.msgid))
 
       if (!message) {
         return textResult(`Message not found: ${args.msgid}`, true)
@@ -981,7 +983,7 @@ const browser_emulate = tool(
     }).nullable().optional().describe('Geolocation to emulate. Set to null to clear the geolocation override.')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
@@ -991,18 +993,18 @@ const browser_emulate = tool(
       // Network conditions
       if (args.networkConditions !== undefined) {
         if (args.networkConditions === 'No emulation') {
-          await browserContext.sendCDPCommand('Network.emulateNetworkConditions', {
+          await ctx.sendCDPCommand('Network.emulateNetworkConditions', {
             offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1
           })
           results.push('Network: No emulation')
         } else if (args.networkConditions === 'Offline') {
-          await browserContext.sendCDPCommand('Network.emulateNetworkConditions', {
+          await ctx.sendCDPCommand('Network.emulateNetworkConditions', {
             offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0
           })
           results.push('Network: Offline')
         } else if (args.networkConditions in NETWORK_CONDITIONS) {
           const cond = NETWORK_CONDITIONS[args.networkConditions]
-          await browserContext.sendCDPCommand('Network.emulateNetworkConditions', {
+          await ctx.sendCDPCommand('Network.emulateNetworkConditions', {
             offline: false, latency: cond.latency,
             downloadThroughput: cond.download, uploadThroughput: cond.upload
           })
@@ -1012,7 +1014,7 @@ const browser_emulate = tool(
 
       // CPU throttling
       if (args.cpuThrottlingRate !== undefined) {
-        await browserContext.sendCDPCommand('Emulation.setCPUThrottlingRate', {
+        await ctx.sendCDPCommand('Emulation.setCPUThrottlingRate', {
           rate: args.cpuThrottlingRate
         })
         results.push(`CPU throttling: ${args.cpuThrottlingRate}x`)
@@ -1021,10 +1023,10 @@ const browser_emulate = tool(
       // Geolocation
       if (args.geolocation !== undefined) {
         if (args.geolocation === null) {
-          await browserContext.sendCDPCommand('Emulation.clearGeolocationOverride')
+          await ctx.sendCDPCommand('Emulation.clearGeolocationOverride')
           results.push('Geolocation: cleared')
         } else {
-          await browserContext.sendCDPCommand('Emulation.setGeolocationOverride', {
+          await ctx.sendCDPCommand('Emulation.setGeolocationOverride', {
             latitude: args.geolocation.latitude,
             longitude: args.geolocation.longitude,
             accuracy: 100
@@ -1091,12 +1093,12 @@ const browser_perf_start = tool(
     autoStop: z.boolean().describe('Determines if the trace recording should be automatically stopped.')
   },
   async (args) => {
-    const viewId = browserContext.getActiveViewId()
+    const viewId = ctx.getActiveViewId()
     if (!viewId) {
       return textResult('No active browser page.', true)
     }
 
-    if (browserContext.isPerformanceTracing()) {
+    if (ctx.isPerformanceTracing()) {
       return textResult(
         'Error: a performance trace is already running. Use browser_perf_stop to stop it. Only one trace can be running at any given time.',
         true
@@ -1105,22 +1107,22 @@ const browser_perf_start = tool(
 
     try {
       if (args.reload) {
-        const currentUrl = browserContext.getPageUrl()
+        const currentUrl = ctx.getPageUrl()
         await browserViewManager.navigate(viewId, 'about:blank')
         await new Promise(resolve => setTimeout(resolve, 500))
 
-        await browserContext.startPerformanceTrace()
+        await ctx.startPerformanceTrace()
 
         await browserViewManager.navigate(viewId, currentUrl)
-        await browserContext.waitForNavigation(NAV_TIMEOUT)
+        await ctx.waitForNavigation(NAV_TIMEOUT)
       } else {
-        await browserContext.startPerformanceTrace()
+        await ctx.startPerformanceTrace()
       }
 
       if (args.autoStop) {
         await new Promise(resolve => setTimeout(resolve, 5000))
 
-        const { duration, metrics } = await browserContext.stopPerformanceTrace()
+        const { duration, metrics } = await ctx.stopPerformanceTrace()
         return textResult(formatTraceResults(duration, metrics))
       }
 
@@ -1136,16 +1138,16 @@ const browser_perf_stop = tool(
   'Stops the active performance trace recording on the selected page.',
   {},
   async () => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
-    if (!browserContext.isPerformanceTracing()) {
+    if (!ctx.isPerformanceTracing()) {
       return textResult('No performance trace is running.')
     }
 
     try {
-      const { duration, metrics } = await browserContext.stopPerformanceTrace()
+      const { duration, metrics } = await ctx.stopPerformanceTrace()
       return textResult(formatTraceResults(duration, metrics))
     } catch (error) {
       return textResult(`Failed to stop trace: ${(error as Error).message}`, true)
@@ -1161,12 +1163,12 @@ const browser_perf_insight = tool(
     insightName: z.string().describe('The name of the Insight you want more information on. For example: "DocumentLatency" or "LCPBreakdown"')
   },
   async (args) => {
-    if (!browserContext.getActiveViewId()) {
+    if (!ctx.getActiveViewId()) {
       return textResult('No active browser page.', true)
     }
 
     try {
-      const metrics = await browserContext.getPerformanceMetrics()
+      const metrics = await ctx.getPerformanceMetrics()
 
       const lines: string[] = [
         `# Performance Insight: ${args.insightName}`,
@@ -1270,15 +1272,26 @@ const allSdkTools = [
   browser_perf_insight
 ]
 
+// Return the tool list
+return allSdkTools
+
+} // end buildAllTools
+
 /**
- * Create AI Browser SDK MCP Server
- * This server runs in-process and handles all browser_* tools
+ * Create AI Browser SDK MCP Server.
+ *
+ * @param scopedContext - Optional scoped BrowserContext for isolation.
+ *   When provided, all tools operate on this context's activeViewId
+ *   instead of the global singleton. Use for automation runs.
+ *   When omitted, uses the global singleton (interactive user use).
  */
-export function createAIBrowserMcpServer() {
+export function createAIBrowserMcpServer(scopedContext?: BrowserContext) {
+  const ctx = scopedContext ?? browserContext
+  const tools = buildAllTools(ctx)
   return createSdkMcpServer({
     name: 'ai-browser',
     version: '1.0.0',
-    tools: allSdkTools
+    tools
   })
 }
 
@@ -1286,5 +1299,6 @@ export function createAIBrowserMcpServer() {
  * Get all AI Browser tool names
  */
 export function getAIBrowserSdkToolNames(): string[] {
-  return allSdkTools.map(t => t.name)
+  // Build tools with default context just to extract names
+  return buildAllTools(browserContext).map(t => t.name)
 }

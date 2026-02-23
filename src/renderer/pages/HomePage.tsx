@@ -18,9 +18,11 @@ import {
 } from '../components/icons/ToolIcons'
 import { Header } from '../components/layout/Header'
 import { SpaceGuide } from '../components/space/SpaceGuide'
-import { Monitor } from 'lucide-react'
+import { Monitor, Blocks, ArrowRight, AlertCircle } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
+import { useAppsStore } from '../stores/apps.store'
+import { useAppsPageStore } from '../stores/apps-page.store'
 
 // Check if running in web mode
 const isWebMode = api.isRemoteMode()
@@ -29,6 +31,13 @@ export function HomePage() {
   const { t } = useTranslation()
   const { setView } = useAppStore()
   const { haloSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
+  const { apps, loadApps } = useAppsStore()
+  const { setInitialAppId } = useAppsPageStore()
+
+  // Load apps on mount for the Apps card
+  useEffect(() => {
+    loadApps()
+  }, [loadApps])
 
   // Dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -220,24 +229,80 @@ export function HomePage() {
 
       {/* Content */}
       <main className="flex-1 overflow-auto p-6">
-        {/* Halo Space Card */}
-        {haloSpace && (
-          <div
-            data-onboarding="halo-space"
-            onClick={() => handleSpaceClick(haloSpace)}
-            className="halo-space-card p-6 rounded-xl cursor-pointer mb-8 animate-fade-in"
-          >
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-6 h-6 text-primary" />
-              <div>
-                <h2 className="text-lg font-medium">{t('Enter Halo')}</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {t('Aimless time, ideas will crystallize here')}
-                </p>
+        {/* Primary entry cards: Halo Space + Apps */}
+        <div className="grid grid-cols-2 gap-4 mb-8 animate-fade-in">
+          {/* Halo Space card */}
+          {haloSpace && (
+            <div
+              data-onboarding="halo-space"
+              onClick={() => handleSpaceClick(haloSpace)}
+              className="halo-space-card p-5 rounded-xl cursor-pointer flex flex-col gap-3 min-h-[120px]"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <h2 className="text-sm font-semibold">{t('Halo')}</h2>
+              </div>
+              <p className="text-xs text-muted-foreground flex-1">
+                {t('Aimless time, ideas will crystallize here')}
+              </p>
+              <div className="flex justify-end">
+                <span className="text-xs text-primary flex items-center gap-1">
+                  {t('Enter')} <ArrowRight className="w-3 h-3" />
+                </span>
               </div>
             </div>
+          )}
+
+          {/* Apps card */}
+          <div
+            onClick={() => setView('apps')}
+            className="p-5 rounded-xl cursor-pointer border border-border hover:border-primary/40 hover:bg-secondary/50 transition-colors flex flex-col gap-3 min-h-[120px]"
+          >
+            <div className="flex items-center gap-2">
+              <Blocks className="w-5 h-5 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">{t('Apps')}</h2>
+            </div>
+
+            {apps.length === 0 ? (
+              <p className="text-xs text-muted-foreground flex-1">
+                {t('No apps yet. Create from a conversation.')}
+              </p>
+            ) : (
+              <div className="flex-1 space-y-1">
+                {apps.slice(0, 3).map(app => {
+                  const isWaiting = app.status === 'waiting_user'
+                  return (
+                    <button
+                      key={app.id}
+                      onClick={e => {
+                        e.stopPropagation()
+                        setInitialAppId(app.id)
+                        setView('apps')
+                      }}
+                      className="w-full flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        isWaiting ? 'bg-orange-400' :
+                        app.status === 'active' ? 'bg-green-500/70' :
+                        app.status === 'error' ? 'bg-red-500' : 'border border-muted-foreground/40'
+                      }`} />
+                      <span className="text-xs text-foreground truncate flex-1 min-w-0">{app.spec.name}</span>
+                      {isWaiting && (
+                        <AlertCircle className="w-3 h-3 text-orange-400 flex-shrink-0" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                {t('Open')} <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Spaces Section */}
         <div className="mb-4 flex items-center justify-between">

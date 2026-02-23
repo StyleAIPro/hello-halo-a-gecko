@@ -345,6 +345,14 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 /**
+ * Get the Express app instance (for webhook route mounting).
+ * Returns null if the HTTP server is not running.
+ */
+export function getExpressApp(): Express | null {
+  return expressApp
+}
+
+/**
  * Simple login page HTML for remote access
  */
 function getRemoteLoginPage(): string {

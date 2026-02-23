@@ -17,6 +17,7 @@ export { AppearanceSection } from './AppearanceSection'
 export { SystemSection } from './SystemSection'
 export { RemoteAccessSection } from './RemoteAccessSection'
 export { AboutSection } from './AboutSection'
+export { NotificationChannelsSection } from './NotificationChannelsSection'
 
 // Existing Components
 export { McpServerList } from './McpServerList'

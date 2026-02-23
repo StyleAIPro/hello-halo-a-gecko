@@ -21,7 +21,8 @@ import {
   AppearanceSection,
   SystemSection,
   RemoteAccessSection,
-  AboutSection
+  AboutSection,
+  NotificationChannelsSection
 } from '../components/settings'
 
 export function SettingsPage() {
@@ -123,6 +124,9 @@ export function SettingsPage() {
                   </p>
                 </div>
               </section>
+
+              {/* Notification Channels Section */}
+              <NotificationChannelsSection config={config} setConfig={setConfig} />
 
               {/* Appearance Section */}
               <AppearanceSection config={config} setConfig={setConfig} />

@@ -15,12 +15,15 @@ import {
   createSpace,
   getSpace,
   deleteSpace,
-  getAllSpacePaths
+  getAllSpacePaths,
+  _resetSpaceRegistry
 } from '../../../src/main/services/space.service'
 import { initializeApp, getSpacesDir, getTempSpacePath } from '../../../src/main/services/config.service'
 
 describe('Space Service', () => {
   beforeEach(async () => {
+    // Reset the module-level registry so each test gets a fresh load from the new testDir
+    _resetSpaceRegistry()
     await initializeApp()
   })
 
@@ -114,8 +117,11 @@ describe('Space Service', () => {
         customPath
       })
 
-      expect(space.path).toBe(customPath)
-      expect(fs.existsSync(path.join(customPath, '.halo', 'meta.json'))).toBe(true)
+      // Since the refactor, spaces are stored centrally under getSpacesDir()/{id}/.
+      // customPath is stored as workingDir (the agent's working directory), not space.path.
+      expect(space.path).toContain(getSpacesDir())
+      expect((space as any).workingDir).toBe(customPath)
+      expect(fs.existsSync(path.join(space.path, '.halo', 'meta.json'))).toBe(true)
     })
   })
 

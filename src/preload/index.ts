@@ -315,6 +315,43 @@ export interface HaloAPI {
   generateHealthReportText: () => Promise<IpcResponse<string>>
   exportHealthReport: (filePath?: string) => Promise<IpcResponse<HealthExportResponse>>
   runHealthCheck: () => Promise<IpcResponse<HealthCheckResponse>>
+
+  // Notification Channels
+  testNotificationChannel: (channelType: string) => Promise<IpcResponse>
+  clearNotificationChannelCache: () => Promise<IpcResponse>
+
+  // Apps Management
+  appList: (filter?: { spaceId?: string; status?: string; type?: string }) => Promise<IpcResponse>
+  appGet: (appId: string) => Promise<IpcResponse>
+  appInstall: (input: { spaceId: string; spec: unknown; userConfig?: Record<string, unknown> }) => Promise<IpcResponse>
+  appUninstall: (input: { appId: string; options?: { purge?: boolean } }) => Promise<IpcResponse>
+  appReinstall: (input: { appId: string }) => Promise<IpcResponse>
+  appDelete: (input: { appId: string }) => Promise<IpcResponse>
+  appPause: (appId: string) => Promise<IpcResponse>
+  appResume: (appId: string) => Promise<IpcResponse>
+  appTrigger: (appId: string) => Promise<IpcResponse>
+  appGetState: (appId: string) => Promise<IpcResponse>
+  appGetActivity: (input: { appId: string; options?: { limit?: number; offset?: number; type?: string; since?: number } }) => Promise<IpcResponse>
+  appGetSession: (input: { appId: string; runId: string }) => Promise<IpcResponse>
+  appRespondEscalation: (input: { appId: string; escalationId: string; response: { ts: number; choice?: string; text?: string } }) => Promise<IpcResponse>
+  appUpdateConfig: (input: { appId: string; config: Record<string, unknown> }) => Promise<IpcResponse>
+  appUpdateFrequency: (input: { appId: string; subscriptionId: string; frequency: string }) => Promise<IpcResponse>
+  appUpdateOverrides: (input: { appId: string; overrides: Record<string, unknown> }) => Promise<IpcResponse>
+  appUpdateSpec: (input: { appId: string; specPatch: Record<string, unknown> }) => Promise<IpcResponse>
+  appGrantPermission: (input: { appId: string; permission: string }) => Promise<IpcResponse>
+  appRevokePermission: (input: { appId: string; permission: string }) => Promise<IpcResponse>
+
+  // App Chat
+  appChatSend: (request: { appId: string; spaceId: string; message: string; thinkingEnabled?: boolean }) => Promise<IpcResponse>
+  appChatStop: (appId: string) => Promise<IpcResponse>
+  appChatStatus: (appId: string) => Promise<IpcResponse>
+  appChatMessages: (input: { appId: string; spaceId: string }) => Promise<IpcResponse>
+  appChatSessionState: (appId: string) => Promise<IpcResponse>
+
+  // App Event Listeners
+  onAppStatusChanged: (callback: (data: unknown) => void) => () => void
+  onAppActivityEntry: (callback: (data: unknown) => void) => () => void
+  onAppEscalation: (callback: (data: unknown) => void) => () => void
 }
 
 interface IpcResponse<T = unknown> {
@@ -554,6 +591,47 @@ const api: HaloAPI = {
   generateHealthReportText: () => ipcRenderer.invoke('health:generate-report-text'),
   exportHealthReport: (filePath) => ipcRenderer.invoke('health:export-report', filePath),
   runHealthCheck: () => ipcRenderer.invoke('health:run-check'),
+
+  // Notification Channels
+  testNotificationChannel: (channelType: string) => ipcRenderer.invoke('notify-channels:test', channelType),
+  clearNotificationChannelCache: () => ipcRenderer.invoke('notify-channels:clear-cache'),
+
+  // Apps Management
+  appList: (filter) => ipcRenderer.invoke('app:list', filter),
+  appGet: (appId) => ipcRenderer.invoke('app:get', appId),
+  appInstall: (input) => ipcRenderer.invoke('app:install', input),
+  appUninstall: (input) => ipcRenderer.invoke('app:uninstall', input),
+  appReinstall: (input) => ipcRenderer.invoke('app:reinstall', input),
+  appDelete: (input) => ipcRenderer.invoke('app:delete', input),
+  appPause: (appId) => ipcRenderer.invoke('app:pause', appId),
+  appResume: (appId) => ipcRenderer.invoke('app:resume', appId),
+  appTrigger: (appId) => ipcRenderer.invoke('app:trigger', appId),
+  appGetState: (appId) => ipcRenderer.invoke('app:get-state', appId),
+  appGetActivity: (input) => ipcRenderer.invoke('app:get-activity', input),
+  appGetSession: (input) => ipcRenderer.invoke('app:get-session', input),
+  appRespondEscalation: (input) => ipcRenderer.invoke('app:respond-escalation', input),
+  appUpdateConfig: (input) => ipcRenderer.invoke('app:update-config', input),
+  appUpdateFrequency: (input) => ipcRenderer.invoke('app:update-frequency', input),
+  appUpdateOverrides: (input) => ipcRenderer.invoke('app:update-overrides', input),
+  appUpdateSpec: (input) => ipcRenderer.invoke('app:update-spec', input),
+  appGrantPermission: (input) => ipcRenderer.invoke('app:grant-permission', input),
+  appRevokePermission: (input) => ipcRenderer.invoke('app:revoke-permission', input),
+
+  // App Chat
+  appChatSend: (request) => ipcRenderer.invoke('app:chat-send', request),
+  appChatStop: (appId) => ipcRenderer.invoke('app:chat-stop', appId),
+  appChatStatus: (appId) => ipcRenderer.invoke('app:chat-status', appId),
+  appChatMessages: (input) => ipcRenderer.invoke('app:chat-messages', input),
+  appChatSessionState: (appId) => ipcRenderer.invoke('app:chat-session-state', appId),
+
+  // App Event Listeners
+  onAppStatusChanged: (callback) => createEventListener('app:status_changed', callback),
+  onAppActivityEntry: (callback) => createEventListener('app:activity_entry:new', callback),
+  onAppEscalation: (callback) => createEventListener('app:escalation:new', callback),
+  onAppNavigate: (callback) => createEventListener('app:navigate', callback),
+
+  // Notification (in-app toast)
+  onNotificationToast: (callback) => createEventListener('notification:toast', callback),
 }
 
 contextBridge.exposeInMainWorld('halo', api)

@@ -79,6 +79,9 @@ export class BrowserContext implements BrowserContextInterface {
   private isTracing: boolean = false
   private traceStartTime: number = 0
 
+  // View tracking for scoped cleanup
+  private ownedViewIds: Set<string> = new Set()
+
   /**
    * Initialize the context with the main window
    */
@@ -1212,10 +1215,83 @@ export class BrowserContext implements BrowserContextInterface {
   }
 
   /**
-   * Cleanup when context is destroyed
+   * Register a view as owned by this context (for scoped cleanup).
+   * Automation views are muted, have autoplay blocked, and report
+   * visibilityState='visible' regardless of the parent window's actual
+   * visibility. This prevents sites like Xiaohongshu from detecting the
+   * Electron window is in the background and auto-closing UI overlays
+   * (e.g. comment input popups) via visibilitychange events.
+   */
+  trackView(viewId: string): void {
+    this.ownedViewIds.add(viewId)
+
+    const wc = browserViewManager.getWebContents(viewId)
+    if (!wc) return
+
+    // Mute audio output
+    wc.setAudioMuted(true)
+
+    // Override Page Visibility API so background window state doesn't affect
+    // web page behavior. Must run before page scripts to take effect.
+    const visibilityOverride = `
+      Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+      Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+    `
+    try { wc.debugger.attach('1.3') } catch (_) { /* already attached */ }
+    wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: visibilityOverride }).catch(() => {})
+    // Apply immediately in case the page is already loaded
+    wc.executeJavaScript(visibilityOverride).catch(() => {})
+
+    // Block autoplay and re-apply visibility override on every navigation
+    wc.on('did-finish-load', () => {
+      wc.executeJavaScript(visibilityOverride).catch(() => {})
+      wc.executeJavaScript(`
+        (function() {
+          // Pause all existing media
+          document.querySelectorAll('video, audio').forEach(function(el) {
+            el.pause();
+            el.autoplay = false;
+          });
+          // Intercept future media elements
+          var obs = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+              m.addedNodes.forEach(function(n) {
+                if (n.tagName === 'VIDEO' || n.tagName === 'AUDIO') {
+                  n.autoplay = false;
+                  n.pause();
+                }
+                if (n.querySelectorAll) {
+                  n.querySelectorAll('video, audio').forEach(function(el) {
+                    el.autoplay = false;
+                    el.pause();
+                  });
+                }
+              });
+            });
+          });
+          obs.observe(document.body, { childList: true, subtree: true });
+        })();
+      `).catch(() => {})
+    })
+  }
+
+  /**
+   * Cleanup when context is destroyed.
+   * Also destroys any BrowserViews created during this context's lifetime.
    */
   destroy(): void {
     this.disableMonitoring()
+
+    // Destroy owned views (scoped contexts only -- singleton has no owned views)
+    for (const viewId of this.ownedViewIds) {
+      try {
+        browserViewManager.destroy(viewId)
+      } catch (_e) {
+        // View may already be destroyed
+      }
+    }
+    this.ownedViewIds.clear()
+
     this.activeViewId = null
     this.lastSnapshot = null
     this.mainWindow = null
@@ -1285,5 +1361,23 @@ function parseKey(key: string): {
   }
 }
 
-// Singleton instance
+/**
+ * Create a scoped BrowserContext for automation runs.
+ *
+ * A scoped context has its own activeViewId tracking (isolated from the global
+ * singleton and other scoped contexts) but shares the same browserViewManager
+ * and therefore the same Electron session (persist:browser) and cookies.
+ *
+ * Lifecycle: create before the run, call `destroy()` after the run.
+ * `destroy()` also cleans up any BrowserViews created during the scope.
+ */
+export function createScopedBrowserContext(mainWindow: BrowserWindow | null): BrowserContext {
+  const scoped = new BrowserContext()
+  if (mainWindow) {
+    scoped.initialize(mainWindow)
+  }
+  return scoped
+}
+
+// Singleton instance (used for interactive user-facing browser)
 export const browserContext = new BrowserContext()

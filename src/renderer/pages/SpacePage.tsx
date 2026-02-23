@@ -300,7 +300,7 @@ export function SpacePage() {
   if (!currentSpace) {
     return (
       <div className="h-full w-full flex items-center justify-center">
-        <p className="text-muted-foreground">No space selected</p>
+        <p className="text-muted-foreground">{t('No space selected')}</p>
       </div>
     )
   }
