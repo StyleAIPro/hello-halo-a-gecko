@@ -61,9 +61,9 @@ export interface RegistryEntry {
   type: AppType
 
   // Distribution
-  /** Package format: single YAML file or bundle directory */
-  format: 'yaml' | 'bundle'
-  /** Relative path within the registry (to YAML file or directory) */
+  /** Package format (bundle-only; minimum bundle is a folder with spec.yaml) */
+  format: 'bundle'
+  /** Relative bundle directory path within the registry */
   path: string
   /** Absolute download URL (for non-Git sources) */
   download_url?: string

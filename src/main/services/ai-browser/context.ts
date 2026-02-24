@@ -1231,63 +1231,80 @@ export class BrowserContext implements BrowserContextInterface {
 
   /**
    * Register a view as owned by this context (for scoped cleanup).
+   * Only applies to scoped (automation) contexts — the global singleton
+   * used for interactive browsing is intentionally excluded so that
+   * normal user browsing is unaffected.
+   *
    * Automation views are muted, have autoplay blocked, and report
    * visibilityState='visible' regardless of the parent window's actual
    * visibility. This prevents sites like Xiaohongshu from detecting the
    * Electron window is in the background and auto-closing UI overlays
    * (e.g. comment input popups) via visibilitychange events.
+   *
+   * Two-layer media suppression (per-WebContents, not session-wide):
+   *   1. Document layer — Page.addScriptToEvaluateOnNewDocument runs before any page
+   *                       script, locking down HTMLMediaElement.autoplay and pausing
+   *                       media on DOMContentLoaded (no race condition)
+   *   2. Audio layer    — setAudioMuted(true) silences any audio that slips through
    */
   trackView(viewId: string): void {
     this.ownedViewIds.add(viewId)
 
+    // Guard: media suppression is only for automation (scoped) contexts.
+    // The global singleton serves the user's interactive browser and must
+    // not interfere with normal autoplay behaviour.
+    if (!this._isScoped) return
+
     const wc = browserViewManager.getWebContents(viewId)
     if (!wc) return
 
-    // Mute audio output
+    // Layer 2: mute audio output
     wc.setAudioMuted(true)
 
-    // Override Page Visibility API so background window state doesn't affect
-    // web page behavior. Must run before page scripts to take effect.
-    const visibilityOverride = `
-      Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-      Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-    `
-    try { wc.debugger.attach('1.3') } catch (_) { /* already attached */ }
-    wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: visibilityOverride }).catch(() => {})
-    // Apply immediately in case the page is already loaded
-    wc.executeJavaScript(visibilityOverride).catch(() => {})
+    // Layer 1: document-level startup script (no race condition).
+    // Page.addScriptToEvaluateOnNewDocument executes before any page JS on
+    // every navigation, so autoplay is blocked from the very first frame.
+    const startupScript = `
+      (function() {
+        // Visibility: report 'visible' so sites don't collapse UI overlays
+        // when the Electron window is in the background.
+        Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+        Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
 
-    // Block autoplay and re-apply visibility override on every navigation
-    wc.on('did-finish-load', () => {
-      wc.executeJavaScript(visibilityOverride).catch(() => {})
-      wc.executeJavaScript(`
-        (function() {
-          // Pause all existing media
-          document.querySelectorAll('video, audio').forEach(function(el) {
-            el.pause();
-            el.autoplay = false;
-          });
-          // Intercept future media elements
-          var obs = new MutationObserver(function(mutations) {
-            mutations.forEach(function(m) {
-              m.addedNodes.forEach(function(n) {
-                if (n.tagName === 'VIDEO' || n.tagName === 'AUDIO') {
-                  n.autoplay = false;
-                  n.pause();
-                }
-                if (n.querySelectorAll) {
-                  n.querySelectorAll('video, audio').forEach(function(el) {
-                    el.autoplay = false;
-                    el.pause();
-                  });
-                }
-              });
+        // Autoplay: intercept the property at the prototype level so that any
+        // assignment of autoplay=true on any current or future media element
+        // is silently dropped.
+        Object.defineProperty(HTMLMediaElement.prototype, 'autoplay', {
+          get: function() { return false; },
+          set: function() { /* block all autoplay */ },
+          configurable: true
+        });
+
+        // Pause any media that already exists or gets added to the DOM.
+        function pauseAll(root) {
+          root.querySelectorAll('video, audio').forEach(function(el) { el.pause(); });
+        }
+        document.addEventListener('DOMContentLoaded', function() { pauseAll(document); }, true);
+        var obs = new MutationObserver(function(mutations) {
+          mutations.forEach(function(m) {
+            m.addedNodes.forEach(function(n) {
+              if (n.nodeType !== 1) return;
+              if (n.tagName === 'VIDEO' || n.tagName === 'AUDIO') n.pause();
+              else if (n.querySelectorAll) pauseAll(n);
             });
           });
-          obs.observe(document.body, { childList: true, subtree: true });
-        })();
-      `).catch(() => {})
-    })
+        });
+        // Observer starts immediately; document.body may not exist yet in
+        // very early scripts, so defer to documentElement as fallback.
+        var target = document.body || document.documentElement;
+        if (target) obs.observe(target, { childList: true, subtree: true });
+      })();
+    `
+
+    try { wc.debugger.attach('1.3') } catch (_) { /* already attached */ }
+    wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: startupScript }).catch(() => {})
+    // Apply immediately for the page that is already loaded when trackView is called.
+    wc.executeJavaScript(startupScript).catch(() => {})
   }
 
   /**

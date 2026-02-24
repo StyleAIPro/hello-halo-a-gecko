@@ -1013,6 +1013,13 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
       }
       manager.updateFrequency(appId, subscriptionId, frequency)
       console.log('[HTTP] POST /api/apps/%s/frequency: sub=%s', appId, subscriptionId)
+
+      // Hot-sync scheduler job so the new frequency takes effect immediately
+      const runtime = getAppRuntime()
+      if (runtime) {
+        runtime.syncAppSchedule(appId)
+      }
+
       res.json({ success: true })
     } catch (error) {
       res.json({ success: false, error: (error as Error).message })

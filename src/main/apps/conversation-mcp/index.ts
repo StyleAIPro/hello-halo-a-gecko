@@ -369,6 +369,9 @@ function buildTools(spaceId: string) {
           return textResult(`Invalid JSON in updates: ${(e as Error).message}`, true)
         }
 
+        // Track whether user explicitly passed subscriptions (vs frequency shorthand)
+        const userChangedSubscriptions = updates.subscriptions !== undefined
+
         // Extract frequency shorthand before passing to spec merge
         const frequencyShorthand = updates.frequency as string | undefined
         const specPatch = { ...updates }
@@ -422,7 +425,9 @@ function buildTools(spaceId: string) {
         }
 
         // Reactivate runtime if subscriptions changed (new schedule needs re-registration)
-        if (runtime && (specPatch.subscriptions || frequencyShorthand)) {
+        if (runtime && userChangedSubscriptions) {
+          // Full subscriptions change may affect event-bus subscriptions,
+          // so a full deactivate/activate cycle is needed
           try {
             await runtime.deactivate(args.app_id)
             if (app.status === 'active') {
@@ -434,6 +439,10 @@ function buildTools(spaceId: string) {
               'The app may need to be paused and resumed manually.'
             )
           }
+        } else if (runtime && frequencyShorthand) {
+          // Frequency-only change: hot-sync scheduler jobs without
+          // interrupting running executions
+          runtime.syncAppSchedule(args.app_id)
         }
 
         // Build summary of what changed

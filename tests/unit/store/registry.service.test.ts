@@ -103,8 +103,8 @@ describe("registry.service", () => {
           author: "official",
           description: "Official version",
           type: "automation",
-          format: "yaml",
-          path: "packages/digital-humans/shared-app.yaml",
+          format: "bundle",
+          path: "packages/digital-humans/shared-app",
           category: "other",
           tags: [],
         },
@@ -123,8 +123,8 @@ describe("registry.service", () => {
           author: "custom",
           description: "Custom newer version",
           type: "automation",
-          format: "yaml",
-          path: "packages/digital-humans/shared-app.yaml",
+          format: "bundle",
+          path: "packages/digital-humans/shared-app",
           category: "other",
           tags: [],
         },
@@ -178,8 +178,8 @@ describe("registry.service", () => {
           author: "tester",
           description: "Cache test",
           type: "automation",
-          format: "yaml",
-          path: "packages/digital-humans/cache-app.yaml",
+          format: "bundle",
+          path: "packages/digital-humans/cache-app",
           category: "other",
           tags: [],
         },
@@ -222,7 +222,7 @@ store:
       if (url === "https://openkursar.github.io/digital-human-protocol/index.json") {
         return jsonResponse(currentIndex)
       }
-      if (url === "https://openkursar.github.io/digital-human-protocol/packages/digital-humans/cache-app.yaml") {
+      if (url === "https://openkursar.github.io/digital-human-protocol/packages/digital-humans/cache-app/spec.yaml") {
         return textResponse(currentSpec)
       }
       throw new Error(`Unexpected URL: ${url}`)
@@ -240,12 +240,12 @@ store:
     expect(second.spec.version).toBe("2.0.0")
 
     const specFetchCalls = fetchMock.mock.calls.filter(([input]) =>
-      String(input).endsWith("/packages/digital-humans/cache-app.yaml")
+      String(input).endsWith("/packages/digital-humans/cache-app/spec.yaml")
     )
     expect(specFetchCalls).toHaveLength(2)
   })
 
-  it("installs yaml app and persists store provenance metadata", async () => {
+  it("installs bundle app and persists store provenance metadata", async () => {
     initRegistryService()
 
     const index: RegistryIndex = {
@@ -260,8 +260,8 @@ store:
           author: "tester",
           description: "Install test",
           type: "automation",
-          format: "yaml",
-          path: "packages/digital-humans/install-app.yaml",
+          format: "bundle",
+          path: "packages/digital-humans/install-app",
           category: "other",
           tags: [],
         },
@@ -290,7 +290,7 @@ store:
       if (url === "https://openkursar.github.io/digital-human-protocol/index.json") {
         return jsonResponse(index)
       }
-      if (url === "https://openkursar.github.io/digital-human-protocol/packages/digital-humans/install-app.yaml") {
+      if (url === "https://openkursar.github.io/digital-human-protocol/packages/digital-humans/install-app/spec.yaml") {
         return textResponse(specYaml)
       }
       throw new Error(`Unexpected URL: ${url}`)
@@ -309,28 +309,29 @@ store:
     })
   })
 
-  it("rejects bundle format during install with explicit error", async () => {
+  it("filters out legacy yaml entries from the merged index", async () => {
     initRegistryService()
 
-    const index: RegistryIndex = {
+    // Deliberately inject legacy format data to verify runtime filtering.
+    const index = {
       version: 1,
       generated_at: "2026-02-24T00:00:00.000Z",
       source: "https://openkursar.github.io/digital-human-protocol",
       apps: [
         {
-          slug: "bundle-app",
-          name: "Bundle App",
+          slug: "legacy-app",
+          name: "Legacy App",
           version: "1.0.0",
           author: "tester",
-          description: "Bundle test",
+          description: "Legacy format test",
           type: "automation",
-          format: "bundle",
-          path: "packages/digital-humans/bundle-app",
+          format: "yaml",
+          path: "packages/digital-humans/legacy-app.yaml",
           category: "other",
           tags: [],
         },
       ],
-    }
+    } as unknown as RegistryIndex
 
     fetchMock.mockImplementation(async (input) => {
       const url = String(input)
@@ -340,8 +341,11 @@ store:
       throw new Error(`Unexpected URL: ${url}`)
     })
 
-    await expect(installFromStore("bundle-app", "space-1")).rejects.toThrow(
-      /not supported yet/i
+    const apps = await listApps()
+    expect(apps).toEqual([])
+
+    await expect(installFromStore("legacy-app", "space-1")).rejects.toThrow(
+      /app not found in store/i
     )
   })
 })

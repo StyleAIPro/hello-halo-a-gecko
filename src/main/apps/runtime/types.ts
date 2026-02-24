@@ -214,6 +214,15 @@ export interface AppRuntimeService {
    */
   deactivate(appId: string): Promise<void>
 
+  /**
+   * Hot-sync scheduler jobs for an activated App without interrupting
+   * running executions. Re-reads the App's current config/overrides and
+   * updates (remove + re-add) any scheduler jobs whose schedule has changed.
+   *
+   * No-op if the App is not currently activated.
+   */
+  syncAppSchedule(appId: string): void
+
   // ── Execution ───────────────────────────────
 
   /**

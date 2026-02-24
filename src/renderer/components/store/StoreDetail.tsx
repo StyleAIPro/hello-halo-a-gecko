@@ -29,7 +29,7 @@ export function StoreDetail() {
   const entry = storeSelectedDetail?.entry
   const spec = storeSelectedDetail?.spec
   const registryId = storeSelectedDetail?.registryId
-  const isYamlPackage = entry?.format === 'yaml'
+  const isBundlePackage = entry?.format === 'bundle'
 
   // Check if this app is already installed (prefer exact slug+registry match).
   const installedApp = useMemo(() => {
@@ -138,13 +138,13 @@ export function StoreDetail() {
 
             {/* Install / Installed / Update button */}
             <div className="flex-shrink-0">
-              {!isYamlPackage ? (
+              {!isBundlePackage ? (
                 <button
                   disabled
                   className="px-4 py-2 text-sm bg-secondary text-muted-foreground rounded-lg cursor-default"
-                  title={t('Bundle format support is coming soon')}
+                  title={t('Unsupported package format')}
                 >
-                  {t('Requires newer Halo')}
+                  {t('Unsupported package format')}
                 </button>
               ) : (
                 <>
@@ -314,7 +314,7 @@ export function StoreDetail() {
       </div>
 
       {/* Install dialog */}
-      {showInstallDialog && storeSelectedDetail && isYamlPackage && (
+      {showInstallDialog && storeSelectedDetail && isBundlePackage && (
         <StoreInstallDialog
           detail={storeSelectedDetail}
           onClose={() => setShowInstallDialog(false)}

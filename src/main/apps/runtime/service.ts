@@ -558,7 +558,15 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
           // Check if job already exists (from a previous activation)
           const existingJob = scheduler.getJob(jobCreate.id)
           if (existingJob) {
-            scheduler.resumeJob(jobCreate.id)
+            const scheduleChanged =
+              JSON.stringify(existingJob.schedule) !== JSON.stringify(jobCreate.schedule)
+            if (scheduleChanged) {
+              // Schedule changed -- remove and re-add so anchorMs resets to now
+              scheduler.removeJob(jobCreate.id)
+              scheduler.addJob(jobCreate)
+            } else {
+              scheduler.resumeJob(jobCreate.id)
+            }
           } else {
             scheduler.addJob(jobCreate)
           }
@@ -647,6 +655,51 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
 
       activations.delete(appId)
       console.log(`[Runtime] App deactivated: ${appId}`)
+    },
+
+    syncAppSchedule(appId: string): void {
+      const state = activations.get(appId)
+      if (!state) return // Not activated — nothing to sync
+
+      const app = appManager.getApp(appId)
+      if (!app) return
+
+      const subscriptions = app.spec.subscriptions ?? []
+      const desiredJobIds = new Set<string>()
+
+      for (let i = 0; i < subscriptions.length; i++) {
+        const sub = subscriptions[i]
+        const jobCreate = subscriptionToSchedulerJob(app, sub, i)
+        if (!jobCreate) continue
+
+        desiredJobIds.add(jobCreate.id)
+        const existingJob = scheduler.getJob(jobCreate.id)
+
+        if (existingJob) {
+          const scheduleChanged =
+            JSON.stringify(existingJob.schedule) !== JSON.stringify(jobCreate.schedule)
+          if (scheduleChanged) {
+            scheduler.removeJob(jobCreate.id)
+            scheduler.addJob(jobCreate)
+            console.log(`[Runtime] Schedule hot-updated: ${jobCreate.id}`)
+          }
+        } else {
+          scheduler.addJob(jobCreate)
+          if (!state.schedulerJobIds.includes(jobCreate.id)) {
+            state.schedulerJobIds.push(jobCreate.id)
+          }
+          console.log(`[Runtime] New scheduler job added: ${jobCreate.id}`)
+        }
+      }
+
+      // Remove stale jobs that are no longer in the subscription list
+      for (const jobId of [...state.schedulerJobIds]) {
+        if (!desiredJobIds.has(jobId)) {
+          scheduler.removeJob(jobId)
+          state.schedulerJobIds = state.schedulerJobIds.filter(id => id !== jobId)
+          console.log(`[Runtime] Stale scheduler job removed: ${jobId}`)
+        }
+      }
     },
 
     // ── Execution ───────────────────────────────────

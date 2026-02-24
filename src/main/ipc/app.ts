@@ -384,6 +384,14 @@ export function registerAppHandlers(): void {
         if (!r.success) return r
         r.manager.updateFrequency(input.appId, input.subscriptionId, input.frequency)
         console.log(`[AppIPC] app:update-frequency: appId=${input.appId}, sub=${input.subscriptionId}`)
+
+        // Hot-sync scheduler job so the new frequency takes effect immediately
+        // without interrupting any running execution
+        const runtime = getAppRuntime()
+        if (runtime) {
+          runtime.syncAppSchedule(input.appId)
+        }
+
         return { success: true }
       } catch (error: unknown) {
         const err = error as Error

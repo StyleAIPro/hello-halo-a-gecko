@@ -45,7 +45,7 @@ import {
 /** Default registry source */
 const DEFAULT_REGISTRY: RegistrySource = {
   id: 'official',
-  name: 'Halo Official',
+  name: 'Digital Human Protocol',
   url: 'https://openkursar.github.io/digital-human-protocol',
   enabled: true,
   isDefault: true,
@@ -82,7 +82,7 @@ const RegistryEntrySchema = z.object({
   author: z.string().trim().min(1),
   description: z.string().trim().min(1),
   type: z.enum(APP_TYPE_VALUES),
-  format: z.enum(['yaml', 'bundle']),
+  format: z.literal('bundle'),
   path: z.string().trim().min(1),
   download_url: z.string().url().optional(),
   size_bytes: z.number().int().nonnegative().optional(),
@@ -152,7 +152,10 @@ export function initRegistryService(overrides?: Partial<RegistryServiceConfig>):
     cacheTtlMs: normalizeCacheTtl(overrides?.cacheTtlMs ?? persisted.cacheTtlMs),
   }
 
-  ensureDefaultRegistry()
+  const defaultChanged = ensureDefaultRegistry()
+  if (defaultChanged) {
+    saveConfigToFile()
+  }
 
   initialized = true
 
@@ -237,6 +240,12 @@ export async function getIndex(): Promise<RegistryEntry[]> {
     if (!index) continue
 
     for (const entry of index.apps) {
+      // Guard against stale cache entries from old registries that used legacy
+      // yaml-only packaging. Bundle is the only supported package format.
+      if (!isBundleFormat(entry)) {
+        continue
+      }
+
       if (!seenSlugs.has(entry.slug)) {
         seenSlugs.add(entry.slug)
         slugToRegistryMap.set(entry.slug, registry.id)
@@ -356,9 +365,9 @@ export async function installFromStore(
     throw new Error(`App not found in store: ${slug}`)
   }
 
-  if (entry.format !== 'yaml') {
+  if (!isBundleFormat(entry)) {
     throw new Error(
-      `This app uses package format "${entry.format}", which is not supported yet in this build.`
+      `This app uses legacy package format "${String(entry.format)}". Bundle packages are required in this build.`
     )
   }
 
@@ -433,7 +442,7 @@ export async function checkUpdates(
     }
 
     const index = await loadIndexForRegistry(registry)
-    const entries = index?.apps ?? []
+    const entries = (index?.apps ?? []).filter(isBundleFormat)
     registryEntriesCache.set(registryId, entries)
     return entries
   }
@@ -724,32 +733,84 @@ function isDefaultRegistry(registry: RegistrySource): boolean {
   return registry.id === DEFAULT_REGISTRY.id || registry.isDefault === true
 }
 
-function ensureDefaultRegistry(): void {
+function ensureDefaultRegistry(): boolean {
   const official = config.registries.find((registry) => registry.id === DEFAULT_REGISTRY.id)
   if (official) {
+    let changed = false
+    const wasEnabled = official.enabled
+    const wasName = official.name
+    const wasUrl = official.url
+    const wasDefault = official.isDefault
+
+    official.id = DEFAULT_REGISTRY.id
+    official.name = DEFAULT_REGISTRY.name
+    official.url = DEFAULT_REGISTRY.url
     official.isDefault = true
-    official.url = normalizeRegistryUrl(official.url || DEFAULT_REGISTRY.url)
     official.enabled = official.enabled !== false
-    for (const registry of config.registries) {
-      if (registry !== official) registry.isDefault = false
+
+    if (wasEnabled !== official.enabled || wasName !== official.name || wasUrl !== official.url || wasDefault !== official.isDefault) {
+      changed = true
     }
-    return
+
+    for (const registry of config.registries) {
+      if (registry !== official && registry.isDefault) {
+        registry.isDefault = false
+        changed = true
+      }
+    }
+
+    const officialIndex = config.registries.indexOf(official)
+    if (officialIndex > 0) {
+      config.registries.splice(officialIndex, 1)
+      config.registries.unshift(official)
+      changed = true
+    }
+
+    return changed
   }
 
   const markedDefault = config.registries.find((registry) => registry.isDefault)
   if (!markedDefault) {
     config.registries.unshift({ ...DEFAULT_REGISTRY })
-    return
+    return true
   }
+
+  let changed = false
+  const wasId = markedDefault.id
+  const wasName = markedDefault.name
+  const wasUrl = markedDefault.url
+  const wasEnabled = markedDefault.enabled
 
   markedDefault.isDefault = true
   markedDefault.id = DEFAULT_REGISTRY.id
-  markedDefault.name = markedDefault.name || DEFAULT_REGISTRY.name
-  markedDefault.url = normalizeRegistryUrl(markedDefault.url || DEFAULT_REGISTRY.url)
+  markedDefault.name = DEFAULT_REGISTRY.name
+  markedDefault.url = DEFAULT_REGISTRY.url
   markedDefault.enabled = markedDefault.enabled !== false
-  for (const registry of config.registries) {
-    if (registry !== markedDefault) registry.isDefault = false
+
+  if (
+    wasId !== markedDefault.id
+    || wasName !== markedDefault.name
+    || wasUrl !== markedDefault.url
+    || wasEnabled !== markedDefault.enabled
+  ) {
+    changed = true
   }
+
+  for (const registry of config.registries) {
+    if (registry !== markedDefault && registry.isDefault) {
+      registry.isDefault = false
+      changed = true
+    }
+  }
+
+  const markedIndex = config.registries.indexOf(markedDefault)
+  if (markedIndex > 0) {
+    config.registries.splice(markedIndex, 1)
+    config.registries.unshift(markedDefault)
+    changed = true
+  }
+
+  return changed
 }
 
 function withInstallStoreMetadata(spec: AppSpec, slug: string, registryId: string): AppSpec {
@@ -938,8 +999,8 @@ async function fetchSpec(entry: RegistryEntry, registryId: string): Promise<AppS
     throw new Error(`Registry not found for entry: ${entry.slug}`)
   }
 
-  // For bundle format, the spec file is at {path}/spec.yaml within the bundle
-  const specPath = entry.format === 'bundle' ? `${entry.path}/spec.yaml` : entry.path
+  // Bundle packages are directory-based; the install spec is always {path}/spec.yaml.
+  const specPath = `${entry.path}/spec.yaml`
   const specUrl = entry.download_url || `${registry.url.replace(/\/+$/, '')}/${specPath}`
 
   console.log(`[RegistryService] Fetching spec for "${entry.slug}" from: ${specUrl}`)
@@ -1002,4 +1063,8 @@ function findDuplicateSlugs(entries: RegistryEntry[]): string[] {
   }
 
   return [...duplicates]
+}
+
+function isBundleFormat(entry: { format?: string }): entry is { format: 'bundle' } {
+  return entry.format === 'bundle'
 }
