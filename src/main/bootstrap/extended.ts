@@ -48,6 +48,8 @@ import { initAppManager, shutdownAppManager } from '../apps/manager'
 import { initAppRuntime, shutdownAppRuntime } from '../apps/runtime'
 import { registerAppHandlers } from '../ipc/app'
 import { registerNotificationChannelHandlers } from '../ipc/notification-channels'
+import { registerStoreHandlers } from '../ipc/store'
+import { initRegistryService, shutdownRegistryService } from '../store'
 import * as watcherHost from '../services/watcher-host.service'
 import { getExpressApp } from '../http/server'
 
@@ -133,6 +135,9 @@ async function initPlatformAndApps(): Promise<void> {
   // ── Phase 3: App Runtime ─────────────────────────────────────────────────
   await initAppRuntime({ db, appManager, scheduler, eventBus, memory, background })
 
+  // ── Phase 4: Registry Service (App Store) ─────────────────────────────
+  initRegistryService()
+
   // ── Start timer loops AFTER all wiring is complete ──────────────────────
   // This ensures no events fire before subscriptions are registered.
   scheduler.start()
@@ -207,6 +212,9 @@ export function initializeExtendedServices(): void {
   // Notification channel IPC handlers (notify-channels:test, etc.)
   registerNotificationChannelHandlers()
 
+  // Store: IPC handlers for App Store registry operations
+  registerStoreHandlers()
+
   // Windows-specific: Initialize Git Bash in background
   if (process.platform === 'win32') {
     initializeGitBashOnStartup()
@@ -257,6 +265,9 @@ export function initializeExtendedServices(): void {
  * Called during window-all-closed to properly release resources.
  */
 export async function cleanupExtendedServices(): Promise<void> {
+  // Store: Shutdown registry service (before app manager)
+  shutdownRegistryService()
+
   // Apps: Shutdown runtime first (deactivates all apps, cancels runs)
   await shutdownAppRuntime().catch(err => console.error('[Bootstrap] AppRuntime shutdown error:', err))
   await shutdownAppManager().catch(err => console.error('[Bootstrap] AppManager shutdown error:', err))

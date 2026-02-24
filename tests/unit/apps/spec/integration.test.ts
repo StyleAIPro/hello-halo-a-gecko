@@ -344,6 +344,49 @@ describe('parseAndValidateAppSpec - alternative requires format', () => {
   })
 })
 
+describe('parseAndValidateAppSpec - store metadata and structured skill deps', () => {
+  it('should accept store metadata and structured skill dependency objects', () => {
+    const yaml = `
+name: "Store Example"
+version: "1.2.3"
+author: "tester"
+description: "Spec with store metadata and structured skill deps"
+type: automation
+system_prompt: "run"
+requires:
+  skills:
+    - id: price-analysis
+      reason: "Use shared analysis logic"
+      bundled: true
+store:
+  slug: "a"
+  category: "shopping"
+  tags: ["price", "automation"]
+  registry_id: "official"
+`
+    const spec = parseAndValidateAppSpec(yaml)
+    expect(spec.store?.slug).toBe('a')
+    expect(spec.store?.registry_id).toBe('official')
+    expect(spec.requires?.skills).toEqual([
+      { id: 'price-analysis', reason: 'Use shared analysis logic', bundled: true },
+    ])
+  })
+
+  it('should reject invalid store slug format', () => {
+    const yaml = `
+name: "Bad Store Slug"
+version: "1.0.0"
+author: "tester"
+description: "Invalid slug"
+type: automation
+system_prompt: "run"
+store:
+  slug: "-bad-slug"
+`
+    expect(() => parseAndValidateAppSpec(yaml)).toThrow(AppSpecValidationError)
+  })
+})
+
 // ============================================
 // Two-step parse + validate workflow
 // ============================================

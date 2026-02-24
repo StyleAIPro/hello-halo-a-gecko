@@ -215,7 +215,9 @@ export const McpDependencySchema = z.object({
   /** MCP server identifier */
   id: nonEmptyString,
   /** Human-readable reason for this dependency (shown during install) */
-  reason: z.string().optional()
+  reason: z.string().optional(),
+  /** Whether this MCP is bundled within the app package */
+  bundled: z.boolean().optional()
 })
 
 // ============================================
@@ -260,14 +262,27 @@ export const OutputConfigSchema = z.object({
 })
 
 // ============================================
+// Skill Dependency Declaration
+// ============================================
+
+export const SkillDependencySchema = z.union([
+  z.string(), // backward-compatible: just a skill name
+  z.object({
+    id: nonEmptyString,
+    reason: z.string().optional(),
+    bundled: z.boolean().optional(),
+  })
+])
+
+// ============================================
 // Requires Block
 // ============================================
 
 export const RequiresSchema = z.object({
   /** MCP server dependencies */
   mcps: z.array(McpDependencySchema).optional(),
-  /** Skill dependencies (by name/id) */
-  skills: z.array(z.string()).optional()
+  /** Skill dependencies (by name/id or structured declaration) */
+  skills: z.array(SkillDependencySchema).optional()
 })
 
 // ============================================
@@ -280,6 +295,34 @@ export const EscalationConfigSchema = z.object({
   /** Timeout in hours before an unanswered escalation auto-fails (default: 24) */
   timeout_hours: z.number().positive().optional()
 })
+
+// ============================================
+// Store Metadata (for registry distribution)
+// ============================================
+
+export const StoreMetadataSchema = z.object({
+  /** URL-safe unique identifier (single-file: filename, bundle: directory name) */
+  slug: z.string().regex(
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+    'Slug must be lowercase alphanumeric with optional internal hyphens'
+  ).optional(),
+  /** Primary category for store navigation */
+  category: z.string().optional(),
+  /** Free-form tags for discovery */
+  tags: z.array(z.string()).default([]),
+  /** Primary locale (BCP 47) */
+  locale: z.string().optional(),
+  /** Minimum client version required */
+  min_app_version: z.string().optional(),
+  /** License identifier (SPDX) */
+  license: z.string().optional(),
+  /** Project homepage URL */
+  homepage: z.string().url().optional(),
+  /** Source repository URL */
+  repository: z.string().url().optional(),
+  /** Install provenance: which registry this app was installed from */
+  registry_id: z.string().optional(),
+}).optional()
 
 // ============================================
 // Full App Spec Schema
@@ -351,7 +394,10 @@ export const AppSpecBaseSchema = z.object({
   escalation: EscalationConfigSchema.optional(),
 
   /** Optional model recommendation from the spec author (informational only, not used at runtime) */
-  recommended_model: z.string().optional()
+  recommended_model: z.string().optional(),
+
+  /** Store/registry metadata (for distribution and discovery) */
+  store: StoreMetadataSchema
 })
 
 /**
@@ -460,8 +506,10 @@ export type SubscriptionSource = z.infer<typeof SubscriptionSourceSchema>
 export type FrequencyDef = z.infer<typeof FrequencyDefSchema>
 export type SubscriptionDef = z.infer<typeof SubscriptionDefSchema>
 export type McpDependency = z.infer<typeof McpDependencySchema>
+export type SkillDependency = z.infer<typeof SkillDependencySchema>
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>
 export type OutputConfig = z.infer<typeof OutputConfigSchema>
 export type Requires = z.infer<typeof RequiresSchema>
 export type EscalationConfig = z.infer<typeof EscalationConfigSchema>
+export type StoreMetadata = z.infer<typeof StoreMetadataSchema>
 export type AppSpec = z.infer<typeof AppSpecSchema>

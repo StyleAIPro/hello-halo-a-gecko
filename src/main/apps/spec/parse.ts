@@ -155,7 +155,9 @@ export function normalizeRawSpec(raw: Record<string, unknown>): Record<string, u
  * - Array of objects: [{ id: "ai-browser", reason: "..." }] -> as-is
  * - Mixed: both forms in one array
  */
-function normalizeMcpDeps(raw: unknown): Array<{ id: string; reason?: string }> | undefined {
+function normalizeMcpDeps(
+  raw: unknown
+): Array<{ id: string; reason?: string; bundled?: boolean }> | undefined {
   if (!Array.isArray(raw)) return undefined
 
   return raw.map((item) => {
@@ -163,7 +165,7 @@ function normalizeMcpDeps(raw: unknown): Array<{ id: string; reason?: string }> 
       return { id: item }
     }
     if (item && typeof item === 'object' && 'id' in item) {
-      return item as { id: string; reason?: string }
+      return item as { id: string; reason?: string; bundled?: boolean }
     }
     // Pass through -- Zod will catch invalid shapes
     return item

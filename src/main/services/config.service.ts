@@ -3,7 +3,7 @@
  */
 
 import { app } from 'electron'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
@@ -346,6 +346,18 @@ interface HaloConfig {
     installed: boolean
     path: string | null
     skipped: boolean
+  }
+  // App Store / Registry configuration
+  appStore?: {
+    registries: Array<{
+      id: string
+      name: string
+      url: string
+      enabled: boolean
+      isDefault?: boolean
+    }>
+    cacheTtlMs: number
+    autoCheckUpdates: boolean
   }
 }
 
@@ -811,6 +823,10 @@ export function saveConfig(config: Partial<HaloConfig>): HaloConfig {
   }
 
   const configPath = getConfigPath()
+  const configDir = dirname(configPath)
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true })
+  }
   writeFileSync(configPath, JSON.stringify(newConfig, null, 2))
 
   // Detect API config changes and notify subscribers

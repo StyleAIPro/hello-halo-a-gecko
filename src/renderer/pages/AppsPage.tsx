@@ -27,6 +27,7 @@ import { SkillInfoCard } from '../components/apps/SkillInfoCard'
 import { EmptyState } from '../components/apps/EmptyState'
 import { AppInstallDialog } from '../components/apps/AppInstallDialog'
 import { UninstalledDetailView } from '../components/apps/UninstalledDetailView'
+import { StoreView } from '../components/store/StoreView'
 import { useTranslation } from '../i18n'
 import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 
@@ -38,6 +39,8 @@ export function AppsPage() {
   const spaces = useSpaceStore(state => state.spaces)
   const { apps, loadApps } = useAppsStore()
   const {
+    currentTab,
+    setCurrentTab,
     selectedAppId,
     detailView,
     initialAppId,
@@ -160,7 +163,12 @@ export function AppsPage() {
       {/* Tab bar */}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-border flex-shrink-0">
         <button
-          className="px-3 py-1.5 text-sm rounded-md bg-secondary text-foreground font-medium"
+          onClick={() => setCurrentTab('my-digital-humans')}
+          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+            currentTab === 'my-digital-humans'
+              ? 'bg-secondary text-foreground font-medium'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+          }`}
         >
           {t('My Digital Humans')}
         </button>
@@ -172,61 +180,69 @@ export function AppsPage() {
           {t('My Apps')}
         </button>
         <button
-          disabled
-          className="px-3 py-1.5 text-sm rounded-md text-muted-foreground/50 cursor-not-allowed"
-          title={t('Coming soon')}
+          onClick={() => setCurrentTab('store')}
+          className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+            currentTab === 'store'
+              ? 'bg-secondary text-foreground font-medium'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+          }`}
         >
           {t('App Store')}
         </button>
       </div>
 
-      {/* Split layout: left sidebar + right detail */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: App list (fixed 240px width) */}
-        <div className="w-60 flex-shrink-0 border-r border-border flex flex-col overflow-hidden">
-          <AppList onInstall={() => setShowInstallDialog(true)} spaceMap={spaceMap} />
-        </div>
+      {/* Content area: My Digital Humans or Store */}
+      {currentTab === 'my-digital-humans' ? (
+        /* Split layout: left sidebar + right detail */
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left: App list (fixed 240px width) */}
+          <div className="w-60 flex-shrink-0 border-r border-border flex flex-col overflow-hidden">
+            <AppList onInstall={() => setShowInstallDialog(true)} spaceMap={spaceMap} />
+          </div>
 
-        {/* Right: Detail panel */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Session detail breadcrumb — replaces AutomationHeader when drilling down */}
-          {isSessionDetail && selectedApp && (
-            <SessionBreadcrumb
-              appName={selectedApp.spec.name}
-              runId={(detailView as { runId: string }).runId}
-              onBack={() => openActivityThread(selectedApp.id)}
-            />
-          )}
+          {/* Right: Detail panel */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Session detail breadcrumb — replaces AutomationHeader when drilling down */}
+            {isSessionDetail && selectedApp && (
+              <SessionBreadcrumb
+                appName={selectedApp.spec.name}
+                runId={(detailView as { runId: string }).runId}
+                onBack={() => openActivityThread(selectedApp.id)}
+              />
+            )}
 
-          {/* App chat breadcrumb */}
-          {isAppChat && selectedApp && (
-            <SessionBreadcrumb
-              appName={selectedApp.spec.name}
-              label={t('Chat')}
-              onBack={() => openActivityThread(selectedApp.id)}
-            />
-          )}
+            {/* App chat breadcrumb */}
+            {isAppChat && selectedApp && (
+              <SessionBreadcrumb
+                appName={selectedApp.spec.name}
+                label={t('Chat')}
+                onBack={() => openActivityThread(selectedApp.id)}
+              />
+            )}
 
-          {/* App config breadcrumb */}
-          {isAppConfig && selectedApp && (
-            <SessionBreadcrumb
-              appName={selectedApp.spec.name}
-              label={t('Settings')}
-              onBack={() => openActivityThread(selectedApp.id)}
-            />
-          )}
+            {/* App config breadcrumb */}
+            {isAppConfig && selectedApp && (
+              <SessionBreadcrumb
+                appName={selectedApp.spec.name}
+                label={t('Settings')}
+                onBack={() => openActivityThread(selectedApp.id)}
+              />
+            )}
 
-          {/* App header bar — for automation apps (activity thread only) */}
-          {!isSessionDetail && !isAppChat && !isAppConfig && !isUninstalledDetail && selectedAppId && detailView?.type === 'activity-thread' && (
-            <AutomationHeader appId={selectedAppId} spaceName={spaceMap[selectedApp?.spaceId ?? '']} />
-          )}
+            {/* App header bar — for automation apps (activity thread only) */}
+            {!isSessionDetail && !isAppChat && !isAppConfig && !isUninstalledDetail && selectedAppId && detailView?.type === 'activity-thread' && (
+              <AutomationHeader appId={selectedAppId} spaceName={spaceMap[selectedApp?.spaceId ?? '']} />
+            )}
 
-          {/* Detail content — app-chat manages its own scroll + flex layout */}
-          <div className={`flex-1 ${isAppChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-            {renderDetail()}
+            {/* Detail content — app-chat manages its own scroll + flex layout */}
+            <div className={`flex-1 ${isAppChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+              {renderDetail()}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <StoreView />
+      )}
 
       {/* Install dialog */}
       {showInstallDialog && (

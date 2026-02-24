@@ -141,6 +141,17 @@ export interface SubscriptionDef {
 export interface McpDependency {
   id: string
   reason?: string
+  bundled?: boolean
+}
+
+// ============================================
+// Skill Dependency Declaration
+// ============================================
+
+export type SkillDependency = string | {
+  id: string
+  reason?: string
+  bundled?: boolean
 }
 
 // ============================================
@@ -186,7 +197,7 @@ export interface OutputConfig {
 
 export interface Requires {
   mcps?: McpDependency[]
-  skills?: string[]
+  skills?: SkillDependency[]
 }
 
 // ============================================
@@ -196,6 +207,23 @@ export interface Requires {
 export interface EscalationConfig {
   enabled?: boolean
   timeout_hours?: number
+}
+
+// ============================================
+// Store Metadata (for registry distribution)
+// ============================================
+
+export interface StoreMetadata {
+  slug?: string
+  category?: string
+  tags?: string[]
+  locale?: string
+  min_app_version?: string
+  license?: string
+  homepage?: string
+  repository?: string
+  /** Install provenance: registry identifier used for update checks */
+  registry_id?: string
 }
 
 // ============================================
@@ -222,6 +250,8 @@ export interface AppSpec {
   escalation?: EscalationConfig
   /** Optional model recommendation from the spec author (informational only, not used at runtime) */
   recommended_model?: string
+  /** Store/registry metadata (for distribution and discovery) */
+  store?: StoreMetadata
 }
 
 // ============================================

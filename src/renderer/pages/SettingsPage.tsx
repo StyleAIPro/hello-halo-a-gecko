@@ -22,7 +22,8 @@ import {
   SystemSection,
   RemoteAccessSection,
   AboutSection,
-  NotificationChannelsSection
+  NotificationChannelsSection,
+  RegistrySection
 } from '../components/settings'
 
 export function SettingsPage() {
@@ -127,6 +128,9 @@ export function SettingsPage() {
 
               {/* Notification Channels Section */}
               <NotificationChannelsSection config={config} setConfig={setConfig} />
+
+              {/* App Store Registry Section */}
+              <RegistrySection />
 
               {/* Appearance Section */}
               <AppearanceSection config={config} setConfig={setConfig} />

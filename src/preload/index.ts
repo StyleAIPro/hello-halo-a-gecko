@@ -357,6 +357,21 @@ export interface HaloAPI {
   onAppStatusChanged: (callback: (data: unknown) => void) => () => void
   onAppActivityEntry: (callback: (data: unknown) => void) => () => void
   onAppEscalation: (callback: (data: unknown) => void) => () => void
+  onAppNavigate: (callback: (data: unknown) => void) => () => void
+
+  // Notification (in-app toast)
+  onNotificationToast: (callback: (data: unknown) => void) => () => void
+
+  // Store (App Registry)
+  storeListApps: (query: { search?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
+  storeGetAppDetail: (slug: string) => Promise<IpcResponse>
+  storeInstall: (input: { slug: string; spaceId: string; userConfig?: Record<string, unknown> }) => Promise<IpcResponse>
+  storeRefresh: () => Promise<IpcResponse>
+  storeCheckUpdates: () => Promise<IpcResponse>
+  storeGetRegistries: () => Promise<IpcResponse>
+  storeAddRegistry: (input: { name: string; url: string }) => Promise<IpcResponse>
+  storeRemoveRegistry: (registryId: string) => Promise<IpcResponse>
+  storeToggleRegistry: (input: { registryId: string; enabled: boolean }) => Promise<IpcResponse>
 }
 
 interface IpcResponse<T = unknown> {
@@ -640,6 +655,17 @@ const api: HaloAPI = {
   onAppActivityEntry: (callback) => createEventListener('app:activity_entry:new', callback),
   onAppEscalation: (callback) => createEventListener('app:escalation:new', callback),
   onAppNavigate: (callback) => createEventListener('app:navigate', callback),
+
+  // Store (App Registry)
+  storeListApps: (query) => ipcRenderer.invoke('store:list-apps', query),
+  storeGetAppDetail: (slug) => ipcRenderer.invoke('store:get-app-detail', slug),
+  storeInstall: (input) => ipcRenderer.invoke('store:install', input),
+  storeRefresh: () => ipcRenderer.invoke('store:refresh'),
+  storeCheckUpdates: () => ipcRenderer.invoke('store:check-updates'),
+  storeGetRegistries: () => ipcRenderer.invoke('store:get-registries'),
+  storeAddRegistry: (input) => ipcRenderer.invoke('store:add-registry', input),
+  storeRemoveRegistry: (registryId) => ipcRenderer.invoke('store:remove-registry', registryId),
+  storeToggleRegistry: (input) => ipcRenderer.invoke('store:toggle-registry', input),
 
   // Notification (in-app toast)
   onNotificationToast: (callback) => createEventListener('notification:toast', callback),
