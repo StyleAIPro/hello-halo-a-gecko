@@ -34,8 +34,8 @@ import type { AppListFilter, UninstallOptions } from '../../apps/manager'
 import type { ActivityQueryOptions, EscalationResponse, AppChatRequest } from '../../apps/runtime'
 import { readSessionMessages } from '../../apps/runtime/session-store'
 import { broadcastToAll } from '../websocket'
-import { stringify as stringifyYaml } from 'yaml'
-import { parseAndValidateAppSpec, AppSpecValidationError } from '../../apps/spec'
+import * as appController from '../../controllers/app.controller'
+import type { AppErrorCode } from '../../controllers/app.controller'
 
 // Helper: get working directory for a space
 function getWorkingDir(spaceId: string): string {
@@ -1069,6 +1069,14 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
 
   // ── App Export / Import Routes ──────────────────────────────────────────
 
+  // Map controller error codes to HTTP status codes
+  const appErrorStatus: Record<AppErrorCode, number> = {
+    NOT_INITIALIZED: 503,
+    NOT_FOUND: 404,
+    INVALID_YAML: 400,
+    VALIDATION_FAILED: 422,
+  }
+
   // GET /api/apps/:appId/export-spec — export app spec as YAML
   app.get('/api/apps/:appId/export-spec', async (req: Request, res: Response) => {
     try {
@@ -1077,26 +1085,16 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
         res.status(400).json({ success: false, error: 'Missing appId' })
         return
       }
-      const manager = getManagerOrFail(res)
-      if (!manager) return
 
-      const installedApp = manager.getApp(appId)
-      if (!installedApp) {
-        res.status(404).json({ success: false, error: `App not found: ${appId}` })
+      const result = appController.exportSpec(appId)
+      if (!result.success) {
+        const status = result.code ? appErrorStatus[result.code] : 400
+        res.status(status).json({ success: false, error: result.error })
         return
       }
 
-      const clean = JSON.parse(JSON.stringify(installedApp.spec))
-      const yaml = stringifyYaml(clean, { lineWidth: 0 })
-
-      const slug = installedApp.spec.name
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^a-z0-9-]/g, '')
-      const filename = `${slug}-${installedApp.spec.version ?? '1.0'}.yaml`
-
-      console.log('[HTTP] GET /api/apps/%s/export-spec: file=%s', appId, filename)
-      res.json({ success: true, data: { yaml, filename } })
+      console.log('[HTTP] GET /api/apps/%s/export-spec', appId)
+      res.json(result)
     } catch (error) {
       res.json({ success: false, error: (error as Error).message })
     }
@@ -1105,9 +1103,6 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
   // POST /api/apps/import-spec — install an app from a YAML spec string
   app.post('/api/apps/import-spec', async (req: Request, res: Response) => {
     try {
-      const manager = getManagerOrFail(res)
-      if (!manager) return
-
       const { spaceId, yamlContent, userConfig } = req.body as {
         spaceId?: string
         yamlContent?: string
@@ -1123,35 +1118,15 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
         return
       }
 
-      let spec
-      try {
-        spec = parseAndValidateAppSpec(yamlContent)
-      } catch (parseErr) {
-        const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
-        if (parseErr instanceof AppSpecValidationError) {
-          res.status(422).json({ success: false, error: `Spec validation failed: ${msg}` })
-        } else {
-          res.status(400).json({ success: false, error: `Invalid YAML: ${msg}` })
-        }
+      const result = await appController.importSpec({ spaceId, yamlContent, userConfig })
+      if (!result.success) {
+        const status = result.code ? appErrorStatus[result.code] : 400
+        res.status(status).json({ success: false, error: result.error })
         return
       }
 
-      const appId = await manager.install(spaceId, spec, userConfig)
-
-      const runtime = getAppRuntime()
-      let activationWarning: string | undefined
-      if (runtime) {
-        try {
-          await runtime.activate(appId)
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.warn(`[HTTP] POST /api/apps/import-spec -- runtime activate failed (non-fatal): ${errMsg}`)
-          activationWarning = errMsg
-        }
-      }
-
-      console.log('[HTTP] POST /api/apps/import-spec: appId=%s, space=%s', appId, spaceId)
-      res.json({ success: true, data: { appId, activationWarning } })
+      console.log('[HTTP] POST /api/apps/import-spec: appId=%s, space=%s', result.data.appId, spaceId)
+      res.json(result)
     } catch (error) {
       res.json({ success: false, error: (error as Error).message })
     }

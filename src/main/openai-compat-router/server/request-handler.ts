@@ -175,9 +175,9 @@ async function fetchUpstream(
  * Make upstream request with Anthropic-style x-api-key header.
  *
  * Header merge order (later wins):
- *   1. SDK headers (anthropic-version, anthropic-beta from the SDK's request)
+ *   1. SDK headers (content-type, anthropic-version, anthropic-beta, etc. from the SDK's request)
  *   2. User custom headers (from provider config)
- *   3. Required headers (Content-Type, x-api-key — always set)
+ *   3. x-api-key (replaced with real key — sdkHeaders carries the encoded config key)
  *
  * @param bodyOrBuffer - Pre-serialized Buffer (raw body) or object to JSON.stringify
  */
@@ -199,7 +199,6 @@ async function fetchAnthropicUpstream(
     const headers: Record<string, string> = {
       ...(sdkHeaders || {}),
       ...(customHeaders || {}),
-      'Content-Type': 'application/json',
       'x-api-key': apiKey,
     }
 

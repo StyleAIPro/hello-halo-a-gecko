@@ -41,6 +41,10 @@ export interface FetchModelsResult {
 export async function fetchModelsFromApi(params: FetchModelsParams): Promise<FetchModelsResult> {
   const { apiKey, apiUrl } = params
 
+  if (!apiKey || !apiUrl) {
+    throw new Error('API key and URL are required')
+  }
+
   // Normalize URL: strip trailing slashes, known path suffixes, and auto-append /v1
   let baseUrl = apiUrl.replace(/\/+$/, '')
   const suffixes = ['/chat/completions', '/completions', '/responses', '/v1/chat']

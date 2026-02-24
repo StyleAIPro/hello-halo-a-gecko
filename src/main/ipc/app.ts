@@ -31,7 +31,6 @@
  */
 
 import { ipcMain } from 'electron'
-import { stringify as stringifyYaml } from 'yaml'
 import { getAppManager } from '../apps/manager'
 import {
   getAppRuntime,
@@ -43,13 +42,13 @@ import {
   getAppChatConversationId,
 } from '../apps/runtime'
 import type { AppSpec } from '../apps/spec'
-import { parseAndValidateAppSpec, AppSpecValidationError } from '../apps/spec'
 import type { AppListFilter, UninstallOptions } from '../apps/manager'
 import type { ActivityQueryOptions, EscalationResponse, AppChatRequest } from '../apps/runtime'
 import { readSessionMessages } from '../apps/runtime/session-store'
 import { getSpace } from '../services/space.service'
 import { getMainWindow } from '../services/window.service'
 import { broadcastToAll } from '../http/websocket'
+import * as appController from '../controllers/app.controller'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -607,27 +606,11 @@ export function registerAppHandlers(): void {
     'app:export-spec',
     async (_event, appId: string) => {
       try {
-        const r = requireManager()
-        if (!r.success) return r
-
-        const app = r.manager.getApp(appId)
-        if (!app) {
-          return { success: false, error: `App not found: ${appId}` }
+        const result = appController.exportSpec(appId)
+        if (result.success) {
+          console.log(`[AppIPC] app:export-spec: appId=${appId}`)
         }
-
-        // Strip undefined/null fields for clean YAML output
-        const clean = JSON.parse(JSON.stringify(app.spec))
-        const yaml = stringifyYaml(clean, { lineWidth: 0 })
-
-        // Derive a safe filename: "{name}-{version}.yaml"
-        const slug = app.spec.name
-          .toLowerCase()
-          .replace(/\s+/g, '-')
-          .replace(/[^a-z0-9-]/g, '')
-        const filename = `${slug}-${app.spec.version ?? '1.0'}.yaml`
-
-        console.log(`[AppIPC] app:export-spec: appId=${appId}, file=${filename}`)
-        return { success: true, data: { yaml, filename } }
+        return result
       } catch (error: unknown) {
         const err = error as Error
         console.error('[AppIPC] app:export-spec error:', err.message)
@@ -641,38 +624,11 @@ export function registerAppHandlers(): void {
     'app:import-spec',
     async (_event, input: { spaceId: string; yamlContent: string; userConfig?: Record<string, unknown> }) => {
       try {
-        const r = requireManager()
-        if (!r.success) return r
-
-        // Parse YAML and validate spec in one step
-        let spec: AppSpec
-        try {
-          spec = parseAndValidateAppSpec(input.yamlContent)
-        } catch (parseErr) {
-          const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
-          if (parseErr instanceof AppSpecValidationError) {
-            return { success: false, error: `Spec validation failed: ${msg}` }
-          }
-          return { success: false, error: `Invalid YAML: ${msg}` }
+        const result = await appController.importSpec(input)
+        if (result.success) {
+          console.log(`[AppIPC] app:import-spec: appId=${(result.data as any)?.appId}, space=${input.spaceId}`)
         }
-
-        const appId = await r.manager.install(input.spaceId, spec, input.userConfig)
-
-        // Auto-activate in runtime if available
-        const runtime = getAppRuntime()
-        let activationWarning: string | undefined
-        if (runtime) {
-          try {
-            await runtime.activate(appId)
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err)
-            console.warn(`[AppIPC] app:import-spec -- runtime activate failed: ${errMsg}`)
-            activationWarning = errMsg
-          }
-        }
-
-        console.log(`[AppIPC] app:import-spec: appId=${appId}, space=${input.spaceId}`)
-        return { success: true, data: { appId, activationWarning } }
+        return result
       } catch (error: unknown) {
         const err = error as Error
         console.error('[AppIPC] app:import-spec error:', err.message)
