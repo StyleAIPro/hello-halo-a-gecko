@@ -179,6 +179,70 @@ const BINARY_DEPENDENCIES = [
         return { valid: false, info: 'cannot read directory' }
       }
     }
+  },
+
+  // better-sqlite3 - Native SQLite database driver
+  // Prebuilt .node binaries are downloaded from GitHub releases by prepare-binaries.mjs
+  // and swapped into the packaged app by afterPack.cjs during electron-builder packaging.
+  {
+    name: 'Mac arm64 better-sqlite3',
+    path: 'node_modules/better-sqlite3/prebuilds/darwin-arm64/better_sqlite3.node',
+    platform: 'mac-arm64',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 500 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Mac x64 better-sqlite3',
+    path: 'node_modules/better-sqlite3/prebuilds/darwin-x64/better_sqlite3.node',
+    platform: 'mac-x64',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 500 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Windows x64 better-sqlite3',
+    path: 'node_modules/better-sqlite3/prebuilds/win32-x64/better_sqlite3.node',
+    platform: 'win',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 500 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Linux x64 better-sqlite3',
+    path: 'node_modules/better-sqlite3/prebuilds/linux-x64/better_sqlite3.node',
+    platform: 'linux',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 500 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
   }
 ]
 

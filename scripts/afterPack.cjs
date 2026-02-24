@@ -1,5 +1,5 @@
 // ============================================================================
-// afterPack hook - Post-packaging cleanup and signing
+// afterPack hook - Post-packaging cleanup, native binary swap, and signing
 //
 // Runs after electron-builder creates the unpacked app directory.
 //
@@ -8,7 +8,12 @@
 //    sees a complete set), but only the target platform's package is needed
 //    at runtime. Cleaning here avoids mutating the shared node_modules.
 //
-// 2. macOS ad-hoc signing (prevents "damaged app" prompts on unsigned builds).
+// 2. Swap better-sqlite3 .node binary with the correct platform-specific
+//    prebuild. The host-compiled binary (darwin-arm64 on M4 Mac) is replaced
+//    with the prebuild matching the target platform. Prebuilds are downloaded
+//    by prepare-binaries.mjs and stored in node_modules/better-sqlite3/prebuilds/.
+//
+// 3. macOS ad-hoc signing (prevents "damaged app" prompts on unsigned builds).
 // ============================================================================
 
 const { execSync } = require('child_process');
@@ -82,9 +87,58 @@ function cleanNonTargetWatchers(context) {
   console.log(`[afterPack] ${key}: keeping @parcel/${targetPkg}`);
 }
 
+/**
+ * Swap better-sqlite3 .node binary with the correct platform-specific prebuild.
+ *
+ * The binary in the unpacked output is whatever was in node_modules at pack time
+ * (the host platform's binary, e.g. darwin-arm64 when building on M4 Mac).
+ * This function replaces it with the prebuild matching the target platform.
+ *
+ * Prebuilds are stored at:
+ *   {projectRoot}/node_modules/better-sqlite3/prebuilds/{platform}-{arch}/better_sqlite3.node
+ *
+ * Target location in unpacked output:
+ *   app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+ */
+function swapBetterSqlite3Binary(context) {
+  const platform = context.electronPlatformName;
+  const archStr = ARCH_NAMES[context.arch] || String(context.arch);
+  const key = `${platform}-${archStr}`;
+
+  const projectRoot = path.resolve(__dirname, '..');
+  const prebuildSrc = path.join(
+    projectRoot, 'node_modules/better-sqlite3/prebuilds', `${platform}-${archStr}`, 'better_sqlite3.node'
+  );
+
+  if (!fs.existsSync(prebuildSrc)) {
+    console.error(`[afterPack] Missing better-sqlite3 prebuild for ${key}: ${prebuildSrc}`);
+    console.error(`[afterPack] Run "npm run prepare:all" to download prebuilds for all platforms`);
+    throw new Error(`Missing better-sqlite3 prebuild for ${key}`);
+  }
+
+  const unpackedDir = getUnpackedDir(context);
+  const targetNode = path.join(
+    unpackedDir, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  );
+
+  if (!fs.existsSync(targetNode)) {
+    console.error(`[afterPack] ${key}: better_sqlite3.node not found in unpacked output`);
+    console.error(`[afterPack] Check that asarUnpack includes "node_modules/better-sqlite3/build/Release/*.node"`);
+    throw new Error(`better_sqlite3.node not found in unpacked output for ${key}`);
+  }
+
+  fs.copyFileSync(prebuildSrc, targetNode);
+
+  const sizeMB = (fs.statSync(targetNode).size / 1024 / 1024).toFixed(1);
+  console.log(`[afterPack] ${key}: swapped better-sqlite3 binary (${sizeMB} MB)`);
+}
+
 module.exports = async function(context) {
   // Clean non-target watcher packages from unpacked output
   cleanNonTargetWatchers(context);
+
+  // Swap better-sqlite3 native binary for the target platform
+  swapBetterSqlite3Binary(context);
 
   // macOS ad-hoc signing (other platforms skip)
   if (context.electronPlatformName !== 'darwin') {

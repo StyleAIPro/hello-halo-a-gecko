@@ -1,6 +1,6 @@
 {
   "name": "halo",
-  "version": "1.2.18",
+  "version": "2.0.0",
   "description": "AI that gets things done",
   "type": "module",
   "main": "./out/main/index.mjs",
@@ -119,7 +119,7 @@
     "autoprefixer": "^10.4.16",
     "cross-env": "^10.1.0",
     "dotenv": "^17.2.4",
-    "electron": "^28.0.0",
+    "electron": "~29.4.6",
     "electron-builder": "24.13.1",
     "electron-vite": "^2.0.0",
     "i18next-parser": "^9.3.0",
@@ -150,11 +150,13 @@
       "out/**/*",
       "resources/**/*",
       "product.json",
-      "halo-local/dist/**/*"
+      "halo-local/dist/**/*",
+      "!node_modules/better-sqlite3/prebuilds"
     ],
     "asarUnpack": [
       "node_modules/cloudflared/**/*",
-      "node_modules/@parcel/watcher-*/**/*"
+      "node_modules/@parcel/watcher-*/**/*",
+      "node_modules/better-sqlite3/build/Release/*.node"
     ],
     "publish": {
       "provider": "github",

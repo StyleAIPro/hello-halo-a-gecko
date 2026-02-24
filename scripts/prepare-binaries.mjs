@@ -59,6 +59,18 @@ const WATCHER_PACKAGES = {
   'linux': '@parcel/watcher-linux-x64-glibc'
 }
 
+// better-sqlite3 prebuild configuration
+// Prebuilds are platform-specific .node binaries downloaded from GitHub releases.
+// They are stored in node_modules/better-sqlite3/prebuilds/{os}-{arch}/ and
+// swapped into the packaged app by afterPack.cjs during electron-builder packaging.
+const BETTER_SQLITE3_PREBUILDS_DIR = 'node_modules/better-sqlite3/prebuilds'
+const BETTER_SQLITE3_PLATFORMS = {
+  'mac-arm64': { platform: 'darwin', arch: 'arm64' },
+  'mac-x64': { platform: 'darwin', arch: 'x64' },
+  'win': { platform: 'win32', arch: 'x64' },
+  'linux': { platform: 'linux', arch: 'x64' }
+}
+
 /**
  * Detect current platform
  */
@@ -176,6 +188,99 @@ function curlDownload(url, dest) {
 }
 
 /**
+ * Get better-sqlite3 version and Electron ABI for constructing prebuild download URLs.
+ *
+ * Reads installed package versions and uses node-abi to map the Electron version
+ * to the correct native module ABI number. This ABI is embedded in the prebuild
+ * tarball filename on GitHub releases.
+ */
+function getBetterSqlite3Info() {
+  const bsPkg = JSON.parse(fs.readFileSync(
+    path.join(PROJECT_ROOT, 'node_modules/better-sqlite3/package.json'), 'utf8'
+  ))
+  const electronPkg = JSON.parse(fs.readFileSync(
+    path.join(PROJECT_ROOT, 'node_modules/electron/package.json'), 'utf8'
+  ))
+  const abi = execSync(
+    `node -e "console.log(require('node-abi').getAbi('${electronPkg.version}', 'electron'))"`,
+    { encoding: 'utf8', cwd: PROJECT_ROOT }
+  ).trim()
+
+  return { version: bsPkg.version, electronVersion: electronPkg.version, abi }
+}
+
+/**
+ * Check if better-sqlite3 prebuild exists and is valid for platform
+ */
+function checkBetterSqlite3(platform) {
+  const { platform: os, arch } = BETTER_SQLITE3_PLATFORMS[platform]
+  const prebuildPath = path.join(
+    PROJECT_ROOT, BETTER_SQLITE3_PREBUILDS_DIR, `${os}-${arch}`, 'better_sqlite3.node'
+  )
+  if (!fs.existsSync(prebuildPath)) {
+    return { exists: false }
+  }
+  const stats = fs.statSync(prebuildPath)
+  // Compiled .node binary should be > 500 KB
+  return { exists: true, valid: stats.size > 500 * 1024, size: stats.size }
+}
+
+/**
+ * Download better-sqlite3 prebuild for a target platform.
+ *
+ * Downloads the prebuilt .node binary from better-sqlite3 GitHub releases.
+ * The tarball naming convention is:
+ *   better-sqlite3-v{version}-electron-v{abi}-{platform}-{arch}.tar.gz
+ *
+ * The tarball contains: build/Release/better_sqlite3.node
+ * We extract it to: node_modules/better-sqlite3/prebuilds/{platform}-{arch}/
+ */
+function downloadBetterSqlite3(platform) {
+  const { platform: targetPlatform, arch: targetArch } = BETTER_SQLITE3_PLATFORMS[platform]
+  const { version, abi } = getBetterSqlite3Info()
+  const prebuildDir = path.join(PROJECT_ROOT, BETTER_SQLITE3_PREBUILDS_DIR, `${targetPlatform}-${targetArch}`)
+  const outputPath = path.join(prebuildDir, 'better_sqlite3.node')
+
+  const tarballName = `better-sqlite3-v${version}-electron-v${abi}-${targetPlatform}-${targetArch}.tar.gz`
+  const url = `https://github.com/WiseLibs/better-sqlite3/releases/download/v${version}/${tarballName}`
+  const tmpTgz = path.join(PROJECT_ROOT, `node_modules/.better-sqlite3-${targetPlatform}-${targetArch}.tgz`)
+
+  log.info(`Downloading better-sqlite3 prebuild for ${platform}...`)
+
+  fs.mkdirSync(prebuildDir, { recursive: true })
+
+  try {
+    curlDownload(url, tmpTgz)
+
+    // Extract .node file from tarball (contains build/Release/better_sqlite3.node)
+    const tmpExtract = path.join(PROJECT_ROOT, `node_modules/.better-sqlite3-extract-${targetPlatform}-${targetArch}`)
+    if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true })
+    fs.mkdirSync(tmpExtract, { recursive: true })
+    execSync(`tar -xzf "${tmpTgz}" -C "${tmpExtract}"`, { stdio: 'pipe' })
+
+    const extractedNode = path.join(tmpExtract, 'build', 'Release', 'better_sqlite3.node')
+    if (!fs.existsSync(extractedNode)) {
+      throw new Error('Tarball does not contain build/Release/better_sqlite3.node')
+    }
+
+    fs.copyFileSync(extractedNode, outputPath)
+
+    // Cleanup temp files
+    fs.unlinkSync(tmpTgz)
+    fs.rmSync(tmpExtract, { recursive: true })
+
+    const sizeMB = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1)
+    log.success(`Downloaded better-sqlite3 prebuild for ${platform} (${sizeMB} MB)`)
+  } catch (err) {
+    if (fs.existsSync(tmpTgz)) fs.unlinkSync(tmpTgz)
+    const tmpExtractCleanup = path.join(PROJECT_ROOT, `node_modules/.better-sqlite3-extract-${targetPlatform}-${targetArch}`)
+    if (fs.existsSync(tmpExtractCleanup)) fs.rmSync(tmpExtractCleanup, { recursive: true })
+    log.error(`Failed to download better-sqlite3 prebuild for ${platform}: ${err.message}`)
+    throw err
+  }
+}
+
+/**
  * Install @parcel/watcher for platform
  * Downloads tarball directly from npm registry to bypass platform compatibility checks
  */
@@ -237,6 +342,14 @@ function preparePlatform(platform) {
     installWatcher(platform)
   } else {
     log.success(`@parcel/watcher already exists for ${platform}`)
+  }
+
+  // Check and download better-sqlite3 prebuild
+  const sqliteStatus = checkBetterSqlite3(platform)
+  if (!sqliteStatus.exists || !sqliteStatus.valid) {
+    downloadBetterSqlite3(platform)
+  } else {
+    log.success(`better-sqlite3 prebuild already exists for ${platform}`)
   }
 }
 
