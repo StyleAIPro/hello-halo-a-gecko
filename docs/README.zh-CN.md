@@ -257,7 +257,7 @@ npm run dev
 </p>
 
 <p align="center">
-  <em>如二维码过期，可加微信：helloddbb<strong>_</strong>（注意末尾有下划线，昵称"混沌数字"），备注"Halo"，将邀请入群</em>
+  <em>如二维码过期，可加微信：go2halo 备注"Halo"，将邀请入群</em>
 </p>
 
 <p align="center">
