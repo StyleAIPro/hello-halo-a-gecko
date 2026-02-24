@@ -131,6 +131,16 @@ export const api = {
     return httpRequest('POST', '/api/config/validate', { apiKey, apiUrl, provider, model })
   },
 
+  fetchModels: async (
+    apiKey: string,
+    apiUrl: string
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.fetchModels(apiKey, apiUrl)
+    }
+    return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl })
+  },
+
   refreshAISourcesConfig: async (): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.halo.refreshAISourcesConfig()
@@ -1417,6 +1427,21 @@ export const api = {
       return window.halo.appRevokePermission({ appId, permission })
     }
     return httpRequest('POST', `/api/apps/${appId}/permissions/revoke`, { permission })
+  },
+
+  // App Import / Export
+  appExportSpec: async (appId: string): Promise<ApiResponse<{ yaml: string; filename: string }>> => {
+    if (isElectron()) {
+      return window.halo.appExportSpec(appId)
+    }
+    return httpRequest('GET', `/api/apps/${appId}/export-spec`)
+  },
+
+  appImportSpec: async (input: { spaceId: string; yamlContent: string; userConfig?: Record<string, unknown> }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.appImportSpec(input)
+    }
+    return httpRequest('POST', '/api/apps/import-spec', input as Record<string, unknown>)
   },
 
   // App Chat

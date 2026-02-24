@@ -28,6 +28,7 @@ export interface HaloAPI {
   getConfig: () => Promise<IpcResponse>
   setConfig: (updates: Record<string, unknown>) => Promise<IpcResponse>
   validateApi: (apiKey: string, apiUrl: string, provider: string) => Promise<IpcResponse>
+  fetchModels: (apiKey: string, apiUrl: string) => Promise<IpcResponse>
   refreshAISourcesConfig: () => Promise<IpcResponse>
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
@@ -341,6 +342,10 @@ export interface HaloAPI {
   appGrantPermission: (input: { appId: string; permission: string }) => Promise<IpcResponse>
   appRevokePermission: (input: { appId: string; permission: string }) => Promise<IpcResponse>
 
+  // App Import / Export
+  appExportSpec: (appId: string) => Promise<IpcResponse<{ yaml: string; filename: string }>>
+  appImportSpec: (input: { spaceId: string; yamlContent: string; userConfig?: Record<string, unknown> }) => Promise<IpcResponse>
+
   // App Chat
   appChatSend: (request: { appId: string; spaceId: string; message: string; thinkingEnabled?: boolean }) => Promise<IpcResponse>
   appChatStop: (appId: string) => Promise<IpcResponse>
@@ -394,6 +399,8 @@ const api: HaloAPI = {
   setConfig: (updates) => ipcRenderer.invoke('config:set', updates),
   validateApi: (apiKey, apiUrl, provider, model?) =>
     ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model),
+  fetchModels: (apiKey, apiUrl) =>
+    ipcRenderer.invoke('config:fetch-models', apiKey, apiUrl),
   refreshAISourcesConfig: () => ipcRenderer.invoke('config:refresh-ai-sources'),
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
@@ -616,6 +623,10 @@ const api: HaloAPI = {
   appUpdateSpec: (input) => ipcRenderer.invoke('app:update-spec', input),
   appGrantPermission: (input) => ipcRenderer.invoke('app:grant-permission', input),
   appRevokePermission: (input) => ipcRenderer.invoke('app:revoke-permission', input),
+
+  // App Import / Export
+  appExportSpec: (appId) => ipcRenderer.invoke('app:export-spec', appId),
+  appImportSpec: (input) => ipcRenderer.invoke('app:import-spec', input),
 
   // App Chat
   appChatSend: (request) => ipcRenderer.invoke('app:chat-send', request),

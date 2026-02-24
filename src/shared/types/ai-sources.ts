@@ -118,6 +118,11 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     description: 'great for complex reasoning and architecture decisions'
   },
   {
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
+    description: 'Balanced performance and cost, suitable for most tasks'
+  },
+  {
     id: 'claude-sonnet-4-5-20250929',
     name: 'Claude Sonnet 4.5',
     description: 'Balanced performance and cost, suitable for most tasks'
@@ -129,7 +134,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   }
 ]
 
-export const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
+export const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 // ============================================================================
 // AI Source Configuration Types (v2)

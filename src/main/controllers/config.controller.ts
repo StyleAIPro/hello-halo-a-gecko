@@ -7,7 +7,7 @@ import {
   getConfig as serviceGetConfig,
   saveConfig as serviceSaveConfig
 } from '../services/config.service'
-import { validateApiConnection } from '../services/api-validator.service'
+import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service'
 
 export interface ControllerResponse<T = unknown> {
   success: boolean
@@ -65,6 +65,22 @@ export async function validateApi(
       },
       error: result.message
     }
+  } catch (error: unknown) {
+    const err = error as Error
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * Fetch available models from an OpenAI-compatible API endpoint
+ */
+export async function fetchModels(
+  apiKey: string,
+  apiUrl: string
+): Promise<ControllerResponse> {
+  try {
+    const result = await fetchModelsFromApi({ apiKey, apiUrl })
+    return { success: true, data: result }
   } catch (error: unknown) {
     const err = error as Error
     return { success: false, error: err.message }

@@ -17,6 +17,7 @@ import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
 import type { InstalledApp } from '../manager'
 import { resolvePermission } from '../../../shared/apps/app-types'
 import type { MemoryService, MemoryCallerScope } from '../../platform/memory'
+import { buildMemorySnapshot, createMemoryStatusMcpServer } from '../../platform/memory/snapshot'
 import type { ActivityStore } from './store'
 import type {
   TriggerContext,
@@ -181,7 +182,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     )
 
     // ── 2. Build system prompt ─────────────────────────────
-    const memoryInstructions = await memory.getPromptInstructions(memoryScope)
+    const memoryInstructions = memory.getPromptInstructions()
     const usesAIBrowser = resolvePermission(app, 'ai-browser')
 
     console.log(
@@ -206,10 +207,28 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     )
 
     // ── 3. Build initial message ───────────────────────────
+    //    Build memory snapshot for trigger-time injection.
+    //    This gives the AI immediate memory context without a tool call.
+    const memorySnapshot = await buildMemorySnapshot(memoryScope)
+    console.log(
+      `[Runtime][${runTag}] Memory snapshot: exists=${memorySnapshot.exists}, ` +
+      `lines=${memorySnapshot.totalLines}, size=${memorySnapshot.sizeBytes}B, ` +
+      `headers=${memorySnapshot.headers.length}, archive=${memorySnapshot.archiveTotalCount}`
+    )
+
+    // ── 3a. Pre-insert timestamp heading in # History ─────
+    //    Gives the AI a ready-made heading to Edit with its summary.
+    //    Uses the same YYYY-MM-DD-HHmm format as run file names.
+    //    Reuses rawContent from the snapshot to avoid a redundant file read.
+    const runTimestamp = formatRunTimestamp(new Date())
+    await preInsertHistoryHeading(memorySnapshot.memoryFilePath, runTimestamp, memorySnapshot.rawContent)
+    console.log(`[Runtime][${runTag}] Pre-inserted History heading: ## ${runTimestamp}`)
+
     const initialMessage = buildInitialMessage({
       triggerContext: trigger.description,
       userConfig: app.userConfig,
       appName: app.spec.name,
+      memorySnapshot,
     })
 
     console.log(
@@ -226,7 +245,9 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       : undefined
 
     // ── 4. Create MCP servers ──────────────────────────────
-    const memoryMcpServer = memory.createTools(memoryScope)
+    //    Register the lightweight memory_status tool (structural metadata only).
+    //    The AI uses native Read/Edit/Write on memory.md directly.
+    const memoryMcpServer = createMemoryStatusMcpServer(memoryScope)
 
     const reportContext: ReportToolContext = {
       appId: app.id,
@@ -835,13 +856,25 @@ function buildSummarySlug(ctx: RunSummaryContext): string {
 const MAX_COMPACTION_INPUT_LENGTH = 50000
 
 /**
+ * Max LLM output tokens for compaction.
+ *
+ * Set deliberately high so the model is never the truncation constraint.
+ * Actual output length is guided by prompt instructions (target 60-120 lines),
+ * not by this limit. A hard cutoff would produce malformed markdown.
+ */
+const COMPACTION_MAX_TOKENS = 16384
+
+/** Max retry attempts when LLM output fails format validation */
+const COMPACTION_MAX_RETRIES = 2
+
+/**
  * Check if app memory needs compaction and perform it if necessary.
  *
  * Flow:
  * 1. Check if memory.md exceeds the compaction threshold (100KB)
  * 2. Read the current content before archiving
  * 3. Archive the old memory.md to memory/ directory
- * 4. Generate a concise LLM summary of the archived content
+ * 4. Generate a concise LLM summary with format validation and retry
  * 5. Write the summary as the new memory.md
  *
  * This is a best-effort operation -- failures are logged but not re-thrown.
@@ -874,7 +907,7 @@ async function checkAndCompactMemory(
 
     console.log(`[Runtime][${runTag}] Memory archived to ${archived}, generating LLM summary...`)
 
-    // Generate compaction summary via LLM
+    // Generate compaction summary via LLM (with validation + retry)
     const summary = await generateCompactionSummary(
       currentContent,
       app.spec.name,
@@ -901,7 +934,57 @@ async function checkAndCompactMemory(
 }
 
 /**
- * Generate a concise summary of memory content via direct LLM API call.
+ * Validate that compacted memory contains the two mandatory H1 headings.
+ *
+ * Both `# now` and `# History` must appear as standalone H1 lines.
+ * Without them, downstream functions (preInsertHistoryHeading, snapshot
+ * injection) will produce corrupt state.
+ */
+function isValidCompaction(content: string): boolean {
+  return /^# now\s*$/m.test(content) && /^# History\s*$/m.test(content)
+}
+
+/** Build the compaction prompt for the LLM */
+function buildCompactionPrompt(content: string, appName: string): string {
+  return (
+    `You are compacting the memory file for an automation app called "${appName}".\n\n` +
+    `## Current Memory Content\n\n${content}\n\n` +
+    `## Output Format\n\n` +
+    `You MUST produce output in exactly this structure:\n\n` +
+    '```\n' +
+    `# now\n\n` +
+    `## State | one-line summary\n` +
+    `(current state values only — drop stale/superseded entries)\n\n` +
+    `## EntityName\n` +
+    `(active entities only — merge duplicates, drop entities not seen recently)\n\n` +
+    `## Patterns\n` +
+    `(proven patterns only — drop one-off observations)\n\n` +
+    `## Errors\n` +
+    `(unresolved errors only — drop resolved ones)\n\n` +
+    `# History\n\n` +
+    `## YYYY-MM-DD-HHmm | summary\n` +
+    `(keep the most recent ~10 entries, drop older ones)\n` +
+    '```\n\n' +
+    `## Rules\n\n` +
+    `- Output ONLY the compacted markdown, no explanations or commentary\n` +
+    `- Every entry in \`# now\` must be current and actionable\n` +
+    `- Aim for roughly 60–120 lines total\n` +
+    `- Both \`# now\` and \`# History\` H1 headings are MANDATORY — never omit them\n` +
+    `- Preserve the original entity names and data values exactly\n` +
+    `- Older History entries are already archived in memory/run/ files, safe to drop`
+  )
+}
+
+/**
+ * Generate a concise summary of memory content via direct LLM API call,
+ * with format validation and multi-turn retry.
+ *
+ * Flow:
+ * 1. Send compaction prompt to LLM
+ * 2. Validate output contains `# now` and `# History`
+ * 3. If invalid, retry with feedback (up to COMPACTION_MAX_RETRIES times)
+ * 4. After all retries exhausted, keep the last LLM output as-is
+ * 5. Only fall back to code-based extraction on API-level failures
  *
  * Uses the @anthropic-ai/sdk client directly (not a full SDK session) for
  * minimal overhead. The call goes through the resolved credentials so it
@@ -931,42 +1014,75 @@ async function generateCompactionSummary(
       baseURL: resolved.anthropicBaseUrl,
     })
 
-    const response = await client.messages.create({
-      model: resolved.sdkModel,
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content:
-          `You are compacting the memory file for an automation app called "${appName}".\n\n` +
-          `The memory file has grown too large and needs to be distilled to its essential state.\n\n` +
-          `## Current Memory Content\n\n${truncatedContent}\n\n` +
-          `## Instructions\n\n` +
-          `Produce a clean, concise version of this memory that preserves:\n` +
-          `1. Current state and tracking data (lists, counts, active items)\n` +
-          `2. Learned patterns and decisions (what works, what doesn't)\n` +
-          `3. Configuration and preferences\n\n` +
-          `Remove:\n` +
-          `- Execution logs and timestamps\n` +
-          `- Duplicate/redundant entries\n` +
-          `- Completed one-time tasks\n` +
-          `- Per-run diary entries\n\n` +
-          `Format the output as a well-structured markdown document with clear headings ` +
-          `(## State, ## Patterns, ## Config, etc.). Output ONLY the compacted memory content, ` +
-          `no explanations or meta-commentary.`
-      }],
-    })
+    const prompt = buildCompactionPrompt(truncatedContent, appName)
 
-    const summary = response.content
-      .filter((block: any) => block.type === 'text')
-      .map((block: any) => block.text)
-      .join('')
+    // Build conversation for multi-turn retry
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      { role: 'user', content: prompt },
+    ]
 
-    if (summary.trim().length === 0) {
-      console.warn(`[Runtime][${runTag}] LLM returned empty compaction summary, using fallback`)
-      return buildFallbackCompactionSummary(content)
+    let lastOutput = ''
+
+    // Attempt 1 + up to COMPACTION_MAX_RETRIES retries
+    for (let attempt = 0; attempt <= COMPACTION_MAX_RETRIES; attempt++) {
+      const response = await client.messages.create({
+        model: resolved.sdkModel,
+        max_tokens: COMPACTION_MAX_TOKENS,
+        messages,
+      })
+
+      const output = response.content
+        .filter((block: any) => block.type === 'text')
+        .map((block: any) => block.text)
+        .join('')
+
+      if (output.trim().length === 0) {
+        console.warn(`[Runtime][${runTag}] Compaction attempt ${attempt + 1}: LLM returned empty output`)
+        // On empty output, don't retry — go to fallback
+        break
+      }
+
+      lastOutput = output
+
+      if (isValidCompaction(output)) {
+        if (attempt > 0) {
+          console.log(`[Runtime][${runTag}] Compaction succeeded on retry ${attempt}`)
+        }
+        return output
+      }
+
+      // Validation failed — log and prepare retry
+      console.warn(
+        `[Runtime][${runTag}] Compaction attempt ${attempt + 1}: ` +
+        `output missing required headings (has # now: ${/^# now\s*$/m.test(output)}, ` +
+        `has # History: ${/^# History\s*$/m.test(output)})`
+      )
+
+      if (attempt < COMPACTION_MAX_RETRIES) {
+        // Add the failed output as assistant message, then feedback as user message
+        messages.push({ role: 'assistant', content: output })
+        messages.push({
+          role: 'user',
+          content:
+            'Your output is missing the required H1 headings. ' +
+            'The compacted memory MUST contain both `# now` and `# History` as H1 headings ' +
+            '(lines starting with exactly `# now` and `# History`). ' +
+            'Please output the corrected compacted memory.',
+        })
+      }
     }
 
-    return summary
+    // All attempts exhausted: use last LLM output if we have one, otherwise fallback
+    if (lastOutput.trim().length > 0) {
+      console.warn(
+        `[Runtime][${runTag}] Compaction retries exhausted, ` +
+        `keeping last LLM output (${lastOutput.length} chars)`
+      )
+      return lastOutput
+    }
+
+    console.warn(`[Runtime][${runTag}] LLM returned no usable output, using fallback`)
+    return buildFallbackCompactionSummary(content)
   } catch (err) {
     console.error(`[Runtime][${runTag}] LLM compaction failed, using fallback:`, err)
     return buildFallbackCompactionSummary(content)
@@ -974,31 +1090,155 @@ async function generateCompactionSummary(
 }
 
 /**
- * Fallback compaction: extract headings and recent content when LLM is unavailable.
+ * Fallback compaction when LLM API is completely unavailable.
+ *
+ * Extracts the `# now` and `# History` sections from the original content
+ * and produces a valid two-tier structure. This ensures downstream functions
+ * (preInsertHistoryHeading, snapshot injection) continue to work correctly.
+ *
+ * Strategy:
+ * - `# now` block: first 50 content lines (up to `# History`)
+ * - `# History` block: last 10 `## YYYY-` timestamped entry groups
  */
 function buildFallbackCompactionSummary(content: string): string {
   const lines = content.split('\n')
 
-  // Extract all heading lines
-  const headings: string[] = []
-  for (const line of lines) {
-    if (/^#{1,6}\s/.test(line)) {
-      headings.push(line)
+  // ── Extract # now section ──────────────────────────────────
+  let nowStart = -1
+  let nowEnd = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    if (/^# now\s*$/.test(lines[i])) {
+      nowStart = i
+    } else if (nowStart >= 0 && /^# [^#]/.test(lines[i]) && !/^# now\s*$/.test(lines[i])) {
+      // Hit another H1 heading — end of # now
+      nowEnd = i
+      break
     }
   }
 
-  // Take the last 100 lines as "recent state"
-  const recentLines = lines.slice(Math.max(0, lines.length - 100))
+  let nowLines: string[]
+  if (nowStart >= 0) {
+    // Take the # now section, capped at 50 content lines
+    const sectionLines = lines.slice(nowStart, nowEnd)
+    nowLines = sectionLines.slice(0, 51) // # now heading + up to 50 lines
+  } else {
+    // No # now found — create a minimal skeleton
+    nowLines = ['# now', '', '## State']
+  }
 
+  // ── Extract recent # History entries ───────────────────────
+  let historyStart = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^# History\s*$/.test(lines[i])) {
+      historyStart = i
+      break
+    }
+  }
+
+  const historyEntries: string[][] = []
+  if (historyStart >= 0) {
+    let currentEntry: string[] = []
+    for (let i = historyStart + 1; i < lines.length; i++) {
+      if (/^## /.test(lines[i])) {
+        if (currentEntry.length > 0) {
+          historyEntries.push(currentEntry)
+        }
+        currentEntry = [lines[i]]
+      } else if (currentEntry.length > 0) {
+        currentEntry.push(lines[i])
+      }
+    }
+    if (currentEntry.length > 0) {
+      historyEntries.push(currentEntry)
+    }
+  }
+
+  // Keep last 10 entries (they are newest-first in the file)
+  const recentEntries = historyEntries.slice(0, 10)
+
+  // ── Assemble valid output ──────────────────────────────────
   const parts = [
     '<!-- Compacted by system (LLM unavailable) -->',
     '',
-    '## Structure (from original)',
-    ...headings,
+    ...nowLines,
     '',
-    '## Recent Content',
-    ...recentLines,
+    '# History',
+    '',
+    ...recentEntries.flatMap(entry => [...entry, '']),
   ]
 
-  return parts.join('\n')
+  return parts.join('\n').trimEnd() + '\n'
+}
+
+// ============================================
+// History Heading Pre-insertion
+// ============================================
+
+/**
+ * Format a Date as YYYY-MM-DD-HHmm (local time, no colons).
+ * This format is used consistently for:
+ * - # History headings in memory.md
+ * - Run file names in memory/run/
+ * - Compaction archive file names
+ */
+function formatRunTimestamp(date: Date): string {
+  const y = date.getFullYear()
+  const m = (date.getMonth() + 1).toString().padStart(2, '0')
+  const d = date.getDate().toString().padStart(2, '0')
+  const h = date.getHours().toString().padStart(2, '0')
+  const min = date.getMinutes().toString().padStart(2, '0')
+  return `${y}-${m}-${d}-${h}${min}`
+}
+
+/**
+ * Pre-insert a timestamp heading at the top of # History in memory.md.
+ *
+ * If the file doesn't exist, creates a skeleton with # now and # History.
+ * If # History section exists, inserts ## YYYY-MM-DD-HHmm right after it.
+ * If # History doesn't exist (old format), appends it at the end.
+ *
+ * @param memoryFilePath - Absolute path to memory.md
+ * @param timestamp - Formatted run timestamp (YYYY-MM-DD-HHmm)
+ * @param preReadContent - Pre-read file content from the snapshot, or null if file doesn't exist.
+ *                         Avoids a redundant disk read when the caller already has the content.
+ */
+async function preInsertHistoryHeading(
+  memoryFilePath: string,
+  timestamp: string,
+  preReadContent: string | null
+): Promise<void> {
+  const { readFile, writeFile, mkdir } = await import('fs/promises')
+  const { dirname } = await import('path')
+  const { existsSync } = await import('fs')
+
+  const dir = dirname(memoryFilePath)
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true })
+  }
+
+  const heading = `## ${timestamp}`
+
+  if (preReadContent === null) {
+    // Create skeleton with # now and # History
+    const skeleton = `# now\n\n## State\n\n# History\n\n${heading}\n`
+    await writeFile(memoryFilePath, skeleton, 'utf-8')
+    return
+  }
+
+  const content = preReadContent
+
+  // Find # History line
+  const historyMatch = content.match(/^# History\s*$/m)
+  if (historyMatch && historyMatch.index !== undefined) {
+    // Insert the new heading right after "# History\n"
+    const insertPos = historyMatch.index + historyMatch[0].length
+    const before = content.slice(0, insertPos)
+    const after = content.slice(insertPos)
+    const newContent = before + `\n\n${heading}` + after
+    await writeFile(memoryFilePath, newContent, 'utf-8')
+  } else {
+    // No # History section found — append it
+    const appendContent = content.trimEnd() + `\n\n# History\n\n${heading}\n`
+    await writeFile(memoryFilePath, appendContent, 'utf-8')
+  }
 }

@@ -33,9 +33,20 @@ Services Layer (src/main/services)
 - `platform/*` modules stay generic infrastructure (not renderer-specific, not UI-coupled).
 - Shared renderer-safe types belong in `src/shared/apps/*`.
 
-## 3) Startup / Shutdown Lifecycle
+## 3) Engineering Baseline (Non-Negotiable)
 
-### 3.1 Startup phases
+- **Modularity and boundary clarity are mandatory.**
+  - Keep responsibilities isolated by module; avoid cross-layer leakage.
+  - Prefer extending existing module contracts over ad-hoc shortcuts.
+- **High quality and maintainability are first priority.**
+  - Production-ready behavior, explicit error handling, and test coverage are expected.
+- **Performance must be preserved or improved.**
+  - No startup/runtime/memory regressions as a trade-off for feature speed.
+  - Essential startup path remains minimal; heavy work stays in extended/lazy flows.
+
+## 4) Startup / Shutdown Lifecycle
+
+### 4.1 Startup phases
 
 1. `app.whenReady()` creates window and initializes core app directories.
 2. `initializeEssentialServices()` runs synchronously for first-screen features.
@@ -48,13 +59,13 @@ Services Layer (src/main/services)
    - Phase 3: `initAppRuntime({ db, appManager, scheduler, eventBus, memory, background })`
    - Start loops only after wiring: `scheduler.start()`, `eventBus.start()`
 
-### 3.2 Shutdown behavior
+### 4.2 Shutdown behavior
 
 - `before-quit` calls `cleanupExtendedServices()` via bootstrap shutdown flow.
 - `window-all-closed` keeps process alive when `background.shouldKeepAlive()` is true.
 - Cleanup order includes runtime/manager, platform modules, background, and cache cleanup.
 
-## 4) Integration Surfaces
+## 5) Integration Surfaces
 
 - **IPC handlers**: `src/main/ipc/*.ts` (Apps entry: `src/main/ipc/app.ts`)
 - **HTTP routes**: `src/main/http/routes/index.ts`
@@ -66,7 +77,7 @@ Services Layer (src/main/services)
 Desktop mode: renderer -> preload -> IPC -> main.
 Remote mode: renderer -> HTTP/WS -> main.
 
-## 5) Current Contract Gaps (Known)
+## 6) Current Contract Gaps (Known)
 
 - `POST /api/apps/install` in HTTP currently reads `config`, while IPC/renderer install path uses `userConfig`.
 - Renderer remote fallbacks exist for these App endpoints, but HTTP routes are not implemented yet:
@@ -80,7 +91,7 @@ Remote mode: renderer -> HTTP/WS -> main.
 
 Treat these as explicit alignment tasks when extending remote App capabilities.
 
-## 6) Deep-Dive Module Docs
+## 7) Deep-Dive Module Docs
 
 When touching a module, read its design doc first:
 - `src/main/apps/spec/DESIGN.md`

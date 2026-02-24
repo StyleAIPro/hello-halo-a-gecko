@@ -56,6 +56,9 @@ const DEFAULT_ESCALATION_TIMEOUT_HOURS = 24
 /** How often to check for timed-out escalations (5 minutes) */
 const ESCALATION_CHECK_INTERVAL_MS = 5 * 60 * 1000
 
+/** Minimum interval between data prune runs (24 hours) */
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000
+
 // ============================================
 // Service Factory
 // ============================================
@@ -82,6 +85,8 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
   let executionCounter = 0
   /** Interval handle for escalation timeout checker */
   let escalationCheckInterval: ReturnType<typeof setInterval> | null = null
+  /** Timestamp of last successful prune (avoid running too frequently) */
+  let lastPruneAtMs = 0
 
   // ── Helper: Build trigger context ───────────────────
   function buildScheduleTriggerContext(job: SchedulerJob, app: InstalledApp): TriggerContext {
@@ -305,6 +310,25 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
 
   // ── Helper: Check and auto-timeout stale escalations ──
   /**
+   * Prune old runs and activity entries if enough time has passed
+   * since the last prune. Runs at most once per PRUNE_INTERVAL_MS (24h).
+   */
+  function pruneOldDataIfNeeded(): void {
+    const now = Date.now()
+    if (now - lastPruneAtMs < PRUNE_INTERVAL_MS) return
+
+    try {
+      const pruned = store.pruneOldData()
+      lastPruneAtMs = now
+      if (pruned > 0) {
+        console.log(`[Runtime] Pruned ${pruned} old automation runs (and their activity entries)`)
+      }
+    } catch (err) {
+      console.error('[Runtime] Failed to prune old data:', err)
+    }
+  }
+
+  /**
    * Periodically scans for pending escalations that have exceeded their
    * timeout (default: 24 hours). Timed-out escalations are:
    * 1. Auto-resolved with a timeout response
@@ -389,6 +413,9 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
     } catch (err) {
       console.error('[Runtime] Escalation timeout check failed:', err)
     }
+
+    // Piggyback data pruning on the same interval (self-throttled to 24h)
+    pruneOldDataIfNeeded()
   }
 
   // ── Helper: Map subscription to scheduler job ───────
@@ -630,7 +657,13 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
         throw new AppNotFoundError(appId)
       }
 
-      if (app.status !== 'active' && app.status !== 'paused') {
+      if (app.status === 'error') {
+        // Manual trigger from error state is treated as user-initiated retry.
+        // Resume resets status to 'active' and re-activates the scheduler,
+        // which is the same path as pause → resume in the UI.
+        console.log(`[Runtime] app:trigger recovering from error state: ${appId}`)
+        appManager.resume(appId)
+      } else if (app.status !== 'active' && app.status !== 'paused') {
         throw new AppNotRunnableError(appId, app.status)
       }
 

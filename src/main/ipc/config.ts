@@ -6,7 +6,7 @@ import { ipcMain } from 'electron'
 import { getConfig, saveConfig } from '../services/config.service'
 import { getAISourceManager } from '../services/ai-sources'
 import { decryptString } from '../services/secure-storage.service'
-import { validateApiConnection } from '../services/api-validator.service'
+import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service'
 import { runConfigProbe, emitConfigChange } from '../services/health'
 import type { AISourcesConfig, AISource } from '../../shared/types'
 
@@ -122,6 +122,23 @@ export function registerConfigHandlers(): void {
       } catch (error: unknown) {
         const err = error as Error
         console.error('[Settings] config:validate-api - Failed:', err.message)
+        return { success: false, error: err.message }
+      }
+    }
+  )
+
+  // Fetch available models from API endpoint
+  ipcMain.handle(
+    'config:fetch-models',
+    async (_event, apiKey: string, apiUrl: string) => {
+      console.log('[Settings] config:fetch-models - Fetching from:', apiUrl ? `${apiUrl.slice(0, 30)}...` : '(no url)')
+      try {
+        const result = await fetchModelsFromApi({ apiKey, apiUrl })
+        console.log('[Settings] config:fetch-models - Found', result.models.length, 'models')
+        return { success: true, data: result }
+      } catch (error: unknown) {
+        const err = error as Error
+        console.error('[Settings] config:fetch-models - Failed:', err.message)
         return { success: false, error: err.message }
       }
     }

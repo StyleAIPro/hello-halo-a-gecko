@@ -66,6 +66,10 @@ interface AppsState {
   updateAppOverrides: (appId: string, overrides: Record<string, unknown>) => Promise<boolean>
   updateAppSpec: (appId: string, specPatch: Record<string, unknown>) => Promise<boolean>
 
+  // ── Import / Export ─────────────────────────
+  exportApp: (appId: string) => Promise<boolean>
+  importApp: (spaceId: string, yamlContent: string) => Promise<string | null>
+
   // ── Permissions ─────────────────────────────
   grantPermission: (appId: string, permission: string) => Promise<boolean>
   revokePermission: (appId: string, permission: string) => Promise<boolean>
@@ -397,6 +401,47 @@ export const useAppsStore = create<AppsState>((set, get) => ({
     } catch (err) {
       console.error('[AppsStore] updateAppSpec error:', err)
       return false
+    }
+  },
+
+  // ── Import / Export ─────────────────────────
+
+  exportApp: async (appId) => {
+    try {
+      const res = await api.appExportSpec(appId)
+      if (res.success && res.data) {
+        const { yaml, filename } = res.data as { yaml: string; filename: string }
+        // Trigger browser file download
+        const blob = new Blob([yaml], { type: 'text/yaml;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        return true
+      }
+      return false
+    } catch (err) {
+      console.error('[AppsStore] exportApp error:', err)
+      return false
+    }
+  },
+
+  importApp: async (spaceId, yamlContent) => {
+    try {
+      const res = await api.appImportSpec({ spaceId, yamlContent })
+      if (res.success && (res.data as { appId?: string })?.appId) {
+        const appId = (res.data as { appId: string }).appId
+        await get().loadApps()
+        return appId
+      }
+      return null
+    } catch (err) {
+      console.error('[AppsStore] importApp error:', err)
+      return null
     }
   },
 

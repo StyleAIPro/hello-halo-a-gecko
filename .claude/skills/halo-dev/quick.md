@@ -5,37 +5,43 @@
 
 ## 1) Hard Rules (Must Follow)
 
-1. **No hardcoded user text in renderer.** Use `t('English text')`.
+1. **Modularity, quality, and maintainability are first priority.**
+   - Keep responsibilities isolated by module and layer.
+   - Do not use quick fixes that create long-term architecture debt.
+   - Every change must preserve or improve performance (startup, runtime latency, memory).
+   - If there is a trade-off conflict (quick fix vs architecture quality), request explicit user approval before proceeding.
+
+2. **No hardcoded user text in renderer.** Use `t('English text')`.
    - Do not manually maintain locale JSON for normal changes.
    - Run `npm run i18n` before final handoff.
 
-2. **Tailwind first.**
+3. **Tailwind first.**
    - Prefer utility classes.
    - Only use CSS files for exceptions (animations, pseudo-elements, third-party overrides).
 
-3. **No hardcoded colors.**
+4. **No hardcoded colors.**
    - Use theme tokens/classes (`bg-background`, `text-foreground`, `hsl(var(--...))`).
 
-4. **Respect layering.**
+5. **Respect layering and module boundaries.**
    - Do not move business logic into IPC/HTTP/preload/renderer transport.
    - Keep orchestration in `apps/runtime` and infrastructure in `platform/*`.
 
-5. **Transport contract changes must be synchronized.**
+6. **Transport contract changes must be synchronized.**
    - IPC request APIs: update main handler + preload + renderer API.
    - Event channels: update sender + preload listener + renderer transport/API.
    - Remote-capable features: also align HTTP routes and WebSocket behavior.
 
-6. **Essential startup is protected.**
+7. **Essential startup is protected.**
    - New feature default = extended phase.
    - Only first-screen-critical handlers belong in essential init.
 
-7. **Schema/persistence changes require migrations.**
+8. **Schema/persistence changes require migrations.**
    - Add versioned migration in the owning module (`apps/*` or `platform/*`).
 
-8. **Tests are required for Apps/Platform changes.**
+9. **Tests are required for Apps/Platform changes.**
    - Add/update tests under `tests/unit/apps/*` or `tests/unit/platform/*`.
 
-9. **Never expose secrets.**
+10. **Never expose secrets.**
    - No API keys/tokens in source, docs, logs, or fixtures.
 
 ## 2) Fast Task Router

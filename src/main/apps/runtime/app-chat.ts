@@ -49,6 +49,7 @@ import { buildAppChatSystemPrompt } from './prompt-chat'
 import { getSpace } from '../../services/space.service'
 import { openSessionWriter, readSessionMessages } from './session-store'
 import { getAppMemoryService } from './index'
+import { createMemoryStatusMcpServer } from '../../platform/memory/snapshot'
 import type { BrowserWindow } from 'electron'
 
 // ============================================
@@ -145,7 +146,7 @@ export async function sendAppChatMessage(
   }
 
   // ── 3. Build system prompt for interactive chat ──────
-  const memoryInstructions = await memory.getPromptInstructions(memoryScope)
+  const memoryInstructions = memory.getPromptInstructions()
   const usesAIBrowser = resolvePermission(app, 'ai-browser')
 
   const systemPrompt = buildAppChatSystemPrompt({
@@ -158,7 +159,7 @@ export async function sendAppChatMessage(
   })
 
   // ── 4. Build MCP servers ─────────────────────────────
-  const memoryMcpServer = memory.createTools(memoryScope)
+  const memoryMcpServer = createMemoryStatusMcpServer(memoryScope)
 
   // Get or create scoped browser context for this chat session
   let scopedBrowserCtx: BrowserContext | undefined

@@ -43,6 +43,8 @@ Current product shape:
 
 ## 4) Non-Negotiable Product Constraints
 
+- **Engineering baseline**: modular design, high quality, and long-term maintainability are first priority.
+- **Performance is a hard requirement**: do not regress startup speed, runtime responsiveness, or memory behavior.
 - **Local-first remains the default architecture** (no required cloud backend for core behavior).
 - **Security hygiene is mandatory**: never put secrets/tokens in code, logs, or docs.
 - **Automation model**: trigger-driven execution (schedule/event/manual), not always-on token consumption.

@@ -21,7 +21,7 @@ import type { MemoryCallerScope, MemoryScopeType } from './types'
 /** Memory file name (main file for each scope) */
 const MEMORY_FILENAME = 'memory.md'
 
-/** Subdirectory for session summaries and compaction archives */
+/** Subdirectory for compaction archives; session summaries go to memory/run/ */
 const MEMORY_ARCHIVE_DIR = 'memory'
 
 // ============================================================================
@@ -93,7 +93,7 @@ export function getMemoryArchiveDir(caller: MemoryCallerScope, scope: MemoryScop
 /**
  * Resolve a relative path within the memory archive directory.
  *
- * Used by memory_read when the AI requests a specific file from memory/.
+ * Used when reading a specific file from the memory/ archive.
  * Validates that the resolved path stays within the archive directory
  * (prevents directory traversal attacks).
  *

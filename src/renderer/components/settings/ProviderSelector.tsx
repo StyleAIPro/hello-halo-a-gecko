@@ -186,55 +186,21 @@ export function ProviderSelector({
     setValidationResult(null)
 
     try {
-      let baseUrl = apiUrl.replace(/\/+$/, '')
-      const suffixes = ['/chat/completions', '/completions', '/responses', '/v1/chat']
-      for (const suffix of suffixes) {
-        if (baseUrl.endsWith(suffix)) {
-          baseUrl = baseUrl.slice(0, -suffix.length)
-          break
-        }
+      const response = await api.fetchModels(apiKey, apiUrl)
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch models')
       }
 
-      if (!baseUrl.includes('/v1') && !baseUrl.includes('/api/paas')) {
-        baseUrl = `${baseUrl}/v1`
+      const { models } = response.data as { models: ModelOption[] }
+
+      setFetchedModels(models)
+
+      if (!selectedModel || !models.some(m => m.id === selectedModel)) {
+        setSelectedModel(models[0].id)
       }
 
-      const modelsUrl = `${baseUrl}/models`
-
-      const response = await fetch(modelsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch models (${response.status})`)
-      }
-
-      const data = await response.json()
-
-      if (data.data && Array.isArray(data.data)) {
-        const models: ModelOption[] = data.data
-          .filter((m: any) => typeof m.id === 'string')
-          .map((m: any) => ({ id: m.id, name: m.id }))
-          .sort((a: ModelOption, b: ModelOption) => a.id.localeCompare(b.id))
-
-        if (models.length === 0) {
-          throw new Error('No models found')
-        }
-
-        setFetchedModels(models)
-
-        if (!selectedModel || !models.some(m => m.id === selectedModel)) {
-          setSelectedModel(models[0].id)
-        }
-
-        setValidationResult({ valid: true, message: t('Found ${count} models').replace('${count}', String(models.length)) })
-      } else {
-        throw new Error('Invalid API response format')
-      }
+      setValidationResult({ valid: true, message: t('Found ${count} models').replace('${count}', String(models.length)) })
     } catch (error) {
       console.error('[ProviderSelector] Failed to fetch models:', error)
       setValidationResult({ valid: false, message: t('Failed to fetch models') })

@@ -1,6 +1,6 @@
 ---
-name: Halo Development Context v2
-description: Minimal onboarding skill for Halo development. Mandatory entry: CONTEXT.md, ARCHITECTURE.md, and quick.md. Use quick.md for hard rules, task routing, and fast implementation checklists.
+name: halo-dev
+description: Essential project context for AI developers working on Halo. Must read before writing any code. Minimal onboarding skill for Halo hard rules, task routing, and fast implementation checklists.
 ---
 
 # Halo Development Context v2
@@ -12,6 +12,12 @@ description: Minimal onboarding skill for Halo development. Mandatory entry: CON
 3. `quick.md` - hard development rules and task-to-file fast routing.
 
 Do not start implementation before reading these three files.
+
+## Development Priority (Non-Negotiable)
+
+- **Modularity, quality, and maintainability come first.**
+- **Performance must not regress** (startup, runtime latency, memory).
+- If a quick fix conflicts with architecture quality, choose the maintainable modular solution and request explicit user approval before proceeding.
 
 ## Why This Is Minimal
 

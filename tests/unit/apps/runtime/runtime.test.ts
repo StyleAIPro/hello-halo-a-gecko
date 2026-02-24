@@ -190,6 +190,20 @@ describe('Runtime Migrations', () => {
     expect(indexNames).toContain('idx_entries_app')
   })
 
+  it('should create v2 indexes (idx_entries_run and idx_runs_status)', () => {
+    const db = dbManager.getAppDatabase()
+    dbManager.runMigrations(db, MANAGER_MIGRATION_NS, managerMigrations)
+    dbManager.runMigrations(db, RUNTIME_MIGRATION_NS, runtimeMigrations)
+
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index'")
+      .all() as Array<{ name: string }>
+    const indexNames = indexes.map((i) => i.name)
+
+    expect(indexNames).toContain('idx_entries_run')
+    expect(indexNames).toContain('idx_runs_status')
+  })
+
   it('should be idempotent (run twice without error)', () => {
     const db = dbManager.getAppDatabase()
     dbManager.runMigrations(db, MANAGER_MIGRATION_NS, managerMigrations)
@@ -656,6 +670,159 @@ describe('ActivityStore', () => {
 
       const retrieved = store.getEntry(entry.id)
       expect(retrieved!.sessionKey).toBeUndefined()
+    })
+  })
+
+  // ── Prune Operations ──────────────────────────
+
+  describe('pruneOldData', () => {
+    it('should delete runs older than retention period', () => {
+      const now = Date.now()
+      const twoYearsAgo = now - 2 * 365 * 24 * 60 * 60 * 1000
+      const oneMonthAgo = now - 30 * 24 * 60 * 60 * 1000
+
+      // Insert an old run (2 years ago)
+      store.insertRun({
+        runId: 'old-run',
+        appId: testAppId,
+        sessionKey: 'sess-old',
+        status: 'running',
+        triggerType: 'schedule',
+        startedAt: twoYearsAgo,
+      })
+      store.completeRun('old-run', {
+        status: 'ok',
+        finishedAt: twoYearsAgo + 1000,
+        durationMs: 1000,
+      })
+
+      // Insert a recent run (1 month ago)
+      store.insertRun({
+        runId: 'recent-run',
+        appId: testAppId,
+        sessionKey: 'sess-recent',
+        status: 'running',
+        triggerType: 'manual',
+        startedAt: oneMonthAgo,
+      })
+      store.completeRun('recent-run', {
+        status: 'ok',
+        finishedAt: oneMonthAgo + 2000,
+        durationMs: 2000,
+      })
+
+      const pruned = store.pruneOldData()
+
+      expect(pruned).toBe(1)
+      expect(store.getRun('old-run')).toBeNull()
+      expect(store.getRun('recent-run')).not.toBeNull()
+    })
+
+    it('should cascade-delete activity entries of pruned runs', () => {
+      const twoYearsAgo = Date.now() - 2 * 365 * 24 * 60 * 60 * 1000
+
+      store.insertRun({
+        runId: 'old-run',
+        appId: testAppId,
+        sessionKey: 'sess-old',
+        status: 'running',
+        triggerType: 'schedule',
+        startedAt: twoYearsAgo,
+      })
+      store.completeRun('old-run', {
+        status: 'ok',
+        finishedAt: twoYearsAgo + 1000,
+        durationMs: 1000,
+      })
+
+      const entryId = randomUUID()
+      store.insertEntry({
+        id: entryId,
+        appId: testAppId,
+        runId: 'old-run',
+        type: 'run_complete',
+        ts: twoYearsAgo + 500,
+        content: { summary: 'Old result' },
+      })
+
+      store.pruneOldData()
+
+      expect(store.getEntry(entryId)).toBeNull()
+    })
+
+    it('should not delete runs with status running or waiting_user', () => {
+      const twoYearsAgo = Date.now() - 2 * 365 * 24 * 60 * 60 * 1000
+
+      store.insertRun({
+        runId: 'stuck-running',
+        appId: testAppId,
+        sessionKey: 'sess-stuck',
+        status: 'running',
+        triggerType: 'manual',
+        startedAt: twoYearsAgo,
+      })
+
+      store.insertRun({
+        runId: 'stuck-waiting',
+        appId: testAppId,
+        sessionKey: 'sess-waiting',
+        status: 'running',
+        triggerType: 'manual',
+        startedAt: twoYearsAgo,
+      })
+      store.updateRunStatus('stuck-waiting', 'waiting_user')
+
+      const pruned = store.pruneOldData()
+
+      expect(pruned).toBe(0)
+      expect(store.getRun('stuck-running')).not.toBeNull()
+      expect(store.getRun('stuck-waiting')).not.toBeNull()
+    })
+
+    it('should accept custom retention period', () => {
+      const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
+      const oneDayAgo = Date.now() - 1 * 24 * 60 * 60 * 1000
+
+      store.insertRun({
+        runId: 'run-3d',
+        appId: testAppId,
+        sessionKey: 'sess-3d',
+        status: 'running',
+        triggerType: 'schedule',
+        startedAt: threeDaysAgo,
+      })
+      store.completeRun('run-3d', {
+        status: 'ok',
+        finishedAt: threeDaysAgo + 1000,
+        durationMs: 1000,
+      })
+
+      store.insertRun({
+        runId: 'run-1d',
+        appId: testAppId,
+        sessionKey: 'sess-1d',
+        status: 'running',
+        triggerType: 'manual',
+        startedAt: oneDayAgo,
+      })
+      store.completeRun('run-1d', {
+        status: 'ok',
+        finishedAt: oneDayAgo + 1000,
+        durationMs: 1000,
+      })
+
+      // Prune with 2-day retention
+      const twoDaysMs = 2 * 24 * 60 * 60 * 1000
+      const pruned = store.pruneOldData(twoDaysMs)
+
+      expect(pruned).toBe(1)
+      expect(store.getRun('run-3d')).toBeNull()
+      expect(store.getRun('run-1d')).not.toBeNull()
+    })
+
+    it('should return 0 when nothing to prune', () => {
+      const pruned = store.pruneOldData()
+      expect(pruned).toBe(0)
     })
   })
 })

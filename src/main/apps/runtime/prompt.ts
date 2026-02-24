@@ -13,6 +13,7 @@
  */
 
 import type { AppSpec } from '../spec'
+import type { MemorySnapshot } from '../../platform/memory/snapshot'
 import { buildSystemPrompt } from '../../services/agent/system-prompt'
 
 // ============================================
@@ -90,7 +91,7 @@ When you need to interact with web pages, use the Task tool to delegate
 to a sub-agent. The sub-agent inherits your MCP tools including browser tools.
 
 Pattern:
-1. Read memory to recall previous state
+1. Review your memory state (loaded in trigger message above)
 2. Use Task tool with clear instructions for the browser sub-agent
 3. The sub-agent navigates, extracts data, returns structured JSON
 4. You process the data, make decisions, update memory, and report
@@ -207,26 +208,117 @@ export function buildAppSystemPrompt(options: AppPromptOptions): string {
 /**
  * Build the initial user message that starts an automation run.
  *
- * Includes: trigger context, user configuration, and task instructions.
+ * Includes: trigger context, memory snapshot (pre-loaded), user configuration,
+ * and task instructions.
  */
 export function buildInitialMessage(options: {
   triggerContext: string
   userConfig?: Record<string, unknown>
   appName: string
+  memorySnapshot: MemorySnapshot
 }): string {
   const parts: string[] = []
 
+  // ── Trigger ────────────────────────────────────────────────────────────
   parts.push(`## Trigger\n\n${options.triggerContext}`)
 
+  // ── Memory ─────────────────────────────────────────────────────────────
+  parts.push(buildMemorySection(options.memorySnapshot))
+
+  // ── User Configuration ─────────────────────────────────────────────────
   if (options.userConfig && Object.keys(options.userConfig).length > 0) {
     parts.push(`## User Configuration\n\n\`\`\`json\n${JSON.stringify(options.userConfig, null, 2)}\n\`\`\``)
   }
 
+  // ── Instructions ───────────────────────────────────────────────────────
   parts.push(
-    `## Instructions\n\nExecute the "${options.appName}" task based on the trigger above. ` +
-    `Use \`mcp__halo-memory__memory_read\` first to recall previous state, then proceed with the task. ` +
+    `## Instructions\n\nExecute the "${options.appName}" task based on the trigger above.\n` +
+    `Update memory (both \`# now\` and \`# History\`) before reporting.\n` +
     `Report your findings via \`mcp__halo-report__report_to_user\` when done.`
   )
 
   return parts.join('\n\n')
+}
+
+// ============================================
+// Memory Section Builder
+// ============================================
+
+/**
+ * Build the ## Memory section for the initial message.
+ *
+ * Three variants based on memory state:
+ * - No file: guidance to create one
+ * - Small file (≤30 lines): full content inline
+ * - Large file (>30 lines): first section + structural outline
+ */
+function buildMemorySection(snapshot: MemorySnapshot): string {
+  const lines: string[] = []
+  lines.push('## Memory')
+  lines.push('')
+
+  if (!snapshot.exists) {
+    // ── No memory file ─────────────────────────────────────────────────
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
+    lines.push('')
+    lines.push('No memory file exists yet. Create it with Write using the `# now` / `# History` structure.')
+    lines.push('Put your most important state under `# now` — it will be auto-loaded next run.')
+  } else if (snapshot.fullContent !== null) {
+    // ── Small memory: inject full content ──────────────────────────────
+    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1)
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
+    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`)
+    lines.push('')
+    lines.push('### Content (full):')
+    lines.push('')
+    lines.push(snapshot.fullContent)
+  } else {
+    // ── Large memory: first section + outline ──────────────────────────
+    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1)
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
+    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`)
+
+    if (snapshot.firstSection) {
+      lines.push('')
+      lines.push('### Working Memory (# now, auto-loaded):')
+      lines.push('')
+      lines.push(snapshot.firstSection)
+    }
+
+    if (snapshot.headers.length > 0) {
+      lines.push('')
+      lines.push('### Structure:')
+      for (const h of snapshot.headers) {
+        const loadedTag = h === snapshot.headers[0] && snapshot.firstSection
+          ? ' ← loaded above'
+          : ''
+        lines.push(`  L${h.line}: ${h.heading} (${h.lineCount} lines)${loadedTag}`)
+      }
+    }
+
+    lines.push('')
+    lines.push(`Use \`Read("${snapshot.memoryFilePath}")\` to see full content or specific sections.`)
+  }
+
+  // ── Archive info ─────────────────────────────────────────────────────
+  if (snapshot.archiveTotalCount > 0 || snapshot.compactionArchiveCount > 0) {
+    lines.push('')
+
+    if (snapshot.archiveTotalCount > 0) {
+      lines.push(`**Run History** (\`${snapshot.memoryArchiveDir}\`, ${snapshot.archiveTotalCount} files):`)
+      for (const f of snapshot.archiveFiles) {
+        lines.push(`  - ${f}`)
+      }
+      if (snapshot.archiveTotalCount > snapshot.archiveFiles.length) {
+        lines.push(`  ... and ${snapshot.archiveTotalCount - snapshot.archiveFiles.length} more`)
+      }
+    }
+
+    if (snapshot.compactionArchiveCount > 0) {
+      const compactDir = snapshot.memoryArchiveDir.replace(/\/run$/, '')
+      lines.push(`**Compaction Archives** (\`${compactDir}\`, ${snapshot.compactionArchiveCount} files)`)
+    }
+  }
+
+  return lines.join('\n')
 }

@@ -82,6 +82,21 @@ export class BrowserContext implements BrowserContextInterface {
   // View tracking for scoped cleanup
   private ownedViewIds: Set<string> = new Set()
 
+  // Whether this is a scoped context (used for automation isolation).
+  // Scoped contexts create BrowserViews on the offscreen host window instead
+  // of the main window, preventing lifecycle conflicts with user-visible views.
+  private _isScoped: boolean = false
+
+  /** Whether this context is scoped (automation) vs the global singleton (interactive). */
+  get isScoped(): boolean {
+    return this._isScoped
+  }
+
+  /** Mark this context as scoped. Called by createScopedBrowserContext(). */
+  markAsScoped(): void {
+    this._isScoped = true
+  }
+
   /**
    * Initialize the context with the main window
    */
@@ -1373,6 +1388,7 @@ function parseKey(key: string): {
  */
 export function createScopedBrowserContext(mainWindow: BrowserWindow | null): BrowserContext {
   const scoped = new BrowserContext()
+  scoped.markAsScoped()
   if (mainWindow) {
     scoped.initialize(mainWindow)
   }

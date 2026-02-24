@@ -36,7 +36,7 @@ import {
   type ModelOption,
   type ProviderId
 } from '../../../shared/types'
-import { getBuiltinProvider, isAnthropicProvider } from '../../../shared/constants'
+import { getBuiltinProvider, isAnthropicProvider, isBuiltinProvider } from '../../../shared/constants'
 import { getConfig, saveConfig } from '../config.service'
 import { getCustomProvider } from './providers/custom.provider'
 import { getGitHubCopilotProvider } from './providers/github-copilot.provider'
@@ -78,6 +78,9 @@ class AISourceManager {
     // Register built-in providers immediately
     this.registerProvider(getCustomProvider())
     this.registerProvider(getGitHubCopilotProvider())
+
+    // Sync saved sources' model lists with current BUILTIN_PROVIDERS
+    this.syncBuiltinModels()
 
     // Start async initialization (optional providers + dynamic loading)
     this.initPromise = this.initializeAsync()
@@ -620,6 +623,69 @@ class AISourceManager {
   }
 
   // ========== Configuration Refresh ==========
+
+  /**
+   * Sync availableModels for sources using builtin providers.
+   *
+   * When BUILTIN_PROVIDERS is updated (e.g. new model added in a release),
+   * already-saved sources still have the old snapshot. This method updates
+   * the builtin portion of each matching source's availableModels.
+   *
+   * Only syncs when the saved model list consists entirely of builtin models
+   * (i.e. user has NOT fetched custom models from a remote API). If the user
+   * fetched their own models, their list is the source of truth and we don't
+   * inject builtin defaults.
+   *
+   * Called synchronously at startup from the constructor.
+   */
+  private syncBuiltinModels(): void {
+    const aiSources = this.getAiSourcesConfig()
+    if (aiSources.sources.length === 0) return
+
+    let dirty = false
+    const updatedSources = aiSources.sources.map(source => {
+      // Only sync api-key sources that use a builtin provider
+      if (source.authType !== 'api-key' || !isBuiltinProvider(source.provider)) {
+        return source
+      }
+
+      const builtin = getBuiltinProvider(source.provider)
+      if (!builtin || builtin.models.length === 0) return source
+
+      const existing = source.availableModels || []
+      if (existing.length === 0) return source
+
+      // Check if the saved list is purely builtin models (no user-fetched models).
+      // If the user fetched custom models via "Fetch Models", there will be model IDs
+      // not present in BUILTIN_PROVIDERS — in that case, skip sync to avoid injecting
+      // irrelevant defaults into a custom model list.
+      const builtinIds = new Set(builtin.models.map(m => m.id))
+      const hasUserModels = existing.some(m => !builtinIds.has(m.id))
+      if (hasUserModels) return source
+
+      // All existing models are from builtin — safe to replace with latest builtin list
+      const existingIds = new Set(existing.map(m => m.id))
+      const newModels = builtin.models.filter(m => !existingIds.has(m.id))
+      if (newModels.length === 0) return source
+
+      dirty = true
+      console.log(`[AISourceManager] Syncing ${newModels.length} new model(s) to source "${source.name}":`, newModels.map(m => m.id).join(', '))
+
+      return {
+        ...source,
+        availableModels: [...builtin.models]
+      }
+    })
+
+    if (dirty) {
+      const newConfig: AISourcesConfig = {
+        ...aiSources,
+        sources: updatedSources
+      }
+      saveConfig({ aiSources: newConfig } as any)
+      console.log('[AISourceManager] Builtin models synced to config')
+    }
+  }
 
   /**
    * Refresh configuration for a specific source

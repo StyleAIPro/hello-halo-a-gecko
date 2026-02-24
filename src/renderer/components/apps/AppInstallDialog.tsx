@@ -2,13 +2,14 @@
  * AppInstallDialog
  *
  * Modal dialog for creating / installing an App.
- * Two modes:
+ * Three modes:
  *   - Visual (default): structured form for the common case (type=automation)
  *   - YAML: full CodeMirror editor with a complete example template
+ *   - Import: drag-and-drop / browse a .yaml spec file to install
  */
 
-import { useState, useMemo, useCallback, lazy, Suspense } from 'react'
-import { X, Loader2, Sparkles } from 'lucide-react'
+import { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react'
+import { X, Loader2, Sparkles, Upload } from 'lucide-react'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { useAppsStore } from '../../stores/apps.store'
 import { useSpaceStore } from '../../stores/space.store'
@@ -25,7 +26,7 @@ const CodeMirrorEditor = lazy(() =>
 // Constants
 // ============================================
 
-type InstallMode = 'visual' | 'yaml'
+type InstallMode = 'visual' | 'yaml' | 'import'
 
 const FREQUENCY_PRESETS = [
   { label: '1m', value: '1m' },
@@ -206,7 +207,7 @@ interface AppInstallDialogProps {
 
 export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
   const { t } = useTranslation()
-  const { installApp, loadApps, updateAppOverrides } = useAppsStore()
+  const { installApp, importApp, loadApps, updateAppOverrides } = useAppsStore()
 
   // Get all spaces
   const currentSpace = useSpaceStore(state => state.currentSpace)
@@ -230,6 +231,12 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
   // Per-app model override (optional, applied after install)
   const [modelSourceId, setModelSourceId] = useState<string | undefined>(undefined)
   const [modelId, setModelId] = useState<string | undefined>(undefined)
+
+  // Import mode state
+  const [importYaml, setImportYaml] = useState<string | null>(null)
+  const [importFileName, setImportFileName] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Default space: currentSpace if set, else first available
   const [selectedSpaceId, setSelectedSpaceId] = useState(
@@ -275,12 +282,71 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
     setMode('visual')
   }, [yamlContent, t])
 
-  // ── Install handler (both modes) ──
+  // ── Import mode: file handling ──
+  const handleImportFile = useCallback((file: File) => {
+    setError(null)
+    if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+      setError(t('Please select a .yaml or .yml file'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const content = e.target?.result as string
+      if (content) {
+        setImportYaml(content)
+        setImportFileName(file.name)
+      }
+    }
+    reader.onerror = () => {
+      setError(t('Failed to read file'))
+    }
+    reader.readAsText(file)
+  }, [t])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleImportFile(file)
+  }, [handleImportFile])
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleImportFile(file)
+    // Reset input so re-selecting the same file works
+    e.target.value = ''
+  }, [handleImportFile])
+
+  const handleClearImport = useCallback(() => {
+    setImportYaml(null)
+    setImportFileName(null)
+    setError(null)
+  }, [])
+
+  // ── Install handler (all modes) ──
   async function handleInstall() {
     setError(null)
     setLoading(true)
 
     try {
+      // ── Import mode: use dedicated import API ──
+      if (mode === 'import') {
+        if (!importYaml) {
+          setError(t('No file loaded'))
+          setLoading(false)
+          return
+        }
+        const appId = await importApp(selectedSpaceId, importYaml)
+        if (appId) {
+          onClose()
+        } else {
+          setError(t('Import failed. Check the YAML spec and try again.'))
+        }
+        setLoading(false)
+        return
+      }
+
+      // ── Visual / YAML modes ──
       let specObj: AppSpec
 
       if (mode === 'visual') {
@@ -340,9 +406,11 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
   }
 
   // ── Can install? ──
-  const canInstall = mode === 'yaml'
-    ? yamlContent.trim().length > 0
-    : (form.name.trim().length > 0 && form.systemPrompt.trim().length > 0)
+  const canInstall = mode === 'import'
+    ? importYaml !== null
+    : mode === 'yaml'
+      ? yamlContent.trim().length > 0
+      : (form.name.trim().length > 0 && form.systemPrompt.trim().length > 0)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
@@ -376,6 +444,16 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 }`}
               >
                 {t('YAML')}
+              </button>
+              <button
+                onClick={() => { setError(null); setMode('import') }}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  mode === 'import'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t('Import')}
               </button>
             </div>
           </div>
@@ -486,7 +564,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 </div>
               </div>
             </>
-          ) : (
+          ) : mode === 'yaml' ? (
             /* YAML mode */
             <>
               <p className="text-xs text-muted-foreground">
@@ -507,19 +585,82 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 </div>
               </Suspense>
             </>
+          ) : (
+            /* Import mode */
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t('Import a digital human from a .yaml spec file exported from Halo.')}
+              </p>
+
+              {importYaml === null ? (
+                /* File drop zone */
+                <div
+                  onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex flex-col items-center justify-center gap-3 h-52 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                    isDragOver
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-muted-foreground/50'
+                  }`}
+                >
+                  <Upload className={`w-8 h-8 ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <div className="text-center">
+                    <p className="text-sm text-foreground">{t('Drop .yaml file here')}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('or click to browse')}</p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".yaml,.yml"
+                    onChange={handleFileInput}
+                    className="hidden"
+                  />
+                </div>
+              ) : (
+                /* Preview loaded file */
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-foreground">{importFileName}</span>
+                    <button
+                      onClick={handleClearImport}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {t('Clear')}
+                    </button>
+                  </div>
+                  <Suspense fallback={
+                    <div className="h-64 flex items-center justify-center bg-secondary rounded-lg border border-border">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                    </div>
+                  }>
+                    <div className="h-64 border border-border rounded-lg overflow-hidden">
+                      <CodeMirrorEditor
+                        content={importYaml}
+                        language="yaml"
+                        readOnly={true}
+                      />
+                    </div>
+                  </Suspense>
+                </div>
+              )}
+            </>
           )}
 
-          {/* Model selector — shown in both visual and YAML modes */}
-          <AppModelSelector
-            modelSourceId={modelSourceId}
-            modelId={modelId}
-            onChange={(srcId, mdlId) => {
-              setModelSourceId(srcId)
-              setModelId(mdlId)
-            }}
-          />
+          {/* Model selector — shown in visual and YAML modes */}
+          {mode !== 'import' && (
+            <AppModelSelector
+              modelSourceId={modelSourceId}
+              modelId={modelId}
+              onChange={(srcId, mdlId) => {
+                setModelSourceId(srcId)
+                setModelId(mdlId)
+              }}
+            />
+          )}
 
-          {/* Space selector — shown in both visual and YAML modes */}
+          {/* Space selector — shown in all modes */}
           <div className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('Install to')}
@@ -562,7 +703,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {t('Create Digital Human')}
+            {mode === 'import' ? t('Import Digital Human') : t('Create Digital Human')}
           </button>
         </div>
       </div>

@@ -159,7 +159,9 @@ const browser_new_page = tool(
 
     try {
       const viewId = `ai-browser-${Date.now()}`
-      await browserViewManager.create(viewId, args.url)
+      // Scoped (automation) contexts use the offscreen host window to isolate
+      // view lifecycle from the user's mainWindow.
+      await browserViewManager.create(viewId, args.url, { offscreen: ctx.isScoped })
       ctx.trackView(viewId)
       ctx.setActiveViewId(viewId)
 

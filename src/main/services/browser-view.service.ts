@@ -11,6 +11,8 @@
  * - Security isolation (sandbox mode)
  * - State tracking (URL, title, loading, navigation history)
  * - AI-ready (screenshot capture, JS execution)
+ * - Window-level isolation: AI automation views are hosted on a separate
+ *   hidden BrowserWindow to prevent lifecycle conflicts with user-visible views
  */
 
 import { BrowserView, BrowserWindow } from 'electron'
@@ -39,6 +41,13 @@ export interface BrowserViewBounds {
   height: number
 }
 
+export interface BrowserViewCreateOptions {
+  /** When true, the view is hosted on a hidden offscreen window instead of the
+   *  main window. Used by AI automation to isolate view lifecycle from the
+   *  user-visible browser. Defaults to false. */
+  offscreen?: boolean
+}
+
 // ============================================
 // Constants
 // ============================================
@@ -56,6 +65,13 @@ class BrowserViewManager {
   private states: Map<string, BrowserViewState> = new Map()
   private mainWindow: BrowserWindow | null = null
   private activeViewId: string | null = null
+
+  // Hidden offscreen window that hosts AI automation BrowserViews.
+  // Isolates AI view lifecycle from the user-visible mainWindow so that
+  // creating/destroying AI views cannot corrupt the mainWindow's view list.
+  private offscreenWindow: BrowserWindow | null = null
+  // Track which views live on the offscreen window for correct cleanup.
+  private offscreenViewIds: Set<string> = new Set()
 
   // Debounce timers for state change events
   // This prevents flooding the renderer with too many IPC messages during rapid navigation
@@ -75,10 +91,47 @@ class BrowserViewManager {
   }
 
   /**
+   * Get or lazily create the hidden offscreen host window.
+   *
+   * This window is never shown to the user. Its sole purpose is to provide a
+   * compositing surface for AI automation BrowserViews so that CDP commands
+   * (e.g. Page.captureScreenshot) produce frames. The window itself loads no
+   * content and consumes minimal memory (~10 MB).
+   */
+  private getOrCreateOffscreenWindow(): BrowserWindow {
+    if (this.offscreenWindow && !this.offscreenWindow.isDestroyed()) {
+      return this.offscreenWindow
+    }
+
+    this.offscreenWindow = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 720,
+      webPreferences: {
+        // Minimal prefs — this window never loads content itself
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    })
+
+    // Prevent from appearing in taskbar / dock
+    this.offscreenWindow.setSkipTaskbar(true)
+
+    // Handle unexpected close (e.g. OS kill)
+    this.offscreenWindow.on('closed', () => {
+      this.offscreenWindow = null
+    })
+
+    console.log('[BrowserView] Offscreen host window created for AI automation views')
+    return this.offscreenWindow
+  }
+
+  /**
    * Create a new BrowserView
    */
-  async create(viewId: string, url?: string): Promise<BrowserViewState> {
-    console.log(`[BrowserView] >>> create() called - viewId: ${viewId}, url: ${url}`)
+  async create(viewId: string, url?: string, options?: BrowserViewCreateOptions): Promise<BrowserViewState> {
+    const isOffscreen = options?.offscreen ?? false
+    console.log(`[BrowserView] >>> create() called - viewId: ${viewId}, url: ${url}, offscreen: ${isOffscreen}`)
 
     // Don't create duplicate views
     if (this.views.has(viewId)) {
@@ -95,6 +148,7 @@ class BrowserViewManager {
         webSecurity: true,
         allowRunningInsecureContent: false,
         // Persistent storage for cookies, localStorage, etc.
+        // Shared across mainWindow and offscreen window — login state is preserved.
         partition: 'persist:browser',
         // Enable smooth scrolling and other web features
         scrollBounce: true,
@@ -108,14 +162,30 @@ class BrowserViewManager {
     // Set background color to white (standard web)
     view.setBackgroundColor('#ffffff')
 
-    // Attach to window at offscreen bounds so the Chromium compositor allocates
+    // Attach to the appropriate host window so the Chromium compositor allocates
     // a compositing surface. Without this, CDP commands that need pixel output
     // (e.g. Page.captureScreenshot) will hang because no frames are produced.
-    // show() later repositions the view to visible bounds; addBrowserView is
-    // idempotent so the subsequent call in show() is a safe no-op.
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.addBrowserView(view)
-      view.setBounds({ x: -10000, y: -10000, width: 1280, height: 720 })
+    //
+    // For user-visible views: attach to mainWindow at offscreen bounds;
+    //   show() later repositions to visible bounds.
+    // For AI automation views: attach to a dedicated hidden offscreen window
+    //   to isolate lifecycle from the user's mainWindow.
+    const hostWindow = isOffscreen
+      ? this.getOrCreateOffscreenWindow()
+      : this.mainWindow
+
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      hostWindow.addBrowserView(view)
+      // Offscreen window is hidden, so (0,0) is fine. User views start off-screen
+      // and are repositioned by show().
+      const initialBounds = isOffscreen
+        ? { x: 0, y: 0, width: 1280, height: 720 }
+        : { x: -10000, y: -10000, width: 1280, height: 720 }
+      view.setBounds(initialBounds)
+    }
+
+    if (isOffscreen) {
+      this.offscreenViewIds.add(viewId)
     }
 
     // Initialize state
@@ -171,6 +241,26 @@ class BrowserViewManager {
       return false
     }
 
+    // Offscreen views live on a hidden window and must not be shown on mainWindow
+    if (this.offscreenViewIds.has(viewId)) {
+      console.warn(`[BrowserView] show() - Cannot show offscreen view on mainWindow: ${viewId}`)
+      return false
+    }
+
+    // Defensive: if the native BrowserView object has been destroyed (e.g. by
+    // a race condition), clean up the stale entry and bail out.
+    try {
+      if (view.webContents.isDestroyed()) {
+        console.error(`[BrowserView] show() - View webContents already destroyed, cleaning up: ${viewId}`)
+        this.cleanupStaleView(viewId)
+        return false
+      }
+    } catch (e) {
+      console.error(`[BrowserView] show() - View object destroyed, cleaning up: ${viewId}`)
+      this.cleanupStaleView(viewId)
+      return false
+    }
+
     // Hide currently active view first
     if (this.activeViewId && this.activeViewId !== viewId) {
       console.log(`[BrowserView] Hiding previous active view: ${this.activeViewId}`)
@@ -210,12 +300,19 @@ class BrowserViewManager {
    */
   hide(viewId: string) {
     const view = this.views.get(viewId)
-    if (!view || !this.mainWindow) return false
+    if (!view) return false
 
-    try {
-      this.mainWindow.removeBrowserView(view)
-    } catch (e) {
-      // View might already be removed
+    // Remove from the correct host window
+    const hostWindow = this.offscreenViewIds.has(viewId)
+      ? this.offscreenWindow
+      : this.mainWindow
+
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      try {
+        hostWindow.removeBrowserView(view)
+      } catch (e) {
+        // View might already be removed
+      }
     }
 
     if (this.activeViewId === viewId) {
@@ -417,10 +514,13 @@ class BrowserViewManager {
       this.stateChangeDebounceTimers.delete(viewId)
     }
 
-    // Remove from window
-    if (this.mainWindow) {
+    // Remove from the correct host window
+    const isOffscreen = this.offscreenViewIds.has(viewId)
+    const hostWindow = isOffscreen ? this.offscreenWindow : this.mainWindow
+
+    if (hostWindow && !hostWindow.isDestroyed()) {
       try {
-        this.mainWindow.removeBrowserView(view)
+        hostWindow.removeBrowserView(view)
       } catch (e) {
         // Already removed
       }
@@ -436,6 +536,7 @@ class BrowserViewManager {
     // Clean up maps
     this.views.delete(viewId)
     this.states.delete(viewId)
+    this.offscreenViewIds.delete(viewId)
 
     if (this.activeViewId === viewId) {
       this.activeViewId = null
@@ -443,7 +544,7 @@ class BrowserViewManager {
   }
 
   /**
-   * Destroy all BrowserViews
+   * Destroy all BrowserViews and the offscreen host window
    */
   destroyAll() {
     // Clear all debounce timers
@@ -455,6 +556,13 @@ class BrowserViewManager {
     for (const viewId of this.views.keys()) {
       this.destroy(viewId)
     }
+
+    // Destroy the offscreen host window if it exists
+    if (this.offscreenWindow && !this.offscreenWindow.isDestroyed()) {
+      this.offscreenWindow.destroy()
+    }
+    this.offscreenWindow = null
+    this.offscreenViewIds.clear()
   }
 
   /**
@@ -600,6 +708,28 @@ class BrowserViewManager {
         viewId,
         state: { ...state },
       })
+    }
+  }
+
+  // ============================================
+  // Internal Helpers
+  // ============================================
+
+  /**
+   * Remove a stale view entry whose native object has been destroyed.
+   * Called defensively when we detect a destroyed webContents.
+   */
+  private cleanupStaleView(viewId: string) {
+    const timer = this.stateChangeDebounceTimers.get(viewId)
+    if (timer) {
+      clearTimeout(timer)
+      this.stateChangeDebounceTimers.delete(viewId)
+    }
+    this.views.delete(viewId)
+    this.states.delete(viewId)
+    this.offscreenViewIds.delete(viewId)
+    if (this.activeViewId === viewId) {
+      this.activeViewId = null
     }
   }
 

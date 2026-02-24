@@ -23,6 +23,75 @@ import { getHeadlessElectronPath } from './agent/helpers'
 // Re-export normalizeApiUrl for external use (moved to router module)
 export { normalizeApiUrl } from '../openai-compat-router'
 
+export interface FetchModelsParams {
+  apiKey: string
+  apiUrl: string
+}
+
+export interface FetchModelsResult {
+  models: Array<{ id: string; name: string }>
+}
+
+/**
+ * Fetch available models from an OpenAI-compatible API endpoint.
+ *
+ * Runs in the main process (Node.js) to avoid CORS restrictions
+ * that block direct renderer fetch() calls to external APIs.
+ */
+export async function fetchModelsFromApi(params: FetchModelsParams): Promise<FetchModelsResult> {
+  const { apiKey, apiUrl } = params
+
+  // Normalize URL: strip trailing slashes, known path suffixes, and auto-append /v1
+  let baseUrl = apiUrl.replace(/\/+$/, '')
+  const suffixes = ['/chat/completions', '/completions', '/responses', '/v1/chat']
+  for (const suffix of suffixes) {
+    if (baseUrl.endsWith(suffix)) {
+      baseUrl = baseUrl.slice(0, -suffix.length)
+      break
+    }
+  }
+
+  if (!baseUrl.includes('/v1') && !baseUrl.includes('/api/paas')) {
+    baseUrl = `${baseUrl}/v1`
+  }
+
+  const modelsUrl = `${baseUrl}/models`
+
+  console.log('[API Validator] Fetching models from:', modelsUrl)
+
+  const response = await fetch(modelsUrl, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    signal: AbortSignal.timeout(15000)
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch models (${response.status})`)
+  }
+
+  const data = await response.json()
+
+  if (!data.data || !Array.isArray(data.data)) {
+    throw new Error('Invalid API response format')
+  }
+
+  const models = data.data
+    .filter((m: any) => typeof m.id === 'string')
+    .map((m: any) => ({ id: m.id, name: m.id }))
+    .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id))
+
+  if (models.length === 0) {
+    throw new Error('No models found')
+  }
+
+  console.log(`[API Validator] Found ${models.length} models`)
+
+  return { models }
+}
+
 export interface ValidateApiParams {
   apiKey: string
   apiUrl: string

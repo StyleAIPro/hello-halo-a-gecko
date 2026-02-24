@@ -10,9 +10,7 @@
  *   import { initMemory } from '../platform/memory'
  *
  *   const memory = await initMemory()
- *   // Later, in apps/runtime when creating an agent session:
- *   const mcpServer = memory.createTools(scope)
- *   const promptFragment = await memory.getPromptInstructions(scope)
+ *   const promptFragment = memory.getPromptInstructions()
  *
  * V1 Implementation:
  * - Pure file operations (no SQLite, no embeddings)
@@ -52,7 +50,6 @@ import {
   archiveMemoryFile,
   getFileSize
 } from './file-ops'
-import { createMemoryMcpServer } from './tools'
 import { generatePromptInstructions } from './prompt'
 import { join } from 'path'
 import { existsSync } from 'fs'
@@ -74,11 +71,6 @@ export { COMPACTION_THRESHOLD_BYTES }
  */
 function createMemoryService(): MemoryService {
   const service: MemoryService = {
-    // ── createTools ────────────────────────────────────────────────────────
-    createTools(scope: MemoryCallerScope) {
-      return createMemoryMcpServer(scope, service)
-    },
-
     // ── read ───────────────────────────────────────────────────────────────
     async read(caller: MemoryCallerScope, params: MemoryReadParams): Promise<string | null> {
       assertReadPermission(caller, params.scope)
@@ -186,10 +178,11 @@ function createMemoryService(): MemoryService {
       assertWritePermission(caller, scope, 'replace')
 
       const archiveDir = getMemoryArchiveDir(caller, scope)
+      const runDir = join(archiveDir, 'run')
 
-      // Ensure archive directory exists
-      if (!existsSync(archiveDir)) {
-        await mkdir(archiveDir, { recursive: true })
+      // Ensure run/ directory exists
+      if (!existsSync(runDir)) {
+        await mkdir(runDir, { recursive: true })
       }
 
       // Generate filename
@@ -202,7 +195,7 @@ function createMemoryService(): MemoryService {
         ? `${timestamp}-${slug}.md`
         : `${timestamp}.md`
 
-      const filePath = join(archiveDir, filename)
+      const filePath = join(runDir, filename)
 
       // Write the summary with a header
       const header = `# Session Summary - ${now.toISOString()}\n\n`
@@ -215,8 +208,8 @@ function createMemoryService(): MemoryService {
     },
 
     // ── getPromptInstructions ──────────────────────────────────────────────
-    async getPromptInstructions(caller: MemoryCallerScope): Promise<string> {
-      return generatePromptInstructions(caller)
+    getPromptInstructions(): string {
+      return generatePromptInstructions()
     },
 
     // ── needsCompaction ────────────────────────────────────────────────────

@@ -85,6 +85,9 @@ function rowToEntry(row: EntryRow): ActivityEntry {
 // Activity Store
 // ============================================
 
+/** Default retention period: 1 year in milliseconds */
+const DEFAULT_RETENTION_MS = 365 * 24 * 60 * 60 * 1000
+
 /**
  * SQLite store for automation runs and activity entries.
  *
@@ -324,5 +327,27 @@ export class ActivityStore {
   getAllPendingEscalations(): ActivityEntry[] {
     const rows = this.stmtGetAllPendingEscalations.all() as EntryRow[]
     return rows.map(rowToEntry)
+  }
+
+  // ── Data Lifecycle ──────────────────────────
+
+  /**
+   * Remove old completed runs and their associated activity entries.
+   *
+   * Deletes runs (and cascade-deletes their entries) where:
+   * - The run is finished (status != 'running' and status != 'waiting_user')
+   * - The run's started_at is older than the retention cutoff
+   *
+   * @param retentionMs - Maximum age in milliseconds. Defaults to 1 year.
+   * @returns Number of runs deleted (entries are cascade-deleted).
+   */
+  pruneOldData(retentionMs: number = DEFAULT_RETENTION_MS): number {
+    const cutoff = Date.now() - retentionMs
+    const result = this.db.prepare(`
+      DELETE FROM automation_runs
+      WHERE started_at < ?
+        AND status NOT IN ('running', 'waiting_user')
+    `).run(cutoff)
+    return result.changes
   }
 }

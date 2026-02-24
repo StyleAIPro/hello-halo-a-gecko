@@ -47,4 +47,14 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    version: 2,
+    description: 'Add indexes for run_id lookup and status filtering',
+    up(db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_entries_run ON activity_entries(run_id);
+        CREATE INDEX IF NOT EXISTS idx_runs_status ON automation_runs(status);
+      `)
+    },
+  },
 ]

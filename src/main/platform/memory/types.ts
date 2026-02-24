@@ -40,9 +40,9 @@ export interface MemoryCallerScope {
 // ============================================================================
 
 /**
- * Read mode for memory_read operations.
+ * Read mode for memory read operations.
  *
- * - 'full':     Return the entire memory file (default, V1 behavior)
+ * - 'full':     Return the entire memory file (default)
  * - 'headers':  Return only markdown heading lines with line numbers (low token cost)
  * - 'section':  Return a specific section matched by heading text
  * - 'tail':     Return the last N lines of the file
@@ -102,24 +102,11 @@ export const COMPACTION_THRESHOLD_BYTES = 100 * 1024
  * The public interface of the memory module.
  *
  * Consumed by apps/runtime (via initMemory()) to:
- * - Create MCP tool servers for agent sessions
  * - Read/write memory programmatically
  * - Manage session lifecycle (flush, compaction, summaries)
  * - Generate system prompt fragments
  */
 export interface MemoryService {
-  /**
-   * Create an MCP server with memory tools scoped to the caller.
-   *
-   * Returns an SDK MCP server instance (same format as createAIBrowserMcpServer)
-   * that can be injected into the SDK options' `mcpServers` config.
-   *
-   * The tools available depend on the caller scope:
-   * - User sessions: can read/write user + space memory
-   * - App sessions: can read/write app memory, append to space, read user (read-only)
-   */
-  createTools(scope: MemoryCallerScope): ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').createSdkMcpServer>
-
   /**
    * Read memory content.
    *
@@ -190,13 +177,11 @@ export interface MemoryService {
    * Get system prompt instructions for memory usage.
    *
    * Returns a markdown fragment to be appended to the agent's system prompt.
-   * The content varies based on caller scope (user vs app) and what memory
-   * files currently exist.
+   * Guides the AI to use native file tools (Read/Edit/Write) on memory.md.
    *
-   * @param caller - Who needs the instructions
    * @returns Prompt fragment string
    */
-  getPromptInstructions(caller: MemoryCallerScope): Promise<string>
+  getPromptInstructions(): string
 
   /**
    * Check if a memory file exceeds the compaction threshold.

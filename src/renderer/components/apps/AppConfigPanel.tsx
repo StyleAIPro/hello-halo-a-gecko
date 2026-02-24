@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
-import { Save, RotateCcw, Unplug, Loader2, FileCode, Settings, Code, AlertTriangle, Globe, Bell } from 'lucide-react'
+import { Save, RotateCcw, Unplug, Loader2, FileCode, Settings, Code, AlertTriangle, Globe, Bell, Download } from 'lucide-react'
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml'
 import { useAppsStore } from '../../stores/apps.store'
 import { useTranslation } from '../../i18n'
@@ -679,13 +679,14 @@ interface YamlTabProps {
 }
 
 function YamlTab({ app, appId, t }: YamlTabProps) {
-  const { updateAppSpec } = useAppsStore()
+  const { updateAppSpec, exportApp } = useAppsStore()
 
   const [yamlContent, setYamlContent] = useState(() => specToYaml(app.spec))
   const [originalYaml, setOriginalYaml] = useState(() => specToYaml(app.spec))
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   // Sync when app spec changes externally (e.g. after Settings tab save)
   useEffect(() => {
@@ -742,6 +743,12 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
     setSaveSuccess(false)
   }
 
+  async function handleExport() {
+    setExporting(true)
+    await exportApp(appId)
+    setExporting(false)
+  }
+
   return (
     <div className="space-y-3 flex flex-col" style={{ minHeight: 0 }}>
       <p className="text-xs text-muted-foreground">
@@ -790,6 +797,20 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
         {saveSuccess && (
           <span className="text-xs text-green-500">{t('Saved')}</span>
         )}
+
+        <div className="flex-1" />
+
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg transition-colors disabled:opacity-40"
+          title={t('Export as YAML file')}
+        >
+          {exporting
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <Download className="w-3.5 h-3.5" />}
+          {t('Export')}
+        </button>
       </div>
     </div>
   )

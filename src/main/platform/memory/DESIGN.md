@@ -1,179 +1,339 @@
-# platform/memory -- Design Decisions
+# platform/memory -- Design Document
 
-> Date: 2026-02-22
-> Status: V2 Implementation
+> Date: 2026-02-23
+> Status: V3 Implementation
 
 ---
 
 ## 1. Architecture Overview
 
 The memory module provides persistent, cross-session memory for AI agents in Halo.
-It exposes MCP tools (`memory_read` / `memory_write`) that AI agents call to
-read and write markdown-based memory files, plus lifecycle hooks for compaction
-and session summary.
 
-**This is a pull-based system**: the AI decides when to read/write memory,
-guided by system prompt instructions. We do not auto-inject memory into context.
+**V3 core changes from V2:**
 
-**V2 additions**: Stratified read modes (headers/section/tail/full), state-document
-write semantics (replace-first, not append-first), active compaction with
-LLM-generated summaries, and size-aware prompt hints.
-
----
-
-## 2. Key Design Decisions
-
-### 2.1 memory_read supports multiple modes (V2)
-
-**Decision**: `memory_read` accepts a `mode` parameter:
-
-| Mode | Returns | Token Cost | Use Case |
-|---|---|---|---|
-| `headers` | Markdown heading lines with line numbers | Very low | Understand memory structure before loading |
-| `section` | Content under a matched heading | Per-section | Load only relevant parts |
-| `tail` | Last N lines (default 50) | Controllable | Check recent additions |
-| `full` | Entire file (default, V1 behavior) | Full file | Small files or need everything |
-
-**Rationale**: AI agents were reading the entire memory.md every run (V1),
-wasting tokens on a file that grew linearly. `headers` → `section` is a
-two-step read pattern that matches AI cognition (understand structure, then
-drill in) and keeps token cost constant regardless of file size.
-
-The `path` parameter still works for reading archive files; when `path` is
-specified, `mode` is ignored.
-
-### 2.2 Compaction threshold: file-size only (100KB), now actively invoked
-
-**Decision**: Compaction triggers when `memory.md` exceeds 100KB.
-
-**V2 change**: `execute.ts` now calls `needsCompaction()` + `compact()` after
-every run, closing the gap where these functions existed but were never invoked.
-The compaction flow:
-
-1. Read current memory.md content
-2. Archive it to `memory/YYYY-MM-DD-HHmm.md`
-3. Call LLM to generate a concise state summary
-4. Write the summary as the new memory.md
-5. Fallback: if LLM fails, extract headings + last 100 lines
-
-**Rationale**: LLM-generated compaction produces the highest quality summaries
-because it understands context. The fallback ensures compaction still works
-when API calls fail. The LLM call uses `@anthropic-ai/sdk` directly (not a
-full SDK session) for minimal overhead.
-
-### 2.3 memory.md is a state document, not a log (V2)
-
-**Decision**: Prompt instructions and tool descriptions explicitly guide the AI
-to treat memory.md as a **state document**:
-
-- **Write**: patterns, tracking lists, decisions, config
-- **Don't write**: execution timestamps, task confirmations, per-run diary entries
-- **Replace over append**: when content is stale/duplicate, use `mode="replace"`
-  to write a clean version
-
-**Rationale**: V1 AI behavior defaulted to append-only logging, causing
-memory.md to grow linearly (e.g., 68KB after 100 runs of a water reminder app).
-V2 prompt engineering establishes the state-document mental model, and the
-tool descriptions reinforce it with concrete good/bad examples.
-
-### 2.4 Structured markdown headings for section-based reads (V2)
-
-**Decision**: Tool descriptions and prompt instructions guide AI to structure
-memory.md with consistent markdown headings (`## State`, `## Patterns`,
-`## Config`).
-
-**Rationale**: `mode="headers"` → `mode="section"` only works if the AI
-writes structured content. This creates a closed loop: structured writes
-enable efficient reads, which reinforces structured writes.
-
-### 2.5 Prompt includes file size hints (V2)
-
-**Decision**: `getPromptInstructions()` now checks file sizes and includes
-them in the prompt (e.g., "app (4.2KB)"). Files over 4KB trigger an explicit
-hint to use `mode="headers"` first.
-
-**Rationale**: Gives the AI contextual information to choose the right read
-strategy without always defaulting to `mode="full"`.
-
-### 2.6 Append-only enforcement for App -> space-memory writes
-
-**Decision**: When an App scope writes to space memory, the `write` method
-enforces `mode: 'append'` at the code level. If `mode: 'replace'` is
-requested by an App for space-memory scope, the operation throws an error.
-
-**Implementation**: The `createTools` function generates tool definitions
-where the `scope` parameter options are pre-filtered based on the caller's
-scope. An App only sees `scope: "app"` and `scope: "space"` in its tools.
-Additionally, the `write()` method performs a server-side check.
-
-### 2.7 Session summary slug generation: timestamp-based with optional hint
-
-**Decision**: Session summaries use the format `YYYY-MM-DD-HHmm.md` by
-default. The `saveSessionSummary` method accepts an optional `slug` parameter.
-The memory module itself does NOT call LLMs -- that responsibility belongs
-to apps/runtime.
-
-### 2.8 MCP tool format: SDK `tool()` + `createSdkMcpServer()`
-
-**Decision**: Tools are defined using `@anthropic-ai/claude-agent-sdk`'s
-`tool()` helper and packaged via `createSdkMcpServer()`, exactly matching
-the pattern used by `sdk-mcp-server.ts` for AI Browser tools.
-
-### 2.9 user-memory path: `{haloDir}/user-memory.md`
-
-**Decision**: User-level memory lives at `~/.halo/user-memory.md` (or
-`~/.halo-dev/user-memory.md` in dev mode), obtained via `getHaloDir()`.
-
-### 2.10 App memory path: `{spacePath}/apps/{appId}/memory.md`
-
-**Decision**: App private memory is at `{spacePath}/apps/{appId}/memory.md`
-with `memory/` subdirectory for archives.
-
-### 2.11 Concurrent write safety
-
-**Decision**: Append operations use `fs.appendFile` which provides POSIX
-atomicity guarantees for small writes. Each append is prefixed with a
-metadata comment: `<!-- {timestamp} by {source} -->`. Replace operations
-use atomic write-via-temp-file pattern (write to `.tmp`, then `rename`).
+- AI uses native Claude Code tools (Read/Edit/Write) instead of custom MCP tools
+- `memory.md` is pre-injected into the trigger message (push-based, not pull-based)
+- Only one MCP tool remains: `memory_status` for structural metadata checks
+- `memory.md` uses a two-tier structure: `# now` (working memory) + `# History` (timeline)
+- Session summaries move to `memory/run/` subfolder
+- System pre-inserts timestamp headings in `# History` before each run
 
 ---
 
-## 3. File Organization
+## 2. memory.md Structure
+
+### 2.1 Two-tier layout: `# now` + `# History`
+
+```markdown
+# now
+
+## State | brief one-line summary of current state
+- runs_completed: 84
+- alerts_sent: 5
+- last_result: AirPods ¥1199, no change
+
+## AirPods Pro (JD.com)
+- current_price: ¥1199
+- lowest_seen: ¥1099 (2026-01-08)
+- last_change: 2026-01-10, ¥1299→¥1199
+- trend: stable (5 days)
+
+## MacBook Air M3 (Taobao)
+- current_price: ¥7999
+- lowest_seen: ¥7499 (2026-01-12)
+- last_change: 2026-01-13, ¥7499→¥7999
+- trend: rising
+
+## Patterns
+- prices are lowest on weekday mornings, highest on weekends
+- price drops >10% are usually flash sales, revert within 48h
+- user prefers notification only when price drops below previous lowest
+
+## Errors
+- JD anti-bot: switch to mobile User-Agent header
+- Taobao layout changed 2026-01-11: use selector .price-current
+
+# History
+
+## 2026-01-15-1430 | routine check, no change
+
+## 2026-01-15-1400 | MacBook ¥7999↑, alerted user
+### Details
+- MacBook Air: ¥7499→¥7999
+- exceeded previous highest, sent notification
+
+## 2026-01-15-1330 | routine check, no change
+...
+```
+
+### 2.2 `# now` — Working Memory
+
+The AI's current state. Organized into `##` sections by purpose:
+
+| Section | Purpose | Growth |
+|---------|---------|--------|
+| `## State \| description` | Counters, current status, last result | Values change, field set stable |
+| `## [Entity Name]` | Per-entity tracking (e.g., per product) | Add/remove sections as needed |
+| `## Patterns` | Learned rules that improve performance | Accumulates, periodically consolidated |
+| `## Errors` | Lessons from past failures | One-liner per resolved issue |
+
+**`## State` must always be first** — it is auto-loaded via snapshot injection.
+
+The `| description` after `## State` is a one-line summary written by the AI.
+It appears in the snapshot heading list, giving instant context.
+
+### 2.3 `# History` — Timeline
+
+Chronological log of significant events, newest at the top.
+
+Each entry is a `##` heading with format: `## YYYY-MM-DD-HHmm | summary`
+
+- **Important events** get a `### sub-heading` + detailed content
+- **Routine events** are a single heading line
+
+The timestamp in `# History` corresponds directly to run files in `memory/run/`:
+- `## 2026-01-15-1400` → `memory/run/2026-01-15-1400-run.md`
+
+**System pre-inserts** the `## YYYY-MM-DD-HHmm` heading at the top of `# History`
+before each run. The AI only needs to Edit in the summary (after `|`) and
+optionally add detail lines below.
+
+### 2.4 Time format
+
+Unified across the system: **`YYYY-MM-DD-HHmm`** (local time, no colons).
+
+Used in:
+- `# History` headings in `memory.md`
+- Run file names in `memory/run/`
+- Compaction archive file names in `memory/`
+
+---
+
+## 3. Snapshot Injection
+
+### 3.1 Trigger-time injection
+
+Before each run, `buildMemorySnapshot()` reads `memory.md` and the system
+injects it into the initial user message. This replaces the V2 pattern where
+the AI had to call `memory_read` as its first action.
+
+### 3.2 Three injection variants
+
+| Condition | Injected Content |
+|-----------|-----------------|
+| No file exists | Path + guidance to create with Write |
+| Small file (≤30 lines) | Full content |
+| Large file (>30 lines) | `# now` block (full) + `# History` headings (structure only) |
+
+**Key**: `firstSection` in `snapshot.ts` extracts from the first `#`-level heading
+to the next `#`-level heading. With `# now` / `# History`, this naturally captures
+the entire `# now` block.
+
+The `# History` headings appear in the `### Structure` outline, so the AI can see
+the recent timeline without loading full content.
+
+### 3.3 What the AI sees (large file)
+
+```
+## Memory
+
+**File**: `/path/to/memory.md`
+**Size**: 150 lines, 8.5KB
+
+### Current State (auto-loaded):
+
+# now
+## State | AirPods ¥1199 stable, MacBook ¥7999↑
+- runs_completed: 84
+- alerts_sent: 5
+...
+## Patterns
+- prices lowest on weekday mornings
+...
+
+### Structure:
+  L1: # now (28 lines) ← loaded above
+  L29: # History (120 lines)
+    L30: ## 2026-01-15-1430 | routine check (1 lines)
+    L31: ## 2026-01-15-1400 | MacBook ¥7999↑ (5 lines)
+    ...
+
+**Archive** (`memory/run/`, 42 files):
+  - 2026-01-15-1430-run.md
+  - 2026-01-15-1400-run.md
+  ...
+```
+
+---
+
+## 4. Memory File Structure on Disk
+
+```
+{spacePath}/apps/{appId}/
+  memory.md              -- Active memory (# now + # History)
+  memory/
+    run/                 -- Per-run session summaries (auto-generated)
+      2026-01-15-1430-run.md
+      2026-01-15-1400-run.md
+      ...
+    2026-01-10-0000.md   -- Compaction archives (old memory.md backups)
+    ...
+```
+
+- **`memory/run/`**: One file per execution, named `YYYY-MM-DD-HHmm-run.md`.
+  Contains: trigger type, outcome, duration, tokens, AI output summary.
+  AI can read these to recall detailed history of a specific run.
+
+- **`memory/`** (root): Compaction archives. When `memory.md` exceeds 100KB,
+  it is renamed to `memory/YYYY-MM-DD-HHmm.md` and a new compact `memory.md`
+  is generated by LLM.
+
+---
+
+## 5. AI Read/Write Pattern (V3)
+
+### 5.1 Tools
+
+AI uses **native Claude Code tools** for all memory operations:
+
+| Tool | Memory Use |
+|------|-----------|
+| Read | Load specific sections of `memory.md`, or files in `memory/run/` |
+| Edit | Update individual fields in `# now`, add summary to `# History` |
+| Write | First-time creation, or full restructure after consolidation |
+
+One MCP tool remains:
+- **`memory_status`** — Returns structural metadata (path, size, headings, archive info).
+  No content. Useful for re-checking structure after multiple edits.
+
+### 5.2 Per-run lifecycle
+
+```
+Pre-run (system)
+  │
+  ├─ buildMemorySnapshot()                    ← Read memory.md + archive listing
+  ├─ Pre-insert ## YYYY-MM-DD-HHmm           ← Add timestamp heading to # History
+  └─ Inject into trigger message              ← AI sees # now + structure on start
+  │
+AI Run
+  │
+  ├─ (# now is already in context)            ← No tool call needed
+  ├─ Execute task...
+  ├─ Edit # now: update State fields          ← Precise field-level updates
+  ├─ Edit # History: add summary to heading   ← "## 2026-01-15-1430 | result summary"
+  │   └─ Optionally add ### details below
+  └─ report_to_user                           ← Send results to user
+  │
+Post-run (system)
+  │
+  ├─ saveRunSessionSummary()                  ← Write to memory/run/YYYY-MM-DD-HHmm-run.md
+  └─ needsCompaction() check
+       ├─ Under 100KB → skip
+       └─ Over 100KB → compact()
+            ├─ Archive to memory/YYYY-MM-DD-HHmm.md
+            ├─ LLM generates compact # now (preserves structure)
+            └─ LLM preserves recent # History entries, drops old ones
+```
+
+### 5.3 Compaction behavior with new structure
+
+The compaction LLM prompt instructs:
+- Preserve `# now` structure (State, Entity, Patterns, Errors sections)
+- Distill `# now` fields to current essential values
+- Keep only the last ~10 `# History` entries
+- Drop older History entries (they exist in `memory/run/` anyway)
+
+---
+
+## 6. Key Design Decisions
+
+### 6.1 Native tools over custom MCP tools (V3)
+
+**Decision**: AI uses Read/Edit/Write instead of `memory_read`/`memory_write`.
+
+**Rationale**: The automation agent has the same toolset as the interactive agent.
+Edit enables precise field-level updates (change one value without rewriting
+the file), which is impossible with `memory_write(mode="replace")`.
+This reduces tokens, improves accuracy, and eliminates a class of bugs where
+the AI rewrites stale content.
+
+### 6.2 Push-based injection over pull-based reads (V3)
+
+**Decision**: `# now` is pre-injected into the trigger message.
+
+**Rationale**: V2 AI wasted one tool call every run to read memory.
+Pre-injection saves ~3 seconds and guarantees the AI sees current state.
+
+### 6.3 `# now` / `# History` structure (V3)
+
+**Decision**: memory.md has two `#`-level sections.
+
+**Rationale**: Combines two needs:
+- Stable working memory (`# now`) — edited in place, structure doesn't change
+- Timeline context (`# History`) — append-only, gives AI awareness of recent events
+
+The `#` level split enables `firstSection` extraction in `snapshot.ts` to
+naturally capture the entire `# now` block for injection.
+
+### 6.4 System-generated timestamps (V3)
+
+**Decision**: The system pre-inserts `## YYYY-MM-DD-HHmm` at the top of
+`# History` before each run.
+
+**Rationale**: Guarantees consistent time format. AI doesn't need to know
+or generate timestamps. AI only writes the semantic summary after `|`.
+
+### 6.5 `memory/run/` subfolder (V3)
+
+**Decision**: Session summaries go to `memory/run/` instead of `memory/`.
+
+**Rationale**: Separates two types of archives:
+- `memory/run/` = per-execution records (system-generated)
+- `memory/` = compaction backups (old memory.md snapshots)
+
+Clean separation allows AI to `Glob("memory/run/*.md")` for execution history.
+
+### 6.6 Compaction threshold: 100KB (unchanged from V2)
+
+**Decision**: File-size based, 100KB threshold.
+
+Post-compaction, the LLM produces a new memory.md that preserves `# now` /
+`# History` structure, keeping essential state and recent timeline entries.
+
+### 6.7 Mandatory memory update
+
+**Decision**: The Instructions section of the trigger message includes
+"Update memory before reporting" as a requirement, not a suggestion.
+
+**Rationale**: Memory is the core mechanism for long-term agent performance.
+Skipping updates degrades future runs. Making it mandatory ensures the AI
+always records what it learned.
+
+---
+
+## 7. File Organization (V3)
 
 ```
 src/main/platform/memory/
   DESIGN.md          -- This file
-  types.ts           -- MemoryScope, MemoryService interface, MemoryReadMode, tool-related types
+  types.ts           -- MemoryService interface, scope types, constants
   paths.ts           -- Path resolution for all memory scopes
   permissions.ts     -- Permission matrix enforcement
-  tools.ts           -- MCP tool definitions (memory_read, memory_write, memory_list)
-  file-ops.ts        -- Low-level file I/O (read, readHeadings, readSection, readTail, write, archive)
-  prompt.ts          -- getPromptInstructions() generation (V2: size-aware, state-document rules)
+  file-ops.ts        -- Low-level file I/O (read, write, archive, list)
+  snapshot.ts        -- MemorySnapshot builder + memory_status MCP tool
+  prompt.ts          -- MEMORY_INSTRUCTIONS (system prompt fragment)
   index.ts           -- initMemory(), MemoryService implementation, exports
+  tools.ts           -- Legacy MCP tools (memory_read/write/list) — kept for compatibility
+
+src/main/apps/runtime/
+  prompt.ts          -- buildAppSystemPrompt(), buildInitialMessage(), buildMemorySection()
+  prompt-chat.ts     -- Chat mode prompt (references native file tools)
+  execute.ts         -- Run lifecycle: snapshot → pre-insert timestamp → run → session summary → compaction
 ```
 
 ---
 
-## 4. Integration Points
-
-```
-apps/runtime/execute.ts
-  |-- calls memory.createTools(scope) --> gets MCP server for session
-  |-- calls memory.getPromptInstructions(scope) --> gets system prompt fragment
-  |-- calls memory.saveSessionSummary(scope, ...) --> session end
-  |-- calls memory.needsCompaction(scope, 'app') --> post-run check (V2)
-  |-- calls memory.compact(scope, 'app') --> archive + LLM summary (V2)
-
-bootstrap/extended.ts
-  |-- calls initMemory() --> returns MemoryService (no deps)
-
-services/agent/send-message.ts
-  |-- injects memory MCP server into mcpServers config
-```
-
----
-
-## 5. Permission Matrix Implementation
+## 8. Permission Matrix (unchanged)
 
 ```
                     space-memory   app-memory(A)   app-memory(B)   user-memory
@@ -183,47 +343,4 @@ App A read             YES            YES             NO              YES (read-
 App A write            YES(append)    YES             NO              NO
 App B read             YES            NO              YES             YES (read-only)
 App B write            YES(append)    NO              YES             NO
-```
-
-Enforcement layers:
-1. **Tool definition**: `createTools(scope)` generates different tool schemas
-   per scope, controlling what `scope` values the AI can pass
-2. **Runtime check**: `write()` validates permissions before any file I/O
-3. **Path isolation**: `resolvePath()` maps scope to filesystem path,
-   making cross-app access structurally impossible
-
----
-
-## 6. V2 Read/Write Lifecycle (Optimal Flow)
-
-```
-Run Start
-  │
-  ├─ memory_read(mode="headers")          ← Low-cost structure scan
-  │    │
-  │    ├─ File small / no headers → memory_read(mode="full")    ← Fallback
-  │    │
-  │    └─ Has headers → memory_read(mode="section", section="relevant")
-  │         └─ Only loads needed content         ← Precise, token-efficient
-  │
-  ├─ Execute task...
-  │
-  └─ memory_write
-       │
-       ├─ State changed → mode="replace", write clean structured state
-       │
-       └─ State unchanged → don't write
-  │
-Run End
-  │
-  ├─ saveRunSessionSummary()               ← Execution log to memory/ archive
-  │
-  └─ needsCompaction() check
-       │
-       ├─ Under 100KB → skip
-       │
-       └─ Over 100KB → compact()
-            ├─ Archive old memory.md
-            ├─ LLM generates distilled summary
-            └─ Write summary as new memory.md
 ```
