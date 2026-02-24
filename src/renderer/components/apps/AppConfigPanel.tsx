@@ -17,10 +17,11 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Save, RotateCcw, Unplug, Loader2, FileCode, Settings, Code, AlertTriangle, Globe, Bell, Download } from 'lucide-react'
 import { stringify as stringifyYaml, parse as parseYaml } from 'yaml'
 import { useAppsStore } from '../../stores/apps.store'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
 import type { InputDef, SubscriptionDef, AppSpec } from '../../../shared/apps/spec-types'
 import type { InstalledApp } from '../../../shared/apps/app-types'
 import { resolvePermission } from '../../../shared/apps/app-types'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 import { AppModelSelector } from './AppModelSelector'
 import { appTypeLabel } from './appTypeUtils'
 
@@ -329,7 +330,7 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
     setConfigSaveSuccess(false)
   }, [])
 
-  const configSchema = app.spec.config_schema ?? []
+  const configSchema = resolveSpecI18n(app.spec, getCurrentLanguage()).config_schema ?? []
   const subscriptions = app.spec.subscriptions ?? []
   const hasConfig = configSchema.length > 0
   const hasFrequency = subscriptions.some(s => s.frequency || s.source.type === 'schedule')
@@ -836,12 +837,14 @@ export function AppConfigPanel({ appId, spaceName }: AppConfigPanelProps) {
 
   if (!app) return null
 
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
       {/* App identity (always visible) */}
       <div>
-        <h2 className="text-base font-semibold text-foreground">{app.spec.name}</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">{app.spec.description}</p>
+        <h2 className="text-base font-semibold text-foreground">{name}</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-xs text-muted-foreground">
             v{app.spec.version} · {app.spec.author}

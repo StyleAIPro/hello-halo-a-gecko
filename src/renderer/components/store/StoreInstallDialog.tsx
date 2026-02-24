@@ -9,7 +9,8 @@ import { useState, useMemo, useCallback } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useSpaceStore } from '../../stores/space.store'
 import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 import type { StoreAppDetail } from '../../../shared/store/store-types'
 import type { InputDef } from '../../../shared/apps/spec-types'
 
@@ -41,8 +42,9 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Dynamic config form state
-  const configSchema = detail.spec.config_schema ?? []
+  // Dynamic config form state — use resolved schema for translated display text;
+  // field.key and field.required are preserved unchanged by resolveSpecI18n.
+  const configSchema = resolveSpecI18n(detail.spec, getCurrentLanguage()).config_schema ?? []
   const [configValues, setConfigValues] = useState<Record<string, unknown>>(() => {
     const initial: Record<string, unknown> = {}
     for (const field of configSchema) {
@@ -123,7 +125,7 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
               <span className="text-base">{detail.entry.icon}</span>
             )}
             <h2 className="text-sm font-semibold truncate">
-              {t('Install')} {detail.entry.name}
+              {t('Install')} {resolveSpecI18n(detail.spec, getCurrentLanguage()).name}
             </h2>
           </div>
           <button

@@ -102,6 +102,34 @@ Extend capabilities with Model Context Protocol. Compatible with Claude Desktop 
 
 ---
 
+## Digital Humans
+
+Digital Humans are autonomous AI agents that work for you in the background — monitoring, summarizing, notifying, and acting — so you don't have to.
+
+Browse and install them directly from the **Halo Digital Human Store**, no setup required.
+
+> Think of them like apps on your phone, except they work *for* you automatically.
+
+### For Users — Install in seconds
+
+Open the Store in Halo, pick a Digital Human, configure a few fields, and it starts running. No code, no prompts, no manual effort.
+
+Examples of what Digital Humans can do for you:
+
+- Monitor prices and alert you when a deal drops
+- Deliver a daily news or market digest every morning
+- Watch your inbox and summarize what matters
+- Track social mentions of your brand or product
+- Run reports on a schedule and send them to your team
+
+### For Developers — Build and publish
+
+Want to contribute a Digital Human to the ecosystem? Write a `spec.yaml` and submit a PR to the [Digital Human Protocol (DHP)](https://github.com/openkursar/digital-human-protocol) registry — the open-source store and protocol behind Halo's Digital Humans.
+
+Your agent becomes available to all Halo users instantly after merge.
+
+---
+
 ## Screenshots
 
 ![Chat Intro](./docs/assets/chat_intro.jpg)

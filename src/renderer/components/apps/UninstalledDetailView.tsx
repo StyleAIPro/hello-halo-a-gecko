@@ -9,7 +9,8 @@ import { useState } from 'react'
 import { RotateCcw, Trash2, AlertTriangle } from 'lucide-react'
 import { useAppsStore } from '../../stores/apps.store'
 import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 import { appTypeLabel } from './appTypeUtils'
 
 interface UninstalledDetailViewProps {
@@ -29,6 +30,8 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
   const [isDeleting, setIsDeleting] = useState(false)
 
   if (!app) return null
+
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
 
   // Format the uninstalled date
   const uninstalledDate = app.uninstalledAt
@@ -65,8 +68,8 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
       <div className="max-w-lg mx-auto space-y-6">
         {/* App identity */}
         <div className="text-center">
-          <h2 className="text-lg font-semibold text-foreground">{app.spec.name}</h2>
-          <p className="text-sm text-muted-foreground mt-1">{app.spec.description}</p>
+          <h2 className="text-lg font-semibold text-foreground">{name}</h2>
+          <p className="text-sm text-muted-foreground mt-1">{description}</p>
           <div className="flex items-center justify-center gap-2 mt-2">
             <span className="text-xs text-muted-foreground">
               v{app.spec.version} · {app.spec.author}

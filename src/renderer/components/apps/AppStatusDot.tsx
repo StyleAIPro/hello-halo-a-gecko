@@ -28,6 +28,11 @@ export function AppStatusDot({ status, runtimeStatus, size = 'sm', className = '
       <span className={`inline-block ${sz} rounded-full bg-green-500 animate-pulse ${className}`} />
     )
   }
+  if (effective === 'queued') {
+    return (
+      <span className={`inline-block ${sz} rounded-full bg-blue-400 animate-pulse ${className}`} />
+    )
+  }
   if (effective === 'idle' || status === 'active') {
     return (
       <span className={`inline-block ${sz} rounded-full bg-green-500/50 ${className}`} />

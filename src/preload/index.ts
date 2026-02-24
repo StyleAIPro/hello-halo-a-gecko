@@ -363,7 +363,7 @@ export interface HaloAPI {
   onNotificationToast: (callback: (data: unknown) => void) => () => void
 
   // Store (App Registry)
-  storeListApps: (query: { search?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
+  storeListApps: (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
   storeGetAppDetail: (slug: string) => Promise<IpcResponse>
   storeInstall: (input: { slug: string; spaceId: string; userConfig?: Record<string, unknown> }) => Promise<IpcResponse>
   storeRefresh: () => Promise<IpcResponse>

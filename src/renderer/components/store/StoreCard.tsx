@@ -6,7 +6,9 @@
  */
 
 import type { RegistryEntry } from '../../../shared/store/store-types'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveEntryI18n } from '../../utils/spec-i18n'
+import { AppTypeBadge } from './AppTypeBadge'
 
 interface StoreCardProps {
   entry: RegistryEntry
@@ -18,6 +20,7 @@ const MAX_VISIBLE_TAGS = 3
 
 export function StoreCard({ entry, onClick }: StoreCardProps) {
   const { t } = useTranslation()
+  const { name, description } = resolveEntryI18n(entry, getCurrentLanguage())
   const visibleTags = entry.tags.slice(0, MAX_VISIBLE_TAGS)
 
   return (
@@ -25,15 +28,16 @@ export function StoreCard({ entry, onClick }: StoreCardProps) {
       onClick={onClick}
       className="w-full text-left p-4 rounded-xl border border-border hover:border-primary/40 hover:bg-secondary/50 transition-colors cursor-pointer"
     >
-      {/* First line: icon + name + version */}
+      {/* First line: icon + name + type badge + version */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
           {entry.icon && (
             <span className="text-base flex-shrink-0">{entry.icon}</span>
           )}
           <span className="text-sm font-medium text-foreground truncate">
-            {entry.name}
+            {name}
           </span>
+          <AppTypeBadge type={entry.type} />
         </div>
         <span className="text-xs text-muted-foreground flex-shrink-0">
           v{entry.version}
@@ -47,7 +51,7 @@ export function StoreCard({ entry, onClick }: StoreCardProps) {
 
       {/* Description (2 lines max) */}
       <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-        {entry.description}
+        {description}
       </p>
 
       {/* Tags */}

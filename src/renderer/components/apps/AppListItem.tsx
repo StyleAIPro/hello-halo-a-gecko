@@ -9,6 +9,8 @@ import { AlertCircle } from 'lucide-react'
 import type { InstalledApp } from '../../../shared/apps/app-types'
 import { AppStatusDot } from './AppStatusDot'
 import { useAppsStore } from '../../stores/apps.store'
+import { getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 import { appTypeLabel } from './appTypeUtils'
 
 interface AppListItemProps {
@@ -25,6 +27,8 @@ export function AppListItem({ app, isSelected, spaceName, onClick }: AppListItem
 
   const isWaiting = app.status === 'waiting_user'
   const isUninstalled = app.status === 'uninstalled'
+
+  const { name } = resolveSpecI18n(app.spec, getCurrentLanguage())
 
   return (
     <button
@@ -47,7 +51,7 @@ export function AppListItem({ app, isSelected, spaceName, onClick }: AppListItem
 
       <div className="flex-1 min-w-0">
         <span className={`block truncate font-medium ${isUninstalled ? 'line-through' : ''}`}>
-          {app.spec.name}
+          {name}
         </span>
         {spaceName && (
           <span className="block text-[11px] text-muted-foreground/70 truncate">

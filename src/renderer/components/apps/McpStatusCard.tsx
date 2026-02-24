@@ -8,7 +8,8 @@
 import { Wrench, Unplug } from 'lucide-react'
 import { useAppsStore } from '../../stores/apps.store'
 import { AppStatusDot } from './AppStatusDot'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 
 interface McpStatusCardProps {
   appId: string
@@ -21,6 +22,7 @@ export function McpStatusCard({ appId }: McpStatusCardProps) {
 
   if (!app) return null
 
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
   const mcpServer = app.spec.mcp_server
 
   return (
@@ -28,8 +30,8 @@ export function McpStatusCard({ appId }: McpStatusCardProps) {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">{app.spec.name}</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">{app.spec.description}</p>
+          <h2 className="text-base font-semibold text-foreground">{name}</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <AppStatusDot status={app.status} size="sm" />

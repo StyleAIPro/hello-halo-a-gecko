@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { getAppManager } from '../manager'
 import { getAppRuntime } from '../runtime'
+import { ConcurrencyLimitError } from '../runtime/errors'
 import { validateAppSpec } from '../spec'
 
 // ============================================
@@ -456,7 +457,9 @@ function buildTools(spaceId: string) {
 
   const trigger_automation_app = tool(
     'trigger_automation_app',
-    'Manually trigger an automation app to run immediately, regardless of its schedule.',
+    'Manually trigger an automation app to run immediately, regardless of its schedule. ' +
+    'Each app allows only one active execution at a time — if the app is already running ' +
+    'or queued, the trigger is rejected and you should inform the user and wait.',
     {
       app_id: z.string().describe('The app ID to trigger')
     },
@@ -473,6 +476,15 @@ function buildTools(spaceId: string) {
         const runIdPart = result.runId ? ` Run ID: ${result.runId}.` : ''
         return textResult(`App ${args.app_id} triggered successfully. Outcome: ${result.outcome}.${runIdPart}`)
       } catch (e) {
+        if (e instanceof ConcurrencyLimitError && e.isPerApp) {
+          // Per-app dedup: the same app is already running or queued.
+          // Return a non-error response so the AI can inform the user gracefully.
+          return textResult(
+            `App ${args.app_id} is already running or queued. ` +
+            `Only one execution per app is allowed at a time. ` +
+            `Please wait for the current run to complete before triggering again.`
+          )
+        }
         return textResult(`Error triggering app: ${(e as Error).message}`, true)
       }
     }

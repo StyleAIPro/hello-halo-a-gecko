@@ -96,6 +96,16 @@ const RegistryEntrySchema = z.object({
   requires_skills: z.array(z.string()).optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
+  i18n: z.record(
+    z.string(),
+    z.object({
+      name: z.string().trim().min(1).optional(),
+      description: z.string().trim().min(1).optional(),
+    })
+  ).optional(),
+  // Open extension container — protocol places no constraints on contents.
+  // Each registry publisher / client implementation may use this freely.
+  meta: z.record(z.string(), z.unknown()).optional(),
 })
 
 const RegistryIndexSchema = z.object({
@@ -262,45 +272,101 @@ export async function getIndex(): Promise<RegistryEntry[]> {
 // ============================================
 
 /**
- * List apps from the registry with optional filtering.
+ * Resolve entry-level localized text for search matching.
+ * Resolution order: exact locale -> language-prefix -> canonical fallback.
+ */
+function resolveEntrySearchText(entry: RegistryEntry, locale?: string): { name: string; description: string } {
+  if (!locale || !entry.i18n) {
+    return { name: entry.name, description: entry.description }
+  }
+
+  const exact = entry.i18n[locale]
+  if (exact) {
+    return {
+      name: exact.name ?? entry.name,
+      description: exact.description ?? entry.description,
+    }
+  }
+
+  const prefix = locale.split('-')[0]?.toLowerCase()
+  if (prefix) {
+    for (const [tag, block] of Object.entries(entry.i18n)) {
+      if (tag.toLowerCase() === prefix || tag.toLowerCase().startsWith(`${prefix}-`)) {
+        return {
+          name: block.name ?? entry.name,
+          description: block.description ?? entry.description,
+        }
+      }
+    }
+  }
+
+  return { name: entry.name, description: entry.description }
+}
+
+/**
+ * Extract the display rank from an entry's meta block.
+ *
+ * Reads `entry.meta.rank` and returns it only when it is a finite,
+ * non-negative integer — any other value (string, float, negative) is
+ * treated as absent so that malformed registry data never corrupts ordering.
+ * Entries without a valid rank are sorted after all ranked entries.
+ */
+function resolveRank(entry: RegistryEntry): number {
+  const rank = entry.meta?.rank
+  if (typeof rank === 'number' && Number.isFinite(rank) && rank >= 0 && Number.isInteger(rank)) {
+    return rank
+  }
+  return Infinity
+}
+
+/**
+ * List apps from the registry with optional filtering, sorted by rank.
+ *
+ * Entries that carry a numeric `meta.rank` value are presented first,
+ * in ascending rank order. Entries without a rank follow in their
+ * original index order (stable sort).
  *
  * @param query - Optional search/filter criteria
- * @returns Filtered list of registry entries
+ * @returns Filtered and ranked list of registry entries
  */
 export async function listApps(query?: StoreQuery): Promise<RegistryEntry[]> {
   const entries = await getIndex()
 
-  if (!query) return entries
+  const filtered = !query
+    ? entries
+    : entries.filter(entry => {
+        // Search: case-insensitive match against localized name/description and tags.
+        if (query.search) {
+          const search = query.search.toLowerCase()
+          const localized = resolveEntrySearchText(entry, query.locale)
+          const nameMatch = localized.name.toLowerCase().includes(search)
+          const descMatch = localized.description.toLowerCase().includes(search)
+          const tagMatch = entry.tags.some(t => t.toLowerCase().includes(search))
+          if (!nameMatch && !descMatch && !tagMatch) return false
+        }
 
-  return entries.filter(entry => {
-    // Search: case-insensitive match against name, description, tags
-    if (query.search) {
-      const search = query.search.toLowerCase()
-      const nameMatch = entry.name.toLowerCase().includes(search)
-      const descMatch = entry.description.toLowerCase().includes(search)
-      const tagMatch = entry.tags.some(t => t.toLowerCase().includes(search))
-      if (!nameMatch && !descMatch && !tagMatch) return false
-    }
+        // Category: exact match
+        if (query.category && entry.category !== query.category) {
+          return false
+        }
 
-    // Category: exact match
-    if (query.category && entry.category !== query.category) {
-      return false
-    }
+        // Type: exact match
+        if (query.type && entry.type !== query.type) {
+          return false
+        }
 
-    // Type: exact match
-    if (query.type && entry.type !== query.type) {
-      return false
-    }
+        // Tags: intersection (entry must have ALL queried tags)
+        if (query.tags && query.tags.length > 0) {
+          const entryTags = new Set(entry.tags.map(tag => tag.toLowerCase()))
+          const hasAllTags = query.tags.every(tag => entryTags.has(tag.toLowerCase()))
+          if (!hasAllTags) return false
+        }
 
-    // Tags: intersection (entry must have ALL queried tags)
-    if (query.tags && query.tags.length > 0) {
-      const entryTags = new Set(entry.tags.map(tag => tag.toLowerCase()))
-      const hasAllTags = query.tags.every(tag => entryTags.has(tag.toLowerCase()))
-      if (!hasAllTags) return false
-    }
+        return true
+      })
 
-    return true
-  })
+  // Sort by meta.rank ascending; unranked entries retain their original order.
+  return filtered.slice().sort((a, b) => resolveRank(a) - resolveRank(b))
 }
 
 /**

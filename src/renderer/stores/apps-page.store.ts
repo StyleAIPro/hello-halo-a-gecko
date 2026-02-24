@@ -13,6 +13,7 @@
 
 import { create } from 'zustand'
 import { api } from '../api'
+import { getCurrentLanguage } from '../i18n'
 import type { RegistryEntry, StoreAppDetail, UpdateInfo, StoreQuery } from '../../shared/store/store-types'
 
 let storeListRequestSeq = 0
@@ -163,10 +164,12 @@ export const useAppsPageStore = create<AppsPageState>((set, get) => ({
     const requestId = ++storeListRequestSeq
     set({ storeLoading: true, storeError: null })
     try {
-      const res = await api.storeListApps(query ?? {
+      const locale = getCurrentLanguage()
+      const baseQuery = query ?? {
         search: get().storeSearchQuery || undefined,
         category: get().storeCategory ?? undefined,
-      })
+      }
+      const res = await api.storeListApps({ ...baseQuery, locale })
       if (requestId !== storeListRequestSeq) return
 
       if (res.success && res.data) {

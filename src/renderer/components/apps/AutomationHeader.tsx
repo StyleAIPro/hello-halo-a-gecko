@@ -10,7 +10,8 @@ import { Play, Pause, RotateCcw, Settings } from 'lucide-react'
 import { useAppsStore } from '../../stores/apps.store'
 import { useAppsPageStore } from '../../stores/apps-page.store'
 import { AppStatusDot } from './AppStatusDot'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 import { appTypeLabel } from './appTypeUtils'
 
 interface AutomationHeaderProps {
@@ -23,6 +24,7 @@ interface AutomationHeaderProps {
 function statusLabel(s: string): string {
   switch (s) {
     case 'running': return 'Running'
+    case 'queued': return 'Queued'
     case 'idle': return 'Idle'
     case 'waiting_user': return 'Waiting for you'
     case 'paused': return 'Paused'
@@ -40,6 +42,7 @@ export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
 
   if (!app) return null
 
+  const { name } = resolveSpecI18n(app.spec, getCurrentLanguage())
   const status = app.status
   const runtimeStatus = runtimeState?.status
   const effectiveStatus = runtimeStatus ?? (status === 'active' ? 'idle' : status)
@@ -49,6 +52,7 @@ export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
   const isWaiting = status === 'waiting_user'
   const isPaused = status === 'paused'
   const isRunning = effectiveStatus === 'running'
+  const isQueued = effectiveStatus === 'queued'
 
   // Format next run time
   let nextRunLabel: string | null = null
@@ -84,7 +88,7 @@ export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
         {/* Left: app info */}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-foreground truncate">{app.spec.name}</h2>
+            <h2 className="text-sm font-semibold text-foreground truncate">{name}</h2>
             <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase tracking-wide">
               {t(appTypeLabel(appType))}
             </span>
@@ -113,8 +117,8 @@ export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
             {!isPaused && !isWaiting && (
               <button
                 onClick={() => triggerApp(appId)}
-                disabled={isRunning}
-                title={t('Run now')}
+                disabled={isRunning || isQueued}
+                title={isQueued ? t('Queued — waiting for a run slot') : t('Run now')}
                 className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-md transition-colors disabled:opacity-40"
               >
                 <Play className="w-4 h-4" />

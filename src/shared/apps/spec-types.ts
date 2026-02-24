@@ -227,6 +227,45 @@ export interface StoreMetadata {
 }
 
 // ============================================
+// i18n — Localization Overrides
+// ============================================
+
+/**
+ * Per-field display text overrides for a single locale.
+ * All fields are optional — only the overridden fields need to be provided.
+ */
+export interface I18nConfigFieldOverride {
+  /** Translated field label */
+  label?: string
+  /** Translated help text */
+  description?: string
+  /** Translated placeholder */
+  placeholder?: string
+  /**
+   * Translated option labels, keyed by option value (as string).
+   * Only values explicitly listed are overridden; others fall back to canonical labels.
+   * Example: { "en-US": "English", "zh-CN": "中文" }
+   */
+  options?: Record<string, string>
+}
+
+/**
+ * Locale-specific display text overrides for a single BCP 47 locale.
+ * Used as a value in the AppSpec `i18n` record.
+ */
+export interface I18nLocaleBlock {
+  /** Translated app display name */
+  name?: string
+  /** Translated app description */
+  description?: string
+  /**
+   * Per-field overrides, keyed by config_schema[].key.
+   * Only fields that need translation need to be listed.
+   */
+  config_schema?: Record<string, I18nConfigFieldOverride>
+}
+
+// ============================================
 // Full App Spec
 // ============================================
 
@@ -252,6 +291,13 @@ export interface AppSpec {
   recommended_model?: string
   /** Store/registry metadata (for distribution and discovery) */
   store?: StoreMetadata
+  /**
+   * Locale-specific display text overrides.
+   * Keys are BCP 47 locale tags (e.g. "zh-CN", "ja").
+   * Only affects display text (name, description, config_schema labels).
+   * system_prompt and runtime behavior are never overridden by i18n.
+   */
+  i18n?: Record<string, I18nLocaleBlock>
 }
 
 // ============================================

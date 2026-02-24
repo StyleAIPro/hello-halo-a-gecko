@@ -167,7 +167,15 @@ export interface ActivityEntry {
 
 /** Real-time state of an automation App (for UI display) */
 export interface AutomationAppState {
-  status: 'running' | 'idle' | 'paused' | 'waiting_user' | 'error'
+  /**
+   * - running:      Actively executing a run right now
+   * - queued:       Manually triggered; waiting for a global concurrency slot
+   * - idle:         Active and scheduled, no run in progress
+   * - paused:       User paused the app; subscriptions inactive
+   * - waiting_user: AI escalated; awaiting user decision
+   * - error:        Consecutive failures hit threshold; auto-disabled
+   */
+  status: 'running' | 'queued' | 'idle' | 'paused' | 'waiting_user' | 'error'
   nextRunAtMs?: number
   runningAtMs?: number
   /** Run ID of the currently executing run (only set when status === 'running') */

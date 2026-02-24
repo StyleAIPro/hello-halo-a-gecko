@@ -11,7 +11,9 @@ import { useAppsPageStore } from '../../stores/apps-page.store'
 import { useAppsStore } from '../../stores/apps.store'
 import { STORE_CATEGORY_META } from '../../../shared/store/store-types'
 import { StoreInstallDialog } from './StoreInstallDialog'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveEntryI18n, resolveSpecI18n } from '../../utils/spec-i18n'
+import { AppTypeBadge } from './AppTypeBadge'
 
 export function StoreDetail() {
   const { t } = useTranslation()
@@ -68,6 +70,17 @@ export function StoreDetail() {
     }
   }, [installedApp, checkUpdates])
 
+  // Resolve locale-specific display text
+  const locale = getCurrentLanguage()
+  const resolvedEntry = useMemo(
+    () => entry ? resolveEntryI18n(entry, locale) : null,
+    [entry, locale]
+  )
+  const resolvedSpec = useMemo(
+    () => spec ? resolveSpecI18n(spec, locale) : null,
+    [spec, locale]
+  )
+
   const handleInstalled = useCallback((appId: string) => {
     setShowInstallDialog(false)
     // Reload apps to show the newly installed app
@@ -116,7 +129,7 @@ export function StoreDetail() {
                 <span className="text-3xl flex-shrink-0">{entry.icon}</span>
               )}
               <div className="min-w-0">
-                <h1 className="text-lg font-semibold text-foreground">{entry.name}</h1>
+                <h1 className="text-lg font-semibold text-foreground">{resolvedEntry?.name ?? entry.name}</h1>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="text-xs text-muted-foreground">v{entry.version}</span>
                   <span className="text-xs text-muted-foreground">
@@ -127,10 +140,8 @@ export function StoreDetail() {
                       {categoryMeta.icon} {t(categoryMeta.labelKey)}
                     </span>
                   )}
-                  {spec.type && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                      {spec.type}
-                    </span>
+                  {entry.type && (
+                    <AppTypeBadge type={entry.type} />
                   )}
                 </div>
               </div>
@@ -184,18 +195,18 @@ export function StoreDetail() {
               {t('Description')}
             </h2>
             <p className="text-sm text-foreground whitespace-pre-wrap">
-              {spec.description || entry.description}
+              {resolvedSpec?.description ?? spec.description ?? entry.description}
             </p>
           </div>
 
           {/* Config Schema Preview */}
-          {spec.config_schema && spec.config_schema.length > 0 && (
+          {(resolvedSpec?.config_schema ?? spec.config_schema) && (resolvedSpec?.config_schema ?? spec.config_schema)!.length > 0 && (
             <div className="space-y-2">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('Configuration')}
               </h2>
               <div className="space-y-1.5">
-                {spec.config_schema.map(field => (
+                {(resolvedSpec?.config_schema ?? spec.config_schema)!.map(field => (
                   <div
                     key={field.key}
                     className="flex items-center justify-between px-3 py-2 rounded-lg bg-secondary/50 border border-border"

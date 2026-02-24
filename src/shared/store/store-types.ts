@@ -97,6 +97,31 @@ export interface RegistryEntry {
   created_at?: string
   /** ISO timestamp of last update */
   updated_at?: string
+
+  /**
+   * Locale-specific name and description overrides.
+   * Extracted from the spec's i18n block at registry build time.
+   * Allows the store UI to display translated listings without fetching the full spec.
+   *
+   * Keys are BCP 47 locale tags (e.g. "zh-CN", "ja").
+   * Resolution: exact locale match → language-prefix match → canonical name/description.
+   *
+   * Full config_schema overrides (labels, placeholders, option labels) are only
+   * available after fetching the complete spec.
+   */
+  i18n?: Record<string, { name?: string; description?: string }>
+
+  /**
+   * Implementation-defined extension data.
+   *
+   * The protocol defines this field as an open key-value container.
+   * Contents are entirely determined by the registry publisher or client
+   * implementation — the protocol places no constraints on the shape.
+   *
+   * Registry publishers and client implementations may use this field
+   * freely for custom metadata without affecting protocol compatibility.
+   */
+  meta?: Record<string, unknown>
 }
 
 // ============================================
@@ -105,8 +130,10 @@ export interface RegistryEntry {
 
 /** Query parameters for listing store apps */
 export interface StoreQuery {
-  /** Free-text search (matches name, description, tags) */
+  /** Free-text search (matches name, description, tags, and locale overrides when locale is provided) */
   search?: string
+  /** Preferred UI locale (BCP 47), used for localized search matching */
+  locale?: string
   /** Filter by category */
   category?: string
   /** Filter by app type */

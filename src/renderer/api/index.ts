@@ -1494,12 +1494,13 @@ export const api = {
     onEvent('app:navigate', callback),
 
   // ===== Store (App Registry) =====
-  storeListApps: async (query: { search?: string; category?: string; type?: string; tags?: string[] }): Promise<ApiResponse> => {
+  storeListApps: async (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.halo.storeListApps(query)
     }
     const params = new URLSearchParams()
     if (query.search) params.set('search', query.search)
+    if (query.locale) params.set('locale', query.locale)
     if (query.category) params.set('category', query.category)
     if (query.type) params.set('type', query.type)
     if (query.tags && query.tags.length > 0) {

@@ -397,7 +397,31 @@ export const AppSpecBaseSchema = z.object({
   recommended_model: z.string().optional(),
 
   /** Store/registry metadata (for distribution and discovery) */
-  store: StoreMetadataSchema
+  store: StoreMetadataSchema,
+
+  /**
+   * Locale-specific display text overrides.
+   * Keys are BCP 47 locale tags (e.g. "zh-CN", "ja").
+   * Only affects display text (name, description, config_schema labels/descriptions/placeholders/options).
+   * system_prompt and runtime behavior are never overridden by i18n.
+   */
+  i18n: z.record(
+    z.string(),
+    z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      config_schema: z.record(
+        z.string(),
+        z.object({
+          label: z.string().optional(),
+          description: z.string().optional(),
+          placeholder: z.string().optional(),
+          /** Map of option value (as string) → translated label */
+          options: z.record(z.string(), z.string()).optional(),
+        })
+      ).optional(),
+    })
+  ).optional(),
 })
 
 /**
@@ -513,3 +537,7 @@ export type Requires = z.infer<typeof RequiresSchema>
 export type EscalationConfig = z.infer<typeof EscalationConfigSchema>
 export type StoreMetadata = z.infer<typeof StoreMetadataSchema>
 export type AppSpec = z.infer<typeof AppSpecSchema>
+
+// i18n derived types (re-exported for convenience)
+export type I18nConfigFieldOverride = NonNullable<NonNullable<AppSpec['i18n']>[string]['config_schema']>[string]
+export type I18nLocaleBlock = NonNullable<AppSpec['i18n']>[string]

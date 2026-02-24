@@ -35,15 +35,29 @@ export class NoSubscriptionsError extends Error {
 }
 
 /**
- * Thrown when concurrency limit is reached and the caller cannot wait.
+ * Thrown when a trigger is rejected due to a concurrency constraint.
+ *
+ * Two cases:
+ * - Per-app limit (isPerApp=true): the same app is already running or queued.
+ *   The caller should inform the user/AI the app is busy.
+ * - Global limit (isPerApp=false): the global semaphore is saturated and
+ *   the caller opted not to queue (reserved for future non-blocking paths).
  */
 export class ConcurrencyLimitError extends Error {
   readonly name = 'ConcurrencyLimitError'
   readonly maxConcurrent: number
+  /** True when the same app is already running or queued (per-app dedup). */
+  readonly isPerApp: boolean
+  readonly appId?: string
 
-  constructor(maxConcurrent: number) {
-    super(`Concurrency limit reached (max: ${maxConcurrent})`)
+  constructor(maxConcurrent: number, appId?: string) {
+    const msg = appId
+      ? `App is already running or queued. Wait for it to complete before triggering again.`
+      : `Concurrency limit reached (max: ${maxConcurrent} concurrent runs)`
+    super(msg)
     this.maxConcurrent = maxConcurrent
+    this.isPerApp = !!appId
+    this.appId = appId
   }
 }
 

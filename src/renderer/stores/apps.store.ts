@@ -12,6 +12,7 @@
 
 import { create } from 'zustand'
 import { api } from '../api'
+import { useNotificationStore } from './notification.store'
 import type {
   InstalledApp,
   AppStatus,
@@ -246,6 +247,15 @@ export const useAppsStore = create<AppsState>((set, get) => ({
   triggerApp: async (appId) => {
     try {
       const res = await api.appTrigger(appId)
+      if (!res.success && res.error) {
+        // Surface backend rejections (e.g. per-app concurrency limit) as a toast
+        // so the user sees clear feedback rather than a silent no-op.
+        useNotificationStore.getState().show({
+          title: res.error,
+          variant: 'warning',
+          duration: 4000,
+        })
+      }
       return res.success
     } catch (err) {
       console.error('[AppsStore] triggerApp error:', err)
@@ -481,6 +491,7 @@ export const useAppsStore = create<AppsState>((set, get) => ({
       let appStatus: AppStatus
       switch (state.status) {
         case 'running':
+        case 'queued':
         case 'idle':
           appStatus = 'active'
           break

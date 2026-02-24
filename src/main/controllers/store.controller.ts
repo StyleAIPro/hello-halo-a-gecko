@@ -53,7 +53,7 @@ export type StoreControllerResponse<T> = StoreControllerSuccess<T> | StoreContro
  * List apps from the store with optional filtering.
  */
 export async function listStoreApps(
-  query?: StoreQuery | { search?: string; category?: string; type?: string; tags?: string[] }
+  query?: StoreQuery | { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }
 ): Promise<StoreControllerResponse<RegistryEntry[]>> {
   try {
     const apps = await listApps(normalizeStoreQuery(query))
@@ -266,14 +266,16 @@ export function toggleStoreRegistry(
 }
 
 function normalizeStoreQuery(
-  query?: StoreQuery | { search?: string; category?: string; type?: string; tags?: string[] }
+  query?: StoreQuery | { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }
 ): StoreQuery | undefined {
   if (!query) return undefined
 
   const normalized: StoreQuery = {}
   const search = query.search?.trim()
+  const locale = query.locale?.trim()
   const category = query.category?.trim()
   if (search) normalized.search = search
+  if (locale) normalized.locale = locale
   if (category) normalized.category = category
 
   if (query.type && ALLOWED_APP_TYPES.has(query.type as AppType)) {

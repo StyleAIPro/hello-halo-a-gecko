@@ -8,7 +8,8 @@
 import { Terminal, Unplug } from 'lucide-react'
 import { useAppsStore } from '../../stores/apps.store'
 import { AppStatusDot } from './AppStatusDot'
-import { useTranslation } from '../../i18n'
+import { useTranslation, getCurrentLanguage } from '../../i18n'
+import { resolveSpecI18n } from '../../utils/spec-i18n'
 
 interface SkillInfoCardProps {
   appId: string
@@ -21,12 +22,14 @@ export function SkillInfoCard({ appId }: SkillInfoCardProps) {
 
   if (!app) return null
 
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">{app.spec.name}</h2>
+          <h2 className="text-base font-semibold text-foreground">{name}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">by {app.spec.author}</p>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -52,7 +55,7 @@ export function SkillInfoCard({ appId }: SkillInfoCardProps) {
       {/* Description */}
       <div className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('Description')}</h3>
-        <p className="text-sm text-foreground">{app.spec.description}</p>
+        <p className="text-sm text-foreground">{description}</p>
       </div>
 
       {/* Actions */}

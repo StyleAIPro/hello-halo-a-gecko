@@ -1250,8 +1250,9 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
   // GET /api/store/apps — list apps from the store
   app.get('/api/store/apps', async (req: Request, res: Response) => {
     try {
-      const query: { search?: string; category?: string; type?: string; tags?: string[] } = {}
+      const query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] } = {}
       if (typeof req.query.search === 'string') query.search = req.query.search
+      if (typeof req.query.locale === 'string') query.locale = req.query.locale
       if (typeof req.query.category === 'string') query.category = req.query.category
       if (typeof req.query.type === 'string') query.type = req.query.type
       if (typeof req.query.tags === 'string') {

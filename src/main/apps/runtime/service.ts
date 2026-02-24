@@ -30,7 +30,7 @@ import type {
   ActivityEntry,
   AutomationRun,
 } from './types'
-import { AppNotRunnableError, NoSubscriptionsError, EscalationNotFoundError } from './errors'
+import { AppNotRunnableError, NoSubscriptionsError, EscalationNotFoundError, ConcurrencyLimitError } from './errors'
 import { Semaphore } from './concurrency'
 import { executeRun } from './execute'
 import { broadcastToAll } from '../../http/websocket'
@@ -42,7 +42,7 @@ import { notifyAppEvent } from '../../services/notification.service'
 // ============================================
 
 /** Default max concurrent automation runs */
-const DEFAULT_MAX_CONCURRENT = 2
+const DEFAULT_MAX_CONCURRENT = 10
 
 /** Max consecutive errors before auto-pausing */
 const MAX_CONSECUTIVE_ERRORS = 5
@@ -83,6 +83,13 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
   // abort controller, ensuring deactivate() can cancel ALL running instances.
   const runningAbortControllers = new Map<string, AbortController>()
   let executionCounter = 0
+  /**
+   * App IDs that have a manual trigger queued but have not yet acquired a
+   * global semaphore slot. Used to:
+   *   (a) expose 'queued' status to the renderer, and
+   *   (b) enforce per-app dedup (reject a second trigger while one is queued/running).
+   */
+  const pendingTriggers = new Set<string>()
   /** Interval handle for escalation timeout checker */
   let escalationCheckInterval: ReturnType<typeof setInterval> | null = null
   /** Timestamp of last successful prune (avoid running too frequently) */
@@ -149,12 +156,39 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
     }
   }
 
+  // ── Helper: Broadcast app state change ──────────────
+  function broadcastAppStatus(appId: string): void {
+    try {
+      const state = service.getAppState(appId)
+      broadcastToAll('app:status_changed', { appId, state: state as unknown as Record<string, unknown> })
+      sendToRenderer('app:status_changed', { appId, state })
+    } catch (_err) {
+      // Non-fatal — continue execution
+    }
+  }
+
   // ── Helper: Execute with concurrency control ────────
   async function executeWithConcurrency(
     app: InstalledApp,
     trigger: TriggerContext
   ): Promise<AppRunResult> {
-    await semaphore.acquire()
+    // Try to acquire a slot immediately without blocking.
+    // If no slot is available, transition to 'queued' state and block.
+    const immediateSlot = semaphore.tryAcquire()
+    if (!immediateSlot) {
+      // Slot not available — mark as queued and broadcast so the UI shows
+      // the 'queued' status before we block on semaphore.acquire().
+      pendingTriggers.add(app.id)
+      broadcastAppStatus(app.id)
+      console.log(`[Runtime] app:queued (waiting for global slot): ${app.id}`)
+
+      try {
+        await semaphore.acquire()
+      } finally {
+        // Whether we got the slot or were rejected (e.g. shutdown), clear queued state.
+        pendingTriggers.delete(app.id)
+      }
+    }
 
     const abortController = new AbortController()
     // Use a unique per-run key so concurrent runs of the same App
@@ -162,14 +196,8 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
     const executionKey = `${app.id}:${++executionCounter}`
     runningAbortControllers.set(executionKey, abortController)
 
-    // Broadcast run-start status (app transitions to 'running')
-    try {
-      const startState = service.getAppState(app.id)
-      broadcastToAll('app:status_changed', { appId: app.id, state: startState as unknown as Record<string, unknown> })
-      sendToRenderer('app:status_changed', { appId: app.id, state: startState })
-    } catch (_err) {
-      // Non-fatal — continue execution
-    }
+    // Broadcast run-start status (app transitions from 'queued'/'idle' to 'running')
+    broadcastAppStatus(app.id)
 
     try {
       const result = await executeRun({
@@ -285,13 +313,7 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
       semaphore.release()
 
       // Broadcast run-end status (app transitions back to 'idle' or other state)
-      try {
-        const endState = service.getAppState(app.id)
-        broadcastToAll('app:status_changed', { appId: app.id, state: endState as unknown as Record<string, unknown> })
-        sendToRenderer('app:status_changed', { appId: app.id, state: endState })
-      } catch (_err) {
-        // Non-fatal — run already completed
-      }
+      broadcastAppStatus(app.id)
     }
   }
 
@@ -720,6 +742,15 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
         throw new AppNotRunnableError(appId, app.status)
       }
 
+      // Per-app dedup: reject if this specific app is already running or queued.
+      // Each app should have at most one active execution at a time to avoid
+      // redundant work (e.g. a monitoring app running 50 identical checks).
+      const appIsRunning = Array.from(runningAbortControllers.keys()).some(k => k.startsWith(`${appId}:`))
+      const appIsQueued = pendingTriggers.has(appId)
+      if (appIsRunning || appIsQueued) {
+        throw new ConcurrencyLimitError(DEFAULT_MAX_CONCURRENT, appId)
+      }
+
       const trigger = buildManualTriggerContext(app)
       return executeWithConcurrency(app, trigger)
     },
@@ -738,10 +769,13 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
       let status: AutomationAppState['status']
       const appPrefix = `${appId}:`
       const isRunning = Array.from(runningAbortControllers.keys()).some(k => k.startsWith(appPrefix))
+      const isQueued = pendingTriggers.has(appId)
 
       switch (app.status) {
         case 'active':
-          status = isRunning ? 'running' : 'idle'
+          if (isRunning) status = 'running'
+          else if (isQueued) status = 'queued'
+          else status = 'idle'
           break
         case 'paused':
           status = 'paused'

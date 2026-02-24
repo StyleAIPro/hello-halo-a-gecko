@@ -28,7 +28,8 @@ import { EmptyState } from '../components/apps/EmptyState'
 import { AppInstallDialog } from '../components/apps/AppInstallDialog'
 import { UninstalledDetailView } from '../components/apps/UninstalledDetailView'
 import { StoreView } from '../components/store/StoreView'
-import { useTranslation } from '../i18n'
+import { useTranslation, getCurrentLanguage } from '../i18n'
+import { resolveSpecI18n } from '../utils/spec-i18n'
 import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 
 export function AppsPage() {
@@ -89,10 +90,16 @@ export function AppsPage() {
     }
   }, [apps, selectedAppId, selectApp])
 
-  // Resolve the selected app name (for breadcrumb)
+  // Resolve the selected app (for breadcrumb and detail panel)
   const selectedApp = useMemo(
     () => apps.find(a => a.id === selectedAppId),
     [apps, selectedAppId]
+  )
+
+  // Locale-resolved display name for breadcrumbs
+  const selectedAppName = useMemo(
+    () => selectedApp ? resolveSpecI18n(selectedApp.spec, getCurrentLanguage()).name : undefined,
+    [selectedApp]
   )
 
   const isSessionDetail = detailView?.type === 'session-detail'
@@ -205,7 +212,7 @@ export function AppsPage() {
             {/* Session detail breadcrumb — replaces AutomationHeader when drilling down */}
             {isSessionDetail && selectedApp && (
               <SessionBreadcrumb
-                appName={selectedApp.spec.name}
+                appName={selectedAppName ?? ''}
                 runId={(detailView as { runId: string }).runId}
                 onBack={() => openActivityThread(selectedApp.id)}
               />
@@ -214,7 +221,7 @@ export function AppsPage() {
             {/* App chat breadcrumb */}
             {isAppChat && selectedApp && (
               <SessionBreadcrumb
-                appName={selectedApp.spec.name}
+                appName={selectedAppName ?? ''}
                 label={t('Chat')}
                 onBack={() => openActivityThread(selectedApp.id)}
               />
@@ -223,7 +230,7 @@ export function AppsPage() {
             {/* App config breadcrumb */}
             {isAppConfig && selectedApp && (
               <SessionBreadcrumb
-                appName={selectedApp.spec.name}
+                appName={selectedAppName ?? ''}
                 label={t('Settings')}
                 onBack={() => openActivityThread(selectedApp.id)}
               />
