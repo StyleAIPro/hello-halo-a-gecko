@@ -78,7 +78,7 @@ function applyTheme(theme: 'light' | 'dark' | 'system') {
 
 export default function App() {
   const { t } = useTranslation()
-  const { view, config, initialize, setMcpStatus, setView, setConfig } = useAppStore()
+  const { view, config, initialize, setMcpStatus, setView, setConfig, completeDeferredGitBashCheck } = useAppStore()
   const {
     handleAgentMessage,
     handleAgentToolCall,
@@ -143,7 +143,16 @@ export default function App() {
     // This is the normal startup flow for fresh app launch
     const unsubscribe = api.onBootstrapExtendedReady((data) => {
       console.log('[App] Received bootstrap:extended-ready', data)
-      doInit('event')
+      if (!initialized) {
+        // Normal path: extended services ready before timeout
+        doInit('event')
+      } else {
+        // Timeout already fired and initialize() ran. Extended services are now ready,
+        // so complete any deferred checks (e.g. git-bash on Windows) that failed
+        // because IPC handlers weren't registered yet during the timeout-triggered init.
+        console.log('[App] Extended ready after timeout, completing deferred checks...')
+        completeDeferredGitBashCheck()
+      }
     })
 
     // 3. Timeout: Fallback protection if something goes wrong
@@ -159,7 +168,7 @@ export default function App() {
       unsubscribe()
       clearTimeout(fallbackTimeout)
     }
-  }, [initialize, initializeOnboarding])
+  }, [initialize, initializeOnboarding, completeDeferredGitBashCheck])
 
   // Theme switching
   useEffect(() => {

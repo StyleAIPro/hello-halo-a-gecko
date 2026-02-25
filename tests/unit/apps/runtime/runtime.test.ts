@@ -57,7 +57,7 @@ vi.mock('../../../../src/main/services/agent/sdk-config', () => ({
   buildBaseSdkOptions: vi.fn().mockReturnValue({
     model: 'test-model',
     cwd: '/tmp/test',
-    maxTurns: 50,
+    maxTurns: 999,
     systemPrompt: '',
   }),
 }))

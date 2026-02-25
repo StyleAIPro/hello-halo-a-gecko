@@ -457,7 +457,7 @@ const DEFAULT_CONFIG: HaloConfig = {
     autoLaunch: false
   },
   agent: {
-    maxTurns: 50
+    maxTurns: 999
   },
   remoteAccess: {
     enabled: false,
