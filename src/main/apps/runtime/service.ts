@@ -84,12 +84,16 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
   const runningAbortControllers = new Map<string, AbortController>()
   let executionCounter = 0
   /**
-   * App IDs that have a manual trigger queued but have not yet acquired a
-   * global semaphore slot. Used to:
+   * Reference-counted map of app IDs waiting for a global semaphore slot.
+   * Value = number of runs currently queued for that app. Used to:
    *   (a) expose 'queued' status to the renderer, and
    *   (b) enforce per-app dedup (reject a second trigger while one is queued/running).
+   * A Map (vs Set) is required because the same app can be queued multiple times
+   * (e.g. a scheduled run and an event run arrive simultaneously). Each caller
+   * independently increments/decrements so the flag stays accurate until the last
+   * queued run acquires its slot.
    */
-  const pendingTriggers = new Set<string>()
+  const pendingTriggers = new Map<string, number>()
   /** Interval handle for escalation timeout checker */
   let escalationCheckInterval: ReturnType<typeof setInterval> | null = null
   /** Timestamp of last successful prune (avoid running too frequently) */
@@ -178,15 +182,21 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
     if (!immediateSlot) {
       // Slot not available — mark as queued and broadcast so the UI shows
       // the 'queued' status before we block on semaphore.acquire().
-      pendingTriggers.add(app.id)
+      pendingTriggers.set(app.id, (pendingTriggers.get(app.id) ?? 0) + 1)
       broadcastAppStatus(app.id)
       console.log(`[Runtime] app:queued (waiting for global slot): ${app.id}`)
 
       try {
         await semaphore.acquire()
       } finally {
-        // Whether we got the slot or were rejected (e.g. shutdown), clear queued state.
-        pendingTriggers.delete(app.id)
+        // Whether we got the slot or were rejected (e.g. shutdown), decrement queued count.
+        // Only remove the key when the last queued run for this app has been resolved.
+        const remaining = (pendingTriggers.get(app.id) ?? 1) - 1
+        if (remaining <= 0) {
+          pendingTriggers.delete(app.id)
+        } else {
+          pendingTriggers.set(app.id, remaining)
+        }
       }
     }
 
@@ -746,7 +756,7 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
       // Each app should have at most one active execution at a time to avoid
       // redundant work (e.g. a monitoring app running 50 identical checks).
       const appIsRunning = Array.from(runningAbortControllers.keys()).some(k => k.startsWith(`${appId}:`))
-      const appIsQueued = pendingTriggers.has(appId)
+      const appIsQueued = (pendingTriggers.get(appId) ?? 0) > 0
       if (appIsRunning || appIsQueued) {
         throw new ConcurrencyLimitError(DEFAULT_MAX_CONCURRENT, appId)
       }
@@ -769,7 +779,7 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
       let status: AutomationAppState['status']
       const appPrefix = `${appId}:`
       const isRunning = Array.from(runningAbortControllers.keys()).some(k => k.startsWith(appPrefix))
-      const isQueued = pendingTriggers.has(appId)
+      const isQueued = (pendingTriggers.get(appId) ?? 0) > 0
 
       switch (app.status) {
         case 'active':
