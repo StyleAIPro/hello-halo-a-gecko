@@ -647,7 +647,7 @@ export const DEFAULT_CONFIG: HaloConfig = {
     port: 3456
   },
   mcpServers: {},  // Empty by default
-  agent: { maxTurns: 50 },  // Agent defaults
+  agent: { maxTurns: 999 },  // Agent defaults
   isFirstLaunch: true
 };
 

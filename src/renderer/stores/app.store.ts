@@ -32,6 +32,7 @@ interface AppState {
   // Git Bash mock mode (Windows only)
   mockBashMode: boolean
   gitBashInstallProgress: GitBashInstallProgress
+  gitBashCheckPending: boolean  // True when git-bash check was deferred due to IPC not ready
 
   // Actions
   setView: (view: AppView) => void
@@ -46,6 +47,7 @@ interface AppState {
   setMockBashMode: (mode: boolean) => void
   startGitBashInstall: () => Promise<void>
   refreshGitBashStatus: () => Promise<void>
+  completeDeferredGitBashCheck: () => Promise<void>
 
   // Initialization
   initialize: () => Promise<void>
@@ -62,6 +64,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mcpStatusTimestamp: null,
   mockBashMode: false,
   gitBashInstallProgress: { phase: 'idle', progress: 0, message: '' },
+  gitBashCheckPending: false,
 
   // Actions
   setView: (view) => {
@@ -164,6 +167,41 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // Complete a deferred Git Bash check after extended services become ready.
+  // Called when bootstrap timeout fired before extended services registered IPC handlers,
+  // causing the initial git-bash check to fail. Once extended-ready arrives, this
+  // re-runs the check so Windows users without Git Bash still see the setup flow.
+  completeDeferredGitBashCheck: async () => {
+    if (!get().gitBashCheckPending) return
+    if (!window.platform?.isWindows) {
+      set({ gitBashCheckPending: false })
+      return
+    }
+
+    console.log('[Store] Completing deferred Git Bash check...')
+    try {
+      const gitBashStatus = await api.getGitBashStatus()
+      console.log('[Store] Deferred Git Bash status response:', gitBashStatus)
+      if (gitBashStatus.success && gitBashStatus.data) {
+        const { found, mockMode } = gitBashStatus.data
+
+        if (mockMode) {
+          set({ mockBashMode: true })
+        }
+
+        // Git Bash genuinely not available — redirect to setup
+        if (!found && !mockMode) {
+          console.log('[Store] Deferred check: Git Bash not found, showing gitBashSetup')
+          set({ view: 'gitBashSetup' })
+        }
+      }
+    } catch (e) {
+      console.warn('[Store] Deferred Git Bash check failed:', e)
+    } finally {
+      set({ gitBashCheckPending: false })
+    }
+  },
+
   // Initialize app
   initialize: async () => {
     console.log('[Store] initialize() called')
@@ -171,31 +209,44 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isLoading: true, error: null })
 
       // Windows: Check Git Bash availability first
+      // Wrapped in its own try-catch because this IPC handler lives in extended services.
+      // If the bootstrap timeout fires before extended services are ready, this call
+      // will fail with "No handler registered". That is NOT a reason to show the setup
+      // page — the user's config/API key is unrelated to git-bash availability.
+      // The check will be retried when extended-ready arrives (see completeDeferredGitBashCheck).
       if (window.platform?.isWindows) {
         console.log('[Store] Windows detected, checking Git Bash status...')
-        const gitBashStatus = await api.getGitBashStatus()
-        console.log('[Store] Git Bash status response:', gitBashStatus)
-        if (gitBashStatus.success && gitBashStatus.data) {
-          const { found, source, mockMode } = gitBashStatus.data
+        try {
+          const gitBashStatus = await api.getGitBashStatus()
+          console.log('[Store] Git Bash status response:', gitBashStatus)
+          if (gitBashStatus.success && gitBashStatus.data) {
+            const { found, source, mockMode } = gitBashStatus.data
 
-          // Track mock mode for showing warning banner later
-          if (mockMode) {
-            console.log('[Store] Git Bash in mock mode, will show warning banner')
-            set({ mockBashMode: true })
+            // Track mock mode for showing warning banner later
+            if (mockMode) {
+              console.log('[Store] Git Bash in mock mode, will show warning banner')
+              set({ mockBashMode: true })
+            }
+
+            // If Git Bash not found and not previously configured, show setup
+            if (!found && !mockMode) {
+              console.log('[Store] Git Bash not found, showing setup')
+              set({ view: 'gitBashSetup', isLoading: false })
+              return
+            }
+
+            console.log('[Store] Git Bash found:', source, mockMode ? '(mock mode)' : '')
           }
-
-          // If Git Bash not found and not previously configured, show setup
-          if (!found && !mockMode) {
-            console.log('[Store] Git Bash not found, showing setup')
-            set({ view: 'gitBashSetup', isLoading: false })
-            return
-          }
-
-          console.log('[Store] Git Bash found:', source, mockMode ? '(mock mode)' : '')
+        } catch (gitBashError) {
+          // IPC handler not registered yet (extended services not ready).
+          // Mark as pending so the check runs once extended-ready arrives.
+          console.warn('[Store] Git Bash check deferred (IPC not ready):', gitBashError)
+          set({ gitBashCheckPending: true })
         }
       }
 
       // Load config from main process
+      // config:get handler is registered in Essential services, so this always works.
       console.log('[Store] Loading config...')
       const response = await api.getConfig()
       console.log('[Store] Config response:', response.success ? 'success' : 'failed')
