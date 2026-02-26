@@ -159,7 +159,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     type: 'app',
     spaceId: app.spaceId,
     // Use space.path (not workingDir) to match the directory layout that
-    // AppManager creates: {space.path}/apps/{appId}/memory/
+    // AppManager creates: {space.path}/.halo/apps/{appId}/memory/
     spacePath: getSpace(app.spaceId)?.path ?? '',
     appId: app.id,
   }

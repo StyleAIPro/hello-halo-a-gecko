@@ -10,7 +10,7 @@
  * - app-chat.ts: Interactive chat triggered by user, real-time streaming
  *
  * The V2 session is keyed by "app-chat:{appId}" for reuse across messages.
- * Messages are persisted to JSONL ({spacePath}/apps/{appId}/runs/chat.jsonl)
+ * Messages are persisted to JSONL ({spacePath}/.halo/apps/{appId}/runs/chat.jsonl)
  * for reload recovery.
  *
  * Design:

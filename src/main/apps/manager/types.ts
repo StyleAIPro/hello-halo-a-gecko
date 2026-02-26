@@ -134,7 +134,7 @@ export interface AppManagerService {
    * Install an App into a space.
    *
    * Creates the App record in SQLite, generates a UUID, creates the work directory
-   * at `{space.path}/apps/{appId}/` and `{space.path}/apps/{appId}/memory/`.
+   * at `{space.path}/.halo/apps/{appId}/` and `{space.path}/.halo/apps/{appId}/memory/`.
    *
    * @param spaceId - Target space ID
    * @param spec - Validated AppSpec
@@ -279,7 +279,7 @@ export interface AppManagerService {
    * Get the work directory path for an App.
    * Ensures the directory exists (auto-creates if missing).
    *
-   * @returns Absolute path to `{space.path}/apps/{appId}/`
+   * @returns Absolute path to `{space.path}/.halo/apps/{appId}/`
    * @throws AppNotFoundError if the App does not exist
    */
   getAppWorkDir(appId: string): string

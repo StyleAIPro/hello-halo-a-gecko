@@ -2,7 +2,7 @@
  * Session Detail Storage
  *
  * Persists App run execution messages as JSONL for the "View process" drill-down.
- * Files are stored at: {spacePath}/apps/{appId}/runs/{runId}.jsonl
+ * Files are stored at: {spacePath}/.halo/apps/{appId}/runs/{runId}.jsonl
  *
  * Completely separate from the conversation storage system — no pollution
  * of the user's conversation list.
@@ -89,7 +89,7 @@ export interface SessionWriter {
 
 /** Get the directory for run session files */
 function getRunsDir(spacePath: string, appId: string): string {
-  return join(spacePath, 'apps', appId, 'runs')
+  return join(spacePath, '.halo', 'apps', appId, 'runs')
 }
 
 /** Get the JSONL file path for a specific run */

@@ -448,7 +448,7 @@ memory_schema:
 | `type` | `string` (non-empty) | **Yes** | Data type description, e.g. `"string"`, `"number"`, `"array"`, `"date"`, `"boolean"`, `"object"`. Purely descriptive — no runtime validation is performed. |
 | `description` | `string` | No | Field description to help the AI understand the field's purpose. |
 
-> **Runtime behavior**: The memory file is stored at `{space.path}/apps/{appId}/memory/memory.md`.
+> **Runtime behavior**: The memory file is stored at `{space.path}/.halo/apps/{appId}/memory/memory.md`.
 > The AI reads this file before each run and writes a summary after the run.
 
 ---

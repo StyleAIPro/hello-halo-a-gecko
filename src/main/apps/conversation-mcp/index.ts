@@ -90,7 +90,7 @@ function buildTools(spaceId: string) {
 
   const create_automation_app = tool(
     'create_automation_app',
-    'Create and install a new automation app in the current space. ' +
+    'Create and install a new automation app (digital human) in the current space. ' +
     'Accepts a full App Spec object (type is forced to "automation"). Returns the new app ID on success.\n\n' +
     'IMPORTANT — Before calling this tool, you MUST confirm the following with the user:\n' +
     '  1. Schedule frequency — ask explicitly (e.g. every 30m / 1h / 24h / 7d, or a cron expression). Do NOT assume.\n' +
@@ -102,7 +102,8 @@ function buildTools(spaceId: string) {
     'spec schema (JSON object):\n' +
     '  name*: string — Short descriptive name\n' +
     '  description*: string — One sentence describing what this automation does\n' +
-    '  system_prompt*: string — Detailed instructions for what the AI should do each run\n' +
+    '  system_prompt*: string — The sole driver of this automation. Follow the user\'s task requirements to craft a high-quality automation prompt using strong prompt-engineering practices. Mentally execute the task end-to-end as if you were the runtime agent — every action, decision, and edge case you encounter during this simulation should be captured in the prompt. The agent receives no other context.\n' +
+    '    CRITICAL — AI BROWSER: Any task involving web interaction (visiting pages, clicking, filling forms, posting comments, monitoring pages, scraping, etc.) MUST include "ai-browser" in permissions AND instruct the agent to use ai_browser tools. Do NOT use HTTP fetch or MCP for browser tasks.\n' +
     '  subscriptions*: array — At least one trigger source. Each item:\n' +
     '    { source: { type: "schedule", config: { every?: "30m"|"1h"|"24h"|"7d", cron?: string } } }\n' +
     '    { source: { type: "file", config: { pattern?: string, path?: string } } }\n' +

@@ -222,6 +222,13 @@ function startSessionCleanup(): void {
       }
 
       // Check 2: Clean up idle sessions (not used for 30 minutes)
+      // Skip sessions with an in-flight request — they are not idle.
+      // activeSessions is the authoritative source for this, consistent with
+      // how invalidateAllSessions() and getOrCreateV2Session() defer cleanup.
+      if (activeSessions.has(convId)) {
+        info.lastUsedAt = now // keep the clock fresh so timeout resets after task ends
+        continue
+      }
       if (now - info.lastUsedAt > SESSION_IDLE_TIMEOUT_MS) {
         cleanupSession(convId, 'idle timeout (30 min)')
       }

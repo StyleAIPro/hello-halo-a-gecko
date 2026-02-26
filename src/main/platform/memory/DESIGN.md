@@ -169,7 +169,7 @@ the recent timeline without loading full content.
 ## 4. Memory File Structure on Disk
 
 ```
-{spacePath}/apps/{appId}/
+{spacePath}/.halo/apps/{appId}/
   memory.md              -- Active memory (# now + # History)
   memory/
     run/                 -- Per-run session summaries (auto-generated)
