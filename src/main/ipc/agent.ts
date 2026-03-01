@@ -30,6 +30,7 @@ export function registerAgentHandlers(): void {
       }
     ) => {
       try {
+        console.log(`[IPC] agent:send-message called with spaceId=${request.spaceId}, conversationId=${request.conversationId}`)
         await sendMessage(getMainWindow(), request)
         return { success: true }
       } catch (error: unknown) {

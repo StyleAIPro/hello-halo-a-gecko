@@ -3,7 +3,7 @@
  * Data-driven navigation items for the settings page
  */
 
-import { Bot, Puzzle, Palette, Settings, Globe, Info, Bell, Store } from 'lucide-react'
+import { Bot, Puzzle, Palette, Settings, Globe, Info, Bell, Store, Server } from 'lucide-react'
 import type { SettingsNavItem } from './types'
 
 /**
@@ -55,6 +55,12 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     desktopOnly: true
   },
   {
+    id: 'remote-servers',
+    labelKey: '远程服务器管理',
+    icon: Server,
+    desktopOnly: false,
+  },
+  {
     id: 'about',
     labelKey: 'About',
     icon: Info
@@ -66,5 +72,9 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
  * @param isRemoteMode - Whether running in remote/web mode
  */
 export function getFilteredNavItems(isRemoteMode: boolean): SettingsNavItem[] {
-  return SETTINGS_NAV_ITEMS.filter(item => !item.desktopOnly || !isRemoteMode)
+  return SETTINGS_NAV_ITEMS.filter(item => {
+    // Keep desktop-only items out of remote mode
+    if (isRemoteMode && item.desktopOnly) return false
+    return true
+  })
 }

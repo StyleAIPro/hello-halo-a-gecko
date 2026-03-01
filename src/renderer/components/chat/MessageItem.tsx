@@ -29,6 +29,8 @@ import { FileChangesFooter } from '../diff'
 import { MessageImages } from './ImageAttachmentPreview'
 import { TokenUsageIndicator } from './TokenUsageIndicator'
 import { truncateText, getToolFriendlyFormat } from './thought-utils'
+import { ToolCallDisplay } from '../ToolCallDisplay'
+import { TerminalOutput } from '../TerminalOutput'
 import type { Message, Thought, ThoughtsSummary } from '../../types'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chat.store'
@@ -358,6 +360,16 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
           browserToolCalls={browserToolCalls}
           isActive={isWorking || hasBrowserActivity}
         />
+      )}
+
+      {/* Tool call display - for remote execution with tool calls */}
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <ToolCallDisplay toolCalls={message.toolCalls} />
+      )}
+
+      {/* Terminal output - for remote execution with terminal outputs */}
+      {message.terminalOutputs && message.terminalOutputs.length > 0 && (
+        <TerminalOutput outputs={message.terminalOutputs} />
       )}
 
       {/* Thought history - only for assistant messages with thoughts (when not hidden) */}

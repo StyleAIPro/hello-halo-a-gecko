@@ -12,8 +12,14 @@
 import { BrowserWindow } from 'electron'
 import { getConfig } from '../config.service'
 import { getConversation, saveSessionId, addMessage, updateLastMessage } from '../conversation.service'
+import { getSpace } from '../space.service'
+import { getRemoteDeployService } from '../../ipc/remote-server'
+import { RemoteWsClient, type RemoteWsClientConfig } from '../remote-ws/remote-ws-client'
 import { type FileChangesSummary, extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes'
 import { notifyTaskComplete } from '../notification.service'
+import { decryptString } from '../secure-storage.service'
+import sshTunnelService from '../remote-ssh/ssh-tunnel.service'
+import { SSHManager } from '../remote-ssh/ssh-manager'
 import {
   AI_BROWSER_SYSTEM_PROMPT,
   createAIBrowserMcpServer
@@ -83,7 +89,37 @@ export async function sendMessage(
     canvasContext
   } = request
 
-  console.log(`[Agent] sendMessage: conv=${conversationId}${images && images.length > 0 ? `, images=${images.length}` : ''}${aiBrowserEnabled ? ', AI Browser enabled' : ''}${thinkingEnabled ? ', thinking=ON' : ''}${canvasContext?.isOpen ? `, canvas tabs=${canvasContext.tabCount}` : ''}`)
+  console.log('[Agent] ========== FUNCTION START ==========')
+  console.log('[Agent] sendMessage: conv=', conversationId)
+  console.log('[Agent] sendMessage: spaceId=', spaceId)
+
+  // === Remote execution routing ===
+  console.log('[Agent] ===== BEFORE GETSPACE =====')
+  console.log('[Agent] getSpace function type:', typeof getSpace)
+  console.log('[Agent] ===== AFTER GETSPACE =====')
+  console.log(`[Agent] About to call getSpace with spaceId=${spaceId}`)
+  const space = getSpace(spaceId)
+  console.log(`[Agent] getSpace returned:`, space ? { id: space.id, name: space.name, claudeSource: space.claudeSource, remoteServerId: space.remoteServerId, useSshTunnel: space.useSshTunnel } : 'null')
+  console.log(`[Agent] Remote routing check: space=${space ? space.name : 'null'}, claudeSource=${space?.claudeSource}, remoteServerId=${space?.remoteServerId}, useSshTunnel=${space?.useSshTunnel}`)
+  if (space?.claudeSource === 'remote' && space.remoteServerId) {
+    console.log(`[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/root'}, useSshTunnel=${space.useSshTunnel}`)
+    try {
+      console.log('[Agent] Calling executeRemoteMessage...')
+      await executeRemoteMessage(
+        mainWindow,
+        request,
+        space.remoteServerId,
+        space.remotePath || '/root',
+        space.useSshTunnel
+      )
+      console.log('[Agent] executeRemoteMessage completed')
+    } catch (error) {
+      console.error('[Agent] executeRemoteMessage error:', error)
+      throw error
+    }
+    return
+  }
+  // === Remote routing end ===
 
   const config = getConfig()
   const workDir = getWorkingDir(spaceId)
@@ -346,17 +382,509 @@ export async function sendMessage(
 
     // Emit health event for monitoring
     onAgentError(conversationId, errorMessage)
+  }
+}
 
-    // Run PPID scan to clean up dead processes (async, don't wait)
-    runPpidScanAndCleanup().catch(err => {
-      console.error('[Agent] PPID scan after error failed:', err)
+/**
+ * Execute remote message (via WebSocket to remote-agent-proxy)
+ *
+ * Features:
+ * - Full message history for multi-turn conversations
+ * - Session persistence and resumption
+ * - Tool calls with approval flow
+ * - Terminal output streaming
+ * - Image attachments support
+ */
+async function executeRemoteMessage(
+  mainWindow: BrowserWindow | null,
+  request: AgentRequest,
+  serverId: string,
+  remotePath: string,
+  useSshTunnel?: boolean  // Use SSH port forwarding (localhost:8080) instead of direct connection
+): Promise<void> {
+  console.log('[Agent][Remote] ===== FUNCTION START =====')
+  console.log('[Agent][Remote] serverId=', serverId, 'remotePath=', remotePath, 'useSshTunnel=', useSshTunnel)
+  const deployService = getRemoteDeployService()
+  const server = deployService.getServer(serverId)
+
+  if (!server) {
+    throw new Error(`Remote server not found: ${serverId}`)
+  }
+
+  if (server.status !== 'connected') {
+    throw new Error(`Remote server is not connected: ${server.name}`)
+  }
+
+  const DEPLOY_AGENT_PATH = '/opt/claude-deployment'
+
+  const {
+    spaceId,
+    conversationId,
+    message,
+    images,
+    thinkingEnabled,
+    resumeSessionId
+  } = request
+
+  console.log(`[Agent][Remote] Executing on server: ${serverId}, path: ${remotePath}, useSshTunnel=${useSshTunnel}, message: ${message.substring(0, 50)}...`)
+
+  // Get API key and model config
+  const config = getConfig()
+  const apiKey = config.api?.apiKey || config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)?.apiKey
+  const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
+  const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+  console.log(`[Agent][Remote] Using model: ${model}`)
+
+  // Get conversation for message history and session ID
+  const conversation = getConversation(spaceId, conversationId)
+  const sessionId = resumeSessionId || conversation?.sessionId
+
+  // Add user message to conversation (with images if provided)
+  addMessage(spaceId, conversationId, {
+    role: 'user',
+    content: message,
+    images: images || []
+  })
+
+  // Add assistant placeholder for streaming response
+  addMessage(spaceId, conversationId, {
+    role: 'assistant',
+    content: '',
+    toolCalls: []
+  })
+
+  try {
+    // Sync auth token from remote server before connecting
+    // This ensures we always use the correct token
+    try {
+      console.log(`[Agent][Remote] Syncing auth token from remote server...`)
+      const decryptedPassword = decryptString(server.password || '')
+
+      // Create temporary SSH manager to read auth token
+      const tempManager = new SSHManager()
+      await tempManager.connect({
+        host: server.host,
+        port: server.sshPort || 22,
+        username: server.username,
+        password: decryptedPassword
+      })
+
+      const envContent = await tempManager.executeCommand(`cat ${DEPLOY_AGENT_PATH}/.env 2>/dev/null || echo ""`)
+      // Match AUTH_TOKEN at the start of a line (not ANTHROPIC_AUTH_TOKEN)
+      const authTokenMatch = envContent.match(/^AUTH_TOKEN=(.+)/m)
+      if (authTokenMatch && authTokenMatch[1]) {
+        const remoteAuthToken = authTokenMatch[1].trim()
+        if (remoteAuthToken !== server.authToken) {
+          console.log(`[Agent][Remote] Updating local auth token to match remote`)
+          server.authToken = remoteAuthToken
+          // Update server in deploy service
+          await deployService.updateServer(serverId, { authToken: remoteAuthToken })
+        } else {
+          console.log(`[Agent][Remote] Auth token already matches`)
+        }
+      }
+
+      // Close temporary SSH connection - SSHManager doesn't have close(), use end()
+      try {
+        ;(tempManager as any).end?.()
+      } catch {}
+    } catch (syncError) {
+      console.warn(`[Agent][Remote] Failed to sync auth token:`, syncError)
+      // Continue anyway, using existing token
+    }
+
+    // Establish SSH tunnel if required
+    if (useSshTunnel) {
+      console.log(`[Agent][Remote] Establishing SSH tunnel to ${server.host}:${server.wsPort || 8080}...`)
+
+      // Decrypt password from server config
+      const decryptedPassword = decryptString(server.password || '')
+
+      try {
+        await sshTunnelService.establishTunnel({
+          spaceId,
+          serverId,
+          host: server.host,
+          port: server.sshPort || 22,
+          username: server.username,
+          password: decryptedPassword,
+          localPort: 8080,
+          remotePort: server.wsPort || 8080
+        })
+        console.log(`[Agent][Remote] SSH tunnel established successfully`)
+      } catch (tunnelError) {
+        console.error('[Agent][Remote] Failed to establish SSH tunnel:', tunnelError)
+        throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
+      }
+    }
+
+    // Check if remote agent is running before connecting
+    console.log(`[Agent][Remote] Checking if remote agent is running...`)
+    const isAgentRunning = await checkRemoteAgentRunning(serverId)
+    console.log(`[Agent][Remote] Agent running status:`, isAgentRunning)
+
+    if (!isAgentRunning) {
+      console.log(`[Agent][Remote] Agent not running, deploying and starting...`)
+
+      // Deploy agent if not installed
+      const isDeployed = await checkRemoteAgentDeployed(serverId)
+      console.log(`[Agent][Remote] Agent deployed status:`, isDeployed)
+
+      if (!isDeployed) {
+        console.log(`[Agent][Remote] Agent not deployed, deploying...`)
+        await deployRemoteAgent(serverId)
+        console.log(`[Agent][Remote] Deployment completed`)
+      }
+
+      // Start the agent
+      console.log(`[Agent][Remote] Starting agent...`)
+      await startRemoteAgent(serverId)
+
+      // Wait for agent to start
+      console.log(`[Agent][Remote] Waiting for agent to start...`)
+      await new Promise(resolve => setTimeout(resolve, 3000))
+
+      // Verify agent is running
+      const verifyRunning = await checkRemoteAgentRunning(serverId)
+      console.log(`[Agent][Remote] Agent start verification:`, verifyRunning)
+
+      if (!verifyRunning) {
+        const error = 'Failed to start remote agent - process not running after start command'
+        console.error('[Agent][Remote]', error)
+        throw new Error(error)
+      }
+
+      console.log(`[Agent][Remote] Agent started and verified`)
+    } else {
+      console.log(`[Agent][Remote] Agent is already running`)
+    }
+
+    // Create remote client (WebSocket connection)
+    const wsConfig: RemoteWsClientConfig = {
+      serverId,
+      host: server.host,
+      port: server.wsPort || 8080,
+      authToken: server.authToken || '',
+      useSshTunnel  // Pass SSH tunnel flag to use localhost:8080
+    }
+    console.log(`[Agent][Remote] Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
+    const client = new RemoteWsClient(wsConfig)
+
+    // Register event handlers for streaming response
+    const toolCalls: any[] = []
+    const terminalOutputs: any[] = []
+    let streamingContent = ''
+    const thoughts: any[] = []
+
+    // Tool call events - format matches frontend ToolCall interface
+    client.on('tool:call', (data) => {
+      if (data.sessionId === conversationId) {
+        const toolData = data.data
+        console.log(`[Agent][Remote] Tool call received:`, toolData.name)
+        toolCalls.push(toolData)
+        // Send in format expected by handleAgentToolCall
+        sendToRenderer('agent:tool-call', spaceId, conversationId, {
+          id: toolData.id,
+          name: toolData.name,
+          status: toolData.status || 'running',
+          input: toolData.input || {},
+          requiresApproval: false
+        })
+      }
     })
 
-    // Close V2 session on error (it may be in a bad state)
-    closeV2Session(conversationId)
-  } finally {
-    // Clean up active session state (but keep V2 session for reuse)
-    unregisterActiveSession(conversationId)
-    console.log(`[Agent][${conversationId}] Active session state cleaned up. V2 sessions: ${v2Sessions.size}`)
+    client.on('tool:delta', (data) => {
+      if (data.sessionId === conversationId) {
+        // Handle tool delta for streaming tool input
+        console.log(`[Agent][Remote] Tool delta received`)
+        // Tool deltas are handled via thought events
+      }
+    })
+
+    client.on('tool:result', (data) => {
+      if (data.sessionId === conversationId) {
+        const toolData = data.data
+        console.log(`[Agent][Remote] Tool result received`)
+        sendToRenderer('agent:tool-result', spaceId, conversationId, {
+          toolId: toolData.id,
+          result: toolData.output || '',
+          isError: false
+        })
+      }
+    })
+
+    client.on('tool:error', (data) => {
+      if (data.sessionId === conversationId) {
+        const toolData = data.data
+        console.error(`[Agent][Remote] Tool error:`, toolData)
+        sendToRenderer('agent:tool-result', spaceId, conversationId, {
+          toolId: toolData.id,
+          result: toolData.error || 'Tool execution failed',
+          isError: true
+        })
+      }
+    })
+
+    // Terminal output events
+    client.on('terminal:output', (data) => {
+      if (data.sessionId === conversationId) {
+        const output = data.data
+        terminalOutputs.push(output)
+        sendToRenderer('agent:terminal', spaceId, conversationId, output)
+      }
+    })
+
+    // Streaming text events - use agent:message format expected by frontend
+    client.on('claude:stream', (data) => {
+      if (data.sessionId === conversationId) {
+        const text = data.data?.text || data.data?.content || ''
+        streamingContent += text
+        // Send in the format expected by handleAgentMessage
+        sendToRenderer('agent:message', spaceId, conversationId, {
+          delta: text,
+          isStreaming: true,
+          isComplete: false
+        })
+      }
+    })
+
+    // Connect if not already connected
+    if (!client.isConnected()) {
+      const connectionUrl = wsConfig.useSshTunnel ? 'ws://localhost:8080/agent' : `ws://${wsConfig.host}:${wsConfig.port}/agent`
+      console.log(`[Agent][Remote] Connecting to WebSocket at ${connectionUrl} (useSshTunnel=${wsConfig.useSshTunnel})...`)
+      try {
+        await client.connect()
+        console.log(`[Agent][Remote] Client connected, ready to send`)
+      } catch (connectError) {
+        console.error(`[Agent][Remote] Failed to connect WebSocket:`, connectError)
+        throw connectError
+      }
+    } else {
+      console.log(`[Agent][Remote] Client already connected`)
+    }
+
+    // Build complete message history for multi-turn conversation
+    console.log(`[Agent][Remote] Building message history for conversation ${conversationId}...`)
+
+    const messageHistory: Array<{ role: string; content: any }> = []
+
+    if (conversation && conversation.messages) {
+      // Filter out the last assistant placeholder message we just added
+      const messagesToSend = conversation.messages.slice(0, -1)
+
+      for (const msg of messagesToSend) {
+        // Build content array (supports text + images)
+        const content: any[] = []
+
+        // Add text content
+        if (msg.content) {
+          content.push({ type: 'text', text: msg.content })
+        }
+
+        // Add images if present
+        if (msg.images && msg.images.length > 0) {
+          for (const image of msg.images) {
+            content.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: image.mediaType,
+                data: image.data
+              }
+            })
+          }
+        }
+
+        messageHistory.push({
+          role: msg.role,
+          content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
+        })
+      }
+    }
+
+    // Add current user message
+    const currentUserContent: any[] = []
+    currentUserContent.push({ type: 'text', text: message })
+
+    if (images && images.length > 0) {
+      for (const image of images) {
+        currentUserContent.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mediaType,
+            data: image.data
+          }
+        })
+      }
+    }
+
+    messageHistory.push({
+      role: 'user',
+      content: currentUserContent.length === 1 ? currentUserContent[0].text : currentUserContent
+    })
+
+    console.log(`[Agent][Remote] Message history: ${messageHistory.length} messages`)
+
+    // Send chat request via WebSocket with streaming
+    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId || 'new'})...`)
+
+    const response = await client.sendChatWithStream(
+      sessionId || conversationId,  // Use existing sessionId or conversationId as new session
+      messageHistory,
+      {
+        apiKey,
+        baseUrl: currentSource?.apiUrl || undefined,
+        model,
+        maxTokens: config.agent?.maxTokens || 8192,
+        system: undefined,  // Can add custom system prompt here
+        maxThinkingTokens: thinkingEnabled ? 10240 : undefined
+      }
+    )
+
+    console.log(`[Agent][Remote] Received response from remote Claude: ${response.substring(0, 100)}...`)
+
+    // Send final message content (the streaming already sent deltas)
+    sendToRenderer('agent:message', spaceId, conversationId, {
+      content: streamingContent || response,
+      isComplete: true,
+      isStreaming: false
+    })
+
+    // Send completion event
+    sendToRenderer('agent:complete', spaceId, conversationId, {})
+
+    // Update the assistant message with the response
+    updateLastMessage(spaceId, conversationId, {
+      content: streamingContent || response,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      terminalOutputs: terminalOutputs.length > 0 ? terminalOutputs : undefined,
+      thoughts: thoughts.length > 0 ? thoughts : undefined
+    })
+
+    // Save session ID for future resumption
+    if (sessionId) {
+      saveSessionId(spaceId, conversationId, sessionId)
+      console.log(`[Agent][Remote] Session ID saved: ${sessionId}`)
+    }
+
+    console.log(`[Agent][Remote] Remote Claude execution completed`)
+
+  } catch (error) {
+    console.error('[Agent][Remote] Execute error:', error)
+    const err = error as Error
+
+    sendToRenderer('agent:error', spaceId, conversationId, {
+      type: 'error',
+      error: err.message || 'Remote execution failed'
+    })
+
+    // Update assistant message with error
+    updateLastMessage(spaceId, conversationId, {
+      content: '',
+      error: err.message
+    })
+
+    throw err
   }
+}
+
+/**
+ * Check if remote agent is deployed on the server
+ */
+async function checkRemoteAgentDeployed(serverId: string): Promise<boolean> {
+  const deployService = getRemoteDeployService()
+  const server = deployService.getServer(serverId)
+
+  if (!server) {
+    return false
+  }
+
+  const manager = deployService.getSSHManagerForServer(serverId)
+  if (!manager) {
+    return false
+  }
+
+  try {
+    // Check if deployment directory exists
+    const result = await manager.executeCommandFull(`test -d /opt/claude-deployment && test -f /opt/claude-deployment/package.json`)
+
+    return result.exitCode === 0 && result.stdout.trim() !== ''
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Deploy remote agent to the server
+ */
+async function deployRemoteAgent(serverId: string): Promise<void> {
+  const deployService = getRemoteDeployService()
+  const server = deployService.getServer(serverId)
+
+  if (!server) {
+    throw new Error(`Remote server not found: ${serverId}`)
+  }
+
+  const manager = deployService.getSSHManagerForServer(serverId)
+  if (!manager) {
+    throw new Error(`SSH manager not available for server: ${serverId}`)
+  }
+
+  console.log('[Agent][Remote] Deploying remote agent to:', server.name)
+
+  // Execute the deploy command (this calls the existing deployAgentCode function)
+  await deployService.deployAgentCode(serverId)
+
+  console.log('[Agent][Remote] Remote agent deployment completed')
+}
+
+/**
+ * Check if remote agent is running
+ */
+async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
+  const deployService = getRemoteDeployService()
+  const server = deployService.getServer(serverId)
+
+  if (!server) {
+    return false
+  }
+
+  const manager = deployService.getSSHManagerForServer(serverId)
+  if (!manager) {
+    return false
+  }
+
+  try {
+    // Check if the process is running by checking the port
+    const result = await manager.executeCommandFull(`lsof -i :${server.wsPort || 8080} || echo "NOT_RUNNING"`)
+
+    return !result.stdout.includes('NOT_RUNNING')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Start remote agent on the server
+ */
+async function startRemoteAgent(serverId: string): Promise<void> {
+  const deployService = getRemoteDeployService()
+  const server = deployService.getServer(serverId)
+
+  if (!server) {
+    throw new Error(`Remote server not found: ${serverId}`)
+  }
+
+  const manager = deployService.getSSHManagerForServer(serverId)
+  if (!manager) {
+    throw new Error(`SSH manager not available for server: ${serverId}`)
+  }
+
+  console.log('[Agent][Remote] Starting remote agent on:', server.name)
+
+  // Start the agent server
+  await deployService.startAgent(serverId)
+
+  console.log('[Agent][Remote] Remote agent started')
 }

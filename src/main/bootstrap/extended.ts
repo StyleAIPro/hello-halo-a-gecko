@@ -25,6 +25,7 @@
 
 import { registerOnboardingHandlers } from '../ipc/onboarding'
 import { registerRemoteHandlers } from '../ipc/remote'
+import { registerRemoteServerHandlers } from '../ipc/remote-server'
 import { registerBrowserHandlers } from '../ipc/browser'
 import { registerAIBrowserHandlers, cleanupAIBrowserHandlers } from '../ipc/ai-browser'
 import { registerOverlayHandlers, cleanupOverlayHandlers } from '../ipc/overlay'
@@ -172,6 +173,9 @@ export function initializeExtendedServices(): void {
 
   // Remote: Remote access feature, optional functionality
   registerRemoteHandlers()
+
+  // Remote Servers: Remote server management
+  registerRemoteServerHandlers()
 
   // Browser: Embedded BrowserView for Content Canvas
   // Note: BrowserView is created lazily when Canvas is opened

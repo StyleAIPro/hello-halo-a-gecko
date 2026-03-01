@@ -65,6 +65,68 @@ export interface FileInfo {
 }
 
 /**
+ * Default allowed tools that don't require user approval.
+ */
+const DEFAULT_ALLOWED_TOOLS = [
+  'Read',
+  'Write',
+  'Edit',
+  'Grep',
+  'Glob',
+  'Bash',
+  'Skill',
+  'WebSearch',
+  'WebFetch',
+  'Task'
+]
+
+/**
+ * Build system prompt for Claude Code
+ */
+function buildSystemPrompt(workDir: string, modelInfo?: string): string {
+  const today = new Date().toISOString().split('T')[0]
+  return `You are Claude Code (via Halo Remote Agent), Anthropic's official CLI for Claude. You are an interactive agent running on a remote server that helps users with software engineering tasks.
+
+IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming.
+
+# Tone and style
+- Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
+- Your responses should be short and concise.
+- When referencing specific functions or pieces of code include the pattern file_path:line_number to allow the user to easily navigate to the source code location.
+- Do not use a colon before tool calls.
+
+# Tools and Permissions
+You MUST use tools to answer questions. NEVER answer from memory or assumptions.
+
+Available tools: Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch, Task
+
+CRITICAL - When to use tools:
+- "What files are in this directory?" / "当前目录有什么？" / "目录里有什么" → MUST use Bash (ls -la) or Glob tool
+- "What's in file X?" / "读取某文件" / "看看某文件" → MUST use Read tool
+- "Run command X" / "执行某命令" → MUST use Bash tool
+- "Find files matching X" / "查找文件" → MUST use Glob or Grep tool
+- "Edit/Modify file X" / "修改文件" → MUST use Edit tool
+- Any question about files, directories, or code → MUST use appropriate tool FIRST
+
+Your current working directory is: ${workDir}
+Model: ${modelInfo || 'unknown'}
+Date: ${today}
+
+# Task Management
+- Use TodoWrite tools to track progress on complex tasks
+- Mark tasks as completed as soon as you're done
+
+# Doing tasks
+- The user will primarily request you to perform software engineering tasks
+- ALWAYS use tools to gather information before answering
+- Always read files before suggesting modifications
+- Don't create files unless absolutely necessary
+- Avoid over-engineering solutions
+- Be careful not to introduce security vulnerabilities
+`
+}
+
+/**
  * Claude Manager using V2 Session for full Claude Code capabilities
  * Supports:
  * - Session persistence (conversation history)
@@ -89,7 +151,7 @@ export class ClaudeManager {
     this.apiKey = apiKey
     this.baseUrl = baseUrl
     this.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable
-    this.workDir = workDir
+    this.workDir = workDir || process.cwd()  // Default to current directory
     this.model = model
   }
 
@@ -98,8 +160,22 @@ export class ClaudeManager {
    */
   getSession(sessionId: string): SDKSession {
     if (!this.sessions.has(sessionId)) {
-      const options: SDKSessionOptions = {
+      // Build full SDK options (use 'as any' to bypass incomplete type definitions)
+      const options: any = {
         model: this.model || 'claude-sonnet-4-20250514',
+        // CRITICAL: Set working directory - this is where tools execute
+        cwd: this.workDir || process.cwd(),
+        // CRITICAL: System prompt defines Claude Code identity and capabilities
+        systemPrompt: buildSystemPrompt(this.workDir || process.cwd(), this.model),
+        // CRITICAL: Permission mode - use 'acceptEdits' for root user
+        // Note: 'bypassPermissions' is blocked for root user for security
+        permissionMode: 'acceptEdits',
+        // CRITICAL: Allowed tools - defines what Claude can do
+        allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+        // Enable token-level streaming
+        includePartialMessages: true,
+        // Max turns for tool calls
+        maxTurns: 50,
       }
 
       // Add Claude Code path if provided
@@ -107,27 +183,33 @@ export class ClaudeManager {
         options.pathToClaudeCodeExecutable = this.pathToClaudeCodeExecutable
       }
 
-      // Pass API key and base URL via environment variables
-      // The V2 Session reads these from process.env
-      options.env = options.env || {}
+      // CRITICAL: Inherit process.env (especially PATH) so subprocess can find executables
+      // Without this, Bash tool cannot find ls, cat, etc.
+      options.env = { ...process.env }
       if (this.apiKey) {
-        options.env.ANTHROPIC_API_KEY = this.apiKey
+        options.env.ANTHROPIC_AUTH_TOKEN = this.apiKey
       }
       if (this.baseUrl) {
         options.env.ANTHROPIC_BASE_URL = this.baseUrl
       }
-      if (this.workDir) {
-        options.env.CLAUDE_WORK_DIR = this.workDir
-      }
+      // Important env vars
+      options.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+      options.env.DISABLE_AUTOUPDATER = '1'
+      options.env.API_TIMEOUT_MS = '3000000'
+      options.env.DISABLE_TELEMETRY = '1'
+      options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
       console.log(`[ClaudeManager] Creating V2 session with options:`, {
         model: options.model,
-        hasApiKey: !!this.apiKey,
+        cwd: options.cwd,
+        hasAuthToken: !!this.apiKey,
         baseUrl: this.baseUrl,
-        workDir: this.workDir
+        permissionMode: options.permissionMode,
+        allowedTools: options.allowedTools?.length
       })
 
-      const session = unstable_v2_createSession(options)
+      // Use 'as any' to bypass type check - SDK supports more params than types define
+      const session = unstable_v2_createSession(options as any)
       this.sessions.set(sessionId, session)
       console.log(`[ClaudeManager] Created new V2 session: ${sessionId}`)
     }
@@ -139,8 +221,22 @@ export class ClaudeManager {
    */
   async resumeSession(sessionId: string): Promise<SDKSession> {
     if (!this.sessions.has(sessionId)) {
-      const options: SDKSessionOptions = {
+      // Build full SDK options (use 'as any' to bypass incomplete type definitions)
+      const options: any = {
         model: this.model || 'claude-sonnet-4-20250514',
+        // CRITICAL: Set working directory - this is where tools execute
+        cwd: this.workDir || process.cwd(),
+        // CRITICAL: System prompt defines Claude Code identity and capabilities
+        systemPrompt: buildSystemPrompt(this.workDir || process.cwd(), this.model),
+        // CRITICAL: Permission mode - use 'acceptEdits' for root user
+        // Note: 'bypassPermissions' is blocked for root user for security
+        permissionMode: 'acceptEdits',
+        // CRITICAL: Allowed tools - defines what Claude can do
+        allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+        // Enable token-level streaming
+        includePartialMessages: true,
+        // Max turns for tool calls
+        maxTurns: 50,
       }
 
       // Add Claude Code path if provided
@@ -148,19 +244,24 @@ export class ClaudeManager {
         options.pathToClaudeCodeExecutable = this.pathToClaudeCodeExecutable
       }
 
-      // Pass API key and base URL via environment variables
-      options.env = options.env || {}
+      // CRITICAL: Inherit process.env (especially PATH) so subprocess can find executables
+      // Without this, Bash tool cannot find ls, cat, etc.
+      options.env = { ...process.env }
       if (this.apiKey) {
-        options.env.ANTHROPIC_API_KEY = this.apiKey
+        options.env.ANTHROPIC_AUTH_TOKEN = this.apiKey
       }
       if (this.baseUrl) {
         options.env.ANTHROPIC_BASE_URL = this.baseUrl
       }
-      if (this.workDir) {
-        options.env.CLAUDE_WORK_DIR = this.workDir
-      }
+      // Important env vars
+      options.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+      options.env.DISABLE_AUTOUPDATER = '1'
+      options.env.API_TIMEOUT_MS = '3000000'
+      options.env.DISABLE_TELEMETRY = '1'
+      options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
-      const session = await unstable_v2_resumeSession(sessionId, options)
+      // Use 'as any' to bypass type check - SDK supports more params than types define
+      const session = await unstable_v2_resumeSession(sessionId, options as any)
       this.sessions.set(sessionId, session)
       console.log(`[ClaudeManager] Resumed V2 session: ${sessionId}`)
     }
@@ -171,7 +272,9 @@ export class ClaudeManager {
    * Stream chat messages using V2 session
    * Returns an async generator that yields typed event chunks
    *
-   * Supports multi-turn conversations by sending full message history
+   * IMPORTANT: Only sends the LAST user message to the V2 session.
+   * The V2 session maintains its own conversation history internally.
+   * Sending the full history would confuse the model (especially Qwen).
    */
   async *streamChat(
     sessionId: string,
@@ -183,135 +286,131 @@ export class ClaudeManager {
     const session = this.getSession(sessionId)
 
     try {
-      // Send all messages in order for multi-turn conversation support
-      // The V2 session maintains conversation history internally
-      for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i]
-        const isLastMessage = i === messages.length - 1
+      // CRITICAL: Only send the LAST user message!
+      // The V2 session maintains conversation history internally.
+      // Sending all messages would confuse the model.
+      const lastMessage = messages[messages.length - 1]
+      if (!lastMessage || lastMessage.role !== 'user') {
+        throw new Error('Last message must be from user')
+      }
 
-        // Send message to V2 session
-        console.log(`[ClaudeManager] Sending message ${i + 1}/${messages.length}: ${msg.content.substring(0, 50)}...`)
-        await session.send(msg.content)
+      console.log(`[ClaudeManager] Sending last user message: ${lastMessage.content.substring(0, 50)}...`)
+      await session.send(lastMessage.content)
 
-        // Only stream response for the last message
-        if (isLastMessage) {
-          console.log(`[ClaudeManager] Starting stream for session ${sessionId}...`)
-          let eventCount = 0
-          let textCount = 0
+      console.log(`[ClaudeManager] Starting stream for session ${sessionId}...`)
+      let eventCount = 0
+      let textCount = 0
 
-          // Stream response
-          for await (const event of session.stream()) {
-            eventCount++
-            // Event types from V2 Session (as any for flexibility)
-            const evt = event as any
+      // Stream response
+      for await (const event of session.stream()) {
+        eventCount++
+        // Event types from V2 Session (as any for flexibility)
+        const evt = event as any
 
-            // Log all events for debugging
-            if (eventCount <= 10 || evt.type?.includes('text') || evt.type?.includes('content')) {
-              console.log(`[ClaudeManager] Event ${eventCount}: type=${evt.type}`, JSON.stringify(evt).substring(0, 200))
-            }
+        // Log all events for debugging
+        if (eventCount <= 10 || evt.type?.includes('text') || evt.type?.includes('content')) {
+          console.log(`[ClaudeManager] Event ${eventCount}: type=${evt.type}`, JSON.stringify(evt).substring(0, 200))
+        }
 
-            // Tool execution events
-            if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
-              onToolCall?.({
-                id: evt.content_block.id,
-                name: evt.content_block.name,
-                input: evt.content_block.input,
-                status: 'started'
-              })
-              yield { type: 'tool_call', data: evt.content_block }
-            } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'tool_use_delta') {
-              onToolCall?.({
-                id: evt.delta.tool_use_id,
-                name: '',
-                input: evt.delta.partial_json,
-                status: 'delta'
-              })
-              yield { type: 'tool_delta', data: evt.delta }
-            } else if (evt.type === 'content_block_stop' && evt.content_block?.type === 'tool_use') {
-              onToolCall?.({
-                id: evt.content_block.id,
-                name: '',
-                input: {},
-                status: 'result',
-                output: evt.content_block.result
-              })
-              yield { type: 'tool_result', data: evt.content_block.result }
-            }
+        // Tool execution events
+        if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
+          onToolCall?.({
+            id: evt.content_block.id,
+            name: evt.content_block.name,
+            input: evt.content_block.input,
+            status: 'started'
+          })
+          yield { type: 'tool_call', data: evt.content_block }
+        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'tool_use_delta') {
+          onToolCall?.({
+            id: evt.delta.tool_use_id,
+            name: '',
+            input: evt.delta.partial_json,
+            status: 'delta'
+          })
+          yield { type: 'tool_delta', data: evt.delta }
+        } else if (evt.type === 'content_block_stop' && evt.content_block?.type === 'tool_use') {
+          onToolCall?.({
+            id: evt.content_block.id,
+            name: '',
+            input: {},
+            status: 'result',
+            output: evt.content_block.result
+          })
+          yield { type: 'tool_result', data: evt.content_block.result }
+        }
 
-            // Terminal output events (if supported by SDK)
-            else if (evt.type === 'terminal_output') {
-              onTerminalOutput?.({
-                content: evt.content,
-                type: evt.stream_type || 'stdout'
-              })
-              yield { type: 'terminal', data: evt }
-            }
+        // Terminal output events (if supported by SDK)
+        else if (evt.type === 'terminal_output') {
+          onTerminalOutput?.({
+            content: evt.content,
+            type: evt.stream_type || 'stdout'
+          })
+          yield { type: 'terminal', data: evt }
+        }
 
-            // Text content events - handle multiple formats
-            else if (evt.type === 'content_block_start') {
-              // Check for text block
-              if (evt.content_block?.type === 'text') {
-                const text = evt.content_block?.text || ''
-                if (text) {
-                  textCount++
-                  console.log(`[ClaudeManager] Text from content_block_start: ${text.substring(0, 50)}...`)
-                  yield { type: 'text', data: { text } }
-                }
-              }
-            } else if (evt.type === 'content_block_delta') {
-              // Check for text delta
-              if (evt.delta?.type === 'text_delta' || evt.delta?.text) {
-                const text = evt.delta?.text || ''
-                if (text) {
-                  textCount++
-                  if (textCount <= 5) {
-                    console.log(`[ClaudeManager] Text delta: ${text.substring(0, 50)}...`)
-                  }
-                  yield { type: 'text', data: { text } }
-                }
-              }
-            }
-
-            // Handle V2 Session assistant events (contains text content)
-            else if (evt.type === 'assistant') {
-              const message = evt.message
-              if (message?.content && Array.isArray(message.content)) {
-                for (const block of message.content) {
-                  if (block.type === 'text' && block.text) {
-                    textCount++
-                    console.log(`[ClaudeManager] Text from assistant event: ${block.text.substring(0, 50)}...`)
-                    yield { type: 'text', data: { text: block.text } }
-                  }
-                  // Also handle thinking blocks if present
-                  if (block.type === 'thinking' && block.thinking) {
-                    console.log(`[ClaudeManager] Thinking: ${block.thinking.substring(0, 50)}...`)
-                    yield { type: 'thinking', data: { text: block.thinking } }
-                  }
-                }
-              }
-            }
-
-            // Handle V2 Session result events (contains final result)
-            else if (evt.type === 'result') {
-              console.log(`[ClaudeManager] Result event: is_error=${evt.is_error}, result=${evt.result?.substring(0, 100)}`)
-              // Yield the final result as text if we haven't already
-              if (evt.result && textCount === 0) {
-                yield { type: 'text', data: { text: evt.result } }
-              }
-              // End the stream after result
-              break
-            }
-
-            else if (evt.type === 'error') {
-              // Handle error
-              const errorMsg = evt.error?.message || 'Unknown error'
-              throw new Error(`Claude V2 Session error: ${errorMsg}`)
-            } else if (evt.type === 'message_stop') {
-              // End of stream
-              break
+        // Text content events - handle multiple formats
+        else if (evt.type === 'content_block_start') {
+          // Check for text block
+          if (evt.content_block?.type === 'text') {
+            const text = evt.content_block?.text || ''
+            if (text) {
+              textCount++
+              console.log(`[ClaudeManager] Text from content_block_start: ${text.substring(0, 50)}...`)
+              yield { type: 'text', data: { text } }
             }
           }
-          break  // Exit after processing the last message's response
+        } else if (evt.type === 'content_block_delta') {
+          // Check for text delta
+          if (evt.delta?.type === 'text_delta' || evt.delta?.text) {
+            const text = evt.delta?.text || ''
+            if (text) {
+              textCount++
+              if (textCount <= 5) {
+                console.log(`[ClaudeManager] Text delta: ${text.substring(0, 50)}...`)
+              }
+              yield { type: 'text', data: { text } }
+            }
+          }
+        }
+
+        // Handle V2 Session assistant events (contains text content)
+        else if (evt.type === 'assistant') {
+          const message = evt.message
+          if (message?.content && Array.isArray(message.content)) {
+            for (const block of message.content) {
+              if (block.type === 'text' && block.text) {
+                textCount++
+                console.log(`[ClaudeManager] Text from assistant event: ${block.text.substring(0, 50)}...`)
+                yield { type: 'text', data: { text: block.text } }
+              }
+              // Also handle thinking blocks if present
+              if (block.type === 'thinking' && block.thinking) {
+                console.log(`[ClaudeManager] Thinking: ${block.thinking.substring(0, 50)}...`)
+                yield { type: 'thinking', data: { text: block.thinking } }
+              }
+            }
+          }
+        }
+
+        // Handle V2 Session result events (contains final result)
+        else if (evt.type === 'result') {
+          console.log(`[ClaudeManager] Result event: is_error=${evt.is_error}, result=${evt.result?.substring(0, 100)}`)
+          // Yield the final result as text if we haven't already
+          if (evt.result && textCount === 0) {
+            yield { type: 'text', data: { text: evt.result } }
+          }
+          // End the stream after result
+          break
+        }
+
+        else if (evt.type === 'error') {
+          // Handle error
+          const errorMsg = evt.error?.message || 'Unknown error'
+          throw new Error(`Claude V2 Session error: ${errorMsg}`)
+        } else if (evt.type === 'message_stop') {
+          // End of stream
+          break
         }
       }
     } catch (error) {

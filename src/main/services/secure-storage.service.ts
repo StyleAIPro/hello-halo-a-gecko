@@ -125,3 +125,35 @@ export function decryptTokens<T extends Record<string, any>>(obj: T): T {
 
   return result
 }
+
+/**
+ * Encrypt SSH password field in an object
+ * Encrypts: password
+ */
+export function encryptSshPassword<T extends Record<string, any>>(obj: T): T {
+  if (!obj) return obj
+
+  const result = { ...obj }
+
+  if (result.password && typeof result.password === 'string') {
+    result.password = encryptString(result.password)
+  }
+
+  return result
+}
+
+/**
+ * Decrypt SSH password field in an object
+ * Decrypts: password
+ */
+export function decryptSshPassword<T extends Record<string, any>>(obj: T): T {
+  if (!obj) return obj
+
+  const result = { ...obj }
+
+  if (result.password && typeof result.password === 'string') {
+    result.password = decryptString(result.password)
+  }
+
+  return result
+}

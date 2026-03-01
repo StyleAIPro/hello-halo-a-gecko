@@ -885,10 +885,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Handle agent message - update session-specific streaming content
   // Supports both incremental (delta) and full (content) modes for backward compatibility
   handleAgentMessage: (data) => {
-    const { conversationId, content, delta, isStreaming, isNewTextBlock } = data as AgentEventBase & {
+    const { conversationId, content, delta, isStreaming, isComplete, isNewTextBlock } = data as AgentEventBase & {
       content?: string
       delta?: string
-      isComplete: boolean
+      isComplete?: boolean
       isStreaming?: boolean
       isNewTextBlock?: boolean  // Signal from content_block_start (type='text')
     }
@@ -909,10 +909,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? (session.streamingContent || '') + delta
         : (content ?? session.streamingContent)
 
+      // When isComplete is true, explicitly set isStreaming to false
+      // Otherwise use the provided isStreaming value or false as fallback
+      const shouldStream = isComplete ? false : (isStreaming ?? false)
+
       newSessions.set(conversationId, {
         ...session,
         streamingContent: newContent,
-        isStreaming: isStreaming ?? false,
+        isStreaming: shouldStream,
         textBlockVersion: newTextBlockVersion
       })
       return { sessions: newSessions }
@@ -1038,7 +1042,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           createdAt: updatedConversation.createdAt,
           updatedAt: updatedConversation.updatedAt,
           messageCount: updatedConversation.messages?.length || 0,
-          preview: updatedConversation.messages?.length
+          preview: updatedConversation.messages && updatedConversation.messages.length > 0
             ? updatedConversation.messages[updatedConversation.messages.length - 1].content.slice(0, 50)
             : undefined,
           starred: updatedConversation.starred

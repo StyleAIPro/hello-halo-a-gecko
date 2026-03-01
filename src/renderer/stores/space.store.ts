@@ -63,6 +63,9 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
 
       const response = await api.listSpaces()
       console.log('[SpaceStore] listSpaces: success=%s count=%d', response.success, Array.isArray(response.data) ? (response.data as Space[]).length : 0)
+      console.log('[SpaceStore] listSpaces: response.data type:', typeof response.data)
+      console.log('[SpaceStore] listSpaces: response.data:', response.data)
+      console.log('[SpaceStore] listSpaces: response.data JSON:', JSON.stringify(response.data, null, 2))
 
       if (response.success && response.data) {
         set({ spaces: response.data as Space[] })

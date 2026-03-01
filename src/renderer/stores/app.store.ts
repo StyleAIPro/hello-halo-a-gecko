@@ -29,6 +29,9 @@ interface AppState {
   mcpStatus: McpServerStatus[]
   mcpStatusTimestamp: number | null  // When status was last updated
 
+  // Remote server state
+  remoteServerId: string | null  // Current remote server ID for chat view
+
   // Git Bash mock mode (Windows only)
   mockBashMode: boolean
   gitBashInstallProgress: GitBashInstallProgress
@@ -36,12 +39,16 @@ interface AppState {
 
   // Actions
   setView: (view: AppView) => void
+  setViewWithServer: (view: AppView, serverId: string) => void  // Set view and remote server ID
   goBack: () => void  // Navigate back to previous view
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   setConfig: (config: HaloConfig) => void
   updateConfig: (updates: Partial<HaloConfig>) => void
   setMcpStatus: (status: McpServerStatus[], timestamp: number) => void
+
+  // Remote server actions
+  setRemoteServerId: (serverId: string | null) => void
 
   // Git Bash actions
   setMockBashMode: (mode: boolean) => void
@@ -62,6 +69,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   config: null,
   mcpStatus: [],
   mcpStatusTimestamp: null,
+  remoteServerId: null,
   mockBashMode: false,
   gitBashInstallProgress: { phase: 'idle', progress: 0, message: '' },
   gitBashCheckPending: false,
@@ -77,10 +85,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  setViewWithServer: (view, serverId) => {
+    const currentView = get().view
+    // Save current view as previous (except for splash and setup screens)
+    if (currentView !== 'splash' && currentView !== 'setup') {
+      set({ previousView: currentView, view, remoteServerId: serverId })
+    } else {
+      set({ view, remoteServerId: serverId })
+    }
+  },
+
   goBack: () => {
     const previousView = get().previousView
     // Go back to previous view, or default to home
-    set({ view: previousView || 'home', previousView: null })
+    set({ view: previousView || 'home', previousView: null, remoteServerId: null })
   },
 
   setLoading: (isLoading) => set({ isLoading }),
@@ -96,6 +114,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setMcpStatus: (status, timestamp) => {
     set({ mcpStatus: status, mcpStatusTimestamp: timestamp })
+  },
+
+  setRemoteServerId: (serverId) => {
+    set({ remoteServerId: serverId })
   },
 
   // Git Bash actions

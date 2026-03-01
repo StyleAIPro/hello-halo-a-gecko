@@ -21,6 +21,7 @@ import {
   AppearanceSection,
   SystemSection,
   RemoteAccessSection,
+  RemoteServersSection,
   AboutSection,
   NotificationChannelsSection,
   RegistrySection
@@ -140,10 +141,11 @@ export function SettingsPage() {
                 <SystemSection config={config} setConfig={setConfig} />
               )}
 
-              {/* Remote Access Section - Desktop only */}
-              {!isRemoteMode && (
-                <RemoteAccessSection />
-              )}
+              {/* Remote Access Section */}
+              <RemoteAccessSection />
+
+              {/* Remote Servers Section */}
+              <RemoteServersSection />
 
               {/* About Section */}
               <AboutSection />

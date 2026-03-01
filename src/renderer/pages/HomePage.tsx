@@ -7,6 +7,7 @@ import { useAppStore } from '../stores/app.store'
 import { useSpaceStore } from '../stores/space.store'
 import { SPACE_ICONS, DEFAULT_SPACE_ICON } from '../types'
 import type { Space, CreateSpaceInput, SpaceIconId } from '../types'
+import type { RemoteServer } from '../../shared/types'
 import {
   SpaceIcon,
   Sparkles,
@@ -54,10 +55,46 @@ export function HomePage() {
   const [customPath, setCustomPath] = useState<string | null>(null)
   const [defaultPath, setDefaultPath] = useState<string>('~/.halo/spaces')
 
+  // Remote Claude configuration state
+  const [claudeSource, setClaudeSource] = useState<'local' | 'remote'>('local')
+  const [remoteServerId, setRemoteServerId] = useState<string>('')
+  const [remotePath, setRemotePath] = useState<string>('/root')
+  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
+  const [useSshTunnel, setUseSshTunnel] = useState<boolean>(false)
+
   // Load spaces on mount
   useEffect(() => {
     loadSpaces()
   }, [loadSpaces])
+
+  // Load remote servers on mount
+  useEffect(() => {
+    api.remoteServerList().then(result => {
+      if (result.success && result.data) {
+        setRemoteServers(result.data)
+        // Auto-connect to any disconnected servers when showing the dialog
+        result.data.forEach(server => {
+          if (server.status === 'disconnected') {
+            console.log('[HomePage] Auto-connecting to server:', server.id)
+            api.remoteServerConnect(server.id).catch(err => {
+              console.error('[HomePage] Failed to auto-connect to server:', server.id, err)
+            })
+          }
+        })
+      }
+    })
+  }, [])
+
+  // Refresh remote servers list when switching to remote mode
+  useEffect(() => {
+    if (claudeSource === 'remote') {
+      api.remoteServerList().then(result => {
+        if (result.success && result.data) {
+          setRemoteServers(result.data)
+        }
+      })
+    }
+  }, [claudeSource])
 
   // Load default path when dialog opens
   useEffect(() => {
@@ -105,6 +142,11 @@ export function HomePage() {
     setNewSpaceIcon(DEFAULT_SPACE_ICON)
     setUseCustomPath(false)
     setCustomPath(null)
+    // Reset remote configuration
+    setClaudeSource('local')
+    setRemoteServerId('')
+    setRemotePath('/root')
+    setUseSshTunnel(false)
   }
 
   // Handle space click - no reset needed, SpacePage handles its own state
@@ -121,7 +163,11 @@ export function HomePage() {
     const input: CreateSpaceInput = {
       name: newSpaceName.trim(),
       icon: newSpaceIcon,
-      customPath: useCustomPath && customPath ? customPath : undefined
+      customPath: useCustomPath && customPath ? customPath : undefined,
+      claudeSource,
+      remoteServerId: claudeSource === 'remote' ? remoteServerId : undefined,
+      remotePath: claudeSource === 'remote' ? remotePath : undefined,
+      useSshTunnel: claudeSource === 'remote' ? useSshTunnel : undefined
     }
 
     const newSpace = await createSpace(input)
@@ -388,89 +434,191 @@ export function HomePage() {
               </div>
             </div>
 
-            {/* Storage location */}
-            <div className="mb-6">
-              <label className="block text-sm text-muted-foreground mb-2">{t('Storage Location')}</label>
-              <div className="space-y-2">
-                {/* Default location */}
-                <label
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                    !useCustomPath
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-muted-foreground/50'
-                  }`}
-                >
+            {/* Claude Source Selection - moved above storage location */}
+            <div className="mb-4">
+              <label className="block text-sm text-muted-foreground mb-2">{t('Claude Source')}</label>
+              <div className="flex gap-4 mt-1">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="pathType"
-                    checked={!useCustomPath}
-                    onChange={() => {
-                      setUseCustomPath(false)
-                      setTimeout(() => {
-                        spaceNameInputRef.current?.focus()
-                      }, 100)
+                    name="claudeSource"
+                    value="local"
+                    checked={claudeSource === 'local'}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setClaudeSource('local')
+                        setRemoteServerId('')
+                      }
                     }}
-                    className="w-4 h-4 text-primary"
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm">{t('Default Location')}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {shortenPath(defaultPath)}/{newSpaceName || '...'}
-                    </div>
-                  </div>
+                  <span>{t('Local')}</span>
                 </label>
-
-                {/* Custom location */}
-                <label
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
-                    isWebMode
-                      ? 'cursor-not-allowed opacity-60 border-border'
-                      : useCustomPath
-                        ? 'cursor-pointer border-primary bg-primary/5'
-                        : 'cursor-pointer border-border hover:border-muted-foreground/50'
-                  }`}
-                >
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="pathType"
-                    checked={useCustomPath}
-                    onChange={() => !isWebMode && setUseCustomPath(true)}
-                    disabled={isWebMode}
-                    className="w-4 h-4 text-primary"
+                    name="claudeSource"
+                    value="remote"
+                    checked={claudeSource === 'remote'}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setClaudeSource('remote')
+                      }
+                    }}
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm">{t('Custom Folder')}</div>
-                    {isWebMode ? (
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Monitor className="w-3 h-3" />
-                        {t('Please select folder in desktop app')}
-                      </div>
-                    ) : customPath ? (
-                      <div className="text-xs text-muted-foreground truncate">
-                        {shortenPath(customPath)}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">
-                        {t('Select an existing project or folder')}
-                      </div>
-                    )}
-                  </div>
-                  {!isWebMode && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        handleSelectFolder()
-                      }}
-                      className="px-3 py-1.5 text-xs bg-secondary hover:bg-secondary/80 rounded-md flex items-center gap-1.5 transition-colors"
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      {t('Browse')}
-                    </button>
-                  )}
+                  <span>{t('Remote')}</span>
                 </label>
               </div>
             </div>
+
+            {/* Storage location - only for local mode */}
+            {claudeSource === 'local' && (
+              <div className="mb-6">
+                <label className="block text-sm text-muted-foreground mb-2">{t('Storage Location')}</label>
+                <div className="space-y-2">
+                  {/* Default location */}
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                      !useCustomPath
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-muted-foreground/50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="pathType"
+                      checked={!useCustomPath}
+                      onChange={() => {
+                        setUseCustomPath(false)
+                        setTimeout(() => {
+                          spaceNameInputRef.current?.focus()
+                        }, 100)
+                      }}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm">{t('Default Location')}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {shortenPath(defaultPath)}/{newSpaceName || '...'}
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Custom location */}
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                      isWebMode
+                        ? 'cursor-not-allowed opacity-60 border-border'
+                        : useCustomPath
+                          ? 'cursor-pointer border-primary bg-primary/5'
+                          : 'cursor-pointer border-border hover:border-muted-foreground/50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="pathType"
+                      checked={useCustomPath}
+                      onChange={() => !isWebMode && setUseCustomPath(true)}
+                      disabled={isWebMode}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm">{t('Custom Folder')}</div>
+                      {isWebMode ? (
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Monitor className="w-3 h-3" />
+                          {t('Please select folder in desktop app')}
+                        </div>
+                      ) : customPath ? (
+                        <div className="text-xs text-muted-foreground truncate">
+                          {shortenPath(customPath)}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          {t('Select an existing project or folder')}
+                        </div>
+                      )}
+                    </div>
+                    {!isWebMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handleSelectFolder()
+                        }}
+                        className="px-3 py-1.5 text-xs bg-secondary hover:bg-secondary/80 rounded-md flex items-center gap-1.5 transition-colors"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        {t('Browse')}
+                      </button>
+                    )}
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Remote server configuration (only shown when remote is selected) */}
+            {claudeSource === 'remote' && (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm text-muted-foreground mb-2">{t('Remote Server')}</label>
+                  <select
+                    value={remoteServerId}
+                    onChange={(e) => setRemoteServerId(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
+                  >
+                    <option value="">{t('Select server...')}</option>
+                    {remoteServers.map((server: RemoteServer) => (
+                      <option key={server.id} value={server.id}>
+                        {server.name}
+                        {server.status === 'connected' ? ` (${t('Connected')})` : ` (${t('Disconnected')})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm text-muted-foreground mb-2">{t('Working Directory (Remote)')}</label>
+                  <input
+                    type="text"
+                    value={remotePath}
+                    onChange={(e) => setRemotePath(e.target.value)}
+                    placeholder="/root"
+                    className="w-full mt-1 px-4 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">{t('Default: /root')}</p>
+                </div>
+
+                {/* SSH Tunnel Toggle */}
+                <div className="mb-6">
+                  <label className="block text-sm text-muted-foreground mb-2">{t('Connection Mode')}</label>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/30">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">{t('Use SSH Tunnel')}</div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('Use SSH port forwarding (localhost:8080) instead of direct WebSocket connection.')}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('Use this for Huawei Cloud or networks that block external WebSocket connections.')}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer ml-4">
+                      <input
+                        type="checkbox"
+                        checked={useSshTunnel}
+                        onChange={(e) => setUseSshTunnel(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                  </div>
+                  {useSshTunnel && (
+                    <p className="text-xs text-primary mt-2">
+                      {t('Note: Make sure SSH port forwarding is active: ssh -L 8080:localhost:8080 <server>')}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Space name - moved to bottom, above create button */}
             <div className="mb-6">
@@ -495,7 +643,7 @@ export function HomePage() {
               </button>
               <button
                 onClick={handleCreateSpace}
-                disabled={!newSpaceName.trim() || (useCustomPath && !customPath)}
+                disabled={!newSpaceName.trim() || (useCustomPath && !customPath) || (claudeSource === 'remote' && !remoteServerId)}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t('Create')}

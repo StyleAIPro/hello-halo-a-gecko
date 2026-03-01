@@ -75,6 +75,9 @@ export default defineConfig({
       }
     }
   },
+  server: {
+    port: 8081  // Use different port to avoid conflict with SSH forwarding
+  },
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {

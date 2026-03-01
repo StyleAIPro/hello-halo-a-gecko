@@ -362,6 +362,36 @@ export interface HaloAPI {
   // Notification (in-app toast)
   onNotificationToast: (callback: (data: unknown) => void) => () => void
 
+  // Remote Server
+  remoteServer: {
+    add: (server: unknown) => Promise<IpcResponse>
+    list: () => Promise<IpcResponse>
+    deploy: (serverId: string) => Promise<IpcResponse>
+    connect: (serverId: string) => Promise<IpcResponse>
+    disconnect: (serverId: string) => Promise<IpcResponse>
+    delete: (serverId: string) => Promise<IpcResponse>
+    checkAgent: (serverId: string) => Promise<IpcResponse>
+    deployAgent: (serverId: string) => Promise<IpcResponse>
+    startAgent: (serverId: string) => Promise<IpcResponse>
+    stopAgent: (serverId: string) => Promise<IpcResponse>
+    getAgentLogs: (serverId: string, lines?: number) => Promise<IpcResponse>
+    isAgentRunning: (serverId: string) => Promise<IpcResponse>
+  }
+
+  // Remote Agent
+  remoteAgent: {
+    sendMessage: (serverId: string, message: string) => Promise<IpcResponse>
+    fsList: (serverId: string, path?: string) => Promise<IpcResponse>
+    fsRead: (serverId: string, path: string) => Promise<IpcResponse>
+    fsWrite: (serverId: string, path: string, content: string) => Promise<IpcResponse>
+    fsDelete: (serverId: string, path: string) => Promise<IpcResponse>
+  }
+
+  onRemoteAgentStream: (callback: (data: unknown) => void) => () => void
+  onRemoteAgentComplete: (callback: (data: unknown) => void) => () => void
+  onRemoteAgentError: (callback: (data: unknown) => void) => () => void
+  onRemoteAgentFsResult: (callback: (data: unknown) => void) => () => void
+
   // Store (App Registry)
   storeListApps: (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
   storeGetAppDetail: (slug: string) => Promise<IpcResponse>
@@ -655,6 +685,38 @@ const api: HaloAPI = {
   onAppActivityEntry: (callback) => createEventListener('app:activity_entry:new', callback),
   onAppEscalation: (callback) => createEventListener('app:escalation:new', callback),
   onAppNavigate: (callback) => createEventListener('app:navigate', callback),
+
+  // Remote Server
+  remoteServer: {
+    add: (server) => ipcRenderer.invoke('remote-server:add', server),
+    list: () => ipcRenderer.invoke('remote-server:list'),
+    deploy: (serverId) => ipcRenderer.invoke('remote-server:deploy', serverId),
+    connect: (serverId) => ipcRenderer.invoke('remote-server:connect', serverId),
+    disconnect: (serverId) => ipcRenderer.invoke('remote-server:disconnect', serverId),
+    delete: (serverId) => ipcRenderer.invoke('remote-server:delete', serverId),
+    checkAgent: (serverId) => ipcRenderer.invoke('remote-server:check-agent', serverId),
+    deployAgent: (serverId) => ipcRenderer.invoke('remote-server:deploy-agent', serverId),
+    startAgent: (serverId) => ipcRenderer.invoke('remote-server:start-agent', serverId),
+    stopAgent: (serverId) => ipcRenderer.invoke('remote-server:stop-agent', serverId),
+    getAgentLogs: (serverId, lines) => ipcRenderer.invoke('remote-server:get-agent-logs', serverId, lines),
+    isAgentRunning: (serverId) => ipcRenderer.invoke('remote-server:is-agent-running', serverId),
+  },
+
+  // Remote Agent
+  remoteAgent: {
+    sendMessage: (serverId, message) => ipcRenderer.invoke('remote-agent:send-message', serverId, message),
+    fsList: (serverId, path) => ipcRenderer.invoke('remote-agent:fs-list', serverId, path),
+    fsRead: (serverId, path) => ipcRenderer.invoke('remote-agent:fs-read', serverId, path),
+    fsWrite: (serverId, path, content) => ipcRenderer.invoke('remote-agent:fs-write', serverId, path, content),
+    fsDelete: (serverId, path) => ipcRenderer.invoke('remote-agent:fs-delete', serverId, path),
+    checkConnection: (serverId) => ipcRenderer.invoke('remote-agent:check-connection', serverId),
+    getMessages: (serverId, sessionId) => ipcRenderer.invoke('remote-agent:get-messages', serverId, sessionId),
+  },
+
+  onRemoteAgentStream: (callback) => createEventListener('remote-agent:stream', callback),
+  onRemoteAgentComplete: (callback) => createEventListener('remote-agent:complete', callback),
+  onRemoteAgentError: (callback) => createEventListener('remote-agent:error', callback),
+  onRemoteAgentFsResult: (callback) => createEventListener('remote-agent:fs:result', callback),
 
   // Store (App Registry)
   storeListApps: (query) => ipcRenderer.invoke('store:list-apps', query),
