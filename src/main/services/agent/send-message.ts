@@ -727,7 +727,7 @@ async function executeRemoteMessage(
     console.log(`[Agent][Remote] Message history: ${messageHistory.length} messages`)
 
     // Send chat request via WebSocket with streaming
-    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId || 'new'})...`)
+    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId || 'new'}, workDir=${remotePath})...`)
 
     const response = await client.sendChatWithStream(
       sessionId || conversationId,  // Use existing sessionId or conversationId as new session
@@ -738,7 +738,8 @@ async function executeRemoteMessage(
         model,
         maxTokens: config.agent?.maxTokens || 8192,
         system: undefined,  // Can add custom system prompt here
-        maxThinkingTokens: thinkingEnabled ? 10240 : undefined
+        maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
+        workDir: remotePath  // CRITICAL: Pass workDir from Space config
       }
     )
 
