@@ -60,7 +60,7 @@ export function HomePage() {
   const [remoteServerId, setRemoteServerId] = useState<string>('')
   const [remotePath, setRemotePath] = useState<string>('/root')
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
-  const [useSshTunnel, setUseSshTunnel] = useState<boolean>(false)
+  const [useSshTunnel, setUseSshTunnel] = useState<boolean>(true)  // Default to true for security
 
   // Load spaces on mount
   useEffect(() => {
@@ -146,7 +146,7 @@ export function HomePage() {
     setClaudeSource('local')
     setRemoteServerId('')
     setRemotePath('/root')
-    setUseSshTunnel(false)
+    setUseSshTunnel(true)  // Default to true for security
   }
 
   // Handle space click - no reset needed, SpacePage handles its own state

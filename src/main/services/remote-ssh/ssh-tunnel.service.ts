@@ -2,9 +2,14 @@
  * SSH Tunnel Service - Manages SSH port forwarding for remote agent connections
  *
  * This service automatically establishes SSH tunnels when spaces need SSH tunneling.
- * Tunnel format: ssh -L localhost:8080:localhost:8080 user@host
+ * Tunnel format: ssh -L localhost:LOCAL_PORT:localhost:REMOTE_PORT user@host
  *
  * Uses forwardOut for local port forwarding (access remote service via localhost)
+ *
+ * Features:
+ * - Dynamic port allocation for multiple remote servers
+ * - Port conflict resolution
+ * - Automatic cleanup on disconnect
  */
 
 import { Client, ConnectConfig } from 'ssh2'
@@ -34,10 +39,43 @@ export interface TunnelStatus {
   error?: string
 }
 
+// Default port range for dynamic allocation
+const DEFAULT_BASE_PORT = 8080
+const MAX_PORT_ATTEMPTS = 100
+
 // Add isConnected check helper
 function isClientConnected(client: Client): boolean {
   // ssh2 Client doesn't have isConnected method, check stream state
   return (client as any)._sock && (client as any)._sock.writable !== false
+}
+
+/**
+ * Synchronous port check using lsof command (more reliable)
+ */
+function isPortAvailableSync(port: number): boolean {
+  try {
+    // Use a simple socket connection test
+    const result = execSync(`lsof -i :${port} -t 2>/dev/null || echo ""`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 1000
+    })
+    return result.trim() === ''
+  } catch {
+    return true  // If lsof fails, assume port is available
+  }
+}
+
+/**
+ * Find an available port starting from base port
+ */
+function findAvailablePort(startPort: number): number {
+  for (let port = startPort; port < startPort + MAX_PORT_ATTEMPTS; port++) {
+    if (isPortAvailableSync(port)) {
+      return port
+    }
+  }
+  throw new Error(`No available port found in range ${startPort}-${startPort + MAX_PORT_ATTEMPTS}`)
 }
 
 /**
@@ -69,27 +107,75 @@ class SshTunnelService extends EventEmitter {
     server: net.Server
   }>()
 
+  // Map serverId -> localPort for consistent port assignment per server
+  private serverPortMap = new Map<string, number>()
+  // Set of used local ports
+  private usedPorts = new Set<number>()
+
+  /**
+   * Get or assign a local port for a server
+   * Each server gets a unique local port to avoid conflicts
+   */
+  private getOrAssignLocalPort(serverId: string, remotePort: number): number {
+    // Check if this server already has an assigned port
+    const existingPort = this.serverPortMap.get(serverId)
+    if (existingPort && !this.usedPorts.has(existingPort)) {
+      return existingPort
+    }
+
+    // Find an available port starting from remotePort (usually 8080)
+    // This keeps ports consistent when possible
+    const basePort = remotePort || DEFAULT_BASE_PORT
+    let assignedPort = findAvailablePort(basePort)
+
+    // If base port is already in use, try to find next available
+    while (this.usedPorts.has(assignedPort)) {
+      assignedPort = findAvailablePort(assignedPort + 1)
+    }
+
+    // Record the assignment
+    this.serverPortMap.set(serverId, assignedPort)
+    this.usedPorts.add(assignedPort)
+    console.log(`[SshTunnel] Assigned local port ${assignedPort} for server ${serverId}`)
+
+    return assignedPort
+  }
+
+  /**
+   * Get the local port for an existing tunnel
+   */
+  getTunnelLocalPort(serverId: string): number | undefined {
+    return this.serverPortMap.get(serverId)
+  }
+
   /**
    * Establish SSH tunnel for a space
    * Creates a local TCP server that forwards connections through SSH to remote port
+   *
+   * @param config - Tunnel config (localPort will be auto-assigned if not specified or in use)
+   * @returns The actual local port used for the tunnel
    */
-  async establishTunnel(config: SshTunnelConfig): Promise<void> {
+  async establishTunnel(config: SshTunnelConfig): Promise<number> {
     const tunnelKey = `${config.spaceId}-${config.serverId}`
 
     // Check if tunnel already exists
     if (this.tunnels.has(tunnelKey)) {
       const existing = this.tunnels.get(tunnelKey)!
       if (existing.client && isClientConnected(existing.client)) {
-        console.log(`[SshTunnel] Tunnel already active for ${tunnelKey}`)
-        return
+        console.log(`[SshTunnel] Tunnel already active for ${tunnelKey} on port ${existing.config.localPort}`)
+        return existing.config.localPort
       }
       // Remove inactive tunnel
       this.cleanupTunnel(tunnelKey)
     }
 
+    // Auto-assign local port if not specified or if specified port is in use
+    const localPort = this.getOrAssignLocalPort(config.serverId, config.remotePort)
+    config.localPort = localPort
+
     console.log(`[SshTunnel] Establishing tunnel for ${tunnelKey}: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`)
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<number>((resolve, reject) => {
       const client = new Client()
 
       // SSH connection config
@@ -112,8 +198,10 @@ class SshTunnelService extends EventEmitter {
       client.on('ready', () => {
         console.log(`[SshTunnel] SSH connected to ${config.host}`)
 
-        // Kill any existing process on the local port before creating server
-        killPort(config.localPort)
+        // Note: We don't need to kill existing processes on the port because:
+        // 1. getOrAssignLocalPort() ensures we get a unique port per server
+        // 2. If tunnel already exists, we return early above
+        // 3. Killing processes on the port could kill our own tunnel server!
 
         // Create a local TCP server that forwards connections through SSH
         const server = net.createServer((socket) => {
@@ -168,8 +256,8 @@ class SshTunnelService extends EventEmitter {
           })
 
           console.log(`[SshTunnel] Tunnel established: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`)
-          this.emit('tunnel:established', tunnelKey)
-          resolve()
+          this.emit('tunnel:established', { tunnelKey, localPort: config.localPort })
+          resolve(config.localPort)
         })
 
         server.on('error', (err) => {
@@ -247,6 +335,9 @@ class SshTunnelService extends EventEmitter {
   private cleanupTunnel(tunnelKey: string): boolean {
     const tunnel = this.tunnels.get(tunnelKey)
     if (!tunnel) return false
+
+    // Release the port from used set
+    this.usedPorts.delete(tunnel.config.localPort)
 
     // Close local server first
     if (tunnel.server) {

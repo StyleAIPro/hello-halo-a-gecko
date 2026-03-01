@@ -102,7 +102,9 @@ export async function sendMessage(
   console.log(`[Agent] getSpace returned:`, space ? { id: space.id, name: space.name, claudeSource: space.claudeSource, remoteServerId: space.remoteServerId, useSshTunnel: space.useSshTunnel } : 'null')
   console.log(`[Agent] Remote routing check: space=${space ? space.name : 'null'}, claudeSource=${space?.claudeSource}, remoteServerId=${space?.remoteServerId}, useSshTunnel=${space?.useSshTunnel}`)
   if (space?.claudeSource === 'remote' && space.remoteServerId) {
-    console.log(`[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/root'}, useSshTunnel=${space.useSshTunnel}`)
+    // Default to using SSH tunnel for security (most servers don't expose ports publicly)
+    const useSshTunnel = space.useSshTunnel !== false  // Default true, only false if explicitly set
+    console.log(`[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/root'}, useSshTunnel=${useSshTunnel}`)
     try {
       console.log('[Agent] Calling executeRemoteMessage...')
       await executeRemoteMessage(
@@ -110,7 +112,7 @@ export async function sendMessage(
         request,
         space.remoteServerId,
         space.remotePath || '/root',
-        space.useSshTunnel
+        useSshTunnel
       )
       console.log('[Agent] executeRemoteMessage completed')
     } catch (error) {
@@ -493,7 +495,10 @@ async function executeRemoteMessage(
       // Continue anyway, using existing token
     }
 
-    // Establish SSH tunnel if required
+    // Track the local port for WebSocket connection
+    let localTunnelPort = server.wsPort || 8080
+
+    // Establish SSH tunnel if required (default: true for security)
     if (useSshTunnel) {
       console.log(`[Agent][Remote] Establishing SSH tunnel to ${server.host}:${server.wsPort || 8080}...`)
 
@@ -501,17 +506,18 @@ async function executeRemoteMessage(
       const decryptedPassword = decryptString(server.password || '')
 
       try {
-        await sshTunnelService.establishTunnel({
+        // establishTunnel returns the actual local port used (may differ from requested)
+        localTunnelPort = await sshTunnelService.establishTunnel({
           spaceId,
           serverId,
           host: server.host,
           port: server.sshPort || 22,
           username: server.username,
           password: decryptedPassword,
-          localPort: 8080,
+          localPort: server.wsPort || 8080,  // Starting port (may be changed if in use)
           remotePort: server.wsPort || 8080
         })
-        console.log(`[Agent][Remote] SSH tunnel established successfully`)
+        console.log(`[Agent][Remote] SSH tunnel established on local port ${localTunnelPort}`)
       } catch (tunnelError) {
         console.error('[Agent][Remote] Failed to establish SSH tunnel:', tunnelError)
         throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
@@ -560,12 +566,13 @@ async function executeRemoteMessage(
     }
 
     // Create remote client (WebSocket connection)
+    // Use localTunnelPort for SSH tunnel, original port for direct connection
     const wsConfig: RemoteWsClientConfig = {
       serverId,
-      host: server.host,
-      port: server.wsPort || 8080,
+      host: useSshTunnel ? 'localhost' : server.host,
+      port: useSshTunnel ? localTunnelPort : (server.wsPort || 8080),
       authToken: server.authToken || '',
-      useSshTunnel  // Pass SSH tunnel flag to use localhost:8080
+      useSshTunnel  // Pass SSH tunnel flag
     }
     console.log(`[Agent][Remote] Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
     const client = new RemoteWsClient(wsConfig)
@@ -650,7 +657,7 @@ async function executeRemoteMessage(
 
     // Connect if not already connected
     if (!client.isConnected()) {
-      const connectionUrl = wsConfig.useSshTunnel ? 'ws://localhost:8080/agent' : `ws://${wsConfig.host}:${wsConfig.port}/agent`
+      const connectionUrl = `ws://${wsConfig.host}:${wsConfig.port}/agent`
       console.log(`[Agent][Remote] Connecting to WebSocket at ${connectionUrl} (useSshTunnel=${wsConfig.useSshTunnel})...`)
       try {
         await client.connect()
