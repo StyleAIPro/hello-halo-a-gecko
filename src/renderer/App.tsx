@@ -32,6 +32,8 @@ const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.H
 const SpacePage = lazy(() => import('./pages/SpacePage').then(m => ({ default: m.SpacePage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const AppsPage = lazy(() => import('./pages/AppsPage').then(m => ({ default: m.AppsPage })))
+const RemoteServersPage = lazy(() => import('./pages/RemoteServersPage').then(m => ({ default: m.RemoteServersPage })))
+const RemoteAgentChatPage = lazy(() => import('./pages/RemoteAgentChatPage').then(m => ({ default: m.RemoteAgentChatPage })))
 
 // Page loading fallback - minimal spinner that matches app style
 function PageLoader() {
@@ -570,6 +572,18 @@ export default function App() {
         return (
           <Suspense fallback={<PageLoader />}>
             <AppsPage />
+          </Suspense>
+        )
+      case 'remoteServers':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <RemoteServersPage />
+          </Suspense>
+        )
+      case 'remoteChat':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <RemoteAgentChatPage />
           </Suspense>
         )
       default:

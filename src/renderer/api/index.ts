@@ -203,6 +203,11 @@ export const api = {
     name: string
     icon: string
     customPath?: string
+    workingDir?: string
+    claudeSource?: 'local' | 'remote'
+    remoteServerId?: string
+    remotePath?: string
+    useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
   }): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.halo.createSpace(input)
@@ -1564,6 +1569,244 @@ export const api = {
       return window.halo.storeToggleRegistry({ registryId, enabled })
     }
     return httpRequest('POST', `/api/store/registries/${registryId}/toggle`, { enabled })
+  },
+
+  // ===== Remote Server =====
+  remoteServerAdd: async (server: unknown): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.add(server)
+    }
+    return httpRequest('POST', '/api/remote-server', server as Record<string, unknown>)
+  },
+
+  remoteServerList: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.list()
+    }
+    return httpRequest('GET', '/api/remote-server')
+  },
+
+  remoteServerDeploy: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.deploy(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy`)
+  },
+
+  remoteServerConnect: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.connect(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/connect`)
+  },
+
+  remoteServerDisconnect: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.disconnect(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/disconnect`)
+  },
+
+  remoteServerDelete: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.delete(serverId)
+    }
+    return httpRequest('DELETE', `/api/remote-server/${serverId}`)
+  },
+
+  remoteServerGet: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.get(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}`)
+  },
+
+  remoteServerUpdate: async (server: Record<string, unknown>): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.update(server)
+    }
+    return httpRequest('PUT', '/api/remote-server', server)
+  },
+
+  remoteServerTestConnection: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.testConnection(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`)
+  },
+
+  // Alias methods for component compatibility
+  getRemoteServers: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.list()
+    }
+    return httpRequest('GET', '/api/remote-server')
+  },
+
+  getRemoteServer: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.get(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}`)
+  },
+
+  addRemoteServer: async (server: Record<string, unknown>): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.add(server)
+    }
+    return httpRequest('POST', '/api/remote-server', server)
+  },
+
+  updateRemoteServer: async (server: Record<string, unknown>): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.update(server)
+    }
+    return httpRequest('PUT', '/api/remote-server', server)
+  },
+
+  deleteRemoteServer: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.delete(serverId)
+    }
+    return httpRequest('DELETE', `/api/remote-server/${serverId}`)
+  },
+
+  testRemoteConnection: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.testConnection(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`)
+  },
+
+  checkRemoteAgentConnection: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.checkConnection(serverId)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/status`)
+  },
+
+  sendRemoteAgentMessage: async (serverId: string, params: { sessionId?: string; content: string }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.sendMessage(serverId, params.content)
+    }
+    return httpRequest('POST', `/api/remote-agent/${serverId}/chat`, params)
+  },
+
+  getRemoteAgentMessages: async (serverId: string, sessionId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.getMessages(serverId, sessionId)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/chat/${sessionId}`)
+  },
+
+  listRemoteFiles: async (serverId: string, path: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.fsList(serverId, path)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/list?path=${encodeURIComponent(path)}`)
+  },
+
+  // ===== Remote Agent =====
+  remoteAgentSendMessage: async (serverId: string, message: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.sendMessage(serverId, message)
+    }
+    return httpRequest('POST', `/api/remote-agent/${serverId}/message`, { message })
+  },
+
+  remoteAgentFsList: async (serverId: string, path?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.fsList(serverId, path)
+    }
+    const params = path ? `?path=${encodeURIComponent(path)}` : ''
+    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/list${params}`)
+  },
+
+  remoteAgentFsRead: async (serverId: string, path: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.fsRead(serverId, path)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/read?path=${encodeURIComponent(path)}`)
+  },
+
+  remoteAgentFsWrite: async (serverId: string, path: string, content: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.fsWrite(serverId, path, content)
+    }
+    return httpRequest('POST', `/api/remote-agent/${serverId}/fs/write`, { path, content })
+  },
+
+  remoteAgentFsDelete: async (serverId: string, path: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.fsDelete(serverId, path)
+    }
+    return httpRequest('DELETE', `/api/remote-agent/${serverId}/fs`, { path })
+  },
+
+  onRemoteAgentStream: (callback: (data: unknown) => void) =>
+    onEvent('remote-agent:stream', callback),
+  onRemoteAgentComplete: (callback: (data: unknown) => void) =>
+    onEvent('remote-agent:complete', callback),
+  onRemoteAgentError: (callback: (data: unknown) => void) =>
+    onEvent('remote-agent:error', callback),
+  onRemoteAgentFsResult: (callback: (data: unknown) => void) =>
+    onEvent('remote-agent:fs:result', callback),
+
+  remoteAgentCheckConnection: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.checkConnection(serverId)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/connection-status`)
+  },
+
+  remoteAgentGetMessages: async (serverId: string, sessionId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteAgent.getMessages(serverId, sessionId)
+    }
+    return httpRequest('GET', `/api/remote-agent/${serverId}/messages/${sessionId}`)
+  },
+
+  // ===== Remote Server Agent Management =====
+  remoteServerCheckAgent: async (serverId: string): Promise<ApiResponse<{ installed: boolean; version?: string }>> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.checkAgent(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/check-agent`)
+  },
+
+  remoteServerDeployAgent: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.deployAgent(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy-agent`)
+  },
+
+  remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.startAgent(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/start-agent`)
+  },
+
+  remoteServerStopAgent: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.stopAgent(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/stop-agent`)
+  },
+
+  remoteServerGetAgentLogs: async (serverId: string, lines: number = 100): Promise<ApiResponse<{ logs: string }>> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.getAgentLogs(serverId, lines)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/agent-logs?lines=${lines}`)
+  },
+
+  remoteServerIsAgentRunning: async (serverId: string): Promise<ApiResponse<{ running: boolean }>> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.isAgentRunning(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/agent-running`)
   },
 }
 

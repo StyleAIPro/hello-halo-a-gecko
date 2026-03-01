@@ -363,6 +363,22 @@ interface HaloConfig {
     cacheTtlMs: number
     autoCheckUpdates: boolean
   }
+  // Remote servers configuration
+  remoteServers?: Array<{
+    id: string
+    name: string
+    host: string
+    sshPort: number
+    username: string
+    password: string  // encrypted
+    wsPort: number
+    authToken: string
+    status: 'disconnected' | 'connected' | 'deploying' | 'error'
+    error?: string
+    workDir?: string
+    claudeApiKey?: string
+    agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
+  }>
 }
 
 // MCP server configuration types

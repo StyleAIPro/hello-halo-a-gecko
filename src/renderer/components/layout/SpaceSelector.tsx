@@ -108,6 +108,9 @@ export function SpaceSelector() {
 
   const displayIcon = currentSpace?.icon || 'sparkles'
 
+  // Debug: Log when spaces are loaded
+  console.log('[SpaceSelector] Loaded spaces:', allSpaces.map(s => ({ id: s.id, name: s.name, claudeSource: s.claudeSource })))
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -139,6 +142,11 @@ export function SpaceSelector() {
               >
                 <SpaceIcon iconId={space.icon || (space.isTemp ? 'sparkles' : 'folder')} size={16} className="flex-shrink-0" />
                 <span className="truncate">{name}</span>
+                {space.claudeSource === 'remote' && (
+                  <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
+                    {t('Remote')}
+                  </span>
+                )}
                 {isActive && (
                   <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
                 )}

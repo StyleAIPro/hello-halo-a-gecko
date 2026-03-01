@@ -222,12 +222,20 @@ export interface Space {
   updatedAt: string;
   preferences?: SpacePreferences;  // User preferences for this space
   workingDir?: string;  // Project directory for custom spaces (agent cwd, artifacts, file explorer)
+  claudeSource?: 'local' | 'remote';
+  remoteServerId?: string;
+  remotePath?: string;
+  useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
 }
 
 export interface CreateSpaceInput {
   name: string;
   icon: string;
   customPath?: string;
+  claudeSource?: 'local' | 'remote';
+  remoteServerId?: string;
+  remotePath?: string;
+  useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
 }
 
 // ============================================
@@ -292,6 +300,7 @@ export interface ToolCall {
   progress?: number;
   requiresApproval?: boolean;
   description?: string;
+  timestamp?: number;  // When the tool call was made
 }
 
 // ============================================
@@ -340,12 +349,21 @@ export interface ThoughtsSummary {
  */
 export type { FileChangesSummary } from '../../shared/file-changes';
 
+/**
+ * Terminal output data structure
+ */
+export interface TerminalOutputData {
+  content: string;
+  type: 'stdout' | 'stderr';
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
   content: string;  // Text content (for backward compatibility)
   timestamp: string;
   toolCalls?: ToolCall[];
+  terminalOutputs?: TerminalOutputData[];  // Terminal output from remote execution
   thoughts?: Thought[] | null;  // null = stored separately (not loaded), undefined = none, Array = loaded
   thoughtsSummary?: ThoughtsSummary;  // Present when thoughts are stored separately
   isStreaming?: boolean;
@@ -588,7 +606,7 @@ export type AgentEvent =
 // App State Types
 // ============================================
 
-export type AppView = 'splash' | 'gitBashSetup' | 'setup' | 'home' | 'space' | 'settings' | 'apps';
+export type AppView = 'splash' | 'gitBashSetup' | 'setup' | 'home' | 'space' | 'settings' | 'apps' | 'remoteServers' | 'remoteChat';
 
 export interface AppState {
   view: AppView;

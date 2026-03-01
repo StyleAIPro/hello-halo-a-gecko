@@ -60,3 +60,82 @@ export * from './notification-channels'
 // File changes types (shared between main process agent and renderer diff)
 export type { FileChangesSummary, ThoughtLike } from '../file-changes'
 export { countChangedLines, calculateDiffStats, extractFileChangesSummaryFromThoughts } from '../file-changes'
+
+// Remote Server types
+export interface RemoteServer {
+  id: string
+  name: string
+  host: string
+  sshPort: number
+  username: string
+  password: string  // encrypted
+  wsPort: number
+  authToken: string
+  status: 'disconnected' | 'connected' | 'deploying' | 'error'
+  error?: string
+  workDir?: string
+  claudeApiKey?: string
+  sdkInstalled?: boolean  // Whether claude-agent-sdk is installed
+  sdkVersion?: string  // Installed SDK version
+  agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
+}
+
+export interface RemoteServerConnection {
+  serverId: string
+  url: string
+  authToken: string
+}
+
+export interface RemoteFileMessage {
+  type: 'list' | 'read' | 'write' | 'upload' | 'download' | 'delete'
+  path?: string
+  content?: string
+}
+
+export interface RemoteClaudeMessage {
+  sessionId: string
+  message: string
+}
+
+export interface FileInfo {
+  name: string
+  isDirectory: boolean
+  size: number
+  modifiedTime: Date
+}
+
+/**
+ * Terminal output data structure
+ */
+export interface TerminalOutputData {
+  content: string
+  type: 'stdout' | 'stderr'
+}
+
+export interface Space {
+  id: string
+  name: string
+  icon: string
+  path: string
+  isTemp: boolean
+  createdAt: string
+  updatedAt: string
+  preferences?: SpacePreferences
+  workingDir?: string
+
+  // Remote Claude support
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+}
+
+export interface CreateSpaceInput {
+  name: string
+  icon: string
+  customPath?: string
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+}

@@ -241,11 +241,6 @@ class BrowserViewManager {
       return false
     }
 
-    // Offscreen views live on a hidden window and must not be shown on mainWindow
-    if (this.offscreenViewIds.has(viewId)) {
-      console.warn(`[BrowserView] show() - Cannot show offscreen view on mainWindow: ${viewId}`)
-      return false
-    }
 
     // Defensive: if the native BrowserView object has been destroyed (e.g. by
     // a race condition), clean up the stale entry and bail out.

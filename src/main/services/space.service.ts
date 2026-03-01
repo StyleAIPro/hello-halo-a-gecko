@@ -37,6 +37,12 @@ interface Space {
   updatedAt: string
   preferences?: SpacePreferences
   workingDir?: string  // Project directory for custom spaces (agent cwd, artifacts, file explorer)
+
+  // Remote Claude support
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
 }
 
 interface SpaceLayoutPreferences {
@@ -56,6 +62,12 @@ interface SpaceMeta {
   updatedAt: string
   preferences?: SpacePreferences
   workingDir?: string  // Project directory for custom spaces
+
+  // Remote Claude support
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
 }
 
 // ============================================================================
@@ -70,6 +82,12 @@ interface SpaceIndexEntry {
   updatedAt: string
   workingDir?: string
   isTemp?: boolean  // true only for halo-temp (not persisted to disk)
+
+  // Remote Claude support
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
 }
 
 interface SpaceIndexV3 {
@@ -110,7 +128,12 @@ function metaToEntry(meta: SpaceMeta, spacePath: string): SpaceIndexEntry {
     icon: meta.icon,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
-    workingDir: meta.workingDir
+    workingDir: meta.workingDir,
+    // Include remote Claude fields
+    claudeSource: meta.claudeSource,
+    remoteServerId: meta.remoteServerId,
+    remotePath: meta.remotePath,
+    useSshTunnel: meta.useSshTunnel
   }
 }
 
@@ -283,7 +306,11 @@ function entryToSpace(id: string, entry: SpaceIndexEntry): Space {
     isTemp: !!entry.isTemp,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
-    workingDir: entry.workingDir
+    workingDir: entry.workingDir,
+    claudeSource: entry.claudeSource || 'local',
+    remoteServerId: entry.remoteServerId,
+    remotePath: entry.remotePath || '/root',
+    useSshTunnel: entry.useSshTunnel || false  // Default to false for old spaces
   }
 }
 
@@ -296,6 +323,11 @@ function entryToSpaceWithPreferences(id: string, entry: SpaceIndexEntry): Space 
   if (meta?.preferences) {
     space.preferences = meta.preferences
   }
+  // Load remote configuration
+  space.claudeSource = meta.claudeSource || entry.claudeSource || 'local'
+  space.remoteServerId = meta.remoteServerId || entry.remoteServerId
+  space.remotePath = meta.remotePath || entry.remotePath || '/root'
+  space.useSshTunnel = meta.useSshTunnel ?? entry.useSshTunnel ?? false  // Default to false
   return space
 }
 
@@ -379,7 +411,23 @@ export function getAllSpacePaths(): string[] {
 /**
  * Create a new space. Registers in both memory and disk index.
  */
-export function createSpace(input: { name: string; icon: string; customPath?: string }): Space {
+export function createSpace({
+  name,
+  icon,
+  customPath,
+  claudeSource = 'local',
+  remoteServerId,
+  remotePath = '/root',
+  useSshTunnel = false
+}: {
+  name: string
+  icon: string
+  customPath?: string
+  claudeSource?: 'local' | 'remote'
+  remoteServerId?: string
+  remotePath?: string
+  useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+}): Space {
   const id = uuidv4()
   const now = new Date().toISOString()
 
@@ -387,7 +435,7 @@ export function createSpace(input: { name: string; icon: string; customPath?: st
   const spacePath = join(getSpacesDir(), id)
 
   // customPath is stored as workingDir (agent cwd, artifact root, file explorer)
-  const workingDir = input.customPath || undefined
+  const workingDir = customPath || undefined
 
   // Create directories
   mkdirSync(spacePath, { recursive: true })
@@ -397,11 +445,15 @@ export function createSpace(input: { name: string; icon: string; customPath?: st
   // Create meta file
   const meta: SpaceMeta = {
     id,
-    name: input.name,
-    icon: input.icon,
+    name,
+    icon,
     createdAt: now,
     updatedAt: now,
-    workingDir
+    workingDir,
+    claudeSource,
+    remoteServerId,
+    remotePath,
+    useSshTunnel
   }
 
   writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
@@ -409,16 +461,20 @@ export function createSpace(input: { name: string; icon: string; customPath?: st
   // Register in index (memory + disk)
   const entry: SpaceIndexEntry = {
     path: spacePath,
-    name: input.name,
-    icon: input.icon,
+    name,
+    icon,
     createdAt: now,
     updatedAt: now,
-    workingDir
+    workingDir,
+    claudeSource,
+    remoteServerId,
+    remotePath,
+    useSshTunnel
   }
   getRegistry().set(id, entry)
   persistIndex(getRegistry())
 
-  console.log(`[Space] Created space ${id}: path=${spacePath}${workingDir ? `, workingDir=${workingDir}` : ''}`)
+  console.log(`[Space] Created space ${id}: path=${spacePath}${workingDir ? `, workingDir=${workingDir}` : ''}${claudeSource === 'remote' ? `, claudeSource=${claudeSource}, remoteServerId=${remoteServerId}, remotePath=${remotePath}${useSshTunnel ? ', useSshTunnel=true' : ''}` : ''}`)
 
   return entryToSpace(id, entry)
 }

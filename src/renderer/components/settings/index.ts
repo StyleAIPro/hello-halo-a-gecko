@@ -22,3 +22,4 @@ export { RegistrySection } from './RegistrySection'
 
 // Existing Components
 export { McpServerList } from './McpServerList'
+export { RemoteServersSection } from './RemoteServersSection'
