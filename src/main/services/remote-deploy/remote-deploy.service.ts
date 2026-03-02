@@ -526,6 +526,7 @@ export class RemoteDeployService {
       `REMOTE_AGENT_PORT=${server.wsPort || 8080}`,
       `REMOTE_AGENT_AUTH_TOKEN=${server.authToken || ''}`,
       `REMOTE_AGENT_WORK_DIR=${server.workDir || '/root'}`,
+      `IS_SANDBOX=1`,  // Required for bypass-permissions mode in root environment
       server.claudeApiKey ? `ANTHROPIC_API_KEY=${server.claudeApiKey}` : null,
       server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${server.claudeBaseUrl}` : null,
       server.claudeModel ? `ANTHROPIC_MODEL=${server.claudeModel}` : null
