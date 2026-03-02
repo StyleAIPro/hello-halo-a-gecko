@@ -197,38 +197,48 @@ export class RemoteDeployService {
     console.log('[RemoteDeployService] addServer - Shared config:', JSON.stringify(shared))
     console.log(`[RemoteDeployService] Added server: ${server.name} (${id})`)
 
-    // Automatically connect and check/deploy agent-sdk
+    // Automatically connect and perform full deployment
     try {
       await this.connectServer(id)
 
-      // Check if claude-agent-sdk is installed
+      // Step 1: Check and install Claude CLI + SDK globally
       const agentCheck = await this.checkAgentInstalled(id)
       console.log(`[RemoteDeployService] Agent check result:`, agentCheck)
 
       if (!agentCheck.installed) {
-        console.log(`[RemoteDeployService] Deploying claude-agent-sdk to ${server.name}...`)
+        console.log(`[RemoteDeployService] Deploying Claude CLI and SDK to ${server.name}...`)
         await this.deployAgentSDK(id)
 
-        // Check again after deployment to confirm installation
         const postDeployCheck = await this.checkAgentInstalled(id)
         await this.updateServer(id, {
-          status: 'disconnected',
           sdkInstalled: postDeployCheck.installed,
           sdkVersion: postDeployCheck.version,
         })
       } else {
         console.log(`[RemoteDeployService] claude-agent-sdk already installed on ${server.name}, version: ${agentCheck.version}`)
-        // Update server metadata to show SDK is installed
         await this.updateServer(id, {
-          status: 'disconnected',
           sdkInstalled: agentCheck.installed,
           sdkVersion: agentCheck.version,
           error: undefined,
         })
       }
+
+      // Step 2: Deploy agent code (upload remote-agent-proxy, install deps, upload patched SDK)
+      console.log(`[RemoteDeployService] Deploying agent code to ${server.name}...`)
+      await this.deployAgentCode(id)
+
+      // Step 3: Start the agent
+      console.log(`[RemoteDeployService] Starting agent on ${server.name}...`)
+      await this.startAgent(id)
+
+      await this.updateServer(id, { status: 'connected', error: undefined })
+      console.log(`[RemoteDeployService] Full deployment completed for ${server.name}`)
     } catch (error) {
-      console.error('[RemoteDeployService] Auto connect/check failed:', error)
-      // Don't fail addServer if auto-deploy fails, just log the error
+      console.error('[RemoteDeployService] Auto deployment failed:', error)
+      await this.updateServer(id, {
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error)
+      })
       await this.disconnectServer(id)
     }
 
@@ -897,6 +907,28 @@ export class RemoteDeployService {
       } catch {
         this.emitCommandOutput(id, 'error', 'npm is not installed on the remote server. Please install npm first.')
         throw new Error('npm is not installed on the remote server. Please install npm first.')
+      }
+
+      // Install Claude CLI globally (required for SDK to work)
+      console.log('[RemoteDeployService] Checking Claude CLI installation...')
+      this.emitCommandOutput(id, 'command', 'claude --version')
+      try {
+        const claudeVersion = await manager.executeCommandFull('claude --version')
+        console.log(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`)
+        this.emitCommandOutput(id, 'output', `Claude CLI: ${claudeVersion.stdout.trim()}`)
+      } catch {
+        // Claude CLI not installed, install it
+        console.log('[RemoteDeployService] Claude CLI not found, installing...')
+        this.emitCommandOutput(id, 'command', 'npm install -g @anthropic-ai/claude-code')
+        const claudeInstallResult = await manager.executeCommandFull('npm install -g @anthropic-ai/claude-code')
+        if (claudeInstallResult.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', claudeInstallResult.stdout.trim())
+        }
+        if (claudeInstallResult.exitCode !== 0) {
+          this.emitCommandOutput(id, 'error', `Failed to install Claude CLI: ${claudeInstallResult.stderr}`)
+          throw new Error(`Failed to install Claude CLI: ${claudeInstallResult.stderr}`)
+        }
+        this.emitCommandOutput(id, 'success', 'Claude CLI installed successfully')
       }
 
       // Install claude-agent-sdk globally
