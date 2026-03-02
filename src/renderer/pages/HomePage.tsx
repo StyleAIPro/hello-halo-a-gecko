@@ -58,7 +58,7 @@ export function HomePage() {
   // Remote Claude configuration state
   const [claudeSource, setClaudeSource] = useState<'local' | 'remote'>('local')
   const [remoteServerId, setRemoteServerId] = useState<string>('')
-  const [remotePath, setRemotePath] = useState<string>('/root')
+  const [remotePath, setRemotePath] = useState<string>('/home')
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const [useSshTunnel, setUseSshTunnel] = useState<boolean>(true)  // Default to true for security
 
@@ -145,7 +145,7 @@ export function HomePage() {
     // Reset remote configuration
     setClaudeSource('local')
     setRemoteServerId('')
-    setRemotePath('/root')
+    setRemotePath('/home')
     setUseSshTunnel(true)  // Default to true for security
   }
 
@@ -582,10 +582,10 @@ export function HomePage() {
                     type="text"
                     value={remotePath}
                     onChange={(e) => setRemotePath(e.target.value)}
-                    placeholder="/root"
+                    placeholder="/home"
                     className="w-full mt-1 px-4 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">{t('Default: /root')}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t('Default: /home')}</p>
                 </div>
 
                 {/* SSH Tunnel Toggle */}

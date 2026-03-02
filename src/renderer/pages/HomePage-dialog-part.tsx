@@ -124,9 +124,9 @@
                     type="text"
                     value={remotePath}
                     onChange={(e) => setRemotePath(e.target.value)}
-                    placeholder="/root"
+                    placeholder="/home"
                     className="w-full px-3 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">{t('Default: /root')}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t('Default: /home')}</p>
                 </div>
               )}
