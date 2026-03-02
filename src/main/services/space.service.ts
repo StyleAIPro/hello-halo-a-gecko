@@ -309,7 +309,7 @@ function entryToSpace(id: string, entry: SpaceIndexEntry): Space {
     workingDir: entry.workingDir,
     claudeSource: entry.claudeSource || 'local',
     remoteServerId: entry.remoteServerId,
-    remotePath: entry.remotePath || '/root',
+    remotePath: entry.remotePath || '/home',
     useSshTunnel: entry.useSshTunnel || false  // Default to false for old spaces
   }
 }
@@ -326,7 +326,7 @@ function entryToSpaceWithPreferences(id: string, entry: SpaceIndexEntry): Space 
   // Load remote configuration
   space.claudeSource = meta.claudeSource || entry.claudeSource || 'local'
   space.remoteServerId = meta.remoteServerId || entry.remoteServerId
-  space.remotePath = meta.remotePath || entry.remotePath || '/root'
+  space.remotePath = meta.remotePath || entry.remotePath || '/home'
   space.useSshTunnel = meta.useSshTunnel ?? entry.useSshTunnel ?? false  // Default to false
   return space
 }
@@ -417,7 +417,7 @@ export function createSpace({
   customPath,
   claudeSource = 'local',
   remoteServerId,
-  remotePath = '/root',
+  remotePath = '/home',
   useSshTunnel = false
 }: {
   name: string

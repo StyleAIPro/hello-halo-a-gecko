@@ -387,7 +387,7 @@ export class ClaudeManager {
       model: this.model || 'claude-sonnet-4-20250514',
       cwd: effectiveWorkDir,
       systemPrompt: buildSystemPrompt(effectiveWorkDir, this.model),
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
       includePartialMessages: true,
       maxTurns: 50,

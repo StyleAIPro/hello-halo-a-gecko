@@ -104,14 +104,14 @@ export async function sendMessage(
   if (space?.claudeSource === 'remote' && space.remoteServerId) {
     // Default to using SSH tunnel for security (most servers don't expose ports publicly)
     const useSshTunnel = space.useSshTunnel !== false  // Default true, only false if explicitly set
-    console.log(`[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/root'}, useSshTunnel=${useSshTunnel}`)
+    console.log(`[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/home'}, useSshTunnel=${useSshTunnel}`)
     try {
       console.log('[Agent] Calling executeRemoteMessage...')
       await executeRemoteMessage(
         mainWindow,
         request,
         space.remoteServerId,
-        space.remotePath || '/root',
+        space.remotePath || '/home',
         useSshTunnel
       )
       console.log('[Agent] executeRemoteMessage completed')
