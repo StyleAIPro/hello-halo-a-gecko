@@ -69,11 +69,11 @@ export class RemoteWsClient extends EventEmitter {
     }
 
     return new Promise<void>((resolve, reject) => {
-      // Use localhost:8080 when SSH tunnel is enabled
+      // Use localhost and the tunnel port when SSH tunnel is enabled
       const host = this.config.useSshTunnel ? 'localhost' : this.config.host
-      const port = this.config.useSshTunnel ? 8080 : this.config.port
+      const port = this.config.port  // Already set to localTunnelPort by caller when useSshTunnel=true
       const wsUrl = `ws://${host}:${port}/agent`
-      const connectionMode = this.config.useSshTunnel ? 'SSH tunnel (localhost:8080)' : `direct (${host}:${port})`
+      const connectionMode = this.config.useSshTunnel ? `SSH tunnel (localhost:${port})` : `direct (${host}:${port})`
       const connectionStartTime = Date.now()  // Define at outer scope
 
       console.log(`[RemoteWsClient:${this.config.serverId}] Connecting to ${wsUrl} via ${connectionMode}`)
@@ -278,6 +278,8 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
+          this.off('thought', thoughtHandler)
+          this.off('thought:delta', thoughtDeltaHandler)
           // Return any content from complete message if stream was empty
           const finalContent = fullContent || data.data?.content || ''
           resolve(finalContent)
@@ -289,7 +291,23 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
+          this.off('thought', thoughtHandler)
+          this.off('thought:delta', thoughtDeltaHandler)
           reject(new Error(data.data?.error || 'Chat failed'))
+        }
+      }
+
+      // Handle thought events
+      const thoughtHandler = (data: any) => {
+        if (data.sessionId === sessionId) {
+          this.emit('thought', data)
+        }
+      }
+
+      // Handle thought delta events
+      const thoughtDeltaHandler = (data: any) => {
+        if (data.sessionId === sessionId) {
+          this.emit('thought:delta', data)
         }
       }
 
@@ -297,6 +315,8 @@ export class RemoteWsClient extends EventEmitter {
       this.on('claude:stream', streamHandler)
       this.on('claude:complete', completeHandler)
       this.on('claude:error', errorHandler)
+      this.on('thought', thoughtHandler)
+      this.on('thought:delta', thoughtDeltaHandler)
 
       // Send the chat request
       const sent = this.send({
@@ -318,6 +338,8 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
+          this.off('thought', thoughtHandler)
+          this.off('thought:delta', thoughtDeltaHandler)
           reject(new Error('Chat timeout'))
         }
       }, 120000)

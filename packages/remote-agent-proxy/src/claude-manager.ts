@@ -50,6 +50,40 @@ export interface TerminalOutput {
 }
 
 /**
+ * Thought event (for thinking, tool_use, etc.)
+ */
+export interface ThoughtEvent {
+  id: string
+  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result'
+  content?: string
+  timestamp: string
+  toolName?: string
+  toolInput?: Record<string, unknown>
+  isStreaming?: boolean
+  isReady?: boolean
+  errorCode?: string
+}
+
+/**
+ * Thought delta event (streaming updates)
+ */
+export interface ThoughtDeltaEvent {
+  thoughtId: string
+  delta?: string
+  content?: string
+  isComplete?: boolean
+  toolInput?: Record<string, unknown>
+  isReady?: boolean
+  isToolInput?: boolean
+  toolResult?: {
+    output: string
+    isError: boolean
+    timestamp: string
+  }
+  isToolResult?: boolean
+}
+
+/**
  * File operation result
  */
 export interface FileOperation {
@@ -606,15 +640,22 @@ export class ClaudeManager {
    * @param sessionId - Session/conversation ID
    * @param messages - Chat messages (only last message is sent)
    * @param options - Chat options including workDir for per-session directory
+   * @param onToolCall - Callback for tool call events
+   * @param onTerminalOutput - Callback for terminal output events
+   * @param onThought - Callback for thought events (thinking, tool_use start)
+   * @param onThoughtDelta - Callback for thought delta events (streaming updates)
    */
   async *streamChat(
     sessionId: string,
     messages: ChatMessage[],
     options: ChatOptions = {},
     onToolCall?: (tool: ToolCall) => void,
-    onTerminalOutput?: (output: TerminalOutput) => void
+    onTerminalOutput?: (output: TerminalOutput) => void,
+    onThought?: (thought: ThoughtEvent) => void,
+    onThoughtDelta?: (delta: ThoughtDeltaEvent) => void
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
+    console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     const session = await this.getOrCreateSession(sessionId, options.workDir)
 
     // Register as active session for in-flight tracking
@@ -714,8 +755,37 @@ export class ClaudeManager {
                 yield { type: 'text', data: { text: block.text } }
               }
               if (block.type === 'thinking' && block.thinking) {
-                console.log(`[ClaudeManager] Thinking: ${block.thinking.substring(0, 50)}...`)
-                yield { type: 'thinking', data: { text: block.thinking } }
+                console.log(`[ClaudeManager] Thinking from assistant: ${block.thinking.substring(0, 50)}...`)
+                const thoughtId = `thought-thinking-${Date.now()}`
+                const thought: ThoughtEvent = {
+                  id: thoughtId,
+                  type: 'thinking',
+                  content: block.thinking,
+                  timestamp: new Date().toISOString(),
+                  isStreaming: false
+                }
+                onThought?.(thought)
+              }
+              if (block.type === 'tool_use') {
+                console.log(`[ClaudeManager] Tool use from assistant: ${block.name}`)
+                const thoughtId = `thought-tool-${Date.now()}`
+                const thought: ThoughtEvent = {
+                  id: thoughtId,
+                  type: 'tool_use',
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  toolName: block.name,
+                  toolInput: block.input || {},
+                  isStreaming: false,
+                  isReady: true
+                }
+                onThought?.(thought)
+                onToolCall?.({
+                  id: block.id,
+                  name: block.name,
+                  input: block.input || {},
+                  status: 'result'
+                })
               }
             }
           }
