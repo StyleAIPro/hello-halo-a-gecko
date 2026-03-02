@@ -19,7 +19,7 @@ import {
 } from '../components/icons/ToolIcons'
 import { Header } from '../components/layout/Header'
 import { SpaceGuide } from '../components/space/SpaceGuide'
-import { Monitor, Blocks, ArrowRight, AlertCircle } from 'lucide-react'
+import { Monitor, Blocks, ArrowRight, AlertCircle, Cloud, Folder } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
 import { useAppsStore } from '../stores/apps.store'
@@ -378,11 +378,17 @@ export function HomePage() {
                 className="space-card p-4 group animate-fade-in"
               >
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <SpaceIcon iconId={space.icon} size={20} />
                     <span className="font-medium truncate">{space.name}</span>
+                    {space.claudeSource === 'remote' && (
+                      <span className="flex items-center gap-1 text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full flex-shrink-0">
+                        <Cloud className="w-3 h-3" />
+                        {t('Remote')}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
                     <button
                       onClick={(e) => handleEditSpace(e, space)}
                       className="p-1 hover:bg-secondary rounded transition-all"
@@ -399,7 +405,14 @@ export function HomePage() {
                     </button>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
+                {/* Project directory */}
+                <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
+                  <Folder className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate">
+                    {space.claudeSource === 'remote' ? space.remotePath || '/home' : space.path}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
                   {formatTimeAgo(space.updatedAt)}{t('active')}
                 </p>
               </div>
