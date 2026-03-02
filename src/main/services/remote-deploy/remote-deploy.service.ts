@@ -885,7 +885,7 @@ export class RemoteDeployService {
         this.emitCommandOutput(id, 'output', testResult.stdout.trim())
       }
 
-      // Check if Node.js is installed
+      // Check if Node.js is installed, install if not
       console.log('[RemoteDeployService] Checking Node.js installation...')
       this.emitCommandOutput(id, 'command', 'node --version')
       try {
@@ -893,11 +893,39 @@ export class RemoteDeployService {
         console.log(`[RemoteDeployService] Node.js version: ${nodeVersion.stdout.trim()}`)
         this.emitCommandOutput(id, 'output', nodeVersion.stdout.trim())
       } catch {
-        this.emitCommandOutput(id, 'error', 'Node.js is not installed on the remote server. Please install Node.js first.')
-        throw new Error('Node.js is not installed on the remote server. Please install Node.js first.')
+        // Node.js not installed, install it automatically
+        console.log('[RemoteDeployService] Node.js not found, installing...')
+        this.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...')
+
+        // Detect OS and install Node.js using NodeSource
+        // This works for Ubuntu/Debian and RHEL/CentOS/Fedora
+        const installNodeCmd = `
+          if [ -f /etc/debian_version ]; then
+            # Debian/Ubuntu
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+            apt-get install -y nodejs
+          elif [ -f /etc/redhat-release ]; then
+            # RHEL/CentOS/Fedora
+            curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
+            yum install -y nodejs
+          else
+            echo "Unsupported OS. Please install Node.js manually."
+            exit 1
+          fi
+        `
+
+        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd)
+        if (nodeInstallResult.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim())
+        }
+        if (nodeInstallResult.exitCode !== 0) {
+          this.emitCommandOutput(id, 'error', `Failed to install Node.js: ${nodeInstallResult.stderr}`)
+          throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`)
+        }
+        this.emitCommandOutput(id, 'success', 'Node.js installed successfully')
       }
 
-      // Check if npm is installed
+      // Check if npm is installed (usually comes with Node.js)
       console.log('[RemoteDeployService] Checking npm installation...')
       this.emitCommandOutput(id, 'command', 'npm --version')
       try {
@@ -905,8 +933,9 @@ export class RemoteDeployService {
         console.log(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`)
         this.emitCommandOutput(id, 'output', npmVersion.stdout.trim())
       } catch {
-        this.emitCommandOutput(id, 'error', 'npm is not installed on the remote server. Please install npm first.')
-        throw new Error('npm is not installed on the remote server. Please install npm first.')
+        // npm not found - this shouldn't happen if Node.js was just installed
+        this.emitCommandOutput(id, 'error', 'npm is not installed. This should not happen after Node.js installation.')
+        throw new Error('npm is not installed on the remote server. Please reinstall Node.js.')
       }
 
       // Install Claude CLI globally (required for SDK to work)
