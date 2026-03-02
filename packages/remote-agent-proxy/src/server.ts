@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData } from './types.js'
-import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput } from './claude-manager.js'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData } from './types.js'
+import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 
 export class RemoteAgentServer {
   private config: RemoteServerConfig
@@ -19,7 +19,7 @@ export class RemoteAgentServer {
     this.claudeManager = new ClaudeManager(
       config.claudeApiKey,
       config.claudeBaseUrl,
-      undefined,  // V2 Session will auto-locate Claude Code
+      '/usr/local/bin/claude',  // Use native Claude CLI for proper cwd support
       config.workDir,
       config.model
     )
@@ -210,6 +210,7 @@ export class RemoteAgentServer {
       }
 
       console.log(`[RemoteAgentServer] Received claude:chat request for session ${sessionId} with ${messages.length} messages`)
+      console.log(`[RemoteAgentServer] options.workDir = ${options?.workDir || 'not provided'}`)
 
       // Normalize messages to ChatMessage format
       // Support both string content and complex content (text + images)
@@ -250,6 +251,24 @@ export class RemoteAgentServer {
           })
         }
 
+        // Callback for thought events (thinking, tool_use, etc.)
+        const onThought = (thought: ThoughtEvent) => {
+          this.sendMessage(ws, {
+            type: 'thought',
+            sessionId,
+            data: thought
+          })
+        }
+
+        // Callback for thought delta events (streaming updates)
+        const onThoughtDelta = (delta: ThoughtDeltaEvent) => {
+          this.sendMessage(ws, {
+            type: 'thought:delta',
+            sessionId,
+            data: delta
+          })
+        }
+
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
         try {
           for await (const chunk of this.claudeManager.streamChat(
@@ -257,7 +276,9 @@ export class RemoteAgentServer {
             chatMessages,
             options,
             onToolCall,
-            onTerminalOutput
+            onTerminalOutput,
+            onThought,
+            onThoughtDelta
           )) {
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
@@ -267,7 +288,7 @@ export class RemoteAgentServer {
                 data: { text: chunk.data?.text || '' }
               })
             }
-            // Other event types (tool_call, tool_result, terminal) are sent via callbacks
+            // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
           console.log(`[RemoteAgentServer] Stream completed for session ${sessionId}`)
         } catch (streamError) {

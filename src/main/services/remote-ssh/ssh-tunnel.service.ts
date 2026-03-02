@@ -105,6 +105,7 @@ class SshTunnelService extends EventEmitter {
     client: Client
     config: SshTunnelConfig
     server: net.Server
+    spaces: Set<string>  // Track which spaces are using this tunnel
   }>()
 
   // Map serverId -> localPort for consistent port assignment per server
@@ -156,13 +157,16 @@ class SshTunnelService extends EventEmitter {
    * @returns The actual local port used for the tunnel
    */
   async establishTunnel(config: SshTunnelConfig): Promise<number> {
-    const tunnelKey = `${config.spaceId}-${config.serverId}`
+    // Use serverId as tunnel key to allow tunnel sharing across spaces
+    const tunnelKey = config.serverId
 
-    // Check if tunnel already exists
+    // Check if tunnel already exists for this server
     if (this.tunnels.has(tunnelKey)) {
       const existing = this.tunnels.get(tunnelKey)!
       if (existing.client && isClientConnected(existing.client)) {
-        console.log(`[SshTunnel] Tunnel already active for ${tunnelKey} on port ${existing.config.localPort}`)
+        console.log(`[SshTunnel] Reusing existing tunnel for server ${tunnelKey} on port ${existing.config.localPort}`)
+        // Track that this space is using the tunnel
+        existing.spaces.add(config.spaceId)
         return existing.config.localPort
       }
       // Remove inactive tunnel
@@ -248,11 +252,12 @@ class SshTunnelService extends EventEmitter {
 
         // Start listening on local port
         server.listen(config.localPort, '127.0.0.1', () => {
-          // Store tunnel with server reference
+          // Store tunnel with server reference and track spaces using it
           this.tunnels.set(tunnelKey, {
             client,
             config,
-            server
+            server,
+            spaces: new Set([config.spaceId])  // Track spaces using this tunnel
           })
 
           console.log(`[SshTunnel] Tunnel established: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`)
@@ -286,19 +291,40 @@ class SshTunnelService extends EventEmitter {
 
   /**
    * Close SSH tunnel for a space
+   * Uses reference counting - only closes tunnel when last space disconnects
    */
   closeTunnel(spaceId: string, serverId: string): boolean {
-    const tunnelKey = `${spaceId}-${serverId}`
-    return this.cleanupTunnel(tunnelKey)
+    const tunnelKey = serverId
+    const tunnel = this.tunnels.get(tunnelKey)
+
+    if (!tunnel) {
+      console.log(`[SshTunnel] No tunnel found for server ${serverId}`)
+      return false
+    }
+
+    // Remove this space from the tunnel's users
+    if (tunnel.spaces.has(spaceId)) {
+      tunnel.spaces.delete(spaceId)
+      console.log(`[SshTunnel] Space ${spaceId} released tunnel for server ${serverId}, ${tunnel.spaces.size} spaces still using it`)
+    }
+
+    // Only cleanup tunnel when no spaces are using it
+    if (tunnel.spaces.size === 0) {
+      console.log(`[SshTunnel] No more spaces using tunnel for server ${serverId}, closing tunnel`)
+      return this.cleanupTunnel(tunnelKey)
+    }
+
+    return true
   }
 
   /**
-   * Check if tunnel is active for a space
+   * Check if tunnel is active for a server
    */
   isTunnelActive(spaceId: string, serverId: string): boolean {
-    const tunnelKey = `${spaceId}-${serverId}`
+    const tunnelKey = serverId
     const tunnel = this.tunnels.get(tunnelKey)
-    return tunnel !== undefined && isClientConnected(tunnel.client)
+    // Check if tunnel exists and this space is using it
+    return tunnel !== undefined && isClientConnected(tunnel.client) && tunnel.spaces.has(spaceId)
   }
 
   /**
@@ -306,16 +332,18 @@ class SshTunnelService extends EventEmitter {
    */
   getTunnelStatuses(): TunnelStatus[] {
     const statuses: TunnelStatus[] = []
-    for (const [key, tunnel] of this.tunnels) {
-      const [spaceId, serverId] = key.split('-')
-      statuses.push({
-        spaceId,
-        serverId,
-        host: tunnel.config.host,
-        active: isClientConnected(tunnel.client),
-        localPort: tunnel.config.localPort,
-        remotePort: tunnel.config.remotePort
-      })
+    for (const [serverId, tunnel] of this.tunnels) {
+      // Create a status entry for each space using this tunnel
+      for (const spaceId of tunnel.spaces) {
+        statuses.push({
+          spaceId,
+          serverId,
+          host: tunnel.config.host,
+          active: isClientConnected(tunnel.client),
+          localPort: tunnel.config.localPort,
+          remotePort: tunnel.config.remotePort
+        })
+      }
     }
     return statuses
   }

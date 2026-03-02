@@ -41,7 +41,8 @@ export interface ServerMessage {
          'claude:stream' | 'claude:complete' | 'claude:error' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
-         'terminal:output'
+         'terminal:output' |
+         'thought' | 'thought:delta'  // Thinking process events
   sessionId?: string
   data?: any
 }
@@ -66,4 +67,42 @@ export interface ToolCallData {
 export interface TerminalOutputData {
   content: string
   type: 'stdout' | 'stderr'
+}
+
+// Thought data structures (aligned with local Thought type)
+export interface ThoughtData {
+  id: string
+  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result'
+  content?: string
+  timestamp: string
+  // For tool_use
+  toolName?: string
+  toolInput?: Record<string, unknown>
+  toolResult?: {
+    output: string
+    isError: boolean
+    timestamp: string
+  }
+  // For streaming state
+  isStreaming?: boolean
+  isReady?: boolean
+  // For error
+  errorCode?: string
+}
+
+export interface ThoughtDeltaData {
+  thoughtId: string
+  delta?: string
+  content?: string
+  isComplete?: boolean
+  // For tool_use
+  toolInput?: Record<string, unknown>
+  toolResult?: {
+    output: string
+    isError: boolean
+    timestamp: string
+  }
+  isReady?: boolean
+  isToolInput?: boolean
+  isToolResult?: boolean
 }
