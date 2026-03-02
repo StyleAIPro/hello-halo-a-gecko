@@ -3,11 +3,30 @@
  * Manages remote server configurations and deployments
  */
 
+import { app } from 'electron'
 import { SSHManager, SSHConfig } from '../remote-ssh/ssh-manager'
 import { getConfig, saveConfig } from '../config.service'
 import type { RemoteServer } from '../../../shared/types'
 import * as fs from 'fs'
 import path from 'path'
+
+/**
+ * Get the path to the remote-agent-proxy package
+ * Works in both development and production modes
+ */
+function getRemoteAgentProxyPath(): string {
+  // In development mode, use the project root
+  // In production mode, use the app resources path
+  if (app.isPackaged) {
+    // Production: resources are in app.asar/packages or app/resources/packages
+    return path.join(process.resourcesPath, 'packages', 'remote-agent-proxy')
+  } else {
+    // Development: use the project root
+    // Use app.getAppPath() which returns the project root in dev mode
+    const projectRoot = app.getAppPath()
+    return path.join(projectRoot, 'packages', 'remote-agent-proxy')
+  }
+}
 
 // Extended server config with runtime fields not persisted
 export interface RemoteServerConfig extends RemoteServer {
@@ -424,12 +443,15 @@ export class RemoteDeployService {
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/data`)
 
       // Get the path to the remote-agent-proxy package
-      const packageDir = path.join(__dirname, '../../../../packages/remote-agent-proxy')
+      const packageDir = getRemoteAgentProxyPath()
       const distDir = path.join(packageDir, 'dist')
+
+      console.log(`[RemoteDeployService] Looking for remote-agent-proxy at: ${packageDir}`)
+      console.log(`[RemoteDeployService] Dist directory: ${distDir}`)
 
       // Check if dist directory exists
       if (!fs.existsSync(distDir)) {
-        throw new Error(`Remote agent proxy not built. Run 'npm run build' in packages/remote-agent-proxy first.`)
+        throw new Error(`Remote agent proxy not built. Run 'npm run build' in packages/remote-agent-proxy first. (looked at: ${distDir})`)
       }
 
       console.log('[RemoteDeployService] Uploading remote-agent-proxy package...')

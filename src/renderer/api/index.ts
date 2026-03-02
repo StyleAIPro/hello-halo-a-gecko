@@ -1780,6 +1780,12 @@ export const api = {
     }
     return httpRequest('POST', `/api/remote-server/${serverId}/deploy-agent`)
   },
+  remoteServerUpdateAgent: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.updateAgent(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/update-agent`)
+  },
 
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
