@@ -388,6 +388,9 @@ export class ClaudeManager {
       cwd: effectiveWorkDir,
       systemPrompt: buildSystemPrompt(effectiveWorkDir, this.model),
       permissionMode: 'bypassPermissions',
+      extraArgs: {
+        'dangerously-skip-permissions': null
+      },
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
       includePartialMessages: true,
       maxTurns: 50,
