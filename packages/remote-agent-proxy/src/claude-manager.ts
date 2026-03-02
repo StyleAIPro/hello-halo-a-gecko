@@ -415,6 +415,10 @@ export class ClaudeManager {
     options.env.DISABLE_TELEMETRY = '1'
     options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
+    // CRITICAL: IS_SANDBOX=1 is required for bypass-permissions mode when running as root
+    // This must be passed to the Claude CLI subprocess, not just the remote-agent-proxy process
+    options.env.IS_SANDBOX = '1'
+
     return options
   }
 

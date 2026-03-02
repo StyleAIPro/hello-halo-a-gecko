@@ -489,26 +489,38 @@ export class RemoteDeployService {
         throw new Error(`Failed to install dependencies: ${installResult.stderr || installResult.stdout}`)
       }
 
-      // Apply SDK patch for extraArgs and permission mode support
-      console.log('[RemoteDeployService] Applying SDK patches for bypass-permissions support...')
-      const sdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`
+      // Upload local patched SDK to remote server
+      // This ensures the remote SDK has the same patches as local (cwd, permissionMode, extraArgs, etc.)
+      console.log('[RemoteDeployService] Uploading locally patched SDK to remote server...')
+      const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
+      const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
+      const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
 
-      // Patch 1: extraArgs support (change extraArgs: {} to extraArgs: options.extraArgs ?? {})
-      const patchExtraArgs = `sed -i 's/extraArgs: {}/extraArgs: options.extraArgs ?? {}/g' ${sdkPath}`
-      const patchResult1 = await manager.executeCommandFull(patchExtraArgs)
-      console.log('[RemoteDeployService] Patch extraArgs:', patchResult1.stdout || 'applied')
-
-      // Patch 2: permissionMode support (change permissionMode: "default" to permissionMode: options.permissionMode ?? "default")
-      const patchPermissionMode = `sed -i 's/permissionMode: "default"/permissionMode: options.permissionMode ?? "default"/g' ${sdkPath}`
-      const patchResult2 = await manager.executeCommandFull(patchPermissionMode)
-      console.log('[RemoteDeployService] Patch permissionMode:', patchResult2.stdout || 'applied')
-
-      // Patch 3: allowDangerouslySkipPermissions support
-      const patchSkipPerms = `sed -i 's/allowDangerouslySkipPermissions: false/allowDangerouslySkipPermissions: options.allowDangerouslySkipPermissions ?? false/g' ${sdkPath}`
-      const patchResult3 = await manager.executeCommandFull(patchSkipPerms)
-      console.log('[RemoteDeployService] Patch allowDangerouslySkipPermissions:', patchResult3.stdout || 'applied')
+      // Check if local patched SDK exists
+      if (fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
+        // Upload the patched sdk.mjs file
+        const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
+        console.log(`[RemoteDeployService] Uploading patched sdk.mjs from ${localSdkFile}`)
+        await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`)
+        console.log('[RemoteDeployService] Patched SDK uploaded successfully')
+      } else {
+        console.warn('[RemoteDeployService] Local patched SDK not found, skipping SDK upload')
+        console.warn('[RemoteDeployService] Expected path:', path.join(localSdkPath, 'sdk.mjs'))
+      }
 
       console.log(`[RemoteDeployService] Agent code deployed to: ${server.name}`)
+
+      // Restart agent to apply changes
+      console.log('[RemoteDeployService] Restarting agent to apply changes...')
+      try {
+        await this.stopAgent(id)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        await this.startAgent(id)
+        console.log('[RemoteDeployService] Agent restarted successfully')
+      } catch (restartError) {
+        console.error('[RemoteDeployService] Failed to restart agent:', restartError)
+        // Don't throw - the code was deployed successfully
+      }
     } catch (error) {
       console.error('[RemoteDeployService] Deploy error:', error)
       throw error
