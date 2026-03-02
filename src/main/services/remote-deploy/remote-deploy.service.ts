@@ -489,6 +489,25 @@ export class RemoteDeployService {
         throw new Error(`Failed to install dependencies: ${installResult.stderr || installResult.stdout}`)
       }
 
+      // Apply SDK patch for extraArgs and permission mode support
+      console.log('[RemoteDeployService] Applying SDK patches for bypass-permissions support...')
+      const sdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`
+
+      // Patch 1: extraArgs support (change extraArgs: {} to extraArgs: options.extraArgs ?? {})
+      const patchExtraArgs = `sed -i 's/extraArgs: {}/extraArgs: options.extraArgs ?? {}/g' ${sdkPath}`
+      const patchResult1 = await manager.executeCommandFull(patchExtraArgs)
+      console.log('[RemoteDeployService] Patch extraArgs:', patchResult1.stdout || 'applied')
+
+      // Patch 2: permissionMode support (change permissionMode: "default" to permissionMode: options.permissionMode ?? "default")
+      const patchPermissionMode = `sed -i 's/permissionMode: "default"/permissionMode: options.permissionMode ?? "default"/g' ${sdkPath}`
+      const patchResult2 = await manager.executeCommandFull(patchPermissionMode)
+      console.log('[RemoteDeployService] Patch permissionMode:', patchResult2.stdout || 'applied')
+
+      // Patch 3: allowDangerouslySkipPermissions support
+      const patchSkipPerms = `sed -i 's/allowDangerouslySkipPermissions: false/allowDangerouslySkipPermissions: options.allowDangerouslySkipPermissions ?? false/g' ${sdkPath}`
+      const patchResult3 = await manager.executeCommandFull(patchSkipPerms)
+      console.log('[RemoteDeployService] Patch allowDangerouslySkipPermissions:', patchResult3.stdout || 'applied')
+
       console.log(`[RemoteDeployService] Agent code deployed to: ${server.name}`)
     } catch (error) {
       console.error('[RemoteDeployService] Deploy error:', error)
