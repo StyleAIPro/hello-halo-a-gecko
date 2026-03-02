@@ -4,7 +4,7 @@
  */
 
 import React from 'react'
-import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight } from 'lucide-react'
+import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 
@@ -33,6 +33,7 @@ export function RemoteServersSection() {
   })
   const [checkingSdk, setCheckingSdk] = React.useState<string | null>(null)
   const [deployingSdk, setDeployingSdk] = React.useState<string | null>(null)
+  const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
   const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(new Map())
 
@@ -283,6 +284,35 @@ export function RemoteServersSection() {
     }
   }
 
+  // Update agent code to latest version
+  const handleUpdateAgent = async (serverId: string) => {
+    if (!confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
+    setUpdatingAgent(serverId)
+    expandServer(serverId)
+    clearTerminal(serverId)
+
+    console.log('[RemoteServersSection] Updating agent for server:', serverId)
+    addTerminalEntry(serverId, 'command', 'Updating remote agent to latest version...')
+    try {
+      const result = await api.remoteServerUpdateAgent(serverId)
+      console.log('[RemoteServersSection] Update result:', result)
+      if (result.success) {
+        addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
+        alert(t('Agent updated successfully'))
+        await loadServers()
+      } else {
+        addTerminalEntry(serverId, 'error', `Update failed: ${result.error}`)
+        alert(result.error || t('Failed to update agent'))
+      }
+    } catch (error) {
+      addTerminalEntry(serverId, 'error', `Error updating agent: ${error}`)
+      console.error('[RemoteServersSection] Update agent error:', error)
+      alert(t('Failed to update agent'))
+    } finally {
+      setUpdatingAgent(null)
+    }
+  }
+
   const getSdkStatusBadge = (server: any) => {
     if (server.sdkInstalled) {
       return (
@@ -414,6 +444,18 @@ export function RemoteServersSection() {
                         title={t('Deploy SDK')}
                       >
                         <ExternalLink className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleUpdateAgent(server.id)}
+                        disabled={updatingAgent === server.id}
+                        className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
+                        title={t('Update Agent')}
+                      >
+                        {updatingAgent === server.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
                       </button>
                       <button
                         onClick={() => handleDeleteServer(server.id)}

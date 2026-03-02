@@ -655,6 +655,37 @@ async function executeRemoteMessage(
       }
     })
 
+    // Thought events - for thinking process display (aligned with local agent:thought)
+    client.on('thought', (data) => {
+      if (data.sessionId === conversationId) {
+        const thoughtData = data.data
+        console.log(`[Agent][Remote] Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
+
+        // Store thought for final message
+        thoughts.push(thoughtData)
+
+        // Send to renderer in the same format as local agent:thought
+        sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData })
+      }
+    })
+
+    // Thought delta events - for streaming updates (aligned with local agent:thought-delta)
+    client.on('thought:delta', (data) => {
+      if (data.sessionId === conversationId) {
+        const deltaData = data.data
+        // Send to renderer in the same format as local agent:thought-delta
+        sendToRenderer('agent:thought-delta', spaceId, conversationId, deltaData)
+
+        // Update stored thought content if applicable
+        if (deltaData.content) {
+          const thought = thoughts.find(t => t.id === deltaData.thoughtId)
+          if (thought) {
+            thought.content = deltaData.content
+          }
+        }
+      }
+    })
+
     // Connect if not already connected
     if (!client.isConnected()) {
       const connectionUrl = `ws://${wsConfig.host}:${wsConfig.port}/agent`

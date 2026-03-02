@@ -700,6 +700,7 @@ const api: HaloAPI = {
     stopAgent: (serverId) => ipcRenderer.invoke('remote-server:stop-agent', serverId),
     getAgentLogs: (serverId, lines) => ipcRenderer.invoke('remote-server:get-agent-logs', serverId, lines),
     isAgentRunning: (serverId) => ipcRenderer.invoke('remote-server:is-agent-running', serverId),
+    updateAgent: (serverId) => ipcRenderer.invoke('remote-server:update-agent', serverId),
   },
 
   // Remote Agent

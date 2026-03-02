@@ -381,6 +381,31 @@ ipcMain.handle('remote-server:is-agent-running', async (_event, serverId: string
   }
 })
 
+// Force update agent code and restart (for deploying new features)
+ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:update-agent - Updating agent code:', serverId)
+  try {
+    // Stop the agent first
+    console.log('[IPC] remote-server:update-agent - Stopping agent...')
+    await deployService.stopAgent(serverId)
+
+    // Deploy the latest agent code
+    console.log('[IPC] remote-server:update-agent - Deploying latest code...')
+    await deployService.deployAgentCode(serverId)
+
+    // Start the agent with new code
+    console.log('[IPC] remote-server:update-agent - Starting agent...')
+    await deployService.startAgent(serverId)
+
+    console.log('[IPC] remote-server:update-agent - Update complete')
+    return { success: true, data: { message: 'Agent updated and restarted successfully' } }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:update-agent - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
 export function getRemoteDeployService(): RemoteDeployService {
   return deployService
 }
