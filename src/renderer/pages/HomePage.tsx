@@ -284,9 +284,17 @@ export function HomePage() {
               onClick={() => handleSpaceClick(haloSpace)}
               className="halo-space-card p-5 rounded-xl cursor-pointer flex flex-col gap-3 min-h-[120px]"
             >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <h2 className="text-sm font-semibold">{t('Halo')}</h2>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  <h2 className="text-sm font-semibold">{t('Halo')}</h2>
+                </div>
+                {haloSpace.claudeSource === 'remote' && haloSpace.remoteServerId && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Cloud className="w-3 h-3" />
+                    @{remoteServers.find(s => s.id === haloSpace.remoteServerId)?.name || haloSpace.remoteServerId}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-muted-foreground flex-1">
                 {t('Aimless time, ideas will crystallize here')}
@@ -371,7 +379,9 @@ export function HomePage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4">
-            {spaces.map((space, i) => (
+            {spaces.map((space, i) => {
+              const remoteServer = space.remoteServerId ? remoteServers.find(s => s.id === space.remoteServerId) : null
+              return (
               <div
                 key={`${space.id}-${i}`}
                 onClick={() => handleSpaceClick(space)}
@@ -412,11 +422,18 @@ export function HomePage() {
                     {space.claudeSource === 'remote' ? space.remotePath || '/home' : space.path}
                   </span>
                 </div>
+                {/* Remote server info */}
+                {space.claudeSource === 'remote' && remoteServer && (
+                  <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
+                    <Cloud className="w-3 h-3" />
+                    <span className="truncate">@ {remoteServer.name}</span>
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground mt-1.5">
                   {formatTimeAgo(space.updatedAt)}{t('active')}
                 </p>
               </div>
-            ))}
+            )})}
           </div>
         )}
       </main>
