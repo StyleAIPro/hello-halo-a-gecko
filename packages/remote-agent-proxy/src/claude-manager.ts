@@ -6,6 +6,8 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import https from 'https'
 import http from 'http'
+import * as fs from 'fs'
+import path from 'path'
 
 // ============================================
 // Types
@@ -36,7 +38,7 @@ export interface ToolCall {
   id: string
   name: string
   input: any
-  status: 'started' | 'delta' | 'result' | 'error'
+  status: 'started' | 'running' | 'delta' | 'result' | 'error'
   output?: any
   error?: string
 }
@@ -81,6 +83,21 @@ export interface ThoughtDeltaEvent {
     timestamp: string
   }
   isToolResult?: boolean
+}
+
+/**
+ * MCP server status event
+ */
+export interface McpStatusEvent {
+  servers: Array<{ name: string; status: string }>
+}
+
+/**
+ * Compact boundary event (context compression)
+ */
+export interface CompactBoundaryEvent {
+  trigger: 'manual' | 'auto'
+  preTokens: number
 }
 
 /**
@@ -168,36 +185,74 @@ const CLEANUP_INTERVAL_MS = 60 * 1000
 // ============================================
 
 /**
+ * Check if a directory is a git repository
+ */
+function isGitRepo(dir: string): boolean {
+  try {
+    // Check if .git exists in the directory or any parent
+    let currentDir = dir
+    while (currentDir !== path.dirname(currentDir)) {
+      if (fs.existsSync(path.join(currentDir, '.git'))) {
+        return true
+      }
+      currentDir = path.dirname(currentDir)
+    }
+    // Check root level
+    return fs.existsSync(path.join(currentDir, '.git'))
+  } catch {
+    return false
+  }
+}
+
+/**
  * Build system prompt for Claude Code
+ * Loads from synced file if available, otherwise uses fallback
  */
 function buildSystemPrompt(workDir: string, modelInfo?: string): string {
   const today = new Date().toISOString().split('T')[0]
-  return `You are Claude Code (via Halo Remote Agent), Anthropic's official CLI for Claude. You are an interactive agent running on a remote server that helps users with software engineering tasks.
+  const isGit = isGitRepo(workDir)
+
+  // Try to load synced system prompt from file
+  const systemPromptPath = path.join('/opt/claude-deployment', 'config', 'system-prompt.txt')
+
+  try {
+    if (fs.existsSync(systemPromptPath)) {
+      console.log('[ClaudeManager] Loading system prompt from:', systemPromptPath)
+      let systemPrompt = fs.readFileSync(systemPromptPath, 'utf-8')
+
+      // Replace dynamic placeholders (uppercase to match system-prompt.ts template)
+      // Must match all placeholders in SYSTEM_PROMPT_TEMPLATE from system-prompt.ts
+      systemPrompt = systemPrompt
+        .replace(/\$\{ALLOWED_TOOLS\}/g, 'Read, Write, Edit, Grep, Glob, Bash, Skill')
+        .replace(/\$\{WORK_DIR\}/g, workDir)
+        .replace(/\$\{IS_GIT_REPO\}/g, isGit ? 'Yes' : 'No')
+        .replace(/\$\{PLATFORM\}/g, process.platform)
+        .replace(/\$\{OS_VERSION\}/g, `${require('os').type()} ${require('os').release()}`)
+        .replace(/\$\{TODAY\}/g, today)
+        .replace(/\$\{MODEL_INFO\}/g, modelInfo ? `You are powered by ${modelInfo}.` : '')
+
+      return systemPrompt
+    } else {
+      console.log('[ClaudeManager] System prompt file not found, using fallback')
+    }
+  } catch (error) {
+    console.error('[ClaudeManager] Failed to load system prompt:', error)
+  }
+
+  // Fallback to simplified prompt (should not happen if sync worked)
+  // This matches the structure of SYSTEM_PROMPT_TEMPLATE but is more concise
+  const osVersion = `${require('os').type()} ${require('os').release()}`
+  return `You are Halo, an AI assistant built with Claude Code. You help users with software engineering tasks.
 
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming.
 
 # Tone and style
 - Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
 - Your responses should be short and concise.
-- When referencing specific functions or pieces of code include the pattern file_path:line_number to allow the user to easily navigate to the source code location.
-- Do not use a colon before tool calls.
+- When referencing specific functions or pieces of code include the pattern file_path:line_number.
 
 # Tools and Permissions
-You MUST use tools to answer questions. NEVER answer from memory or assumptions.
-
-Available tools: Read, Write, Edit, Grep, Glob, Bash, WebSearch, WebFetch, Task
-
-CRITICAL - When to use tools:
-- "What files are in this directory?" / "当前目录有什么？" / "目录里有什么" → MUST use Bash (ls -la) or Glob tool
-- "What's in file X?" / "读取某文件" / "看看某文件" → MUST use Read tool
-- "Run command X" / "执行某命令" → MUST use Bash tool
-- "Find files matching X" / "查找文件" → MUST use Glob or Grep tool
-- "Edit/Modify file X" / "修改文件" → MUST use Edit tool
-- Any question about files, directories, or code → MUST use appropriate tool FIRST
-
-Your current working directory is: ${workDir}
-Model: ${modelInfo || 'unknown'}
-Date: ${today}
+You can use the following tools without requiring user approval: Read, Write, Edit, Grep, Glob, Bash, Skill
 
 # Task Management
 - Use TodoWrite tools to track progress on complex tasks
@@ -210,6 +265,15 @@ Date: ${today}
 - Don't create files unless absolutely necessary
 - Avoid over-engineering solutions
 - Be careful not to introduce security vulnerabilities
+
+<env>
+Working directory: ${workDir}
+Is directory a git repo: ${isGit ? 'Yes' : 'No'}
+Platform: ${process.platform}
+OS Version: ${osVersion}
+Today's date: ${today}
+</env>
+${modelInfo ? `You are powered by ${modelInfo}.` : ''}
 `
 }
 
@@ -401,7 +465,22 @@ export class ClaudeManager {
     }
 
     // CRITICAL: Inherit process.env (especially PATH)
-    options.env = { ...process.env }
+    // But first, strip AI SDK vars and CLAUDECODE to prevent nested session detection
+    // NOTE: Don't delete ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL if already set from .env
+    const cleanEnv = { ...process.env }
+    delete cleanEnv.CLAUDECODE
+    // Only delete ANTHROPIC vars if not already set (allow .env to override)
+    if (!cleanEnv.ANTHROPIC_AUTH_TOKEN) {
+      delete cleanEnv.ANTHROPIC_AUTH_TOKEN
+    }
+    if (!cleanEnv.ANTHROPIC_API_KEY) {
+      delete cleanEnv.ANTHROPIC_API_KEY
+    }
+    if (!cleanEnv.ANTHROPIC_BASE_URL) {
+      delete cleanEnv.ANTHROPIC_BASE_URL
+    }
+
+    options.env = cleanEnv
     if (this.apiKey) {
       options.env.ANTHROPIC_AUTH_TOKEN = this.apiKey
     }
@@ -486,11 +565,19 @@ export class ClaudeManager {
    * - Config change detection
    * - Active request tracking
    * - Per-session workDir support
+   * - Session resumption via resume parameter (SDK patch required)
    *
    * @param conversationId - Use conversationId as key (aligned with local)
    * @param workDir - Optional working directory override for this session
+   * @param resumeSessionId - Optional session ID to resume from (for conversation history)
+   * @param maxThinkingTokens - Optional max thinking tokens for this session
    */
-  async getOrCreateSession(conversationId: string, workDir?: string): Promise<SDKSession> {
+  async getOrCreateSession(
+    conversationId: string,
+    workDir?: string,
+    resumeSessionId?: string,
+    maxThinkingTokens?: number
+  ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
 
@@ -511,6 +598,14 @@ export class ClaudeManager {
         const currentConfig = this.getCurrentConfig()
         const needsRebuild = needsSessionRebuild(existing, currentConfig)
         const configChanged = existing.configGeneration !== this.configGeneration
+
+        // Debug: Log config comparison
+        if (needsRebuild || configChanged) {
+          console.log(`[ClaudeManager][${conversationId}] Config check - needsRebuild: ${needsRebuild}, configChanged: ${configChanged}`)
+          console.log(`[ClaudeManager][${conversationId}] Existing config:`, JSON.stringify(existing.config))
+          console.log(`[ClaudeManager][${conversationId}] Current config:`, JSON.stringify(currentConfig))
+          console.log(`[ClaudeManager][${conversationId}] Config generations - existing: ${existing.configGeneration}, current: ${this.configGeneration}`)
+        }
 
         if (needsRebuild || configChanged) {
           // If request in flight, defer rebuild
@@ -535,6 +630,18 @@ export class ClaudeManager {
     // Create new session
     console.log(`[ClaudeManager][${conversationId}] Creating new V2 session with workDir=${effectiveWorkDir}...`)
     const options = this.buildSdkOptions(effectiveWorkDir)
+
+    // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
+    // Native SDK V2 Session doesn't support these parameters
+    if (resumeSessionId) {
+      options.resume = resumeSessionId
+      console.log(`[ClaudeManager][${conversationId}] Resuming session: ${resumeSessionId}`)
+    }
+    if (maxThinkingTokens) {
+      options.maxThinkingTokens = maxThinkingTokens
+      console.log(`[ClaudeManager][${conversationId}] Max thinking tokens: ${maxThinkingTokens}`)
+    }
+
     const startTime = Date.now()
 
     console.log(`[ClaudeManager] Creating V2 session with options:`, {
@@ -543,7 +650,9 @@ export class ClaudeManager {
       hasAuthToken: !!this.apiKey,
       baseUrl: this.baseUrl,
       permissionMode: options.permissionMode,
-      allowedTools: options.allowedTools?.length
+      allowedTools: options.allowedTools?.length,
+      resume: !!resumeSessionId,
+      maxThinkingTokens: maxThinkingTokens
     })
 
     const session = unstable_v2_createSession(options as any) as unknown as SDKSession
@@ -642,32 +751,78 @@ export class ClaudeManager {
    * Stream chat messages using V2 session
    *
    * IMPORTANT: Only sends the LAST user message to the V2 session.
-   * The V2 session maintains its own conversation history internally.
+   * The V2 session maintains its own conversation history internally via SDK patch resume.
    *
    * @param sessionId - Session/conversation ID
    * @param messages - Chat messages (only last message is sent)
    * @param options - Chat options including workDir for per-session directory
+   * @param resumeSessionId - Optional SDK session ID to resume from (for conversation history)
    * @param onToolCall - Callback for tool call events
    * @param onTerminalOutput - Callback for terminal output events
    * @param onThought - Callback for thought events (thinking, tool_use start)
    * @param onThoughtDelta - Callback for thought delta events (streaming updates)
+   * @param onMcpStatus - Callback for MCP server status events
+   * @param onCompact - Callback for compact boundary events (context compression)
    */
   async *streamChat(
     sessionId: string,
     messages: ChatMessage[],
     options: ChatOptions = {},
+    resumeSessionId?: string,
     onToolCall?: (tool: ToolCall) => void,
     onTerminalOutput?: (output: TerminalOutput) => void,
     onThought?: (thought: ThoughtEvent) => void,
-    onThoughtDelta?: (delta: ThoughtDeltaEvent) => void
+    onThoughtDelta?: (delta: ThoughtDeltaEvent) => void,
+    onMcpStatus?: (data: McpStatusEvent) => void,
+    onCompact?: (data: CompactBoundaryEvent) => void
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
-    const session = await this.getOrCreateSession(sessionId, options.workDir)
+    console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens)
+
+    // [PATCHED] Set thinking tokens dynamically on reused session
+    // This is critical: when session is reused, the maxThinkingTokens from session creation
+    // may not reflect the current request's needs. We must update it dynamically.
+    // Aligned with local send-message.ts line 246-249
+    try {
+      if ((session as any).setMaxThinkingTokens) {
+        // Always call setMaxThinkingTokens, pass null to disable (aligned with local)
+        const thinkingTokens = options.maxThinkingTokens ?? null
+        await (session as any).setMaxThinkingTokens(thinkingTokens)
+        console.log(`[ClaudeManager][${sessionId}] Thinking mode: ${thinkingTokens ? `ON (${thinkingTokens} tokens)` : 'OFF'}`)
+      } else {
+        console.warn(`[ClaudeManager][${sessionId}] setMaxThinkingTokens not available - SDK patch may not be applied`)
+      }
+    } catch (e) {
+      console.error(`[ClaudeManager][${sessionId}] Failed to set thinking tokens:`, e)
+    }
 
     // Register as active session for in-flight tracking
     const abortController = new AbortController()
     this.registerActiveSession(sessionId, abortController)
+
+    // Streaming block state - track active blocks by index for delta/stop correlation
+    // Key: block index, Value: { type, thoughtId, content/partialJson }
+    const streamingBlocks = new Map<number, {
+      type: 'thinking' | 'tool_use'
+      thoughtId: string
+      content: string  // For thinking: accumulated thinking text, for tool_use: accumulated partial JSON
+      toolName?: string
+      toolId?: string
+    }>()
+
+    // Tool ID to Thought ID mapping - for merging tool_result into tool_use
+    const toolIdToThoughtId = new Map<string, string>()
+
+    // Counter for generating unique thought IDs
+    let counter = 0
+
+    // Capture SDK session_id for session resumption
+    let capturedSessionId: string | undefined
+
+    // Track if any stream_event was received (for fallback handling of thinking/tool_use blocks)
+    let hasStreamEvent = false
 
     try {
       // CRITICAL: Only send the LAST user message!
@@ -687,60 +842,185 @@ export class ClaudeManager {
         eventCount++
         const evt = event as any
 
-        if (eventCount <= 10 || evt.type?.includes('text') || evt.type?.includes('content')) {
-          console.log(`[ClaudeManager] Event ${eventCount}: type=${evt.type}`, JSON.stringify(evt).substring(0, 200))
+        // Log ALL events for debugging (first 50 events)
+        if (eventCount <= 50) {
+          console.log(`[ClaudeManager] Event ${eventCount}: type=${evt.type}`, JSON.stringify(evt).substring(0, 500))
         }
 
-        // Tool execution events
-        if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
-          onToolCall?.({
-            id: evt.content_block.id,
-            name: evt.content_block.name,
-            input: evt.content_block.input,
-            status: 'started'
-          })
-          yield { type: 'tool_call', data: evt.content_block }
-        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'tool_use_delta') {
-          onToolCall?.({
-            id: evt.delta.tool_use_id,
-            name: '',
-            input: evt.delta.partial_json,
-            status: 'delta'
-          })
-          yield { type: 'tool_delta', data: evt.delta }
-        } else if (evt.type === 'content_block_stop' && evt.content_block?.type === 'tool_use') {
-          onToolCall?.({
-            id: evt.content_block.id,
-            name: '',
-            input: {},
-            status: 'result',
-            output: evt.content_block.result
-          })
-          yield { type: 'tool_result', data: evt.content_block.result }
-        }
+        // ========== Handle stream_event for token-level streaming ==========
+        if (evt.type === 'stream_event') {
+          const streamEvent = evt.event
+          if (!streamEvent) continue
 
-        // Terminal output events
-        else if (evt.type === 'terminal_output') {
-          onTerminalOutput?.({
-            content: evt.content,
-            type: evt.stream_type || 'stdout'
-          })
-          yield { type: 'terminal', data: evt }
-        }
+          // Mark that we received stream_event (for fallback handling below)
+          hasStreamEvent = true
 
-        // Text content events
-        else if (evt.type === 'content_block_start') {
-          if (evt.content_block?.type === 'text') {
-            const text = evt.content_block?.text || ''
-            if (text) {
-              textCount++
-              console.log(`[ClaudeManager] Text from content_block_start: ${text.substring(0, 50)}...`)
-              yield { type: 'text', data: { text } }
-            }
+          // ========== Text block start signal ==========
+          // Send signal when text block starts (aligned with local stream-processor.ts)
+          if (streamEvent.type === 'content_block_start' && streamEvent.content_block?.type === 'text') {
+            yield { type: 'text_block_start', data: {} }
           }
-        } else if (evt.type === 'content_block_delta') {
-          if (evt.delta?.type === 'text_delta' || evt.delta?.text) {
-            const text = evt.delta?.text || ''
+
+          // ========== Thinking block streaming ==========
+          // Thinking block started - send empty thought immediately
+          if (streamEvent.type === 'content_block_start' && streamEvent.content_block?.type === 'thinking') {
+            const blockIndex = streamEvent.index ?? 0
+            const thoughtId = `thought-thinking-${sessionId}-${blockIndex}-${counter++}`
+
+            // Track this block for delta correlation
+            streamingBlocks.set(blockIndex, {
+              type: 'thinking',
+              thoughtId,
+              content: ''
+            })
+
+            // Create and send streaming thought immediately
+            const thought: ThoughtEvent = {
+              id: thoughtId,
+              type: 'thinking',
+              content: '',
+              timestamp: new Date().toISOString(),
+              isStreaming: true
+            }
+
+            onThought?.(thought)
+            console.log(`[ClaudeManager] Thinking block started: ${thoughtId}`)
+            continue
+          }
+
+          // Thinking delta - append to thought content
+          if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'thinking_delta') {
+            const blockIndex = streamEvent.index ?? 0
+            const blockState = streamingBlocks.get(blockIndex)
+
+            if (blockState && blockState.type === 'thinking') {
+              const delta = streamEvent.delta.thinking || ''
+              blockState.content += delta
+
+              // Send delta to renderer for incremental update
+              onThoughtDelta?.({
+                thoughtId: blockState.thoughtId,
+                delta,
+                content: blockState.content  // Also send full content for fallback
+              })
+            }
+            continue
+          }
+
+          // ========== Tool use block streaming ==========
+          // Tool use block started - send thought with tool name immediately
+          if (streamEvent.type === 'content_block_start' && streamEvent.content_block?.type === 'tool_use') {
+            const blockIndex = streamEvent.index ?? 0
+            const toolId = streamEvent.content_block.id || `tool-${Date.now()}`
+            const toolName = streamEvent.content_block.name || 'Unknown'
+            const thoughtId = `thought-tool-${Date.now()}-${blockIndex}`
+
+            // Track this block for delta correlation
+            streamingBlocks.set(blockIndex, {
+              type: 'tool_use',
+              thoughtId,
+              content: '',  // Will accumulate partial JSON
+              toolName,
+              toolId
+            })
+
+            // Create and send streaming tool thought immediately
+            const thought: ThoughtEvent = {
+              id: thoughtId,
+              type: 'tool_use',
+              content: '',
+              timestamp: new Date().toISOString(),
+              toolName,
+              toolInput: {},  // Empty initially, will be populated on stop
+              isStreaming: true,
+              isReady: false  // Params not complete yet
+            }
+
+            onThought?.(thought)
+            console.log(`[ClaudeManager] Tool use block started: ${toolName} (${thoughtId})`)
+            continue
+          }
+
+          // Tool use input JSON delta - accumulate partial JSON
+          if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'input_json_delta') {
+            const blockIndex = streamEvent.index ?? 0
+            const blockState = streamingBlocks.get(blockIndex)
+
+            if (blockState && blockState.type === 'tool_use') {
+              const partialJson = streamEvent.delta.partial_json || ''
+              blockState.content += partialJson
+
+              // Send delta to renderer (for progress indication)
+              onThoughtDelta?.({
+                thoughtId: blockState.thoughtId,
+                delta: partialJson,
+                isToolInput: true  // Flag: this is tool input JSON
+              })
+            }
+            continue
+          }
+
+          // ========== Block stop handling ==========
+          // content_block_stop - finalize streaming blocks
+          if (streamEvent.type === 'content_block_stop') {
+            const blockIndex = streamEvent.index ?? 0
+            const blockState = streamingBlocks.get(blockIndex)
+
+            if (blockState) {
+              if (blockState.type === 'thinking') {
+                // Thinking block complete - send final state
+                onThoughtDelta?.({
+                  thoughtId: blockState.thoughtId,
+                  content: blockState.content,
+                  isComplete: true  // Signal: thinking is complete
+                })
+
+                console.log(`[ClaudeManager] Thinking block complete, length: ${blockState.content.length}`)
+              } else if (blockState.type === 'tool_use') {
+                // Tool use block complete - parse JSON and send final state
+                let toolInput: Record<string, unknown> = {}
+                try {
+                  if (blockState.content) {
+                    toolInput = JSON.parse(blockState.content)
+                  }
+                } catch (e) {
+                  console.error(`[ClaudeManager] Failed to parse tool input JSON:`, e)
+                }
+
+                // Record mapping for merging tool_result later
+                if (blockState.toolId) {
+                  toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId)
+                }
+
+                // Send complete signal with parsed input
+                onThoughtDelta?.({
+                  thoughtId: blockState.thoughtId,
+                  toolInput,
+                  isComplete: true,  // Signal: tool params are complete
+                  isReady: true,     // Tool is ready for execution
+                  isToolInput: true  // Flag: this is tool input completion
+                })
+
+                // Send tool-call event for tool approval/tracking
+                onToolCall?.({
+                  id: blockState.toolId || blockState.thoughtId,
+                  name: blockState.toolName || '',
+                  status: 'running',  // Aligned with local space
+                  input: toolInput
+                })
+
+                console.log(`[ClaudeManager] Tool use block complete [${blockState.toolName}], input: ${JSON.stringify(toolInput).substring(0, 100)}`)
+              }
+
+              // Clean up tracking state
+              streamingBlocks.delete(blockIndex)
+            }
+            continue
+          }
+
+          // ========== Text delta handling ==========
+          if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'text_delta') {
+            const text = streamEvent.delta.text || ''
             if (text) {
               textCount++
               if (textCount <= 5) {
@@ -748,34 +1028,85 @@ export class ClaudeManager {
               }
               yield { type: 'text', data: { text } }
             }
+            continue
           }
+
+          // Skip other stream_event types - they don't need yield
+          continue
         }
 
-        // Assistant events
-        else if (evt.type === 'assistant') {
+        // ========== Handle non-stream events (assistant, result, etc.) ==========
+
+        // System events - MCP status, session_id, and compact boundary
+        if (evt.type === 'system') {
+          const subtype = evt.subtype as string | undefined
+
+          // Capture session_id for session resumption
+          const sessionIdFromMsg = (evt as any).session_id || (evt as any).message?.session_id
+          if (sessionIdFromMsg && !capturedSessionId) {
+            capturedSessionId = sessionIdFromMsg as string
+            console.log(`[ClaudeManager] Captured SDK session_id: ${capturedSessionId}`)
+            // Yield session_id to caller for persistence
+            yield { type: 'session_id', data: { sessionId: capturedSessionId } }
+          }
+
+          // Handle compact_boundary - context compression notification
+          if (subtype === 'compact_boundary') {
+            const compactMetadata = evt.compact_metadata as { trigger: 'manual' | 'auto'; pre_tokens: number } | undefined
+            if (compactMetadata) {
+              onCompact?.({
+                trigger: compactMetadata.trigger,
+                preTokens: compactMetadata.pre_tokens
+              })
+              console.log(`[ClaudeManager] Compact boundary: trigger=${compactMetadata.trigger}, pre_tokens=${compactMetadata.pre_tokens}`)
+            }
+          }
+
+          // Extract MCP server status from system init message
+          const mcpServers = evt.mcp_servers as Array<{ name: string; status: string }> | undefined
+          if (mcpServers && mcpServers.length > 0) {
+            onMcpStatus?.({ servers: mcpServers })
+            console.log(`[ClaudeManager] MCP servers: ${JSON.stringify(mcpServers)}`)
+          }
+
+          continue
+        }
+
+        // Terminal output events
+        if (evt.type === 'terminal_output') {
+          onTerminalOutput?.({
+            content: evt.content,
+            type: evt.stream_type || 'stdout'
+          })
+          yield { type: 'terminal', data: evt }
+          continue
+        }
+
+        // Assistant events - logging only (thinking/tool_use handled by stream_event)
+        // Fallback: if no stream_event was received, process thinking/tool_use blocks here
+        if (evt.type === 'assistant') {
           const message = evt.message
-          if (message?.content && Array.isArray(message.content)) {
+          console.log(`[ClaudeManager] Assistant event - message.content types:`, message?.content?.map((b: any) => b.type))
+
+          // Fallback: process thinking/tool_use blocks if no stream_event was received
+          // This happens when SDK doesn't send stream_event (e.g., session resume mode)
+          if (!hasStreamEvent && message?.content && Array.isArray(message.content)) {
             for (const block of message.content) {
-              if (block.type === 'text' && block.text) {
-                textCount++
-                console.log(`[ClaudeManager] Text from assistant event: ${block.text.substring(0, 50)}...`)
-                yield { type: 'text', data: { text: block.text } }
-              }
               if (block.type === 'thinking' && block.thinking) {
-                console.log(`[ClaudeManager] Thinking from assistant: ${block.thinking.substring(0, 50)}...`)
-                const thoughtId = `thought-thinking-${Date.now()}`
                 const thought: ThoughtEvent = {
-                  id: thoughtId,
+                  id: `thought-thinking-${sessionId}-${counter++}`,
                   type: 'thinking',
                   content: block.thinking,
                   timestamp: new Date().toISOString(),
                   isStreaming: false
                 }
                 onThought?.(thought)
-              }
-              if (block.type === 'tool_use') {
-                console.log(`[ClaudeManager] Tool use from assistant: ${block.name}`)
-                const thoughtId = `thought-tool-${Date.now()}`
+                console.log(`[ClaudeManager] [FALLBACK] Thinking block from assistant message: ${(thought.content || '').substring(0, 100)}...`)
+              } else if (block.type === 'tool_use' && block.id && block.name) {
+                const thoughtId = `thought-tool-${Date.now()}-${counter++}`
+                const toolId = block.id
+                toolIdToThoughtId.set(toolId, thoughtId)
+
                 const thought: ThoughtEvent = {
                   id: thoughtId,
                   type: 'tool_use',
@@ -787,30 +1118,91 @@ export class ClaudeManager {
                   isReady: true
                 }
                 onThought?.(thought)
-                onToolCall?.({
-                  id: block.id,
-                  name: block.name,
-                  input: block.input || {},
-                  status: 'result'
-                })
+                console.log(`[ClaudeManager] [FALLBACK] Tool use block from assistant message: ${block.name}`)
               }
             }
           }
+          // Note: tool_result blocks are NOT in assistant messages - they come in user messages
+          continue
+        }
+
+        // User events - handle tool_result merging (SDK returns tool_result in user messages)
+        if (evt.type === 'user') {
+          const message = evt.message
+          console.log(`[ClaudeManager] User event - checking for tool_result`)
+          if (message?.content && Array.isArray(message.content)) {
+            for (const block of message.content) {
+              // Handle tool_result blocks - merge into corresponding tool_use
+              if (block.type === 'tool_result') {
+                const toolUseId = block.tool_use_id
+                const toolUseThoughtId = toolIdToThoughtId.get(toolUseId)
+
+                console.log(`[ClaudeManager] Tool result found: tool_use_id=${toolUseId}, thoughtId=${toolUseThoughtId || 'not found'}`)
+
+                if (toolUseThoughtId) {
+                  // Found corresponding tool_use - merge result into it
+                  const resultContent = typeof block.content === 'string'
+                    ? block.content
+                    : JSON.stringify(block.content)
+                  const toolResult = {
+                    output: resultContent || '',
+                    isError: block.is_error || false,
+                    timestamp: new Date().toISOString()
+                  }
+
+                  // Send thought-delta to merge result into tool_use on frontend
+                  onThoughtDelta?.({
+                    thoughtId: toolUseThoughtId,
+                    toolResult,
+                    isToolResult: true  // Flag: this is a tool result merge
+                  })
+
+                  // Also send tool result event
+                  onToolCall?.({
+                    id: toolUseId,
+                    name: '',
+                    input: {},
+                    status: 'result',
+                    output: resultContent
+                  })
+
+                  console.log(`[ClaudeManager] Tool result merged into thought ${toolUseThoughtId}`)
+                } else {
+                  // No mapping found - this can happen if tool_use wasn't streamed
+                  console.log(`[ClaudeManager] Tool result no mapping: ${toolUseId}`)
+                }
+              }
+            }
+          }
+          continue
         }
 
         // Result events
-        else if (evt.type === 'result') {
+        if (evt.type === 'result') {
           console.log(`[ClaudeManager] Result event: is_error=${evt.is_error}, result=${evt.result?.substring(0, 100)}`)
+
+          // Capture session_id from result event if not already captured
+          if (!capturedSessionId) {
+            const sessionIdFromMsg = (evt as any).session_id
+            if (sessionIdFromMsg) {
+              capturedSessionId = sessionIdFromMsg as string
+              console.log(`[ClaudeManager] Captured SDK session_id from result: ${capturedSessionId}`)
+              yield { type: 'session_id', data: { sessionId: capturedSessionId } }
+            }
+          }
+
           if (evt.result && textCount === 0) {
             yield { type: 'text', data: { text: evt.result } }
           }
           break
         }
 
-        else if (evt.type === 'error') {
+        if (evt.type === 'error') {
           const errorMsg = evt.error?.message || 'Unknown error'
           throw new Error(`Claude V2 Session error: ${errorMsg}`)
-        } else if (evt.type === 'message_stop') {
+        }
+
+        if (evt.type === 'message_stop') {
           break
         }
       }
