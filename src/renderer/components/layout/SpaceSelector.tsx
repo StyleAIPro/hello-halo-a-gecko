@@ -12,6 +12,8 @@ import { useSpaceStore } from '../../stores/space.store'
 import { SpaceIcon } from '../icons/ToolIcons'
 import { useTranslation } from '../../i18n'
 import type { Space } from '../../types'
+import type { RemoteServer } from '../../pages/RemoteServersPage'
+import { api } from '../../api'
 
 /** Minimum interval between loadSpaces calls (ms) */
 const LOAD_THROTTLE_MS = 5_000
@@ -21,6 +23,7 @@ export function SpaceSelector() {
   const { setView } = useAppStore()
   const { haloSpace, spaces, currentSpace, setCurrentSpace, refreshCurrentSpace, loadSpaces, isLoading } = useSpaceStore()
   const [isOpen, setIsOpen] = useState(false)
+  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
   const lastLoadRef = useRef(0)
 
@@ -36,6 +39,21 @@ export function SpaceSelector() {
   useEffect(() => {
     throttledLoadSpaces()
   }, [throttledLoadSpaces])
+
+  // Load remote servers for displaying server names
+  useEffect(() => {
+    const loadServers = async () => {
+      try {
+        const result = await api.getRemoteServers()
+        if (result.success && Array.isArray(result.data)) {
+          setRemoteServers(result.data)
+        }
+      } catch (error) {
+        console.error('[SpaceSelector] Failed to load remote servers:', error)
+      }
+    }
+    loadServers()
+  }, [])
 
   // Refresh spaces when dropdown opens (throttled)
   useEffect(() => {
@@ -102,11 +120,22 @@ export function SpaceSelector() {
     ? storeSpaces
     : (currentSpace ? [currentSpace] : [])
 
+  // Helper to get remote server name by id
+  const getRemoteServerName = (serverId: string): string => {
+    const server = remoteServers.find(s => s.id === serverId)
+    return server ? server.name : serverId
+  }
+
   const displayName = currentSpace
     ? (currentSpace.isTemp ? t('Halo') : currentSpace.name)
     : t('Halo')
 
   const displayIcon = currentSpace?.icon || 'sparkles'
+
+  // Get remote server name for current space
+  const currentRemoteServerName = currentSpace?.claudeSource === 'remote' && currentSpace.remoteServerId
+    ? getRemoteServerName(currentSpace.remoteServerId)
+    : null
 
   // Debug: Log when spaces are loaded
   console.log('[SpaceSelector] Loaded spaces:', allSpaces.map(s => ({ id: s.id, name: s.name, claudeSource: s.claudeSource })))
@@ -116,10 +145,15 @@ export function SpaceSelector() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-1.5 px-2 py-1.5 text-sm hover:bg-secondary/80 rounded-lg transition-colors max-w-[200px]"
-        title={displayName}
+        title={currentRemoteServerName ? `${displayName} @ ${currentRemoteServerName}` : displayName}
       >
         <SpaceIcon iconId={displayIcon} size={18} className="flex-shrink-0" />
-        <span className="font-medium truncate hidden sm:inline">{displayName}</span>
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="font-medium truncate hidden sm:inline">{displayName}</span>
+          {currentRemoteServerName && (
+            <span className="text-xs text-muted-foreground truncate hidden md:inline">@ {currentRemoteServerName}</span>
+          )}
+        </div>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -131,6 +165,9 @@ export function SpaceSelector() {
           {allSpaces.map(space => {
             const isActive = space.id === currentSpace?.id
             const name = space.isTemp ? t('Halo Space') : space.name
+            const remoteServerName = space.claudeSource === 'remote' && space.remoteServerId
+              ? getRemoteServerName(space.remoteServerId)
+              : null
 
             return (
               <button
@@ -143,9 +180,16 @@ export function SpaceSelector() {
                 <SpaceIcon iconId={space.icon || (space.isTemp ? 'sparkles' : 'folder')} size={16} className="flex-shrink-0" />
                 <span className="truncate">{name}</span>
                 {space.claudeSource === 'remote' && (
-                  <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
-                    {t('Remote')}
-                  </span>
+                  <>
+                    <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
+                      {t('Remote')}
+                    </span>
+                    {remoteServerName && (
+                      <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={remoteServerName}>
+                        @ {remoteServerName}
+                      </span>
+                    )}
+                  </>
                 )}
                 {isActive && (
                   <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
