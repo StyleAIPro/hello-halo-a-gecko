@@ -490,12 +490,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     // Check if this conversation has an active session and recover thoughts
+    // Only recover if the session was already marked as generating in the frontend
+    // This prevents restoring stale state from terminated sessions
     try {
       const response = await api.getSessionState(conversationId)
       if (response.success && response.data) {
         const sessionState = response.data as { isActive: boolean; thoughts: Thought[]; spaceId?: string }
+        const currentSession = get().sessions.get(conversationId)
 
-        if (sessionState.isActive && sessionState.thoughts.length > 0) {
+        // Only recover state if frontend already has this session as active
+        // This prevents restoring stale state after user has switched away
+        if (sessionState.isActive && sessionState.thoughts.length > 0 && currentSession?.isGenerating) {
           console.log(`[ChatStore] Recovering ${sessionState.thoughts.length} thoughts for conversation ${conversationId}`)
 
           set((state) => {
@@ -504,7 +509,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             newSessions.set(conversationId, {
               ...existingSession,
-              isGenerating: true,
               isThinking: true,
               thoughts: sessionState.thoughts
             })
@@ -809,6 +813,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ...session,
               isGenerating: false,
               isThinking: false,
+              streamingContent: '',      // 清理流式内容
+              thoughts: [],              // 清理思考数据
+              textBlockVersion: 0,       // 重置文本块版本
               // Mark pending question as cancelled on stop
               pendingQuestion: session.pendingQuestion?.status === 'active'
                 ? { ...session.pendingQuestion, status: 'cancelled' as const }
@@ -1076,7 +1083,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             newSessions.set(conversationId, {
               ...currentSession,
               isGenerating: false,
+              isThinking: false,        // 清理思考状态
               streamingContent: '',
+              thoughts: [],             // 清理思考数据
               compactInfo: null,  // Clear temporary compact notification
               pendingQuestion: null,  // Clear pending question
               error: null,  // Clear session error — now persisted in message.error

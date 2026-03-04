@@ -1006,10 +1006,16 @@ async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
   }
 
   try {
-    // Check if the process is running by checking the port
-    const result = await manager.executeCommandFull(`lsof -i :${server.wsPort || 8080} || echo "NOT_RUNNING"`)
+    // Check 1: Check if the node process is running from the deployment directory
+    const processResult = await manager.executeCommandFull(`pgrep -f "node.*dist/index.js" || echo "NO_PROCESS"`)
+    if (processResult.stdout.includes('NO_PROCESS')) {
+      return false
+    }
 
-    return !result.stdout.includes('NOT_RUNNING')
+    // Check 2: Check if the port is listening
+    const portResult = await manager.executeCommandFull(`(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${server.wsPort || 8080}" || echo "NOT_LISTENING"`)
+
+    return !portResult.stdout.includes('NOT_LISTENING')
   } catch {
     return false
   }

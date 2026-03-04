@@ -102,14 +102,18 @@ function generateThoughtId(): string {
 
 
 /**
- * Parse SDK message into a Thought object
+ * Parse SDK message into Thought object(s)
  *
  * @param message - Raw SDK message
  * @param displayModel - The actual model name to display (user-configured model, not SDK's internal model)
- * @returns Thought object or null if message type is not relevant
+ * @param hasStreamEvent - Whether any stream_event was received for this response
+ *                         If true, thinking/tool_use blocks are skipped (already handled via streaming)
+ *                         If false, thinking/tool_use blocks are processed as fallback
+ * @returns Array of Thought objects (may be empty if no relevant content)
  */
-export function parseSDKMessage(message: any, displayModel?: string): Thought | null {
+export function parseSDKMessage(message: any, displayModel?: string, hasStreamEvent = false): Thought[] {
   const timestamp = new Date().toISOString()
+  const thoughts: Thought[] = []
 
   // System initialization
   if (message.type === 'system') {
@@ -117,14 +121,15 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
       // Use displayModel (user's configured model) instead of SDK's internal model
       // This ensures users see the actual model they configured, not the spoofed Claude model
       const modelName = displayModel || message.model || 'claude'
-      return {
+      thoughts.push({
         id: generateThoughtId(),
         type: 'system',
         content: `Connected | Model: ${modelName}`,
         timestamp
-      }
+      })
+      return thoughts
     }
-    return null
+    return thoughts  // Empty array
   }
 
   // Assistant messages (thinking, tool_use, text blocks)
@@ -134,35 +139,59 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
     // This avoids duplicate error entries in the thinking timeline.
     if (message.error) {
       console.log(`[parseSDKMessage] SDK assistant error: ${message.error}, skipping (handled by result message)`)
-      return null
+      return thoughts  // Empty array
     }
 
     const content = message.message?.content
     if (Array.isArray(content)) {
       for (const block of content) {
-        // Thinking blocks - SKIP: handled by stream_event (content_block_start/delta/stop)
-        // Streaming provides real-time incremental updates, complete message would duplicate
+        // Thinking blocks - SKIP if stream_event was received (already handled via streaming)
+        // If no stream_event was received (e.g., resume session mode), process as fallback
         if (block.type === 'thinking') {
-          continue  // Skip - already sent via agent:thought + agent:thought-delta
+          if (hasStreamEvent) {
+            continue  // Already handled via stream_event
+          }
+          // Fallback: create thinking thought from complete message
+          // This happens when SDK doesn't send stream_event (e.g., session resume)
+          thoughts.push({
+            id: generateThoughtId(),
+            type: 'thinking',
+            content: block.thinking || '',
+            timestamp
+          })
+          continue
         }
-        // Tool use blocks - SKIP: handled by stream_event (content_block_start/delta/stop)
-        // Streaming provides immediate tool name display and param updates
+        // Tool use blocks - SKIP if stream_event was received (already handled via streaming)
         if (block.type === 'tool_use') {
-          continue  // Skip - already sent via agent:thought + agent:thought-delta
+          if (hasStreamEvent) {
+            continue  // Already handled via stream_event
+          }
+          // Fallback: create tool_use thought from complete message
+          thoughts.push({
+            id: block.id || generateThoughtId(),
+            type: 'tool_use',
+            content: '',
+            timestamp,
+            toolName: block.name || 'Unknown',
+            toolInput: block.input || {},
+            isStreaming: false,
+            isReady: true
+          })
+          continue
         }
         // Text blocks - send to timeline for AI intermediate responses display
         // Note: Message bubble is handled separately by agent:message via stream_event
         if (block.type === 'text' && block.text) {
-          return {
+          thoughts.push({
             id: generateThoughtId(),
             type: 'text',
             content: block.text,
             timestamp
-          }
+          })
         }
       }
     }
-    return null
+    return thoughts
   }
 
   // User messages (tool results or command output)
@@ -174,12 +203,13 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
     if (typeof content === 'string') {
       const match = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/)
       if (match) {
-        return {
+        thoughts.push({
           id: generateThoughtId(),
           type: 'text',  // Render as text block (will show in assistant bubble)
           content: match[1].trim(),
           timestamp
-        }
+        })
+        return thoughts
       }
     }
 
@@ -192,18 +222,18 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
             ? block.content
             : JSON.stringify(block.content)
 
-          return {
+          thoughts.push({
             id: block.tool_use_id || generateThoughtId(),
             type: 'tool_result',
             content: isError ? `Tool execution failed` : `Tool execution succeeded`,
             timestamp,
             toolOutput: resultContent,
             isError
-          }
+          })
         }
       }
     }
-    return null
+    return thoughts
   }
 
   // Final result
@@ -217,7 +247,7 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
       console.log(`[parseSDKMessage] SDK result error: subtype=${message.subtype}, result=${resultContent.substring(0, 200)}`)
     }
 
-    return {
+    thoughts.push({
       id: generateThoughtId(),
       type: isError ? 'error' : 'result',
       content: resultContent,
@@ -225,10 +255,10 @@ export function parseSDKMessage(message: any, displayModel?: string): Thought | 
       isError,
       errorCode: isError ? message.subtype : undefined,
       duration: message.duration_ms
-    }
+    })
   }
 
-  return null
+  return thoughts
 }
 
 // ============================================

@@ -191,6 +191,56 @@ export class SSHManager {
   }
 
   /**
+   * Execute a command with streaming output
+   * Calls onOutput callback for each chunk of stdout/stderr
+   * Returns when command completes
+   */
+  async executeCommandStreaming(
+    command: string,
+    onOutput: (type: 'stdout' | 'stderr', data: string) => void
+  ): Promise<SSHExecuteResult> {
+    if (!this._ready || !this.client) {
+      throw new Error('Not connected')
+    }
+
+    console.log(`[SSHManager] Executing command (streaming): ${command}`)
+
+    return new Promise((resolve, reject) => {
+      this.client!.exec(command, (err, stream) => {
+        if (err) {
+          console.error('[SSHManager] Command execution error:', err)
+          return reject(err)
+        }
+
+        let stdout = ''
+        let stderr = ''
+
+        stream.on('data', (data: Buffer) => {
+          const chunk = data.toString()
+          stdout += chunk
+          onOutput('stdout', chunk)
+        })
+
+        stream.stderr.on('data', (data: Buffer) => {
+          const chunk = data.toString()
+          stderr += chunk
+          onOutput('stderr', chunk)
+        })
+
+        stream.on('close', (code: number | null) => {
+          console.log(`[SSHManager] Streaming command completed with exit code: ${code}`)
+          resolve({ stdout, stderr, exitCode: code })
+        })
+
+        stream.on('error', (err) => {
+          console.error('[SSHManager] Stream error:', err)
+          reject(err)
+        })
+      })
+    })
+  }
+
+  /**
    * Initialize SFTP subsystem for file operations
    */
   private async initSFTP(): Promise<void> {

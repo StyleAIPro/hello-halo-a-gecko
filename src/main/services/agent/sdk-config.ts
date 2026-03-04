@@ -254,12 +254,22 @@ function ensureSandboxSettings(configDir: string): void {
 const AI_SDK_ENV_PREFIXES = ['ANTHROPIC_', 'OPENAI_', 'CLAUDE_']
 
 /**
+ * Specific env vars to strip from inherited env before spawning CC subprocess.
+ * These are vars that don't match the prefix patterns but should still be removed.
+ */
+const AI_SDK_ENV_VARS_TO_STRIP = ['CLAUDECODE']
+
+/**
  * Copy of process.env with all AI SDK variables removed.
  */
 export function getCleanUserEnv(): Record<string, string | undefined> {
   const env = { ...process.env }
   for (const key of Object.keys(env)) {
     if (AI_SDK_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {
+      delete env[key]
+    }
+    // Also strip specific vars that don't match prefixes
+    if (AI_SDK_ENV_VARS_TO_STRIP.includes(key)) {
       delete env[key]
     }
   }

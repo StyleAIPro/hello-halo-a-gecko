@@ -91,6 +91,96 @@ function cleanupSession(conversationId: string, reason: string, skipMapCheck = f
 // ============================================
 
 /**
+ * Session health check configuration
+ */
+const HEALTH_CHECK_CONFIG = {
+  // Maximum consecutive health check failures before forcing restart
+  maxFailures: 3,
+  // Health check interval in ms
+  checkInterval: 30 * 1000, // 30 seconds
+  // Request timeout threshold (requests taking longer are considered stuck)
+  requestTimeout: 5 * 60 * 1000, // 5 minutes
+} as const
+
+/**
+ * Track session health status
+ */
+interface SessionHealthStatus {
+  consecutiveFailures: number
+  lastHealthCheck: number
+  lastRequestStart?: number
+  isHealthy: boolean
+}
+
+const sessionHealthMap = new Map<string, SessionHealthStatus>()
+
+/**
+ * Update session health status
+ */
+function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
+  const existing = sessionHealthMap.get(conversationId)
+  const now = Date.now()
+
+  if (isHealthy) {
+    sessionHealthMap.set(conversationId, {
+      consecutiveFailures: 0,
+      lastHealthCheck: now,
+      lastRequestStart: existing?.lastRequestStart,
+      isHealthy: true
+    })
+  } else {
+    const failures = (existing?.consecutiveFailures ?? 0) + 1
+    const needsRestart = failures >= HEALTH_CHECK_CONFIG.maxFailures
+
+    console.log(`[Agent][${conversationId}] Health check failed (failures: ${failures}/${HEALTH_CHECK_CONFIG.maxFailures})`)
+
+    sessionHealthMap.set(conversationId, {
+      consecutiveFailures: failures,
+      lastHealthCheck: now,
+      lastRequestStart: existing?.lastRequestStart,
+      isHealthy: !needsRestart
+    })
+
+    if (needsRestart) {
+      console.log(`[Agent][${conversationId}] Too many health failures, marking for restart`)
+    }
+  }
+}
+
+/**
+ * Mark session request start for timeout tracking
+ */
+export function markSessionRequestStart(conversationId: string): void {
+  const existing = sessionHealthMap.get(conversationId)
+  if (existing) {
+    existing.lastRequestStart = Date.now()
+    sessionHealthMap.set(conversationId, existing)
+  }
+}
+
+/**
+ * Mark session request complete
+ */
+export function markSessionRequestComplete(conversationId: string): void {
+  const existing = sessionHealthMap.get(conversationId)
+  if (existing) {
+    existing.lastRequestStart = undefined
+    sessionHealthMap.set(conversationId, existing)
+  }
+}
+
+/**
+ * Check if a session is stuck (request taking too long)
+ */
+function isSessionStuck(conversationId: string): boolean {
+  const health = sessionHealthMap.get(conversationId)
+  if (!health?.lastRequestStart) return false
+
+  const duration = Date.now() - health.lastRequestStart
+  return duration > HEALTH_CHECK_CONFIG.requestTimeout
+}
+
+/**
  * Check if a V2 session's underlying process is still alive and ready.
  *
  * This checks the SDK's internal transport state, which is the Single Source of Truth
@@ -105,9 +195,10 @@ function cleanupSession(conversationId: string, reason: string, skipMapCheck = f
  * - Without this check, we'd try to reuse a dead session and get "ProcessTransport is not ready" error
  *
  * @param session - The V2 SDK session to check
+ * @param conversationId - Conversation ID for health tracking
  * @returns true if the session is ready for use, false if process is dead
  */
-function isSessionTransportReady(session: V2SDKSession): boolean {
+function isSessionTransportReady(session: V2SDKSession, conversationId?: string): boolean {
   try {
     // Access SDK internal state: session.query.transport
     // This is the authoritative source for process health
@@ -116,28 +207,44 @@ function isSessionTransportReady(session: V2SDKSession): boolean {
 
     if (!transport) {
       // No transport means session is definitely not ready
+      if (conversationId) updateSessionHealth(conversationId, false)
       return false
     }
 
     // Check using isReady() method if available (preferred)
     if (typeof transport.isReady === 'function') {
-      return transport.isReady()
+      const ready = transport.isReady()
+      if (conversationId) updateSessionHealth(conversationId, ready)
+      return ready
     }
 
     // Fallback to ready property
     if (typeof transport.ready === 'boolean') {
-      return transport.ready
+      const ready = transport.ready
+      if (conversationId) updateSessionHealth(conversationId, ready)
+      return ready
     }
 
     // If we can't determine state, assume it's ready (conservative approach)
     // This prevents unnecessary session recreation if SDK structure changes
+    if (conversationId) updateSessionHealth(conversationId, true)
     return true
   } catch (e) {
     // If any error occurs during check, log and assume session is invalid
     // Better to recreate than to fail with cryptic error
     console.error(`[Agent] Error checking session transport state:`, e)
+    if (conversationId) updateSessionHealth(conversationId, false)
     return false
   }
+}
+
+/**
+ * Force restart a stuck or unhealthy session
+ */
+function forceRestartSession(conversationId: string, reason: string): void {
+  console.log(`[Agent][${conversationId}] Force restarting session: ${reason}`)
+  cleanupSession(conversationId, reason)
+  sessionHealthMap.delete(conversationId)
 }
 
 // ============================================
@@ -207,6 +314,10 @@ let cleanupIntervalId: NodeJS.Timeout | null = null
  * - Edge cases where exit event is missed
  *
  * Primary cleanup is event-driven via registerProcessExitListener().
+ *
+ * Enhanced with health monitoring:
+ * - Detects stuck sessions (requests taking too long)
+ * - Auto-restarts unhealthy sessions after consecutive failures
  */
 function startSessionCleanup(): void {
   if (cleanupIntervalId) return
@@ -216,12 +327,27 @@ function startSessionCleanup(): void {
     // Avoid TS downlevelIteration requirement (main process tsconfig doesn't force target=es2015)
     for (const [convId, info] of Array.from(v2Sessions.entries())) {
       // Check 1: Clean up sessions with dead processes (killed by OS, crashed, etc.)
-      if (!isSessionTransportReady(info.session)) {
+      if (!isSessionTransportReady(info.session, convId)) {
         cleanupSession(convId, 'process not ready (polling fallback)')
         continue
       }
 
-      // Check 2: Clean up idle sessions (not used for 30 minutes)
+      // Check 2: Detect stuck sessions (request taking too long)
+      if (isSessionStuck(convId)) {
+        console.log(`[Agent][${convId}] Session stuck (request timeout), forcing restart`)
+        forceRestartSession(convId, 'stuck session (request timeout)')
+        continue
+      }
+
+      // Check 3: Check health status - restart if too many failures
+      const health = sessionHealthMap.get(convId)
+      if (health && !health.isHealthy) {
+        console.log(`[Agent][${convId}] Session marked unhealthy, forcing restart`)
+        forceRestartSession(convId, 'unhealthy session')
+        continue
+      }
+
+      // Check 4: Clean up idle sessions (not used for 30 minutes)
       // Skip sessions with an in-flight request — they are not idle.
       // activeSessions is the authoritative source for this, consistent with
       // how invalidateAllSessions() and getOrCreateV2Session() defer cleanup.

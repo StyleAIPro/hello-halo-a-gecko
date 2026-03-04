@@ -7,6 +7,8 @@ import { ArrowLeft, Plus, Server, Trash2, Edit, Globe, FolderOpen, Terminal, Ale
 import { Header } from '../components/layout/Header'
 import { api } from '../api'
 import { useAppStore } from '../stores/app.store'
+import { useSpaceStore } from '../stores/space.store'
+import { useChatStore } from '../stores/chat.store'
 import { useTranslation } from '../i18n'
 
 export interface RemoteServer {
@@ -21,11 +23,16 @@ export interface RemoteServer {
   deployed?: boolean
   lastConnected?: string
   agentStatus?: 'running' | 'stopped' | 'error'
+  claudeApiKey?: string
+  claudeBaseUrl?: string
+  claudeModel?: string
 }
 
 export function RemoteServersPage() {
   const { t } = useTranslation()
-  const { goBack, setViewWithServer } = useAppStore()
+  const { goBack, setView } = useAppStore()
+  const { spaces, loadSpaces, setCurrentSpace } = useSpaceStore()
+  const { selectConversation } = useChatStore()
   const [servers, setServers] = useState<RemoteServer[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
@@ -76,6 +83,47 @@ export function RemoteServersPage() {
       console.error('[RemoteServersPage] Failed to load servers:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Open remote space chat - unified with local space flow
+  const openRemoteSpaceChat = async (server: RemoteServer) => {
+    try {
+      // Ensure spaces are loaded
+      if (spaces.length === 0) {
+        await loadSpaces()
+      }
+
+      // Find existing remote space for this server
+      const existingSpace = spaces.find(s => s.remoteServerId === server.id)
+
+      if (existingSpace) {
+        // Use existing space
+        setCurrentSpace(existingSpace)
+        setView('space')
+      } else {
+        // Create new remote space
+        const result = await api.createSpace({
+          name: server.name,
+          icon: 'server',
+          claudeSource: 'remote',
+          remoteServerId: server.id,
+          remotePath: server.workDir || '/home',
+          useSshTunnel: true
+        })
+
+        if (result.success && result.data) {
+          const newSpace = result.data as any
+          setCurrentSpace(newSpace)
+          // Reload spaces to include the new one
+          await loadSpaces()
+          setView('space')
+        } else {
+          console.error('[RemoteServersPage] Failed to create remote space:', result.error)
+        }
+      }
+    } catch (err) {
+      console.error('[RemoteServersPage] Failed to open remote space chat:', err)
     }
   }
 
@@ -226,8 +274,8 @@ export function RemoteServersPage() {
             ? { ...s, status: 'connected', agentStatus: 'running' }
             : s
         ))
-        // Navigate to chat view
-        setViewWithServer('remoteChat', server.id)
+        // Navigate to chat view (unified with local space)
+        openRemoteSpaceChat(server)
       } else {
         setServers(prev => prev.map(s =>
           s.id === server.id ? { ...s, status: 'error' } : s
@@ -438,7 +486,7 @@ export function RemoteServersPage() {
                       )}
 
                       <button
-                        onClick={() => setViewWithServer('remoteChat', server.id)}
+                        onClick={() => openRemoteSpaceChat(server)}
                         className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                         title={t('Chat')}
                       >
@@ -871,7 +919,7 @@ export function RemoteServersPage() {
                   <button
                     onClick={() => {
                       setShowDetailsModal(false)
-                      setViewWithServer('remoteChat', selectedServerDetails.id)
+                      openRemoteSpaceChat(selectedServerDetails)
                     }}
                     className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors"
                   >

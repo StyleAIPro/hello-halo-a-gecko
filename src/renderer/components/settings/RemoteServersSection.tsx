@@ -4,7 +4,7 @@
  */
 
 import React from 'react'
-import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
+import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 
@@ -20,6 +20,7 @@ export function RemoteServersSection() {
   const [servers, setServers] = React.useState<any[]>([])
   const [loading, setLoading] = React.useState(false)
   const [showAddDialog, setShowAddDialog] = React.useState(false)
+  const [editingServer, setEditingServer] = React.useState<any | null>(null)
   const [formData, setFormData] = React.useState({
     name: '',
     host: '',
@@ -31,29 +32,56 @@ export function RemoteServersSection() {
     claudeBaseUrl: '',
     claudeModel: ''
   })
-  const [checkingSdk, setCheckingSdk] = React.useState<string | null>(null)
-  const [deployingSdk, setDeployingSdk] = React.useState<string | null>(null)
+  const [checkingAgent, setCheckingAgent] = React.useState<string | null>(null)
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
   const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(new Map())
+  // Track servers that user manually disconnected - don't auto-reconnect these
+  const [manuallyDisconnected, setManuallyDisconnected] = React.useState<Set<string>>(new Set())
 
   // Load servers on mount
   React.useEffect(() => {
     loadServers()
   }, [])
 
-  // Listen for command output events from main process
+  // Listen for command output and status change events from main process
   React.useEffect(() => {
     const handleCommandOutput = (data: { serverId: string; type: 'command' | 'output' | 'error' | 'success'; content: string; timestamp: number }) => {
       addTerminalEntry(data.serverId, data.type, data.content)
     }
 
+    // Listen for status change events to update UI in real-time
+    const handleStatusChange = (data: { serverId: string; config: any }) => {
+      console.log('[RemoteServersSection] Status change event:', data)
+      setServers(prev => prev.map(s =>
+        s.id === data.serverId ? { ...s, ...data.config } : s
+      ))
+    }
+
+    // Listen for deploy progress events
+    const handleDeployProgress = (data: { serverId: string; stage: string; message: string; progress?: number; timestamp: number }) => {
+      console.log('[RemoteServersSection] Deploy progress:', data)
+      // Map stage to terminal type
+      let type: TerminalEntry['type'] = 'output'
+      if (data.stage === 'complete') type = 'success'
+      else if (data.stage === 'error') type = 'error'
+      else if (data.stage === 'command') type = 'command'
+
+      // Add progress percentage if available
+      const progressText = data.progress !== undefined ? ` [${data.progress}%]` : ''
+      addTerminalEntry(data.serverId, type, `${data.message}${progressText}`)
+    }
+
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.on('remote-server:command-output', handleCommandOutput)
+      window.electron.ipcRenderer.on('remote-server:status-change', handleStatusChange)
+      window.electron.ipcRenderer.on('remote-server:deploy-progress', handleDeployProgress)
     }
 
     return () => {
-      window.electron?.ipcRenderer?.removeListener('remote-server:command-output', handleCommandOutput)
+      window.electron.ipcRenderer?.removeListener('remote-server:command-output', handleCommandOutput)
+      window.electron.ipcRenderer?.removeListener('remote-server:status-change', handleStatusChange)
+      window.electron.ipcRenderer?.removeListener('remote-server:deploy-progress', handleDeployProgress)
     }
   }, [])
 
@@ -68,24 +96,26 @@ export function RemoteServersSection() {
       if (result.success && result.data) {
         setServers(result.data)
 
-        // Auto-connect all disconnected servers
-        const disconnectedServers = result.data.filter((s: any) => s.status !== 'connected')
-        if (disconnectedServers.length > 0) {
-          console.log('[RemoteServersSection] Auto-connecting servers:', disconnectedServers.map((s: any) => s.name))
-          for (const server of disconnectedServers) {
-            try {
-              await api.remoteServerConnect(server.id)
-            } catch (error) {
-              console.error('[RemoteServersSection] Failed to auto-connect server:', server.id, error)
-            }
+        // Auto-connect disconnected servers (except those manually disconnected by user)
+        setManuallyDisconnected(prev => {
+          const serversToAutoConnect = result.data.filter((s: any) =>
+            s.status !== 'connected' && !prev.has(s.id)
+          )
+
+          if (serversToAutoConnect.length > 0) {
+            console.log('[RemoteServersSection] Auto-connecting servers (excluding manually disconnected):',
+              serversToAutoConnect.map((s: any) => s.name))
+
+            // Auto-connect in background without blocking UI
+            serversToAutoConnect.forEach((server: any) => {
+              api.remoteServerConnect(server.id).catch(err => {
+                console.error('[RemoteServersSection] Failed to auto-connect server:', server.id, err)
+              })
+            })
           }
-          // Reload servers after connecting to update status
-          await new Promise(resolve => setTimeout(resolve, 500))
-          const reloadResult = await api.remoteServerList()
-          if (reloadResult.success && reloadResult.data) {
-            setServers(reloadResult.data)
-          }
-        }
+
+          return prev // Don't modify the set
+        })
       } else {
         console.error('[RemoteServersSection] Failed to load servers:', result.error)
       }
@@ -192,6 +222,70 @@ export function RemoteServersSection() {
     }
   }
 
+  // Open edit modal with server data
+  const openEditModal = (server: any) => {
+    setEditingServer(server)
+    setFormData({
+      name: server.name || '',
+      host: server.host || '',
+      sshPort: server.sshPort || 22,
+      username: server.username || '',
+      password: '',  // Don't populate password for security
+      wsPort: server.wsPort || 8080,
+      claudeApiKey: server.claudeApiKey || '',
+      claudeBaseUrl: server.claudeBaseUrl || '',
+      claudeModel: server.claudeModel || ''
+    })
+  }
+
+  // Handle edit server
+  const handleEditServer = async () => {
+    if (!editingServer) return
+
+    console.log('[RemoteServersSection] Edit server:', editingServer.id, 'formData:', formData)
+
+    const serverInput = {
+      id: editingServer.id,
+      name: formData.name,
+      ssh: {
+        host: formData.host,
+        port: formData.sshPort,
+        username: formData.username,
+        password: formData.password || undefined,  // Only update if provided
+      },
+      wsPort: formData.wsPort,
+      claudeApiKey: formData.claudeApiKey,
+      claudeBaseUrl: formData.claudeBaseUrl,
+      claudeModel: formData.claudeModel
+    }
+
+    try {
+      const result = await api.updateRemoteServer(serverInput as any)
+      console.log('[RemoteServersSection] Edit result:', result)
+      if (result.success) {
+        setEditingServer(null)
+        setFormData({
+          name: '',
+          host: '',
+          sshPort: 22,
+          username: '',
+          password: '',
+          wsPort: 8080,
+          claudeApiKey: '',
+          claudeBaseUrl: '',
+          claudeModel: ''
+        })
+        await loadServers()
+      } else {
+        console.error('[RemoteServersSection] Edit failed:', result.error)
+        alert(result.error || t('Failed to update server'))
+      }
+    } catch (error) {
+      console.error('[RemoteServersSection] Edit error:', error)
+      alert(t('Failed to update server'))
+    }
+  }
+
   const handleDeleteServer = async (serverId: string) => {
     if (!confirm(t('Are you sure you want to delete this server?'))) return
     try {
@@ -205,85 +299,106 @@ export function RemoteServersSection() {
   }
 
   const handleConnectServer = async (serverId: string) => {
+    console.log('[RemoteServersSection] handleConnectServer called for:', serverId)
+    // User manually connected - remove from manually disconnected set
+    setManuallyDisconnected(prev => {
+      const newSet = new Set(prev)
+      newSet.delete(serverId)
+      return newSet
+    })
     try {
       const result = await api.remoteServerConnect(serverId)
+      console.log('[RemoteServersSection] Connect result:', result)
       if (result.success) {
-        await loadServers()
+        // The status will be updated via the status-change event
+        // No need to reload servers - status-change event will update UI
       } else {
         alert(result.error || t('Failed to connect'))
       }
     } catch (error) {
-      console.error('Failed to connect server:', error)
+      console.error('[RemoteServersSection] Failed to connect server:', error)
       alert(t('Failed to connect'))
     }
   }
 
   const handleDisconnectServer = async (serverId: string) => {
+    console.log('[RemoteServersSection] handleDisconnectServer called for:', serverId)
+    // User manually disconnected - add to manually disconnected set
+    setManuallyDisconnected(prev => new Set(prev).add(serverId))
     try {
       const result = await api.remoteServerDisconnect(serverId)
-      if (result.success) {
-        await loadServers()
-      }
+      console.log('[RemoteServersSection] Disconnect result:', result)
+      // The status will be updated via the status-change event
+      // No need to reload servers - status-change event will update UI
     } catch (error) {
-      console.error('Failed to disconnect server:', error)
+      console.error('[RemoteServersSection] Failed to disconnect server:', error)
     }
   }
 
-  const handleCheckSdk = async (serverId: string) => {
-    setCheckingSdk(serverId)
+  const handleCheckAgent = async (serverId: string) => {
+    setCheckingAgent(serverId)
     expandServer(serverId)
     clearTerminal(serverId)
 
-    console.log('[RemoteServersSection] Checking SDK for server:', serverId)
+    addTerminalEntry(serverId, 'command', 'Checking agent status...')
+    console.log('[RemoteServersSection] Checking agent for server:', serverId)
+
     try {
-      const result = await api.remoteServerCheckAgent(serverId)
-      console.log('[RemoteServersSection] SDK check result:', result)
-      if (result.success && result.data) {
-        alert(
-          result.data.installed
-            ? t('SDK already installed, version: {{version}}', { version: result.data.version })
-            : t('SDK not installed, will deploy now')
-        )
-        await loadServers()
+      // Check SDK installation
+      addTerminalEntry(serverId, 'output', 'Checking SDK installation...')
+      const sdkResult = await api.remoteServerCheckAgent(serverId)
+      console.log('[RemoteServersSection] SDK check result:', sdkResult)
+
+      if (sdkResult.success && sdkResult.data) {
+        if (sdkResult.data.installed) {
+          addTerminalEntry(serverId, 'success', `SDK installed (version: ${sdkResult.data.version || 'unknown'})`)
+        } else {
+          addTerminalEntry(serverId, 'error', 'SDK not installed')
+        }
       } else {
-        addTerminalEntry(serverId, 'error', `Failed to check SDK: ${result.error}`)
-        alert(result.error || t('Failed to check SDK'))
+        addTerminalEntry(serverId, 'error', `Failed to check SDK: ${sdkResult.error}`)
       }
+
+      // Check if agent is running
+      addTerminalEntry(serverId, 'output', 'Checking agent process status...')
+      const runningResult = await api.remoteServerIsAgentRunning(serverId)
+      console.log('[RemoteServersSection] Agent running result:', runningResult)
+
+      if (runningResult.success && runningResult.data) {
+        if (runningResult.data.running) {
+          addTerminalEntry(serverId, 'success', 'Agent process is running')
+        } else {
+          addTerminalEntry(serverId, 'error', 'Agent process is not running')
+        }
+      } else {
+        addTerminalEntry(serverId, 'error', `Failed to check agent process: ${runningResult.error}`)
+      }
+
+      // Get recent logs
+      addTerminalEntry(serverId, 'output', 'Fetching recent agent logs...')
+      const logsResult = await api.remoteServerGetAgentLogs(serverId, 10)
+      console.log('[RemoteServersSection] Agent logs result:', logsResult)
+
+      if (logsResult.success && logsResult.data?.logs) {
+        addTerminalEntry(serverId, 'output', '--- Recent logs ---')
+        logsResult.data.logs.split('\n').slice(-5).forEach((line: string) => {
+          if (line.trim()) {
+            addTerminalEntry(serverId, 'output', line)
+          }
+        })
+      } else {
+        addTerminalEntry(serverId, 'output', 'No logs available')
+      }
+
+      addTerminalEntry(serverId, 'success', 'Agent status check complete')
+      await loadServers()
     } catch (error) {
-      addTerminalEntry(serverId, 'error', `Error checking SDK: ${error}`)
-      console.error('[RemoteServersSection] Check SDK error:', error)
-      alert(t('Failed to check SDK'))
+      addTerminalEntry(serverId, 'error', `Error checking agent: ${error}`)
+      console.error('[RemoteServersSection] Check agent error:', error)
     } finally {
-      setCheckingSdk(null)
+      setCheckingAgent(null)
     }
   }
-
-  const handleDeploySdk = async (serverId: string) => {
-    if (!confirm(t('Are you sure you want to deploy claude-agent-sdk?'))) return
-    setDeployingSdk(serverId)
-    expandServer(serverId)
-    clearTerminal(serverId)
-
-    console.log('[RemoteServersSection] Deploying SDK for server:', serverId)
-    try {
-      const result = await api.remoteServerDeployAgent(serverId)
-      console.log('[RemoteServersSection] Deploy result:', result)
-      if (result.success) {
-        alert(t('SDK deployed successfully'))
-        await loadServers()
-      } else {
-        addTerminalEntry(serverId, 'error', `Deployment failed: ${result.error}`)
-        alert(result.error || t('Failed to deploy SDK'))
-      }
-    } catch (error) {
-      addTerminalEntry(serverId, 'error', `Error deploying SDK: ${error}`)
-      console.error('[RemoteServersSection] Deploy SDK error:', error)
-      alert(t('Failed to deploy SDK'))
-    } finally {
-      setDeployingSdk(null)
-    }
-  }
-
   // Update agent code to latest version
   const handleUpdateAgent = async (serverId: string) => {
     if (!confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
@@ -313,7 +428,7 @@ export function RemoteServersSection() {
     }
   }
 
-  const getSdkStatusBadge = (server: any) => {
+  const getAgentStatusBadge = (server: any) => {
     if (server.sdkInstalled) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-600 text-xs rounded-full">
@@ -321,14 +436,11 @@ export function RemoteServersSection() {
           <span>{t('SDK Installed')} {server.sdkVersion ? `(${server.sdkVersion})` : ''}</span>
         </span>
       )
-    } else if (checkingSdk === server.id || deployingSdk === server.id) {
+    } else if (checkingAgent === server.id) {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-500/10 text-yellow-600 text-xs rounded-full">
-          {checkingSdk === server.id ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <span>{t('Deploying...')}</span>
-          )}
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span>{t('Checking...')}</span>
         </span>
       )
     } else {
@@ -400,7 +512,7 @@ export function RemoteServersSection() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {getSdkStatusBadge(server)}
+                      {getAgentStatusBadge(server)}
                       <span className="text-xs text-muted-foreground">
                         {server.status || 'disconnected'}
                       </span>
@@ -430,24 +542,20 @@ export function RemoteServersSection() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleCheckSdk(server.id)}
-                        disabled={checkingSdk === server.id || deployingSdk === server.id}
+                        onClick={() => handleCheckAgent(server.id)}
+                        disabled={checkingAgent === server.id || updatingAgent === server.id}
                         className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors disabled:opacity-50"
-                        title={t('Check SDK Installation')}
+                        title={t('Check Agent Status')}
                       >
-                        <Terminal className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeploySdk(server.id)}
-                        disabled={checkingSdk === server.id || deployingSdk === server.id}
-                        className="p-1.5 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-50"
-                        title={t('Deploy SDK')}
-                      >
-                        <ExternalLink className="w-4 h-4" />
+                        {checkingAgent === server.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Terminal className="w-4 h-4" />
+                        )}
                       </button>
                       <button
                         onClick={() => handleUpdateAgent(server.id)}
-                        disabled={updatingAgent === server.id}
+                        disabled={updatingAgent === server.id || checkingAgent === server.id}
                         className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
                         title={t('Update Agent')}
                       >
@@ -456,6 +564,13 @@ export function RemoteServersSection() {
                         ) : (
                           <RefreshCw className="w-4 h-4" />
                         )}
+                      </button>
+                      <button
+                        onClick={() => openEditModal(server)}
+                        className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors"
+                        title={t('Edit Server')}
+                      >
+                        <Edit className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteServer(server.id)}
@@ -514,11 +629,13 @@ export function RemoteServersSection() {
         </div>
       )}
 
-      {/* Add Server Dialog */}
-      {showAddDialog && (
+      {/* Add/Edit Server Dialog */}
+      {(showAddDialog || editingServer) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">{t('Add Remote Server')}</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {editingServer ? t('Edit Server') : t('Add Remote Server')}
+            </h3>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">{t('Server Name')}</label>
@@ -618,16 +735,30 @@ export function RemoteServersSection() {
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
-                onClick={() => setShowAddDialog(false)}
+                onClick={() => {
+                  setShowAddDialog(false)
+                  setEditingServer(null)
+                  setFormData({
+                    name: '',
+                    host: '',
+                    sshPort: 22,
+                    username: '',
+                    password: '',
+                    wsPort: 8080,
+                    claudeApiKey: '',
+                    claudeBaseUrl: '',
+                    claudeModel: ''
+                  })
+                }}
                 className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors"
               >
                 {t('Cancel')}
               </button>
               <button
-                onClick={handleAddServer}
+                onClick={editingServer ? handleEditServer : handleAddServer}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
               >
-                {t('Add Server')}
+                {editingServer ? t('Save') : t('Add Server')}
               </button>
             </div>
           </div>

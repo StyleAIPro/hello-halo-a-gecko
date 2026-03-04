@@ -75,6 +75,8 @@ export interface RemoteServer {
   error?: string
   workDir?: string
   claudeApiKey?: string
+  claudeBaseUrl?: string  // Custom API base URL (e.g., for OpenAI-compatible APIs)
+  claudeModel?: string    // Custom model name
   sdkInstalled?: boolean  // Whether claude-agent-sdk is installed
   sdkVersion?: string  // Installed SDK version
   agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
