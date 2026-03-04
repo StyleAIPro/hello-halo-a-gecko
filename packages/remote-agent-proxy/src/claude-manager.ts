@@ -8,6 +8,7 @@ import https from 'https'
 import http from 'http'
 import * as fs from 'fs'
 import path from 'path'
+import os from 'os'
 
 // ============================================
 // Types
@@ -227,7 +228,7 @@ function buildSystemPrompt(workDir: string, modelInfo?: string): string {
         .replace(/\$\{WORK_DIR\}/g, workDir)
         .replace(/\$\{IS_GIT_REPO\}/g, isGit ? 'Yes' : 'No')
         .replace(/\$\{PLATFORM\}/g, process.platform)
-        .replace(/\$\{OS_VERSION\}/g, `${require('os').type()} ${require('os').release()}`)
+        .replace(/\$\{OS_VERSION\}/g, `${os.type()} ${os.release()}`)
         .replace(/\$\{TODAY\}/g, today)
         .replace(/\$\{MODEL_INFO\}/g, modelInfo ? `You are powered by ${modelInfo}.` : '')
 
@@ -241,7 +242,7 @@ function buildSystemPrompt(workDir: string, modelInfo?: string): string {
 
   // Fallback to simplified prompt (should not happen if sync worked)
   // This matches the structure of SYSTEM_PROMPT_TEMPLATE but is more concise
-  const osVersion = `${require('os').type()} ${require('os').release()}`
+  const osVersion = `${os.type()} ${os.release()}`
   return `You are Halo, an AI assistant built with Claude Code. You help users with software engineering tasks.
 
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming.

@@ -13,6 +13,19 @@ import os from 'os'
 import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt'
 
 /**
+ * Escape a value for use in shell environment variable
+ * Handles special characters like quotes, spaces, etc.
+ */
+function escapeEnvValue(value: string): string {
+  // If the value contains no special characters, return as-is
+  if (/^[a-zA-Z0-9_\-./:@]+$/.test(value)) {
+    return value
+  }
+  // Otherwise, wrap in single quotes and escape any existing single quotes
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+/**
  * Get the path to the remote-agent-proxy package
  * Works in both development and production modes
  */
@@ -20,11 +33,12 @@ function getRemoteAgentProxyPath(): string {
   // In development mode, use the project root
   // In production mode, use the app resources path
   if (app.isPackaged) {
-    // Production: resources are in app.asar/packages or app/resources/packages
-    return path.join(process.resourcesPath, 'packages', 'remote-agent-proxy')
+    // Production: resources are in app.asar/packages
+    // Use app.getAppPath() which returns the path to app.asar in production
+    const appPath = app.getAppPath()
+    return path.join(appPath, 'packages', 'remote-agent-proxy')
   } else {
     // Development: use the project root
-    // Use app.getAppPath() which returns the project root in dev mode
     const projectRoot = app.getAppPath()
     return path.join(projectRoot, 'packages', 'remote-agent-proxy')
   }
@@ -41,7 +55,7 @@ export interface RemoteServerConfigInput extends Omit<RemoteServerConfig, 'id' |
 }
 
 const DEPLOY_AGENT_PATH = '/opt/claude-deployment'
-const AGENT_CHECK_COMMAND = 'npm list -g @anthropic-ai/claude-agent-sdk'
+const AGENT_CHECK_COMMAND = 'npm list -g @anthropic-ai/claude-agent-sdk 2>/dev/null || echo "NOT_INSTALLED"'
 
 // Agent package files to deploy
 const AGENT_FILES = [
@@ -61,6 +75,7 @@ export class RemoteDeployService {
   private sshManagers: Map<string, SSHManager> = new Map()
   private statusCallbacks: Set<(serverId: string, config: RemoteServer) => void> = new Set()
   private commandOutputCallbacks: Set<(serverId: string, type: 'command' | 'output' | 'error' | 'success', content: string) => void> = new Set()
+  private deployProgressCallbacks: Set<(serverId: string, stage: string, message: string, progress?: number) => void> = new Set()
 
   constructor() {
     this.loadServers()
@@ -75,10 +90,26 @@ export class RemoteDeployService {
   }
 
   /**
+   * Subscribe to deploy progress events
+   */
+  onDeployProgress(callback: (serverId: string, stage: string, message: string, progress?: number) => void): () => void {
+    this.deployProgressCallbacks.add(callback)
+    return () => this.deployProgressCallbacks.delete(callback)
+  }
+
+  /**
    * Emit command output event
    */
   private emitCommandOutput(serverId: string, type: 'command' | 'output' | 'error' | 'success', content: string): void {
     this.commandOutputCallbacks.forEach(callback => callback(serverId, type, content))
+  }
+
+  /**
+   * Emit deploy progress event
+   */
+  private emitDeployProgress(serverId: string, stage: string, message: string, progress?: number): void {
+    console.log(`[RemoteDeployService][${serverId}] ${stage}: ${message}`)
+    this.deployProgressCallbacks.forEach(callback => callback(serverId, stage, message, progress))
   }
 
   /**
@@ -456,7 +487,7 @@ export class RemoteDeployService {
 
     // Ensure SSH connection is established before proceeding
     if (!manager.isConnected()) {
-      console.log(`[RemoteDeployService] SSH not connected, connecting to ${server.name}...`)
+      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5)
       await this.connectServer(id)
       // Re-get the manager after connection
       const connectedManager = this.getSSHManager(id)
@@ -467,7 +498,7 @@ export class RemoteDeployService {
 
     try {
       // Create deployment directory structure
-      console.log('[RemoteDeployService] Creating deployment directories...')
+      this.emitDeployProgress(id, 'prepare', '正在创建部署目录...', 10)
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/dist`)
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/data`)
@@ -476,141 +507,176 @@ export class RemoteDeployService {
       const packageDir = getRemoteAgentProxyPath()
       const distDir = path.join(packageDir, 'dist')
 
-      console.log(`[RemoteDeployService] Looking for remote-agent-proxy at: ${packageDir}`)
-      console.log(`[RemoteDeployService] Dist directory: ${distDir}`)
-
       // Check if dist directory exists
       if (!fs.existsSync(distDir)) {
         throw new Error(`Remote agent proxy not built. Run 'npm run build' in packages/remote-agent-proxy first. (looked at: ${distDir})`)
       }
 
-      console.log('[RemoteDeployService] Uploading remote-agent-proxy package...')
-
       // Upload package.json first
+      this.emitDeployProgress(id, 'upload', '正在上传 package.json...', 15)
       const packageJsonPath = path.join(packageDir, 'package.json')
       if (fs.existsSync(packageJsonPath)) {
         await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
-        console.log('[RemoteDeployService] Uploaded package.json')
       }
 
       // Upload all files from dist directory
-      const distFiles = fs.readdirSync(distDir)
+      const distFiles = fs.readdirSync(distDir).filter(f => fs.statSync(path.join(distDir, f)).isFile())
+      let uploadedCount = 0
       for (const file of distFiles) {
         const localPath = path.join(distDir, file)
         const remotePath = `${DEPLOY_AGENT_PATH}/dist/${file}`
-
-        if (fs.statSync(localPath).isFile()) {
-          console.log(`[RemoteDeployService] Uploading ${file}...`)
-          await manager.uploadFile(localPath, remotePath)
-        }
+        uploadedCount++
+        const progress = 15 + Math.round((uploadedCount / distFiles.length) * 20)
+        this.emitDeployProgress(id, 'upload', `正在上传 ${file}...`, progress)
+        await manager.uploadFile(localPath, remotePath)
       }
 
       // Upload patches directory for SDK patch support
       const patchesDir = path.join(packageDir, 'patches')
       if (fs.existsSync(patchesDir)) {
-        console.log('[RemoteDeployService] Uploading patches directory...')
+        this.emitDeployProgress(id, 'upload', '正在上传 SDK 补丁...', 40)
         await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/patches`)
         const patchFiles = fs.readdirSync(patchesDir)
         for (const file of patchFiles) {
           const localPath = path.join(patchesDir, file)
           if (fs.statSync(localPath).isFile()) {
-            console.log(`[RemoteDeployService] Uploading patch: ${file}...`)
             await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
           }
         }
-        console.log('[RemoteDeployService] Patches uploaded')
       }
 
-      console.log('[RemoteDeployService] Package upload completed')
+      // Check if Node.js is installed before running npm commands
+      this.emitDeployProgress(id, 'prepare', '检查 Node.js 环境...', 42)
+      const nodeCheck = await manager.executeCommandFull('node --version')
+      if (nodeCheck.exitCode !== 0 || !nodeCheck.stdout.trim()) {
+        // Node.js not installed, install it automatically
+        console.log('[RemoteDeployService] Node.js not found, installing...')
+        this.emitDeployProgress(id, 'prepare', 'Node.js 未安装，正在自动安装...', 43)
+        this.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...')
+
+        // Detect OS and architecture, then install Node.js
+        // Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, EulerOS/openEuler, Amazon Linux, Alpine, Arch, SUSE
+        // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
+        // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
+        // Note: Check if node can actually execute (not just exists) to handle broken installations
+        // Use npmmirror (Taobao) as fallback for China network issues
+        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
+
+        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd)
+        if (nodeInstallResult.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim())
+        }
+        if (nodeInstallResult.exitCode !== 0) {
+          this.emitCommandOutput(id, 'error', `Failed to install Node.js: ${nodeInstallResult.stderr}`)
+          throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`)
+        }
+
+        this.emitCommandOutput(id, 'success', 'Node.js installed successfully')
+      } else {
+        this.emitCommandOutput(id, 'output', `Node.js: ${nodeCheck.stdout.trim()}`)
+      }
 
       // Install dependencies on remote server
-      console.log('[RemoteDeployService] Installing dependencies on remote server...')
-
-      // Configure npm to use Chinese mirror for faster installation
-      console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...')
+      this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 45)
       await manager.executeCommand('npm config set registry https://registry.npmmirror.com')
 
       // Verify package.json exists before installing
       const packageJsonCheck = await manager.executeCommandFull(`test -f ${DEPLOY_AGENT_PATH}/package.json && echo "EXISTS" || echo "NOT_FOUND"`)
-      console.log('[RemoteDeployService] package.json check:', packageJsonCheck.stdout.trim())
       if (packageJsonCheck.stdout.includes('NOT_FOUND')) {
         throw new Error('package.json not found on remote server - upload failed')
       }
 
       // Remove existing node_modules to force clean install
-      console.log('[RemoteDeployService] Removing existing node_modules...')
+      this.emitDeployProgress(id, 'install', '正在清理旧依赖...', 50)
       await manager.executeCommand(`rm -rf ${DEPLOY_AGENT_PATH}/node_modules`)
 
-      // Run npm install without --production flag to install all dependencies
-      const installResult = await manager.executeCommandFull(`cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`)
-      console.log('[RemoteDeployService] npm install output:', installResult.stdout)
-      if (installResult.stderr) {
-        console.log('[RemoteDeployService] npm install stderr:', installResult.stderr)
-      }
+      // Run npm install with streaming output
+      this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 55)
+      this.emitCommandOutput(id, 'command', `$ npm install`)
+
+      const installResult = await manager.executeCommandStreaming(
+        `cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`,
+        (type, data) => {
+          // Send each line of output to terminal
+          const lines = data.split('\n').filter(line => line.trim())
+          for (const line of lines) {
+            this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+          }
+        }
+      )
 
       if (installResult.exitCode !== 0) {
+        this.emitDeployProgress(id, 'error', `依赖安装失败 (exit code: ${installResult.exitCode})`, 0)
         throw new Error(`Failed to install dependencies: ${installResult.stderr || installResult.stdout}`)
       }
 
-      // Debug: List installed packages
-      const listResult = await manager.executeCommandFull(`ls -la ${DEPLOY_AGENT_PATH}/node_modules/ 2>&1 | head -20`)
-      console.log('[RemoteDeployService] Installed packages:', listResult.stdout)
+      this.emitCommandOutput(id, 'success', '✓ 依赖安装完成')
+      this.emitDeployProgress(id, 'install', '依赖安装完成', 75)
+
+      // Also install SDK globally for use by other projects
+      this.emitDeployProgress(id, 'install', '正在全局安装 SDK...', 77)
+      this.emitCommandOutput(id, 'command', '$ npm install -g @anthropic-ai/claude-agent-sdk')
+      const globalSdkResult = await manager.executeCommandStreaming(
+        'npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
+        (type, data) => {
+          const lines = data.split('\n').filter(line => line.trim())
+          for (const line of lines) {
+            this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+          }
+        }
+      )
+      if (globalSdkResult.exitCode === 0) {
+        this.emitCommandOutput(id, 'success', '✓ SDK 全局安装完成')
+      } else {
+        this.emitCommandOutput(id, 'output', `! SDK 全局安装跳过: ${globalSdkResult.stderr || 'unknown error'}`)
+      }
 
       // Verify node_modules was created
       const nodeModulesCheck = await manager.executeCommandFull(`test -d ${DEPLOY_AGENT_PATH}/node_modules && echo "EXISTS" || echo "NOT_FOUND"`)
-      console.log('[RemoteDeployService] node_modules check:', nodeModulesCheck.stdout.trim())
       if (nodeModulesCheck.stdout.includes('NOT_FOUND')) {
         throw new Error('node_modules directory not created after npm install')
       }
 
-      // Verify dotenv is installed
-      const dotenvCheck = await manager.executeCommandFull(`test -f ${DEPLOY_AGENT_PATH}/node_modules/dotenv/package.json && echo "EXISTS" || echo "NOT_FOUND"`)
-      console.log('[RemoteDeployService] dotenv check:', dotenvCheck.stdout.trim())
-      if (dotenvCheck.stdout.includes('NOT_FOUND')) {
-        throw new Error('dotenv package not found after npm install - installation incomplete')
-      }
-
       // Upload local patched SDK to remote server
-      // This ensures the remote SDK has the same patches as local (cwd, permissionMode, extraArgs, etc.)
-      console.log('[RemoteDeployService] Uploading locally patched SDK to remote server...')
+      this.emitDeployProgress(id, 'sdk', '正在上传本地 SDK 补丁...', 80)
       const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
       const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
       const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
 
       // Check if local patched SDK exists
       if (fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
-        // Ensure remote SDK directory exists before uploading
         await manager.executeCommand(`mkdir -p ${remoteSdkPath}`)
-
-        // Upload the patched sdk.mjs file
         const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
-        console.log(`[RemoteDeployService] Uploading patched sdk.mjs from ${localSdkFile}`)
         await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`)
-        console.log('[RemoteDeployService] Patched SDK uploaded successfully')
+        this.emitCommandOutput(id, 'success', '✓ SDK 补丁上传完成')
       } else {
-        console.warn('[RemoteDeployService] Local patched SDK not found, skipping SDK upload')
-        console.warn('[RemoteDeployService] Expected path:', path.join(localSdkPath, 'sdk.mjs'))
+        this.emitCommandOutput(id, 'output', '! 本地 SDK 补丁未找到，跳过上传')
       }
 
-      console.log(`[RemoteDeployService] Agent code deployed to: ${server.name}`)
-
       // Sync system prompt to remote server
-      console.log('[RemoteDeployService] Syncing system prompt to remote server...')
+      this.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 90)
       await this.syncSystemPrompt(id)
 
       // Restart agent to apply changes
-      console.log('[RemoteDeployService] Restarting agent to apply changes...')
+      this.emitDeployProgress(id, 'restart', '正在重启 Agent...', 95)
       try {
         await this.stopAgent(id)
         await new Promise(resolve => setTimeout(resolve, 1000))
         await this.startAgent(id)
-        console.log('[RemoteDeployService] Agent restarted successfully')
+        this.emitCommandOutput(id, 'success', '✓ Agent 重启成功')
       } catch (restartError) {
-        console.error('[RemoteDeployService] Failed to restart agent:', restartError)
+        this.emitCommandOutput(id, 'error', `! Agent 重启失败: ${restartError}`)
         // Don't throw - the code was deployed successfully
       }
+
+      this.emitDeployProgress(id, 'complete', '✓ 部署完成!', 100)
+      this.emitCommandOutput(id, 'success', '========================================')
+      this.emitCommandOutput(id, 'success', '部署成功完成!')
+      this.emitCommandOutput(id, 'success', '========================================')
+
     } catch (error) {
-      console.error('[RemoteDeployService] Deploy error:', error)
+      this.emitDeployProgress(id, 'error', `部署失败: ${error}`, 0)
+      this.emitCommandOutput(id, 'error', `✗ 部署失败: ${error}`)
       throw error
     }
   }
@@ -641,14 +707,21 @@ export class RemoteDeployService {
 
     // Start the agent server with environment variables
     // Use the correct env var names expected by remote-agent-proxy
+    // Escape single quotes in values and wrap them in single quotes to handle special characters
+    const escapeEnvValue = (value: string | undefined): string => {
+      if (!value) return "''"
+      // Escape single quotes by replacing ' with '\''
+      return `'${value.replace(/'/g, "'\\''")}'`
+    }
+
     const envVars = [
       `REMOTE_AGENT_PORT=${server.wsPort || 8080}`,
-      `REMOTE_AGENT_AUTH_TOKEN=${server.authToken || ''}`,
-      `REMOTE_AGENT_WORK_DIR=${server.workDir || '/root'}`,
+      `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(server.authToken)}`,
+      `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir || '/root')}`,
       `IS_SANDBOX=1`,  // Required for bypass-permissions mode in root environment
-      server.claudeApiKey ? `ANTHROPIC_API_KEY=${server.claudeApiKey}` : null,
-      server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${server.claudeBaseUrl}` : null,
-      server.claudeModel ? `ANTHROPIC_MODEL=${server.claudeModel}` : null
+      server.claudeApiKey ? `ANTHROPIC_API_KEY=${escapeEnvValue(server.claudeApiKey)}` : null,
+      server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${escapeEnvValue(server.claudeBaseUrl)}` : null,
+      server.claudeModel ? `ANTHROPIC_MODEL=${escapeEnvValue(server.claudeModel)}` : null
     ].filter(Boolean).join(' ')
 
     const indexPath = `${DEPLOY_AGENT_PATH}/dist/index.js`
@@ -659,21 +732,31 @@ export class RemoteDeployService {
     await manager.executeCommand(startCommand)
 
     // Wait a moment for the process to start
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    await new Promise(resolve => setTimeout(resolve, 5000))
 
-    // Check if it's running by checking the port
+    // Check if it's running by checking the port (try both ss and netstat)
     const port = server.wsPort || 8080
     const verifyResult = await manager.executeCommandFull(
-      `ss -tln | grep ":${port}" || echo "NOT_RUNNING"`
+      `(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${port}" || echo "NOT_RUNNING"`
     )
 
     if (verifyResult.stdout.includes('NOT_RUNNING')) {
       // Check the logs for error
+      let logOutput = ''
       try {
-        const logResult = await manager.executeCommand(`tail -50 ${DEPLOY_AGENT_PATH}/logs/output.log`)
-        console.error('[RemoteDeployService] Agent startup failed. Logs:', logResult)
-      } catch {}
-      throw new Error('Failed to start agent process - port not listening')
+        const logResult = await manager.executeCommandFull(`tail -50 ${DEPLOY_AGENT_PATH}/logs/output.log 2>&1 || echo "No log file"`)
+        logOutput = logResult.stdout || logResult.stderr || 'No logs available'
+        console.error('[RemoteDeployService] Agent startup failed. Logs:', logOutput)
+        this.emitCommandOutput(id, 'error', `Agent startup logs:\n${logOutput}`)
+      } catch (e) {
+        console.error('[RemoteDeployService] Failed to read logs:', e)
+      }
+
+      // Also check if node process is running at all
+      const processCheck = await manager.executeCommandFull(`ps aux | grep -E "node.*${DEPLOY_AGENT_PATH}" | grep -v grep || echo "NO_PROCESS"`)
+      console.log('[RemoteDeployService] Process check:', processCheck.stdout)
+
+      throw new Error(`Failed to start agent process - port ${port} not listening. Logs: ${logOutput.slice(0, 500)}`)
     }
 
     console.log(`[RemoteDeployService] Agent started on: ${server.name}, port ${port}`)
@@ -696,6 +779,35 @@ export class RemoteDeployService {
     )
 
     console.log(`[RemoteDeployService] Agent stopped on: ${server.name}`)
+  }
+
+  /**
+   * Restart agent with new configuration (e.g., updated API key)
+   * This only restarts the agent process, doesn't redeploy code
+   */
+  async restartAgentWithNewConfig(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    console.log(`[RemoteDeployService] Restarting agent with new config for: ${server.name}`)
+
+    // Check if agent is currently running
+    const manager = this.getSSHManager(id)
+    const checkResult = await manager.executeCommandFull(
+      `pgrep -f "node.*${DEPLOY_AGENT_PATH}" || echo "not running"`
+    )
+
+    if (checkResult.exitCode === 0 && !checkResult.stdout.includes('not running')) {
+      // Agent is running, restart it with new config
+      console.log(`[RemoteDeployService] Agent is running, restarting with new config...`)
+      await this.stopAgent(id)
+      await this.startAgent(id)
+      console.log(`[RemoteDeployService] Agent restarted with new config`)
+    } else {
+      console.log(`[RemoteDeployService] Agent not running, no restart needed`)
+    }
   }
 
   /**
@@ -1010,22 +1122,13 @@ export class RemoteDeployService {
         console.log('[RemoteDeployService] Node.js not found, installing...')
         this.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...')
 
-        // Detect OS and install Node.js using NodeSource
-        // This works for Ubuntu/Debian and RHEL/CentOS/Fedora
-        const installNodeCmd = `
-          if [ -f /etc/debian_version ]; then
-            # Debian/Ubuntu
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-            apt-get install -y nodejs
-          elif [ -f /etc/redhat-release ]; then
-            # RHEL/CentOS/Fedora
-            curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
-            yum install -y nodejs
-          else
-            echo "Unsupported OS. Please install Node.js manually."
-            exit 1
-          fi
-        `
+        // Detect OS and architecture, then install Node.js
+        // Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, EulerOS/openEuler, Amazon Linux, Alpine, Arch, SUSE
+        // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
+        // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
+        // Note: Check if node can actually execute (not just exists) to handle broken installations
+        // Use npmmirror (Taobao) as fallback for China network issues
+        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd)
         if (nodeInstallResult.stdout.trim()) {

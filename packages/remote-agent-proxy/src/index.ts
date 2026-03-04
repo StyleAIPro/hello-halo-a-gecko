@@ -17,7 +17,10 @@ function loadConfig(): RemoteServerConfig {
     // Support both ANTHROPIC_AUTH_TOKEN (for third-party APIs) and ANTHROPIC_API_KEY
     claudeApiKey: process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY,
     claudeBaseUrl: process.env.ANTHROPIC_BASE_URL || process.env.CLAUDE_BASE_URL,
-    model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL
+    model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL,
+    // pathToClaudeCodeExecutable is not set by default - use SDK mode
+    // Only set if explicitly configured via PATH_TO_CLAUDE_CODE_EXECUTABLE
+    pathToClaudeCodeExecutable: process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE
   }
 
   console.log('[RemoteAgentProxy] Configuration loaded:')
@@ -27,6 +30,7 @@ function loadConfig(): RemoteServerConfig {
   console.log(`  - API Key: ${config.claudeApiKey ? 'configured' : 'none'}`)
   console.log(`  - Base URL: ${config.claudeBaseUrl || 'default'}`)
   console.log(`  - Model: ${config.model || 'default'}`)
+  console.log(`  - Claude Code Path: ${config.pathToClaudeCodeExecutable || 'not set (SDK mode)'}`)
 
   return config
 }

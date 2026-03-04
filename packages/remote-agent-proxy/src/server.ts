@@ -5,7 +5,12 @@ import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type 
 export class RemoteAgentServer {
   private config: RemoteServerConfig
   private server: WebSocketServer
-  private clients: Map<WebSocket, { authenticated: boolean; sessionId?: string }> = new Map()
+  // Extended client state to track SDK session ID for resumption
+  private clients: Map<WebSocket, {
+    authenticated: boolean
+    sessionId?: string  // Conversation ID
+    sdkSessionId?: string  // SDK's real session ID for resumption
+  }> = new Map()
   private claudeManager: ClaudeManager
 
   constructor(config: RemoteServerConfig) {
@@ -16,10 +21,15 @@ export class RemoteAgentServer {
     if (!config.claudeApiKey) {
       console.warn('Warning: No Claude API key provided. Chat features will be unavailable.')
     }
+
+    // Use pathToClaudeCodeExecutable from config or environment variable
+    // If not set, the SDK will use its default behavior (SDK mode)
+    const claudeCodePath = config.pathToClaudeCodeExecutable || process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE
+
     this.claudeManager = new ClaudeManager(
       config.claudeApiKey,
       config.claudeBaseUrl,
-      '/usr/local/bin/claude',  // Use native Claude CLI for proper cwd support
+      claudeCodePath || undefined,  // Pass undefined if not configured (SDK mode)
       config.workDir,
       config.model
     )
@@ -63,9 +73,15 @@ export class RemoteAgentServer {
       })
 
       ws.on('close', () => {
+        // Don't close the SDK session on WebSocket disconnect!
+        // The SDK session maintains conversation history and should persist
+        // across WebSocket reconnections. Sessions have their own 30-minute
+        // idle timeout cleanup in ClaudeManager.
+        // This fixes the multi-turn conversation issue where history was lost
+        // on every WebSocket reconnection.
         const client = this.clients.get(ws)
         if (client?.sessionId) {
-          this.claudeManager.closeSession(client.sessionId)
+          console.log(`Client disconnected, keeping SDK session ${client.sessionId} alive for future reconnection`)
         }
         this.clients.delete(ws)
         console.log('Client disconnected')
@@ -199,6 +215,7 @@ export class RemoteAgentServer {
   private async handleClaudeChat(ws: WebSocket, sessionId: string, payload: any): Promise<void> {
     try {
       const { messages, options, stream = true } = payload
+      const client = this.clients.get(ws)
 
       if (!messages || !Array.isArray(messages)) {
         this.sendMessage(ws, {
@@ -209,8 +226,13 @@ export class RemoteAgentServer {
         return
       }
 
+      // Extract sdkSessionId from options for session resumption
+      const sdkSessionIdForResume = options?.sdkSessionId
+
       console.log(`[RemoteAgentServer] Received claude:chat request for session ${sessionId} with ${messages.length} messages`)
       console.log(`[RemoteAgentServer] options.workDir = ${options?.workDir || 'not provided'}`)
+      console.log(`[RemoteAgentServer] options.maxThinkingTokens = ${options?.maxThinkingTokens || 'not provided'}`)
+      console.log(`[RemoteAgentServer] SDK session resumption: ${sdkSessionIdForResume || 'new session'}`)
 
       // Normalize messages to ChatMessage format
       // Support both string content and complex content (text + images)
@@ -236,8 +258,17 @@ export class RemoteAgentServer {
         // Callbacks for tool and terminal events
         const onToolCall = (tool: ToolCall) => {
           console.log(`[RemoteAgentServer] Tool ${tool.status}: ${tool.name || 'unknown'}`)
+          // Determine message type based on tool status
+          let messageType: 'tool:call' | 'tool:result' | 'tool:error'
+          if (tool.status === 'error') {
+            messageType = 'tool:error'
+          } else if (tool.status === 'result') {
+            messageType = 'tool:result'
+          } else {
+            messageType = 'tool:call'
+          }
           this.sendMessage(ws, {
-            type: tool.status === 'error' ? 'tool:error' : 'tool:call',
+            type: messageType,
             sessionId,
             data: tool
           })
@@ -269,16 +300,41 @@ export class RemoteAgentServer {
           })
         }
 
+        // Callback for MCP status events
+        const onMcpStatus = (data: { servers: Array<{ name: string; status: string }> }) => {
+          this.sendMessage(ws, {
+            type: 'mcp:status',
+            sessionId,
+            data: data
+          })
+        }
+
+        // Callback for compact boundary events
+        const onCompact = (data: { trigger: 'manual' | 'auto'; preTokens: number }) => {
+          this.sendMessage(ws, {
+            type: 'compact:boundary',
+            sessionId,
+            data: data
+          })
+        }
+
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
         try {
+          // Use sdkSessionId from client request for session resumption
+          // This enables multi-turn conversations by resuming the SDK session
+          const sdkSessionIdToUse = sdkSessionIdForResume
+
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
             chatMessages,
             options,
+            sdkSessionIdToUse,  // Pass SDK session ID for resumption
             onToolCall,
             onTerminalOutput,
             onThought,
-            onThoughtDelta
+            onThoughtDelta,
+            onMcpStatus,
+            onCompact
           )) {
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
@@ -287,6 +343,27 @@ export class RemoteAgentServer {
                 sessionId,
                 data: { text: chunk.data?.text || '' }
               })
+            } else if (chunk.type === 'text_block_start') {
+              // Send text block start signal
+              this.sendMessage(ws, {
+                type: 'text:block-start',
+                sessionId,
+                data: {}
+              })
+            } else if (chunk.type === 'session_id') {
+              // Send SDK session_id to client for session resumption
+              const newSdkSessionId = chunk.data?.sessionId
+              console.log(`[RemoteAgentServer] Forwarding SDK session_id: ${newSdkSessionId}`)
+              this.sendMessage(ws, {
+                type: 'claude:session',
+                sessionId,
+                data: { sdkSessionId: newSdkSessionId }
+              })
+              // Update client's SDK session ID for next request
+              if (client && newSdkSessionId) {
+                client.sdkSessionId = newSdkSessionId
+                console.log(`[RemoteAgentServer] Updated SDK session ID: ${newSdkSessionId}`)
+              }
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
