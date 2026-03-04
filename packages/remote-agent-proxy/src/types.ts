@@ -6,6 +6,7 @@ export interface RemoteServerConfig {
   claudeBaseUrl?: string
   model?: string
   maxThinkingTokens?: number
+  pathToClaudeCodeExecutable?: string
 }
 
 export interface ClientMessage {
@@ -38,11 +39,14 @@ export interface ChatOptions {
 
 export interface ServerMessage {
   type: 'auth:success' | 'auth:failed' |
-         'claude:stream' | 'claude:complete' | 'claude:error' |
+         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
          'terminal:output' |
-         'thought' | 'thought:delta'  // Thinking process events
+         'thought' | 'thought:delta' |  // Thinking process events
+         'mcp:status' |  // MCP server status
+         'compact:boundary' |  // Context compression notification
+         'text:block-start'  // Text block start signal
   sessionId?: string
   data?: any
 }
@@ -59,7 +63,7 @@ export interface ToolCallData {
   id: string
   name: string
   input: any
-  status: 'started' | 'delta' | 'result' | 'error'
+  status: 'started' | 'running' | 'delta' | 'result' | 'error'
   output?: any
   error?: string
 }

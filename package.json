@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env HALO_DATA_DIR=~/.halo-dev electron-vite dev",
-    "build": "electron-vite build",
+    "build:proxy": "cd packages/remote-agent-proxy && npm run build",
+    "build": "npm run build:proxy && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "patch-package && electron-builder install-app-deps && electron-rebuild -f -w better-sqlite3",
     "build:mac": "npm run build && electron-builder --mac",
@@ -151,6 +152,8 @@
       "resources/**/*",
       "product.json",
       "halo-local/dist/**/*",
+      "packages/remote-agent-proxy/dist/**/*",
+      "packages/remote-agent-proxy/package.json",
       "!node_modules/better-sqlite3/prebuilds"
     ],
     "asarUnpack": [
