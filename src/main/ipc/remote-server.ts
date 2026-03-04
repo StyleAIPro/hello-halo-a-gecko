@@ -39,6 +39,19 @@ deployService.onCommandOutput((serverId, type, content) => {
   }
 })
 
+// Subscribe to deploy progress events
+deployService.onDeployProgress((serverId, stage, message, progress) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('remote-server:deploy-progress', {
+      serverId,
+      stage,
+      message,
+      progress,
+      timestamp: Date.now(),
+    })
+  }
+})
+
 /**
  * Register IPC handlers for remote server and remote agent operations
  */
@@ -88,12 +101,27 @@ export function registerRemoteServerHandlers(): void {
 
   ipcMain.handle(
     'remote-server:update',
-    async (_event, id: string, updates: Partial<Omit<RemoteServer, 'id'>>) => {
-      console.log('[IPC] remote-server:update - Updating server:', id)
+    async (_event, server: Partial<RemoteServer> & { id: string }) => {
+      const { id, ...updates } = server
+      console.log('[IPC] remote-server:update - Updating server:', id, 'updates:', Object.keys(updates))
       try {
+        // Update the server config
         deployService.updateServer(id, updates)
-        const server = deployService.getServer(id)
-        return { success: true, data: server }
+        const updatedServer = deployService.getServer(id)
+
+        // If API key or base URL changed and agent is running, restart it
+        if (updates.claudeApiKey !== undefined || updates.claudeBaseUrl !== undefined || updates.claudeModel !== undefined) {
+          console.log('[IPC] remote-server:update - API config changed, checking if agent needs restart...')
+          try {
+            // Check if agent is running and restart it with new config
+            await deployService.restartAgentWithNewConfig(id)
+          } catch (restartErr) {
+            console.warn('[IPC] remote-server:update - Failed to restart agent:', restartErr)
+            // Don't fail the update if restart fails
+          }
+        }
+
+        return { success: true, data: updatedServer }
       } catch (error: unknown) {
         const err = error as Error
         console.error('[IPC] remote-server:update - Failed:', err.message)

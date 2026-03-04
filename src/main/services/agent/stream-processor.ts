@@ -157,6 +157,8 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   let hadMaxTurnsReached = false
   // Track if we received a result message (for detecting stream interruption)
   let receivedResult = false
+  // Track if any stream_event was received (for fallback handling in parseSDKMessage)
+  let hasStreamEvent = false
 
   // Streaming block state - track active blocks by index for delta/stop correlation
   // Key: block index, Value: { type, thoughtId, content/partialJson }
@@ -207,6 +209,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     if (sdkMessage.type === 'stream_event') {
       const event = (sdkMessage as any).event
       if (!event) continue
+
+      // Mark that we received stream_event (for fallback handling in parseSDKMessage)
+      hasStreamEvent = true
 
       // DEBUG: Log all stream events with timestamp (ms since send)
       const elapsed = Date.now() - t1
@@ -464,11 +469,15 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       }
     }
 
-    // Parse SDK message into Thought and send to renderer
+    // Parse SDK message into Thought(s) and send to renderer
     // Pass credentials.model to display the user's actual configured model
-    const thought = parseSDKMessage(sdkMessage, displayModel)
+    // Pass hasStreamEvent to avoid duplicate processing of thinking/tool_use blocks
+    // If hasStreamEvent is true, thinking/tool_use blocks are skipped (already handled via streaming)
+    // If hasStreamEvent is false, thinking/tool_use blocks are processed as fallback
+    const thoughts = parseSDKMessage(sdkMessage, displayModel, hasStreamEvent)
 
-    if (thought) {
+    // Process all returned thoughts
+    for (const thought of thoughts) {
       // Handle tool_result specially - merge into corresponding tool_use thought
       if (thought.type === 'tool_result') {
         const toolUseThoughtId = toolIdToThoughtId.get(thought.id)

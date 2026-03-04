@@ -27,8 +27,14 @@ log.transports.file.maxSize = 5 * 1024 * 1024 // 5MB per file, auto-rotate
 // an Electron error dialog. By registering our EPIPE filter first, we intercept EPIPE
 // errors before they reach electron-log's handler, preventing unwanted error popups.
 process.on('uncaughtException', (error) => {
-  if (error.message?.includes('EPIPE')) {
-    log.warn('[Main] Ignored EPIPE error during shutdown')
+  // Check for EPIPE errors in multiple ways (error code, message, syscall)
+  const isEpipe =
+    error.message?.includes('EPIPE') ||
+    (error as any).code === 'EPIPE' ||
+    (error as any).syscall === 'write'
+
+  if (isEpipe) {
+    log.warn('[Main] Ignored EPIPE error:', error.message)
     return
   }
   // Non-EPIPE errors: fall through to electron-log's handler (registered below via startCatching).

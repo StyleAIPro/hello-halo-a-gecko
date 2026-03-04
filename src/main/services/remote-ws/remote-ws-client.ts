@@ -22,10 +22,14 @@ export interface ClientMessage {
 
 export interface ServerMessage {
   type: 'auth:success' | 'auth:failed' |
-         'claude:stream' | 'claude:complete' | 'claude:error' |
+         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
-         'terminal:output'
+         'terminal:output' |
+         'thought' | 'thought:delta' |  // Streaming thought events
+         'mcp:status' |  // MCP server status
+         'compact:boundary' |  // Context compression notification
+         'text:block-start'  // Text block start signal
   sessionId?: string
   data?: any
 }
@@ -177,6 +181,12 @@ export class RemoteWsClient extends EventEmitter {
           this.emit('claude:error', { sessionId: message.sessionId, data: message.data })
           break
 
+        case 'claude:session':
+          // SDK session_id for session resumption
+          console.log(`[RemoteWsClient:${this.config.serverId}] Received SDK session_id:`, message.data?.sdkSessionId)
+          this.emit('claude:session', { sessionId: message.sessionId, data: message.data })
+          break
+
         case 'tool:call':
           this.emit('tool:call', { sessionId: message.sessionId, data: message.data })
           break
@@ -196,6 +206,26 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'terminal:output':
           this.emit('terminal:output', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'thought':
+          this.emit('thought', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'thought:delta':
+          this.emit('thought:delta', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'mcp:status':
+          this.emit('mcp:status', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'compact:boundary':
+          this.emit('compact:boundary', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'text:block-start':
+          this.emit('text:block-start', { sessionId: message.sessionId, data: message.data })
           break
 
         case 'fs:result':
@@ -278,8 +308,8 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
-          this.off('thought', thoughtHandler)
-          this.off('thought:delta', thoughtDeltaHandler)
+          // Note: thought and thought:delta events are already emitted by handleMessage()
+          // No need to unsubscribe them here as they are not registered in this method
           // Return any content from complete message if stream was empty
           const finalContent = fullContent || data.data?.content || ''
           resolve(finalContent)
@@ -291,32 +321,17 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
-          this.off('thought', thoughtHandler)
-          this.off('thought:delta', thoughtDeltaHandler)
+          // Note: thought and thought:delta events are already emitted by handleMessage()
           reject(new Error(data.data?.error || 'Chat failed'))
         }
       }
 
-      // Handle thought events
-      const thoughtHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
-          this.emit('thought', data)
-        }
-      }
-
-      // Handle thought delta events
-      const thoughtDeltaHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
-          this.emit('thought:delta', data)
-        }
-      }
-
       // Register handlers
+      // Note: thought and thought:delta events are already emitted by handleMessage()
+      // They will be received directly by executeRemoteMessage() in send-message.ts
       this.on('claude:stream', streamHandler)
       this.on('claude:complete', completeHandler)
       this.on('claude:error', errorHandler)
-      this.on('thought', thoughtHandler)
-      this.on('thought:delta', thoughtDeltaHandler)
 
       // Send the chat request
       const sent = this.send({
@@ -338,8 +353,6 @@ export class RemoteWsClient extends EventEmitter {
           this.off('claude:stream', streamHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
-          this.off('thought', thoughtHandler)
-          this.off('thought:delta', thoughtDeltaHandler)
           reject(new Error('Chat timeout'))
         }
       }, 120000)

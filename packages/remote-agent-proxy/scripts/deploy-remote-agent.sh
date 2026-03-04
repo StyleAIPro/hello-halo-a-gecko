@@ -148,6 +148,9 @@ install_claude_code_cli() {
             exit 1
         fi
 
+        # Configure npm to use Chinese mirror for faster installation
+        npm config set registry https://registry.npmmirror.com
+
         # Install Claude Code CLI globally
         npm install -g @anthropic-ai/claude-code@latest
 ENDSSH
@@ -168,6 +171,9 @@ install_dependencies() {
 
     ssh -p $SSH_PORT "$DEPLOY_HOST" << 'ENDSSH'
         cd $REMOTE_DEPLOY_PATH
+
+        # Configure npm to use Chinese mirror for faster installation
+        npm config set registry https://registry.npmmirror.com
 
         # Install dependencies
         npm install --production

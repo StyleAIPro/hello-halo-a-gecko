@@ -136,7 +136,9 @@ const CONVERSATION_FORMAT_VERSION = 2
 // Active Conversation Cache (write-through, LRU eviction)
 // ============================================================================
 
-const CACHE_MAX_SIZE = 3  // Keep at most 3 conversations in memory (~1-6MB)
+// Cache configuration - increased for better performance with long conversations
+const CACHE_MAX_SIZE = 5  // Keep at most 5 conversations in memory (~2-10MB)
+const THOUGHTS_CACHE_MAX_SIZE = 10  // Keep thoughts for 10 conversations (~5-20MB)
 
 /**
  * LRU cache for active conversations.
@@ -154,6 +156,20 @@ const conversationCache = new Map<string, {
   spaceId: string
 }>()
 
+/**
+ * LRU cache for thoughts files (separate from main conversation cache).
+ * - Key: conversationId
+ * - Value: { thoughtsFile, filePath, lastAccess }
+ *
+ * Thoughts files can be large (3.5MB+), so we cache them separately
+ * with a larger limit to avoid repeated disk reads when loading thoughts.
+ */
+const thoughtsCache = new Map<string, {
+  thoughtsFile: ThoughtsFile | null  // null if file doesn't exist
+  filePath: string
+  lastAccess: number
+}>()
+
 function cachePut(
   conversationId: string,
   conversation: Conversation,
@@ -168,11 +184,73 @@ function cachePut(
       conversationCache.delete(oldestKey)
     }
   }
+  // LRU touch - remove and re-add to mark as recently used
+  conversationCache.delete(conversationId)
   conversationCache.set(conversationId, { conversation, filePath, conversationsDir, spaceId })
 }
 
 function cacheEvict(conversationId: string): void {
   conversationCache.delete(conversationId)
+  // Also evict from thoughts cache
+  thoughtsCache.delete(conversationId)
+}
+
+/**
+ * Get thoughts file from cache or disk (optimized for lazy loading).
+ * Returns cached thoughts file, or null if file doesn't exist.
+ */
+function getCachedThoughtsFile(conversationId: string, thoughtsPath: string): ThoughtsFile | null {
+  const cached = thoughtsCache.get(conversationId)
+  if (cached) {
+    // Update last access time and move to end (LRU touch)
+    cached.lastAccess = Date.now()
+    thoughtsCache.delete(conversationId)
+    thoughtsCache.set(conversationId, cached)
+    return cached.thoughtsFile
+  }
+
+  // Cache miss - read from disk
+  if (!existsSync(thoughtsPath)) {
+    // Cache the null result to avoid repeated stat calls
+    thoughtsCache.set(conversationId, {
+      thoughtsFile: null,
+      filePath: thoughtsPath,
+      lastAccess: Date.now()
+    })
+    return null
+  }
+
+  let thoughtsFile: ThoughtsFile
+  try {
+    thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'))
+  } catch (error) {
+    console.error(`[Conversation] Failed to read thoughts file ${conversationId}:`, error)
+    return null
+  }
+
+  // Evict oldest if at capacity before adding new entry
+  if (thoughtsCache.size >= THOUGHTS_CACHE_MAX_SIZE && !thoughtsCache.has(conversationId)) {
+    const oldestKey = thoughtsCache.keys().next().value
+    if (oldestKey) {
+      thoughtsCache.delete(oldestKey)
+    }
+  }
+
+  // Populate cache
+  thoughtsCache.set(conversationId, {
+    thoughtsFile,
+    filePath: thoughtsPath,
+    lastAccess: Date.now()
+  })
+
+  return thoughtsFile
+}
+
+/**
+ * Invalidate thoughts cache for a conversation (after write).
+ */
+function invalidateThoughtsCache(conversationId: string): void {
+  thoughtsCache.delete(conversationId)
 }
 
 /**
@@ -787,19 +865,27 @@ export function updateLastMessage(
     const thoughtsPath = join(conversationsDir, `${conversationId}.thoughts.json`)
 
     // Read existing thoughts file to merge (may have thoughts from previous messages)
+    // Use cached file if available
     let thoughtsFile: ThoughtsFile
-    try {
-      if (existsSync(thoughtsPath)) {
+    const cachedThoughts = getCachedThoughtsFile(conversationId, thoughtsPath)
+
+    if (cachedThoughts) {
+      thoughtsFile = cachedThoughts
+    } else if (existsSync(thoughtsPath)) {
+      try {
         thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'))
-      } else {
+      } catch {
         thoughtsFile = { version: 1, conversationId, messages: {} }
       }
-    } catch {
+    } else {
       thoughtsFile = { version: 1, conversationId, messages: {} }
     }
 
     thoughtsFile.messages[lastMessage.id] = thoughtsToStore
     atomicWriteFileSync(thoughtsPath, JSON.stringify(thoughtsFile))
+
+    // Invalidate thoughts cache after write (next read will get fresh data)
+    invalidateThoughtsCache(conversationId)
   }
 
   // Ensure version is set
@@ -818,6 +904,8 @@ export function updateLastMessage(
 /**
  * Get thoughts for a specific message (lazy loading from .thoughts.json).
  * Returns the thoughts array, or empty array if not found.
+ *
+ * Optimized with LRU cache to avoid repeated disk reads.
  */
 export function getMessageThoughts(
   spaceId: string,
@@ -827,20 +915,17 @@ export function getMessageThoughts(
   const conversationsDir = getConversationsDir(spaceId)
   const thoughtsPath = join(conversationsDir, `${conversationId}.thoughts.json`)
 
-  if (!existsSync(thoughtsPath)) {
+  // Use cached thoughts file
+  const thoughtsFile = getCachedThoughtsFile(conversationId, thoughtsPath)
+
+  if (!thoughtsFile) {
     console.log(`[Conversation] No thoughts file for ${conversationId}, returning empty`)
     return []
   }
 
-  try {
-    const thoughtsFile: ThoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'))
-    const thoughts = thoughtsFile.messages[messageId] || []
-    console.log(`[Conversation] Loaded ${thoughts.length} thoughts for ${conversationId}/${messageId}`)
-    return thoughts
-  } catch (error) {
-    console.error(`[Conversation] Failed to read thoughts for ${conversationId}/${messageId}:`, error)
-    return []
-  }
+  const thoughts = thoughtsFile.messages[messageId] || []
+  console.log(`[Conversation] Loaded ${thoughts.length} thoughts for ${conversationId}/${messageId}`)
+  return thoughts
 }
 
 /**

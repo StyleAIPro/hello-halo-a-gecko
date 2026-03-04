@@ -545,6 +545,10 @@ export interface TokenUsage {
   cacheCreationTokens: number;
   totalCostUsd: number;
   contextWindow: number;
+  // Remaining context before compression (calculated by frontend)
+  remainingContext?: number;
+  // Compression threshold (default 80% of contextWindow)
+  compressionThreshold?: number;
 }
 
 export interface AgentCompleteEvent extends AgentEventBase {
@@ -561,6 +565,10 @@ export interface AgentThoughtEvent extends AgentEventBase {
 export interface CompactInfo {
   trigger: 'manual' | 'auto';
   preTokens: number;
+  // Post-compression token count (if available from SDK)
+  postTokens?: number;
+  // Estimated remaining capacity after compression
+  remainingCapacity?: string;
 }
 
 // ============================================

@@ -58,12 +58,12 @@ export interface SystemPromptContext {
 
 /**
  * System prompt template with placeholders for dynamic values.
- * Placeholders use {{VARIABLE_NAME}} format.
+ * Placeholders use ${VARIABLE_NAME} format for compatibility with remote deployment.
  *
  * IMPORTANT: This template maintains 100% original structure from Claude Code SDK.
  * Only modify content, never change the order of sections.
  */
-const SYSTEM_PROMPT_TEMPLATE = `
+export const SYSTEM_PROMPT_TEMPLATE = `
 You are Halo, an AI assistant built with Claude Code. You have remote access, file management, and built-in AI browser capabilities. You help users with software engineering tasks.
 
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
@@ -164,7 +164,7 @@ The user will primarily request you perform software engineering tasks. This inc
 # Tool usage policy
 - When doing file search, prefer to use the Task tool in order to reduce context usage.
 - You should proactively use the Task tool with specialized agents when the task at hand matches the agent's description.
-- /<skill-name> (e.g., /commit) is shorthand for users to invoke a user-invocable skill. When executed, the skill gets expanded to a full prompt. Use the Skill tool to execute them. IMPORTANT: Only use Skill for skills listed in its user-invocable skills section - do not guess or use built-in CLI commands.
+- /<skill-name> (e.g., /commit) is shorthand for users to invoke a user-invocable skill. When executed, the skill gets expanded to a full prompt. Use the Skill tool to execute them. IMPORTANT: Only Skill for skills listed in its user-invocable skills section - do not guess or use built-in CLI commands.
 - When WebFetch returns a message about a redirect to a different host, you should immediately make a new WebFetch request with the redirect URL provided in the response.
 - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead. Never use placeholders or guess missing parameters in tool calls.
 - If the user specifies that they want you to run tools "in parallel", you MUST send a single message with multiple tool use content blocks. For example, if you need to launch multiple agents in parallel, send a single message with multiple Task tool calls.
@@ -180,7 +180,7 @@ assistant: [Uses the Task tool with subagent_type=Explore]
 </example>
 
 
-You can use the following tools without requiring user approval: {{ALLOWED_TOOLS}}
+You can use the following tools without requiring user approval: \${ALLOWED_TOOLS}
 
 
 IMPORTANT: Always use the TodoWrite tool to plan and track tasks throughout the conversation.
@@ -197,13 +197,13 @@ assistant: Clients are marked as failed in the \`connectToServer\` function in s
 
 Here is useful information about the environment you are running in:
 <env>
-Working directory: {{WORK_DIR}}
-Is directory a git repo: {{IS_GIT_REPO}}
-Platform: {{PLATFORM}}
-OS Version: {{OS_VERSION}}
-Today's date: {{TODAY}}
+Working directory: \${WORK_DIR}
+Is directory a git repo: \${IS_GIT_REPO}
+Platform: \${PLATFORM}
+OS Version: \${OS_VERSION}
+Today's date: \${TODAY}
 </env>
-{{MODEL_INFO}}
+\${MODEL_INFO}
 `.trim()
 
 // ============================================
@@ -225,14 +225,17 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
   const isGitRepo = ctx.isGitRepo !== undefined ? (ctx.isGitRepo ? 'Yes' : 'No') : 'No'
   const modelInfo = ctx.modelInfo ? `You are powered by ${ctx.modelInfo}.` : ''
 
+  // Escape $ in replacement strings to prevent template literal interpretation
+  const safeModelInfo = modelInfo.replace(/\$/g, '\\$')
+
   return SYSTEM_PROMPT_TEMPLATE
-    .replace('{{ALLOWED_TOOLS}}', tools.join(', '))
-    .replace('{{WORK_DIR}}', ctx.workDir)
-    .replace('{{IS_GIT_REPO}}', isGitRepo)
-    .replace('{{PLATFORM}}', platform)
-    .replace('{{OS_VERSION}}', osVersion)
-    .replace('{{TODAY}}', today)
-    .replace('{{MODEL_INFO}}', modelInfo)
+    .replace(/\${ALLOWED_TOOLS}/g, tools.join(', '))
+    .replace(/\${WORK_DIR}/g, ctx.workDir.replace(/\$/g, '\\$'))
+    .replace(/\${IS_GIT_REPO}/g, isGitRepo)
+    .replace(/\${PLATFORM}/g, platform)
+    .replace(/\${OS_VERSION}/g, osVersion)
+    .replace(/\${TODAY}/g, today)
+    .replace(/\${MODEL_INFO}/g, safeModelInfo)
 }
 
 /**

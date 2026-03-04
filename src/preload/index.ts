@@ -365,6 +365,7 @@ export interface HaloAPI {
   // Remote Server
   remoteServer: {
     add: (server: unknown) => Promise<IpcResponse>
+    update: (server: unknown) => Promise<IpcResponse>
     list: () => Promise<IpcResponse>
     deploy: (serverId: string) => Promise<IpcResponse>
     connect: (serverId: string) => Promise<IpcResponse>
@@ -372,6 +373,7 @@ export interface HaloAPI {
     delete: (serverId: string) => Promise<IpcResponse>
     checkAgent: (serverId: string) => Promise<IpcResponse>
     deployAgent: (serverId: string) => Promise<IpcResponse>
+    updateAgent: (serverId: string) => Promise<IpcResponse>
     startAgent: (serverId: string) => Promise<IpcResponse>
     stopAgent: (serverId: string) => Promise<IpcResponse>
     getAgentLogs: (serverId: string, lines?: number) => Promise<IpcResponse>
@@ -689,6 +691,7 @@ const api: HaloAPI = {
   // Remote Server
   remoteServer: {
     add: (server) => ipcRenderer.invoke('remote-server:add', server),
+    update: (server) => ipcRenderer.invoke('remote-server:update', server),
     list: () => ipcRenderer.invoke('remote-server:list'),
     deploy: (serverId) => ipcRenderer.invoke('remote-server:deploy', serverId),
     connect: (serverId) => ipcRenderer.invoke('remote-server:connect', serverId),
