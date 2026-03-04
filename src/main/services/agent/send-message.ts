@@ -44,7 +44,9 @@ import {
   createSessionState,
   registerActiveSession,
   unregisterActiveSession,
-  v2Sessions
+  v2Sessions,
+  markSessionRequestStart,
+  markSessionRequestComplete
 } from './session-manager'
 import {
   formatCanvasContext,
@@ -260,64 +262,76 @@ export async function sendMessage(
     const messageWithContext = canvasPrefix + message
     const messageContent = buildMessageContent(messageWithContext, images)
 
-    // Process the stream using shared stream processor
-    // The stream processor handles all streaming logic, renderer events,
-    // token usage tracking, and end-of-stream error detection.
-    // Caller-specific storage is handled via the onComplete callback.
-    await processStream({
-      v2Session,
-      sessionState,
-      spaceId,
-      conversationId,
-      messageContent,
-      displayModel: resolvedCredentials.displayModel,
-      abortController,
-      t0,
-      callbacks: {
-        onComplete: (streamResult) => {
-          // Save session ID for future resumption
-          if (streamResult.capturedSessionId) {
-            saveSessionId(spaceId, conversationId, streamResult.capturedSessionId)
-            console.log(`[Agent][${conversationId}] Session ID saved:`, streamResult.capturedSessionId)
-          }
+    // Mark session request start for health tracking
+    markSessionRequestStart(conversationId)
 
-          // Persist content and/or error to conversation
-          const { finalContent, thoughts, tokenUsage, hasErrorThought, errorThought } = streamResult
-          if (finalContent || hasErrorThought) {
-            if (finalContent) {
-              console.log(`[Agent][${conversationId}] Saving content: ${finalContent.length} chars`)
-            }
-            if (hasErrorThought) {
-              console.log(`[Agent][${conversationId}] Persisting error to message: ${errorThought?.content}`)
+    try {
+      // Process the stream using shared stream processor
+      // The stream processor handles all streaming logic, renderer events,
+      // token usage tracking, and end-of-stream error detection.
+      // Caller-specific storage is handled via the onComplete callback.
+      await processStream({
+        v2Session,
+        sessionState,
+        spaceId,
+        conversationId,
+        messageContent,
+        displayModel: resolvedCredentials.displayModel,
+        abortController,
+        t0,
+        callbacks: {
+          onComplete: (streamResult) => {
+            // Mark session request complete for health tracking
+            markSessionRequestComplete(conversationId)
+
+            // Save session ID for future resumption
+            if (streamResult.capturedSessionId) {
+              saveSessionId(spaceId, conversationId, streamResult.capturedSessionId)
+              console.log(`[Agent][${conversationId}] Session ID saved:`, streamResult.capturedSessionId)
             }
 
-            // Extract file changes summary for immediate display (without loading thoughts)
-            let metadata: { fileChanges?: FileChangesSummary } | undefined
-            if (thoughts.length > 0) {
-              try {
-                const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
-                if (fileChangesSummary) {
-                  metadata = { fileChanges: fileChangesSummary }
-                  console.log(`[Agent][${conversationId}] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
-                }
-              } catch (error) {
-                console.error(`[Agent][${conversationId}] Failed to extract file changes:`, error)
+            // Persist content and/or error to conversation
+            const { finalContent, thoughts, tokenUsage, hasErrorThought, errorThought } = streamResult
+            if (finalContent || hasErrorThought) {
+              if (finalContent) {
+                console.log(`[Agent][${conversationId}] Saving content: ${finalContent.length} chars`)
               }
-            }
+              if (hasErrorThought) {
+                console.log(`[Agent][${conversationId}] Persisting error to message: ${errorThought?.content}`)
+              }
 
-            updateLastMessage(spaceId, conversationId, {
-              content: finalContent,
-              thoughts: thoughts.length > 0 ? [...thoughts] : undefined,
-              tokenUsage: tokenUsage || undefined,
-              metadata,
-              error: errorThought?.content
-            })
-          } else {
-            console.log(`[Agent][${conversationId}] No content to save`)
+              // Extract file changes summary for immediate display (without loading thoughts)
+              let metadata: { fileChanges?: FileChangesSummary } | undefined
+              if (thoughts.length > 0) {
+                try {
+                  const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
+                  if (fileChangesSummary) {
+                    metadata = { fileChanges: fileChangesSummary }
+                    console.log(`[Agent][${conversationId}] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
+                  }
+                } catch (error) {
+                  console.error(`[Agent][${conversationId}] Failed to extract file changes:`, error)
+                }
+              }
+
+              updateLastMessage(spaceId, conversationId, {
+                content: finalContent,
+                thoughts: thoughts.length > 0 ? [...thoughts] : undefined,
+                tokenUsage: tokenUsage || undefined,
+                metadata,
+                error: errorThought?.content
+              })
+            } else {
+              console.log(`[Agent][${conversationId}] No content to save`)
+            }
           }
         }
-      }
-    })
+      })
+    } catch (streamError) {
+      // Mark session request complete on error too
+      markSessionRequestComplete(conversationId)
+      throw streamError
+    }
 
     // System notification for task completion (if window not focused)
     notifyTaskComplete(conversation?.title || 'Conversation')
@@ -582,10 +596,22 @@ async function executeRemoteMessage(
     const terminalOutputs: any[] = []
     let streamingContent = ''
     const thoughts: any[] = []
+    let sdkSessionId: string | undefined  // SDK's real session ID for resumption
+
+    // SDK session ID event - capture for session resumption
+    client.on('claude:session', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const receivedSdkSessionId = data.data?.sdkSessionId
+        if (receivedSdkSessionId) {
+          sdkSessionId = receivedSdkSessionId
+          console.log(`[Agent][Remote] Captured SDK session_id: ${sdkSessionId}`)
+        }
+      }
+    })
 
     // Tool call events - format matches frontend ToolCall interface
     client.on('tool:call', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
         console.log(`[Agent][Remote] Tool call received:`, toolData.name)
         toolCalls.push(toolData)
@@ -601,7 +627,7 @@ async function executeRemoteMessage(
     })
 
     client.on('tool:delta', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         // Handle tool delta for streaming tool input
         console.log(`[Agent][Remote] Tool delta received`)
         // Tool deltas are handled via thought events
@@ -609,7 +635,7 @@ async function executeRemoteMessage(
     })
 
     client.on('tool:result', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
         console.log(`[Agent][Remote] Tool result received`)
         sendToRenderer('agent:tool-result', spaceId, conversationId, {
@@ -621,7 +647,7 @@ async function executeRemoteMessage(
     })
 
     client.on('tool:error', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
         console.error(`[Agent][Remote] Tool error:`, toolData)
         sendToRenderer('agent:tool-result', spaceId, conversationId, {
@@ -634,7 +660,7 @@ async function executeRemoteMessage(
 
     // Terminal output events
     client.on('terminal:output', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const output = data.data
         terminalOutputs.push(output)
         sendToRenderer('agent:terminal', spaceId, conversationId, output)
@@ -643,7 +669,7 @@ async function executeRemoteMessage(
 
     // Streaming text events - use agent:message format expected by frontend
     client.on('claude:stream', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const text = data.data?.text || data.data?.content || ''
         streamingContent += text
         // Send in the format expected by handleAgentMessage
@@ -657,7 +683,7 @@ async function executeRemoteMessage(
 
     // Thought events - for thinking process display (aligned with local agent:thought)
     client.on('thought', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const thoughtData = data.data
         console.log(`[Agent][Remote] Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
 
@@ -671,18 +697,78 @@ async function executeRemoteMessage(
 
     // Thought delta events - for streaming updates (aligned with local agent:thought-delta)
     client.on('thought:delta', (data) => {
-      if (data.sessionId === conversationId) {
+      if (data.sessionId === effectiveSessionId) {
         const deltaData = data.data
+
+        // Debug: Log tool result deltas
+        if (deltaData.isToolResult || deltaData.toolResult) {
+          console.log(`[Agent][Remote] Received thought:delta with toolResult for thought ${deltaData.thoughtId}`)
+        }
+
         // Send to renderer in the same format as local agent:thought-delta
         sendToRenderer('agent:thought-delta', spaceId, conversationId, deltaData)
 
-        // Update stored thought content if applicable
-        if (deltaData.content) {
-          const thought = thoughts.find(t => t.id === deltaData.thoughtId)
-          if (thought) {
+        // Update stored thought content/properties if applicable
+        const thought = thoughts.find(t => t.id === deltaData.thoughtId)
+        if (thought) {
+          // Update content (for thinking/text)
+          if (deltaData.content) {
             thought.content = deltaData.content
           }
+          // Update tool result (for tool_use with result)
+          if (deltaData.toolResult) {
+            thought.toolResult = deltaData.toolResult
+            console.log(`[Agent][Remote] Updated toolResult for thought ${deltaData.thoughtId}`)
+          }
+          // Update tool input (when complete)
+          if (deltaData.toolInput) {
+            thought.toolInput = deltaData.toolInput
+          }
+          // Update streaming state
+          if (deltaData.isComplete !== undefined) {
+            thought.isStreaming = !deltaData.isComplete
+          }
+          // Update ready state (for tool_use)
+          if (deltaData.isReady !== undefined) {
+            thought.isReady = deltaData.isReady
+          }
         }
+      }
+    })
+
+    // MCP status events - forward to renderer (aligned with local agent:mcp-status)
+    client.on('mcp:status', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        console.log(`[Agent][Remote] MCP status received:`, data.data)
+        // Import broadcastMcpStatus from mcp-manager
+        import('./mcp-manager').then(({ broadcastMcpStatus }) => {
+          broadcastMcpStatus(data.data.servers)
+        }).catch(err => console.error('[Agent][Remote] Failed to import broadcastMcpStatus:', err))
+      }
+    })
+
+    // Compact boundary events - context compression notification
+    client.on('compact:boundary', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        console.log(`[Agent][Remote] Compact boundary received:`, data.data)
+        sendToRenderer('agent:compact', spaceId, conversationId, {
+          type: 'compact',
+          trigger: data.data.trigger,
+          preTokens: data.data.preTokens
+        })
+      }
+    })
+
+    // Text block start signal - for proper text block reset in frontend
+    client.on('text:block-start', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        sendToRenderer('agent:message', spaceId, conversationId, {
+          type: 'message',
+          content: '',
+          isComplete: false,
+          isStreaming: false,
+          isNewTextBlock: true  // Signal: new text block started
+        })
       }
     })
 
@@ -765,10 +851,15 @@ async function executeRemoteMessage(
     console.log(`[Agent][Remote] Message history: ${messageHistory.length} messages`)
 
     // Send chat request via WebSocket with streaming
-    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId || 'new'}, workDir=${remotePath})...`)
+    // Pass sdkSessionId for session resumption (multi-turn conversation support)
+    const sdkSessionIdForResume = sdkSessionId || sessionId
+    // CRITICAL: effectiveSessionId is used for event routing comparison
+    // Remote server returns this ID in events, so we must compare against it
+    const effectiveSessionId = sessionId || conversationId
+    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
 
     const response = await client.sendChatWithStream(
-      sessionId || conversationId,  // Use existing sessionId or conversationId as new session
+      effectiveSessionId,  // Conversation ID for WebSocket routing
       messageHistory,
       {
         apiKey,
@@ -777,7 +868,8 @@ async function executeRemoteMessage(
         maxTokens: config.agent?.maxTokens || 8192,
         system: undefined,  // Can add custom system prompt here
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
-        workDir: remotePath  // CRITICAL: Pass workDir from Space config
+        workDir: remotePath,  // CRITICAL: Pass workDir from Space config
+        sdkSessionId: sdkSessionIdForResume  // Pass SDK session ID for resumption
       }
     )
 
@@ -793,18 +885,37 @@ async function executeRemoteMessage(
     // Send completion event
     sendToRenderer('agent:complete', spaceId, conversationId, {})
 
+    // Extract file changes summary for immediate display (aligned with local conversation)
+    let metadata: { fileChanges?: FileChangesSummary } | undefined
+    if (thoughts.length > 0) {
+      try {
+        const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
+        if (fileChangesSummary) {
+          metadata = { fileChanges: fileChangesSummary }
+          console.log(`[Agent][Remote] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
+        }
+      } catch (error) {
+        console.error(`[Agent][Remote] Failed to extract file changes:`, error)
+      }
+    }
+
     // Update the assistant message with the response
+    // Note: Don't include toolCalls in final message - tools are already shown in thinking process
+    // Instead, show file changes summary (aligned with local space behavior)
     updateLastMessage(spaceId, conversationId, {
       content: streamingContent || response,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      // toolCalls is intentionally NOT included - tools are displayed in thinking process
       terminalOutputs: terminalOutputs.length > 0 ? terminalOutputs : undefined,
-      thoughts: thoughts.length > 0 ? thoughts : undefined
+      thoughts: thoughts.length > 0 ? thoughts : undefined,
+      metadata
     })
 
     // Save session ID for future resumption
-    if (sessionId) {
-      saveSessionId(spaceId, conversationId, sessionId)
-      console.log(`[Agent][Remote] Session ID saved: ${sessionId}`)
+    // Use SDK's real session ID if captured, otherwise fall back to conversationId
+    const sessionToSave = sdkSessionId || sessionId
+    if (sessionToSave) {
+      saveSessionId(spaceId, conversationId, sessionToSave)
+      console.log(`[Agent][Remote] Session ID saved: ${sessionToSave}`)
     }
 
     console.log(`[Agent][Remote] Remote Claude execution completed`)

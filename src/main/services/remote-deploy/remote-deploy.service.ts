@@ -9,6 +9,8 @@ import { getConfig, saveConfig } from '../config.service'
 import type { RemoteServer } from '../../../shared/types'
 import * as fs from 'fs'
 import path from 'path'
+import os from 'os'
+import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt'
 
 /**
  * Get the path to the remote-agent-proxy package
@@ -402,8 +404,12 @@ export class RemoteDeployService {
   }
 
   /**
-   * Deploy to a server (full deployment including agent code)
-   * Note: Does NOT auto-start the agent, only deploys the SDK
+   * Deploy to a server (full deployment including agent code and system prompt)
+   * This deploys the complete agent package including:
+   * - SDK installation
+   * - Agent code upload
+   * - System prompt sync
+   * - Auto restart agent to apply changes
    */
   async deployToServer(id: string): Promise<void> {
     const server = this.servers.get(id)
@@ -418,8 +424,11 @@ export class RemoteDeployService {
     await this.updateServer(id, { status: 'deploying' })
 
     try {
-      // Only deploy the agent SDK, don't start the agent
+      // Deploy agent SDK
       await this.deployAgentSDK(id)
+
+      // Deploy agent code (includes system prompt sync and auto restart)
+      await this.deployAgentCode(id)
 
       await this.updateServer(id, { status: 'connected' })
       console.log(`[RemoteDeployService] Deployment completed for: ${server.name}`)
@@ -444,6 +453,17 @@ export class RemoteDeployService {
     }
 
     const manager = this.getSSHManager(id)
+
+    // Ensure SSH connection is established before proceeding
+    if (!manager.isConnected()) {
+      console.log(`[RemoteDeployService] SSH not connected, connecting to ${server.name}...`)
+      await this.connectServer(id)
+      // Re-get the manager after connection
+      const connectedManager = this.getSSHManager(id)
+      if (!connectedManager.isConnected()) {
+        throw new Error(`Failed to establish SSH connection to ${server.name}`)
+      }
+    }
 
     try {
       // Create deployment directory structure
@@ -485,11 +505,44 @@ export class RemoteDeployService {
         }
       }
 
+      // Upload patches directory for SDK patch support
+      const patchesDir = path.join(packageDir, 'patches')
+      if (fs.existsSync(patchesDir)) {
+        console.log('[RemoteDeployService] Uploading patches directory...')
+        await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/patches`)
+        const patchFiles = fs.readdirSync(patchesDir)
+        for (const file of patchFiles) {
+          const localPath = path.join(patchesDir, file)
+          if (fs.statSync(localPath).isFile()) {
+            console.log(`[RemoteDeployService] Uploading patch: ${file}...`)
+            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
+          }
+        }
+        console.log('[RemoteDeployService] Patches uploaded')
+      }
+
       console.log('[RemoteDeployService] Package upload completed')
 
       // Install dependencies on remote server
       console.log('[RemoteDeployService] Installing dependencies on remote server...')
-      const installResult = await manager.executeCommandFull(`cd ${DEPLOY_AGENT_PATH} && npm install --production`)
+
+      // Configure npm to use Chinese mirror for faster installation
+      console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...')
+      await manager.executeCommand('npm config set registry https://registry.npmmirror.com')
+
+      // Verify package.json exists before installing
+      const packageJsonCheck = await manager.executeCommandFull(`test -f ${DEPLOY_AGENT_PATH}/package.json && echo "EXISTS" || echo "NOT_FOUND"`)
+      console.log('[RemoteDeployService] package.json check:', packageJsonCheck.stdout.trim())
+      if (packageJsonCheck.stdout.includes('NOT_FOUND')) {
+        throw new Error('package.json not found on remote server - upload failed')
+      }
+
+      // Remove existing node_modules to force clean install
+      console.log('[RemoteDeployService] Removing existing node_modules...')
+      await manager.executeCommand(`rm -rf ${DEPLOY_AGENT_PATH}/node_modules`)
+
+      // Run npm install without --production flag to install all dependencies
+      const installResult = await manager.executeCommandFull(`cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`)
       console.log('[RemoteDeployService] npm install output:', installResult.stdout)
       if (installResult.stderr) {
         console.log('[RemoteDeployService] npm install stderr:', installResult.stderr)
@@ -497,6 +550,24 @@ export class RemoteDeployService {
 
       if (installResult.exitCode !== 0) {
         throw new Error(`Failed to install dependencies: ${installResult.stderr || installResult.stdout}`)
+      }
+
+      // Debug: List installed packages
+      const listResult = await manager.executeCommandFull(`ls -la ${DEPLOY_AGENT_PATH}/node_modules/ 2>&1 | head -20`)
+      console.log('[RemoteDeployService] Installed packages:', listResult.stdout)
+
+      // Verify node_modules was created
+      const nodeModulesCheck = await manager.executeCommandFull(`test -d ${DEPLOY_AGENT_PATH}/node_modules && echo "EXISTS" || echo "NOT_FOUND"`)
+      console.log('[RemoteDeployService] node_modules check:', nodeModulesCheck.stdout.trim())
+      if (nodeModulesCheck.stdout.includes('NOT_FOUND')) {
+        throw new Error('node_modules directory not created after npm install')
+      }
+
+      // Verify dotenv is installed
+      const dotenvCheck = await manager.executeCommandFull(`test -f ${DEPLOY_AGENT_PATH}/node_modules/dotenv/package.json && echo "EXISTS" || echo "NOT_FOUND"`)
+      console.log('[RemoteDeployService] dotenv check:', dotenvCheck.stdout.trim())
+      if (dotenvCheck.stdout.includes('NOT_FOUND')) {
+        throw new Error('dotenv package not found after npm install - installation incomplete')
       }
 
       // Upload local patched SDK to remote server
@@ -508,6 +579,9 @@ export class RemoteDeployService {
 
       // Check if local patched SDK exists
       if (fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
+        // Ensure remote SDK directory exists before uploading
+        await manager.executeCommand(`mkdir -p ${remoteSdkPath}`)
+
         // Upload the patched sdk.mjs file
         const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
         console.log(`[RemoteDeployService] Uploading patched sdk.mjs from ${localSdkFile}`)
@@ -519,6 +593,10 @@ export class RemoteDeployService {
       }
 
       console.log(`[RemoteDeployService] Agent code deployed to: ${server.name}`)
+
+      // Sync system prompt to remote server
+      console.log('[RemoteDeployService] Syncing system prompt to remote server...')
+      await this.syncSystemPrompt(id)
 
       // Restart agent to apply changes
       console.log('[RemoteDeployService] Restarting agent to apply changes...')
@@ -619,6 +697,41 @@ export class RemoteDeployService {
 
     console.log(`[RemoteDeployService] Agent stopped on: ${server.name}`)
   }
+
+  /**
+   * Sync system prompt template to remote server
+   * This uploads the template with placeholders intact.
+   * The remote server will replace placeholders at runtime with its own values.
+   */
+  async syncSystemPrompt(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    const manager = this.getSSHManager(id)
+
+    try {
+      // Create config directory if not exists
+      await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/config`)
+
+      // Write system prompt template to file
+      // The template uses ${VAR} placeholders that will be replaced at runtime by the remote server
+      const remotePath = `${DEPLOY_AGENT_PATH}/config/system-prompt.txt`
+
+      // Use base64 encoding to safely transfer the prompt template
+      const base64Content = Buffer.from(SYSTEM_PROMPT_TEMPLATE).toString('base64')
+      const uploadCommand = `echo "${base64Content}" | base64 -d > ${remotePath}`
+
+      await manager.executeCommand(uploadCommand)
+
+      console.log(`[RemoteDeployService] System prompt template synced to ${remotePath}`)
+    } catch (error) {
+      console.error('[RemoteDeployService] Failed to sync system prompt:', error)
+      throw error
+    }
+  }
+
 
   /**
    * Get agent server logs
@@ -922,6 +1035,10 @@ export class RemoteDeployService {
           this.emitCommandOutput(id, 'error', `Failed to install Node.js: ${nodeInstallResult.stderr}`)
           throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`)
         }
+
+        // Configure npm to use Chinese mirror after installation
+        await manager.executeCommand('npm config set registry https://registry.npmmirror.com')
+
         this.emitCommandOutput(id, 'success', 'Node.js installed successfully')
       }
 
@@ -962,6 +1079,11 @@ export class RemoteDeployService {
 
       // Install claude-agent-sdk globally
       console.log('[RemoteDeployService] Installing @anthropic-ai/claude-agent-sdk globally...')
+
+      // Configure npm to use Chinese mirror for faster installation
+      console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...')
+      await manager.executeCommand('npm config set registry https://registry.npmmirror.com')
+
       const installCmd = 'npm install -g @anthropic-ai/claude-agent-sdk'
       this.emitCommandOutput(id, 'command', installCmd)
       const installResult = await manager.executeCommandFull(installCmd)
