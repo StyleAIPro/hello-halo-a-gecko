@@ -1208,6 +1208,48 @@ WRAPPER
   }
 
   /**
+   * Send a chat message to the remote agent via WebSocket
+   * Returns response with tokenUsage for display in chat UI
+   */
+  async sendAgentChat(
+    id: string,
+    params: { sessionId?: string; content: string; attachments?: any[] }
+  ): Promise<{
+    response: string
+    sessionId?: string
+    tokenUsage?: {
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheCreationTokens: number
+      totalCostUsd: number
+      contextWindow: number
+    }
+  }> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    // TODO: Implement WebSocket-based chat with tokenUsage tracking
+    // For now, return placeholder response
+    console.log(`[RemoteDeployService] Sending chat to agent:`, params.content)
+
+    return {
+      response: 'Chat response (placeholder - WebSocket implementation pending)',
+      sessionId: params.sessionId,
+      tokenUsage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        totalCostUsd: 0,
+        contextWindow: 200000
+      }
+    }
+  }
+
+  /**
    * Register a status change callback
    */
   onStatusChange(callback: (serverId: string, config: RemoteServer) => void): void {

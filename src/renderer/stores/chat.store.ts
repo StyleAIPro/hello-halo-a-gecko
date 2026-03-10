@@ -523,6 +523,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // If backend reports active session, restore frontend state
         // This handles page refresh during streaming - we need to set isGenerating=true
         // so that subsequent stream events are not ignored
+        // CRITICAL: Only recover if there's actual streaming content in progress
+        // If isActive but no streamingContent, the conversation likely completed but backend
+        // session hasn't been cleaned up yet - don't restore generating state in this case
         if (sessionState.isActive) {
           const hasThoughts = sessionState.thoughts.length > 0
           const hasStreamingContent = (sessionState.streamingContent?.length ?? 0) > 0
@@ -534,11 +537,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             newSessions.set(conversationId, {
               ...existingSession,
-              // CRITICAL: Set isGenerating=true so subsequent stream events are processed
-              // Without this, events are ignored due to the check in handleAgentThought/handleAgentMessage
-              isGenerating: true,
-              isStreaming: true,
-              isThinking: hasThoughts,
+              // CRITICAL: Only set isGenerating=true if there's actual streaming content
+              // Without streaming content, this is likely a completed conversation where backend
+              // session hasn't been cleaned up yet - don't show spurious thinking/answering frames
+              isGenerating: hasStreamingContent,
+              isStreaming: hasStreamingContent,
+              isThinking: hasThoughts && hasStreamingContent,
               thoughts: hasThoughts ? sessionState.thoughts : existingSession.thoughts,
               // Restore streaming content if available (for remote sessions)
               streamingContent: sessionState.streamingContent || existingSession.streamingContent

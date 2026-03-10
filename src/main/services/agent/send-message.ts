@@ -483,6 +483,11 @@ export async function sendMessage(
             } else {
               console.log(`[Agent][${conversationId}] No content to save`)
             }
+
+            // CRITICAL: Unregister active session after completion
+            // This ensures that getPageState returns isActive: false after completion,
+            // preventing frontend from incorrectly restoring isGenerating state on refresh
+            unregisterActiveSession(conversationId)
           }
         }
       })
@@ -533,6 +538,13 @@ export async function sendMessage(
           console.log(`[Agent][${conversationId}] Persisted on abort: ${accumulatedContent.length} chars, ${sessionState.thoughts.length} thoughts`)
         }
       }
+
+      // CRITICAL: Unregister active session after abort
+      // This ensures that getSessionState returns isActive: false after abort,
+      // preventing frontend from incorrectly restoring isGenerating state on refresh
+      unregisterActiveSession(conversationId)
+      console.log(`[Agent][${conversationId}] Unregistered active session after abort`)
+
       return
     }
 
@@ -589,6 +601,12 @@ export async function sendMessage(
 
     // Emit health event for monitoring
     onAgentError(conversationId, errorMessage)
+
+    // CRITICAL: Unregister active session on error
+    // This ensures that getSessionState returns isActive: false after error,
+    // preventing frontend from incorrectly restoring isGenerating state on refresh
+    unregisterActiveSession(conversationId)
+    console.log(`[Agent][${conversationId}] Unregistered active session after error`)
   }
 }
 
@@ -1291,6 +1309,12 @@ async function executeRemoteMessage(
     // Clean up registered client after completion
     client.disconnect()
 
+    // CRITICAL: Unregister active session after completion
+    // This ensures that getSessionState returns isActive: false after completion,
+    // preventing frontend from incorrectly restoring isGenerating state on refresh
+    unregisterActiveSession(conversationId)
+    console.log(`[Agent][Remote] Unregistered active session: ${conversationId}`)
+
   } catch (error) {
     console.error('[Agent][Remote] Execute error:', error)
     const err = error as Error
@@ -1334,6 +1358,12 @@ async function executeRemoteMessage(
     try {
       client.disconnect()
     } catch {}
+
+    // CRITICAL: Unregister active session on error too
+    // This ensures that getSessionState returns isActive: false after error,
+    // preventing frontend from incorrectly restoring isGenerating state on refresh
+    unregisterActiveSession(conversationId)
+    console.log(`[Agent][Remote] Unregistered active session on error: ${conversationId}`)
 
     // Don't throw if user intentionally stopped
     if (!isAbort) {

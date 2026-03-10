@@ -459,6 +459,13 @@ export class RemoteAgentServer {
                 client.sdkSessionId = newSdkSessionId
                 console.log(`[RemoteAgentServer] Updated SDK session ID: ${newSdkSessionId}`)
               }
+            } else if (chunk.type === 'usage') {
+              // Send token usage to client
+              this.sendMessage(ws, {
+                type: 'claude:usage',
+                sessionId,
+                data: chunk.data
+              })
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
