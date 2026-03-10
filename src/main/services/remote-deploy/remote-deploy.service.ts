@@ -5,7 +5,7 @@
 
 import { app } from 'electron'
 import { SSHManager, SSHConfig } from '../remote-ssh/ssh-manager'
-import { getConfig, saveConfig } from '../config.service'
+import { getConfig, saveConfig, getAgentsSkillsDir } from '../config.service'
 import type { RemoteServer } from '../../../shared/types'
 import * as fs from 'fs'
 import path from 'path'
@@ -219,6 +219,11 @@ export class RemoteDeployService {
       wsPort: config.wsPort,
       authToken: config.authToken || this.generateAuthToken(),
       status: 'disconnected',
+      // Include optional fields for Claude API configuration
+      workDir: config.workDir,
+      claudeApiKey: config.claudeApiKey,
+      claudeBaseUrl: config.claudeBaseUrl,
+      claudeModel: config.claudeModel,
     }
 
     console.log('[RemoteDeployService] addServer - Server object before save:', JSON.stringify(server))
@@ -295,14 +300,68 @@ export class RemoteDeployService {
 
   /**
    * Update a server configuration
+   * Note: If password is not provided or empty, the original password is preserved
+   * Handles both direct RemoteServerConfig updates and IPC calls with RemoteServer format
    */
-  async updateServer(id: string, updates: Partial<Omit<RemoteServerConfig, 'id'>>): Promise<void> {
+  async updateServer(id: string, updates: Partial<Omit<RemoteServerConfig, 'id'>> & Record<string, any>): Promise<void> {
     const server = this.servers.get(id)
     if (!server) {
       throw new Error(`Server not found: ${id}`)
     }
 
-    this.servers.set(id, { ...server, ...updates })
+    const originalPassword = server.ssh?.password
+    let processedUpdates = { ...updates }
+
+    // Handle password field from IPC (flat RemoteServer format)
+    // If updates has top-level 'password' field, we need to handle it specially
+    if ('password' in updates && !('ssh' in updates)) {
+      const newPassword = updates.password
+      if (newPassword && newPassword.trim() !== '') {
+        // Non-empty password: update ssh config
+        processedUpdates = {
+          ...updates,
+          ssh: {
+            ...server.ssh,
+            host: updates.host ?? server.ssh.host,
+            port: updates.sshPort ?? server.ssh.port,
+            username: updates.username ?? server.ssh.username,
+            password: newPassword,
+          }
+        }
+        console.log(`[RemoteDeployService] Updating password for server ${server.name}`)
+      } else {
+        // Empty or missing password: preserve original, update other ssh fields
+        processedUpdates = {
+          ...updates,
+          ssh: {
+            ...server.ssh,
+            host: updates.host ?? server.ssh.host,
+            port: updates.sshPort ?? server.ssh.port,
+            username: updates.username ?? server.ssh.username,
+            password: originalPassword, // Preserve original
+          }
+        }
+        console.log(`[RemoteDeployService] Preserving original password for server ${server.name}`)
+      }
+      // Remove flat fields that are now in ssh
+      delete processedUpdates.password
+      delete processedUpdates.host
+      delete processedUpdates.sshPort
+      delete processedUpdates.username
+    }
+    // Handle ssh.password directly (RemoteServerConfig format)
+    else if (updates.ssh && 'password' in updates.ssh) {
+      const newPassword = updates.ssh.password
+      if ((!newPassword || newPassword.trim() === '') && originalPassword) {
+        processedUpdates.ssh = {
+          ...updates.ssh,
+          password: originalPassword,
+        }
+        console.log(`[RemoteDeployService] Preserving original password for server ${server.name} (ssh.password)`)
+      }
+    }
+
+    this.servers.set(id, { ...server, ...processedUpdates })
     await this.saveServers()
     this.notifyStatusChange(id, this.servers.get(id)!)
   }
@@ -503,6 +562,11 @@ export class RemoteDeployService {
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/data`)
 
+      // Create ~/.agents/skills directory for skill storage (shared with local Halo)
+      this.emitDeployProgress(id, 'prepare', '正在创建 skills 目录...', 12)
+      await manager.executeCommand(`mkdir -p ~/.agents/skills`)
+      await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)
+
       // Get the path to the remote-agent-proxy package
       const packageDir = getRemoteAgentProxyPath()
       const distDir = path.join(packageDir, 'dist')
@@ -512,14 +576,14 @@ export class RemoteDeployService {
         throw new Error(`Remote agent proxy not built. Run 'npm run build' in packages/remote-agent-proxy first. (looked at: ${distDir})`)
       }
 
-      // Upload package.json first
+      // Upload package.json
       this.emitDeployProgress(id, 'upload', '正在上传 package.json...', 15)
       const packageJsonPath = path.join(packageDir, 'package.json')
       if (fs.existsSync(packageJsonPath)) {
         await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
       }
 
-      // Upload all files from dist directory
+      // Upload all files from dist directory (including version.json and build-info.js)
       const distFiles = fs.readdirSync(distDir).filter(f => fs.statSync(path.join(distDir, f)).isFile())
       let uploadedCount = 0
       for (const file of distFiles) {
@@ -529,6 +593,13 @@ export class RemoteDeployService {
         const progress = 15 + Math.round((uploadedCount / distFiles.length) * 20)
         this.emitDeployProgress(id, 'upload', `正在上传 ${file}...`, progress)
         await manager.uploadFile(localPath, remotePath)
+      }
+
+      // Also upload version.json to the root deployment path for easy access
+      const versionJsonPath = path.join(distDir, 'version.json')
+      if (fs.existsSync(versionJsonPath)) {
+        this.emitDeployProgress(id, 'upload', '正在上传版本信息...', 38)
+        await manager.uploadFile(versionJsonPath, `${DEPLOY_AGENT_PATH}/version.json`)
       }
 
       // Upload patches directory for SDK patch support
@@ -560,7 +631,7 @@ export class RemoteDeployService {
         // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
         // Note: Check if node can actually execute (not just exists) to handle broken installations
         // Use npmmirror (Taobao) as fallback for China network issues
-        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
+        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd)
         if (nodeInstallResult.stdout.trim()) {
@@ -576,8 +647,116 @@ export class RemoteDeployService {
         this.emitCommandOutput(id, 'output', `Node.js: ${nodeCheck.stdout.trim()}`)
       }
 
+      // Check if npm is installed (usually comes with Node.js)
+      this.emitDeployProgress(id, 'install', '检查 npm 安装...', 44)
+      this.emitCommandOutput(id, 'command', 'npm --version')
+      const npmCheck = await manager.executeCommandFull('npm --version')
+      if (npmCheck.exitCode !== 0 || !npmCheck.stdout.trim()) {
+        this.emitCommandOutput(id, 'error', 'npm is not installed')
+        throw new Error('npm is not installed on the remote server')
+      }
+      this.emitCommandOutput(id, 'output', `npm: ${npmCheck.stdout.trim()}`)
+
+      // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
+      this.emitDeployProgress(id, 'install', '检查 npx 安装...', 45)
+      this.emitCommandOutput(id, 'command', 'npx --version')
+      try {
+        const npxCheck = await manager.executeCommandFull('npx --version')
+        if (npxCheck.exitCode === 0 && npxCheck.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', `npx: ${npxCheck.stdout.trim()}`)
+        } else {
+          throw new Error('npx not found')
+        }
+      } catch {
+        // npx not found - install it using npm
+        console.log('[RemoteDeployService] npx not found, installing...')
+        this.emitCommandOutput(id, 'command', 'npm install -g npx --force')
+        this.emitDeployProgress(id, 'install', 'npx 未安装，正在自动安装...', 46)
+        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force')
+        if (npxInstallResult.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim())
+        }
+        if (npxInstallResult.exitCode !== 0 && !npxInstallResult.stderr.includes('EEXIST')) {
+          this.emitCommandOutput(id, 'error', `Failed to install npx: ${npxInstallResult.stderr}`)
+          throw new Error(`Failed to install npx: ${npxInstallResult.stderr}`)
+        }
+        this.emitCommandOutput(id, 'success', 'npx installed successfully')
+
+        // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
+        // Modern npm (v10+) includes npx built-in, standalone npx package conflicts with it
+        console.log('[RemoteDeployService] Checking for standalone npx package...')
+        const checkStandaloneNpx = await manager.executeCommandFull('npm list -g npx 2>/dev/null || echo "NOT_FOUND"')
+        if (checkStandaloneNpx.stdout.includes('npx@') && !checkStandaloneNpx.stdout.includes('npm@')) {
+          console.log('[RemoteDeployService] Found standalone npx package, removing...')
+          const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true'
+          await manager.executeCommandFull(removeStandaloneCmd)
+          this.emitCommandOutput(id, 'output', 'Removed standalone npx package (using npm built-in npx)')
+        }
+
+        // STEP 2: Clean npm cache to prevent cb.apply errors
+        await manager.executeCommand('npm cache clean --force 2>/dev/null || true')
+
+        // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
+        try {
+          // Get npm prefix to find the correct npx location
+          const npmPrefixResult = await manager.executeCommandFull('npm config get prefix')
+          const npmPrefix = npmPrefixResult.stdout.trim() || '/usr/local'
+
+          // Find and create/fix symlink - always do this to ensure correct path
+          const findAndLinkCmd = `
+            NPX_BIN=""
+            # Try npm prefix location first (npm built-in npx)
+            if [ -f "${npmPrefix}/bin/npx" ]; then
+              NPX_BIN="${npmPrefix}/bin/npx"
+            # Try node installation directory
+            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
+            # Fallback: search for npx
+            else
+              NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
+            fi
+            if [ -n "$NPX_BIN" ] && [ -x "$NPX_BIN" ]; then
+              rm -f /usr/local/bin/npx
+              ln -sf "$NPX_BIN" /usr/local/bin/npx
+              echo "Created symlink: /usr/local/bin/npx -> $NPX_BIN"
+            else
+              echo "Could not find npx binary"
+              exit 1
+            fi
+          `
+          const linkResult = await manager.executeCommandFull(findAndLinkCmd)
+          if (linkResult.stdout.trim()) {
+            this.emitCommandOutput(id, 'output', linkResult.stdout.trim())
+          }
+          if (linkResult.exitCode === 0) {
+            this.emitCommandOutput(id, 'success', 'npx symlink created in /usr/local/bin')
+          }
+
+          // STEP 4: Verify npx works correctly after all fixes
+          const verifyNpxCmd = await manager.executeCommandFull('npx --version 2>&1')
+          if (verifyNpxCmd.exitCode === 0 && verifyNpxCmd.stdout.trim()) {
+            this.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`)
+          } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
+            // npx still broken - try alternative approach: use npm exec instead
+            console.log('[RemoteDeployService] npx still not working, creating alternative wrapper...')
+            const createWrapperCmd = `
+              cat > /usr/local/bin/npx << 'WRAPPER'
+#!/bin/sh
+exec node "${npmPrefix}/lib/node_modules/npm/bin/npx-cli.js" "$@"
+WRAPPER
+              chmod +x /usr/local/bin/npx
+            `
+            await manager.executeCommandFull(createWrapperCmd)
+            this.emitCommandOutput(id, 'output', 'Created npx wrapper script')
+          }
+        } catch (linkError) {
+          console.warn('[RemoteDeployService] Failed to create npx symlink:', linkError)
+          // Don't throw - continue with deployment
+        }
+      }
+
       // Install dependencies on remote server
-      this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 45)
+      this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 50)
       await manager.executeCommand('npm config set registry https://registry.npmmirror.com')
 
       // Verify package.json exists before installing
@@ -658,16 +837,49 @@ export class RemoteDeployService {
       await this.syncSystemPrompt(id)
 
       // Restart agent to apply changes
-      this.emitDeployProgress(id, 'restart', '正在重启 Agent...', 95)
+      // CRITICAL: Check if there are active sessions before restarting
+      // If a session is in-flight (e.g., long-running script, docker pull), skip restart to avoid interruption
+      this.emitDeployProgress(id, 'restart', '检查 Agent 状态...', 95)
       try {
-        await this.stopAgent(id)
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        await this.startAgent(id)
-        this.emitCommandOutput(id, 'success', '✓ Agent 重启成功')
+        const manager = this.getSSHManager(id)
+        const healthPort = (server.wsPort || 8080) + 1
+
+        // Check if agent is running and get active session count via HTTP health endpoint
+        const checkHealthCmd = `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`
+        const healthCheck = await manager.executeCommandFull(checkHealthCmd)
+
+        let hasActiveSessions = false
+        let agentRunning = false
+        let activeSessionCount = 0
+
+        try {
+          const healthData = JSON.parse(healthCheck.stdout || '{}')
+          if (healthData.status === 'ok') {
+            agentRunning = true
+            activeSessionCount = healthData.activeSessions || 0
+            hasActiveSessions = activeSessionCount > 0
+          }
+        } catch (e) {
+          agentRunning = false
+        }
+
+        if (hasActiveSessions) {
+          this.emitCommandOutput(id, 'output', `⚠️ 检测到 ${activeSessionCount} 个活跃会话，跳过重启以避免中断`)
+          this.emitCommandOutput(id, 'output', '提示：代码已更新，将在所有会话完成后手动重启生效')
+        } else if (agentRunning) {
+          await this.stopAgent(id)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          await this.startAgent(id)
+          this.emitCommandOutput(id, 'success', '✓ Agent 重启成功')
+        } else {
+          await this.startAgent(id)
+          this.emitCommandOutput(id, 'success', '✓ Agent 已启动')
+        }
       } catch (restartError) {
-        this.emitCommandOutput(id, 'error', `! Agent 重启失败: ${restartError}`)
+        this.emitCommandOutput(id, 'error', `! Agent 重启失败：${restartError}`)
         // Don't throw - the code was deployed successfully
       }
+
 
       this.emitDeployProgress(id, 'complete', '✓ 部署完成!', 100)
       this.emitCommandOutput(id, 'success', '========================================')
@@ -694,6 +906,28 @@ export class RemoteDeployService {
 
     // Ensure logs directory exists
     await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
+
+    // Read and display build info before starting
+    try {
+      const versionJsonResult = await manager.executeCommandFull(`cat ${DEPLOY_AGENT_PATH}/dist/version.json 2>/dev/null || echo ""`)
+      if (versionJsonResult.stdout.trim()) {
+        const buildInfo = JSON.parse(versionJsonResult.stdout)
+        const buildInfoMsg = [
+          '========================================',
+          'Remote Agent Build Info:',
+          `  Version: ${buildInfo.version || 'unknown'}`,
+          `  Build Time: ${buildInfo.buildTime || buildInfo.buildTimestamp || 'unknown'}`,
+          `  Node: ${buildInfo.nodeVersion || 'unknown'}`,
+          `  Platform: ${buildInfo.platform || 'unknown'} (${buildInfo.arch || 'unknown'})`,
+          '========================================'
+        ].join('\n')
+        console.log('[RemoteDeployService] Remote agent build info:')
+        console.log(buildInfoMsg)
+        this.emitCommandOutput(id, 'output', buildInfoMsg)
+      }
+    } catch (e) {
+      console.warn('[RemoteDeployService] Could not read remote build info:', e)
+    }
 
     // Check if process is already running
     const checkResult = await manager.executeCommandFull(
@@ -866,6 +1100,42 @@ export class RemoteDeployService {
   }
 
   /**
+   * Get the local agent package version and build info
+   */
+  getLocalAgentVersion(): { version?: string; buildTime?: string; buildTimestamp?: string } | null {
+    try {
+      const packageDir = getRemoteAgentProxyPath()
+      const distDir = path.join(packageDir, 'dist')
+
+      // First try to read version.json (generated by build script)
+      const versionJsonPath = path.join(distDir, 'version.json')
+      if (fs.existsSync(versionJsonPath)) {
+        const versionJson = JSON.parse(fs.readFileSync(versionJsonPath, 'utf-8'))
+        return {
+          version: versionJson.version,
+          buildTime: versionJson.buildTime,
+          buildTimestamp: versionJson.buildTimestamp
+        }
+      }
+
+      // Fallback to reading package.json
+      const packageJsonPath = path.join(packageDir, 'package.json')
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+        return {
+          version: packageJson.version,
+          buildTime: packageJson.buildTime,
+          buildTimestamp: packageJson.buildTimestamp
+        }
+      }
+      return null
+    } catch (error) {
+      console.error('[RemoteDeployService] Failed to read local agent version:', error)
+      return null
+    }
+  }
+
+  /**
    * Check if agent server is running
    */
   async isAgentRunning(id: string): Promise<boolean> {
@@ -977,7 +1247,7 @@ export class RemoteDeployService {
   /**
    * Check if claude-agent-sdk is installed on remote server
    */
-  async checkAgentInstalled(id: string): Promise<{ installed: boolean; version?: string }> {
+  async checkAgentInstalled(id: string): Promise<{ installed: boolean; version?: string; buildTime?: string }> {
     const server = this.servers.get(id)
     if (!server) {
       throw new Error(`Server not found: ${id}`)
@@ -1058,7 +1328,26 @@ export class RemoteDeployService {
         sdkVersion: version,
       })
 
-      return { installed, version }
+      // Also read the deployed package.json to get build timestamp
+      let buildTime: string | undefined
+      try {
+        const packageJsonResult = await manager.executeCommandFull(`cat ${DEPLOY_AGENT_PATH}/package.json 2>/dev/null || echo ""`)
+        if (packageJsonResult.stdout.trim()) {
+          const remotePackageJson = JSON.parse(packageJsonResult.stdout)
+          if (remotePackageJson.buildTime) {
+            buildTime = remotePackageJson.buildTime
+            console.log(`[RemoteDeployService] Remote agent build time: ${buildTime}`)
+          }
+          if (remotePackageJson.version && !version) {
+            // Use package.json version as fallback
+            version = remotePackageJson.version
+          }
+        }
+      } catch (pkgError) {
+        console.warn('[RemoteDeployService] Failed to read remote package.json:', pkgError)
+      }
+
+      return { installed, version, buildTime }
     } catch (error) {
       console.error(`[RemoteDeployService] Failed to check agent on ${server.name}:`, error)
       throw error
@@ -1128,7 +1417,7 @@ export class RemoteDeployService {
         // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
         // Note: Check if node can actually execute (not just exists) to handle broken installations
         // Use npmmirror (Taobao) as fallback for China network issues
-        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
+        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd)
         if (nodeInstallResult.stdout.trim()) {
@@ -1156,6 +1445,100 @@ export class RemoteDeployService {
         // npm not found - this shouldn't happen if Node.js was just installed
         this.emitCommandOutput(id, 'error', 'npm is not installed. This should not happen after Node.js installation.')
         throw new Error('npm is not installed on the remote server. Please reinstall Node.js.')
+      }
+
+      // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
+      console.log('[RemoteDeployService] Checking npx installation...')
+      this.emitCommandOutput(id, 'command', 'npx --version')
+      try {
+        const npxVersion = await manager.executeCommandFull('npx --version')
+        console.log(`[RemoteDeployService] npx version: ${npxVersion.stdout.trim()}`)
+        this.emitCommandOutput(id, 'output', `npx: ${npxVersion.stdout.trim()}`)
+      } catch {
+        // npx not found - install it using npm
+        console.log('[RemoteDeployService] npx not found, installing...')
+        this.emitCommandOutput(id, 'command', 'npm install -g npx --force')
+        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force')
+        if (npxInstallResult.stdout.trim()) {
+          this.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim())
+        }
+        if (npxInstallResult.exitCode !== 0 && !npxInstallResult.stderr.includes('EEXIST')) {
+          this.emitCommandOutput(id, 'error', `Failed to install npx: ${npxInstallResult.stderr}`)
+          throw new Error(`Failed to install npx: ${npxInstallResult.stderr}`)
+        }
+        this.emitCommandOutput(id, 'success', 'npx installed successfully')
+
+        // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
+        // Modern npm (v10+) includes npx built-in, standalone npx package conflicts with it
+        console.log('[RemoteDeployService] Checking for standalone npx package...')
+        const checkStandaloneNpx = await manager.executeCommandFull('npm list -g npx 2>/dev/null || echo "NOT_FOUND"')
+        if (checkStandaloneNpx.stdout.includes('npx@') && !checkStandaloneNpx.stdout.includes('npm@')) {
+          console.log('[RemoteDeployService] Found standalone npx package, removing...')
+          const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true'
+          await manager.executeCommandFull(removeStandaloneCmd)
+          this.emitCommandOutput(id, 'output', 'Removed standalone npx package (using npm built-in npx)')
+        }
+
+        // STEP 2: Clean npm cache to prevent cb.apply errors
+        await manager.executeCommand('npm cache clean --force 2>/dev/null || true')
+
+        // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
+        try {
+          // Get npm prefix to find the correct npx location
+          const npmPrefixResult = await manager.executeCommandFull('npm config get prefix')
+          const npmPrefix = npmPrefixResult.stdout.trim() || '/usr/local'
+
+          // Find and create/fix symlink - always do this to ensure correct path
+          const findAndLinkCmd = `
+            NPX_BIN=""
+            # Try npm prefix location first (npm built-in npx)
+            if [ -f "${npmPrefix}/bin/npx" ]; then
+              NPX_BIN="${npmPrefix}/bin/npx"
+            # Try node installation directory
+            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
+            # Fallback: search for npx
+            else
+              NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
+            fi
+            if [ -n "$NPX_BIN" ] && [ -x "$NPX_BIN" ]; then
+              rm -f /usr/local/bin/npx
+              ln -sf "$NPX_BIN" /usr/local/bin/npx
+              echo "Created symlink: /usr/local/bin/npx -> $NPX_BIN"
+            else
+              echo "Could not find npx binary"
+              exit 1
+            fi
+          `
+          const linkResult = await manager.executeCommandFull(findAndLinkCmd)
+          if (linkResult.stdout.trim()) {
+            this.emitCommandOutput(id, 'output', linkResult.stdout.trim())
+          }
+          if (linkResult.exitCode === 0) {
+            this.emitCommandOutput(id, 'success', 'npx symlink created in /usr/local/bin')
+          }
+
+          // STEP 4: Verify npx works correctly after all fixes
+          const verifyNpxCmd = await manager.executeCommandFull('npx --version 2>&1')
+          if (verifyNpxCmd.exitCode === 0 && verifyNpxCmd.stdout.trim()) {
+            this.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`)
+          } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
+            // npx still broken - try alternative approach: use npm exec instead
+            console.log('[RemoteDeployService] npx still not working, creating alternative wrapper...')
+            const createWrapperCmd = `
+              cat > /usr/local/bin/npx << 'WRAPPER'
+#!/bin/sh
+exec node "${npmPrefix}/lib/node_modules/npm/bin/npx-cli.js" "$@"
+WRAPPER
+              chmod +x /usr/local/bin/npx
+            `
+            await manager.executeCommandFull(createWrapperCmd)
+            this.emitCommandOutput(id, 'output', 'Created npx wrapper script')
+          }
+        } catch (linkError) {
+          console.warn('[RemoteDeployService] Failed to create npx symlink:', linkError)
+          // Don't throw - continue with deployment
+        }
       }
 
       // Install Claude CLI globally (required for SDK to work)
@@ -1221,4 +1604,137 @@ export class RemoteDeployService {
       throw error
     }
   }
+
+  /**
+   * Sync skills from local ~/.agents/skills/ to remote server
+   * Uploads all skill files and directories to ~/.agents/skills/ on the remote server
+   * @returns Object with sync results including count of skills synced
+   */
+  async syncSkills(id: string): Promise<{ success: boolean; syncedCount: number; message: string }> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    const manager = this.getSSHManager(id)
+
+    // Ensure SSH connection
+    if (!manager.isConnected()) {
+      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5)
+      await this.connectServer(id)
+      const connectedManager = this.getSSHManager(id)
+      if (!connectedManager.isConnected()) {
+        throw new Error(`Failed to establish SSH connection to ${server.name}`)
+      }
+    }
+
+    const localSkillsDir = getAgentsSkillsDir()
+    const remoteSkillsDir = '~/.agents/skills'
+
+    try {
+      // Create remote skills directory if it doesn't exist
+      this.emitDeployProgress(id, 'sync-skills', '正在创建远程 skills 目录...', 10)
+      await manager.executeCommand(`mkdir -p ${remoteSkillsDir}`)
+      await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)
+
+      // Check if local skills directory exists
+      if (!fs.existsSync(localSkillsDir)) {
+        console.log('[RemoteDeployService] Local skills directory does not exist, creating...')
+        fs.mkdirSync(localSkillsDir, { recursive: true })
+      }
+
+      // Get list of local skills (directories in skills folder)
+      const localEntries = fs.readdirSync(localSkillsDir, { withFileTypes: true })
+      const skillDirs = localEntries.filter(entry => entry.isDirectory())
+
+      if (skillDirs.length === 0) {
+        this.emitDeployProgress(id, 'sync-skills', '没有本地 skills 需要同步', 100)
+        this.emitCommandOutput(id, 'output', '没有本地 skills 需要同步')
+        return { success: true, syncedCount: 0, message: 'No local skills to sync' }
+      }
+
+      this.emitCommandOutput(id, 'output', `发现 ${skillDirs.length} 个本地 skills`)
+
+      let syncedCount = 0
+      let failedCount = 0
+      const failedSkills: string[] = []
+
+      // Sync each skill directory
+      for (let i = 0; i < skillDirs.length; i++) {
+        const skillDir = skillDirs[i]
+        const skillName = skillDir.name
+        const localSkillPath = path.join(localSkillsDir, skillName)
+        const remoteSkillPath = `${remoteSkillsDir}/${skillName}`
+
+        const progress = 10 + Math.round((i / skillDirs.length) * 80)
+        this.emitDeployProgress(id, 'sync-skills', `正在同步 skill: ${skillName}...`, progress)
+
+        try {
+          // Create remote skill directory
+          await manager.executeCommand(`mkdir -p ${remoteSkillPath}`)
+
+          // Recursively upload all files in the skill directory
+          await this.uploadDirectoryRecursive(manager, localSkillPath, remoteSkillPath)
+
+          syncedCount++
+          this.emitCommandOutput(id, 'output', `✓ Skill "${skillName}" 同步成功`)
+          console.log(`[RemoteDeployService] Synced skill: ${skillName}`)
+        } catch (skillError) {
+          failedCount++
+          failedSkills.push(skillName)
+          this.emitCommandOutput(id, 'error', `✗ Skill "${skillName}" 同步失败: ${skillError}`)
+          console.error(`[RemoteDeployService] Failed to sync skill ${skillName}:`, skillError)
+        }
+      }
+
+      this.emitDeployProgress(id, 'sync-skills', 'Skills 同步完成', 100)
+
+      // Summary
+      let summaryMsg = `Skills 同步完成: ${syncedCount}/${skillDirs.length} 成功`
+      if (failedCount > 0) {
+        summaryMsg += `, ${failedCount} 失败 (${failedSkills.join(', ')})`
+      }
+      this.emitCommandOutput(id, syncedCount > 0 ? 'success' : 'output', summaryMsg)
+
+      return {
+        success: true,
+        syncedCount,
+        message: summaryMsg
+      }
+    } catch (error) {
+      const err = error as Error
+      console.error(`[RemoteDeployService] Failed to sync skills to ${server.name}:`, error)
+      this.emitDeployProgress(id, 'sync-skills', `Skills 同步失败: ${err.message}`, 0)
+      this.emitCommandOutput(id, 'error', `Skills 同步失败: ${err.message}`)
+      throw error
+    }
+  }
+
+  /**
+   * Recursively upload a directory to remote server
+   */
+  private async uploadDirectoryRecursive(
+    manager: SSHManager,
+    localDir: string,
+    remoteDir: string
+  ): Promise<void> {
+    const entries = fs.readdirSync(localDir, { withFileTypes: true })
+
+    for (const entry of entries) {
+      const localPath = path.join(localDir, entry.name)
+      const remotePath = `${remoteDir}/${entry.name}`
+
+      if (entry.isDirectory()) {
+        // Create remote directory and recurse
+        await manager.executeCommand(`mkdir -p ${remotePath}`)
+        await this.uploadDirectoryRecursive(manager, localPath, remotePath)
+      } else if (entry.isFile()) {
+        // Upload file
+        await manager.uploadFile(localPath, remotePath)
+      }
+    }
+  }
 }
+
+// Export singleton instance
+export const remoteDeployService = new RemoteDeployService()

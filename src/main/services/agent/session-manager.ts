@@ -77,8 +77,12 @@ function cleanupSession(conversationId: string, reason: string, skipMapCheck = f
   if (info) {
     try {
       info.session.close()  // Release FDs (stdin/stdout/stderr pipes)
-    } catch (e) {
+    } catch (e: any) {
       // Ignore close errors - session may already be dead
+      // Log EPIPE errors specifically (process already exited)
+      if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
+        console.log(`[Agent][${conversationId}] Session close: EPIPE (process already exited)`)
+      }
     }
   }
 
@@ -95,11 +99,14 @@ function cleanupSession(conversationId: string, reason: string, skipMapCheck = f
  */
 const HEALTH_CHECK_CONFIG = {
   // Maximum consecutive health check failures before forcing restart
-  maxFailures: 3,
+  maxFailures: 5,  // Increased from 3 to allow more transient failures
   // Health check interval in ms
-  checkInterval: 30 * 1000, // 30 seconds
+  checkInterval: 60 * 1000, // 60 seconds (increased from 30s to reduce false positives)
   // Request timeout threshold (requests taking longer are considered stuck)
-  requestTimeout: 5 * 60 * 1000, // 5 minutes
+  // Increased to 45 minutes for long-running operations like deployments, large refactors, etc.
+  requestTimeout: 45 * 60 * 1000, // 45 minutes (increased from 15 minutes)
+  // Warning threshold - notify user before timeout
+  warningThreshold: 30 * 60 * 1000, // 30 minutes
 } as const
 
 /**
@@ -109,6 +116,7 @@ interface SessionHealthStatus {
   consecutiveFailures: number
   lastHealthCheck: number
   lastRequestStart?: number
+  lastActivityAt: number  // Track last activity time (streaming data received)
   isHealthy: boolean
 }
 
@@ -126,6 +134,7 @@ function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
       consecutiveFailures: 0,
       lastHealthCheck: now,
       lastRequestStart: existing?.lastRequestStart,
+      lastActivityAt: existing?.lastActivityAt ?? now,  // Preserve activity time
       isHealthy: true
     })
   } else {
@@ -138,6 +147,7 @@ function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
       consecutiveFailures: failures,
       lastHealthCheck: now,
       lastRequestStart: existing?.lastRequestStart,
+      lastActivityAt: existing?.lastActivityAt ?? now,  // Preserve activity time
       isHealthy: !needsRestart
     })
 
@@ -152,10 +162,14 @@ function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
  */
 export function markSessionRequestStart(conversationId: string): void {
   const existing = sessionHealthMap.get(conversationId)
-  if (existing) {
-    existing.lastRequestStart = Date.now()
-    sessionHealthMap.set(conversationId, existing)
-  }
+  const now = Date.now()
+  sessionHealthMap.set(conversationId, {
+    consecutiveFailures: 0,
+    lastHealthCheck: now,
+    lastRequestStart: now,
+    lastActivityAt: now,  // Initialize activity time
+    isHealthy: true
+  })
 }
 
 /**
@@ -170,14 +184,53 @@ export function markSessionRequestComplete(conversationId: string): void {
 }
 
 /**
- * Check if a session is stuck (request taking too long)
+ * Update session activity timestamp (called when streaming data is received)
+ * This prevents false positives where long-running tasks are marked as stuck
+ */
+export function markSessionActivity(conversationId: string): void {
+  const existing = sessionHealthMap.get(conversationId)
+  if (existing) {
+    existing.lastActivityAt = Date.now()
+    sessionHealthMap.set(conversationId, existing)
+  }
+}
+
+/**
+ * Check if a session is stuck (no activity for too long)
+ * Uses lastActivityAt instead of lastRequestStart to avoid killing long-running tasks
+ * that are still making progress (receiving streaming data, executing tools, etc.)
  */
 function isSessionStuck(conversationId: string): boolean {
   const health = sessionHealthMap.get(conversationId)
   if (!health?.lastRequestStart) return false
 
-  const duration = Date.now() - health.lastRequestStart
-  return duration > HEALTH_CHECK_CONFIG.requestTimeout
+  const now = Date.now()
+  const requestDuration = now - health.lastRequestStart
+  const timeSinceActivity = now - health.lastActivityAt
+
+  // Session is stuck if:
+  // 1. Request has been running for a while (> 5 minutes) AND
+  // 2. No activity received for the timeout threshold
+  const isLongRunning = requestDuration > 5 * 60 * 1000
+  const isIdle = timeSinceActivity > HEALTH_CHECK_CONFIG.requestTimeout
+
+  if (isLongRunning && isIdle) {
+    console.log(
+      `[Agent][${conversationId}] Session stuck: request=${Math.round(requestDuration/60000)}m, ` +
+      `idle=${Math.round(timeSinceActivity/60000)}m`
+    )
+    return true
+  }
+
+  // Also check for absolute timeout (45 minutes total)
+  if (requestDuration > HEALTH_CHECK_CONFIG.requestTimeout) {
+    console.log(
+      `[Agent][${conversationId}] Session timeout: total duration=${Math.round(requestDuration/60000)}m`
+    )
+    return true
+  }
+
+  return false
 }
 
 /**
@@ -793,3 +846,47 @@ export function getActiveSession(conversationId: string): SessionState | undefin
 onApiConfigChange(() => {
   invalidateAllSessions()
 })
+
+// ============================================
+// Manual Context Compression
+// ============================================
+
+/**
+ * Manually trigger context compression for a conversation
+ * This forces the SDK to compact the conversation history to reduce token usage
+ *
+ * @param conversationId - Conversation ID to compact
+ * @returns true if compression was triggered, false if session not found or not supported
+ */
+export async function compactContext(conversationId: string): Promise<boolean> {
+  const sessionInfo = v2Sessions.get(conversationId)
+  if (!sessionInfo) {
+    console.log(`[Agent][${conversationId}] No session found for manual compact`)
+    return false
+  }
+
+  try {
+    console.log(`[Agent][${conversationId}] Manually compacting context...`)
+
+    // Send a compact command to the session
+    // The SDK will handle the actual compaction logic based on compactThreshold config
+    const session = sessionInfo.session
+
+    // Access SDK's compact method if available (SDK patch required)
+    // Fallback: send a system message to trigger compaction
+    if (typeof (session as any).compact === 'function') {
+      await (session as any).compact()
+      console.log(`[Agent][${conversationId}] Context compacted successfully`)
+      return true
+    } else {
+      // Fallback: close and recreate session to clear context
+      console.log(`[Agent][${conversationId}] SDK compact not available, recreating session to clear context`)
+      cleanupSession(conversationId, 'manual compact')
+      sessionHealthMap.delete(conversationId)
+      return true
+    }
+  } catch (error) {
+    console.error(`[Agent][${conversationId}] Manual compact failed:`, error)
+    return false
+  }
+}

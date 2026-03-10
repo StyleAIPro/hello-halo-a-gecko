@@ -12,7 +12,8 @@ import {
   addMessage,
   updateLastMessage,
   getMessageThoughts,
-  toggleStarConversation
+  toggleStarConversation,
+  loadAgentCommands
 } from '../services/conversation.service'
 
 export function registerConversationHandlers(): void {
@@ -146,6 +147,20 @@ export function registerConversationHandlers(): void {
           return { success: true, data: meta }
         }
         return { success: false, error: 'Conversation not found' }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
+
+  // Load agent commands for a conversation
+  ipcMain.handle(
+    'conversation:get-agent-commands',
+    async (_event, spaceId: string, conversationId: string) => {
+      try {
+        const commands = loadAgentCommands(spaceId, conversationId)
+        return { success: true, data: commands }
       } catch (error: unknown) {
         const err = error as Error
         return { success: false, error: err.message }

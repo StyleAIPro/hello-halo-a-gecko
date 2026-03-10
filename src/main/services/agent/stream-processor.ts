@@ -29,6 +29,9 @@ import {
   extractResultUsage
 } from './message-utils'
 import { broadcastMcpStatus } from './mcp-manager'
+import { markSessionActivity } from './session-manager'
+import { terminalGateway } from '../terminal/terminal-gateway'
+import { getSpace } from '../space.service'
 
 // Unified fallback error suffix - guides user to check logs
 const FALLBACK_ERROR_HINT = 'Check logs in Settings > System > Logs.'
@@ -173,6 +176,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Tool ID to Thought ID mapping - for merging tool_result into tool_use
   const toolIdToThoughtId = new Map<string, string>()
 
+  // Tool ID to Terminal Command ID mapping - for updating terminal output
+  const toolIdToCommandId = new Map<string, string>()
+
   const t1 = Date.now()
   console.log(`[Agent][${conversationId}] Sending message to V2 session...`)
 
@@ -194,6 +200,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
   // Stream messages from V2 session
   for await (const sdkMessage of v2Session.stream()) {
+    // Mark activity - session is still receiving data (prevents false timeout)
+    markSessionActivity(conversationId)
+
     // Handle abort - check this session's controller
     if (abortController.signal.aborted) {
       console.log(`[Agent][${conversationId}] Aborted`)
@@ -298,6 +307,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         const delta = event.delta.text || ''
         currentStreamingText += delta
 
+        // Also update sessionState for recovery after page refresh
+        sessionState.streamingContent = currentStreamingText
+
         // Send delta immediately without throttling
         sendToRenderer('agent:message', spaceId, conversationId, {
           type: 'message',
@@ -395,9 +407,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
               console.error(`[Agent][${conversationId}] Failed to parse tool input JSON:`, e)
             }
 
+            // Generate commandId for tracking terminal commands (for Bash commands)
+            const commandId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`
+
             // Record mapping for merging tool_result later
             if (blockState.toolId) {
               toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId)
+              toolIdToCommandId.set(blockState.toolId, commandId)
+              console.log(`[Agent][${conversationId}] Stored mappings for tool ${blockState.toolId}: thought=${blockState.thoughtId}, command=${commandId}`)
             }
 
             // Send complete signal with parsed input
@@ -430,6 +447,34 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             if (is.dev) {
               console.log(`[Agent][${conversationId}] Tool block complete [${blockState.toolName}], input: ${JSON.stringify(toolInput).substring(0, 100)}`)
             }
+
+            // Notify Terminal Gateway for Bash commands (local mode)
+            if (blockState.toolName === 'Bash' && toolInput.command) {
+              const command = toolInput.command as string
+              const toolId = blockState.toolId || ''
+              console.log(`[Agent][${conversationId}] Bash command intercepted for terminal: ${command}`)
+
+              // Retrieve the commandId that was already generated and stored in the mapping
+              const commandId = toolIdToCommandId.get(toolId)
+              if (commandId) {
+                console.log(`[Agent][${conversationId}] Using existing commandId ${commandId} for tool ${toolId}`)
+              }
+
+              // Get cwd from space for prompt display
+              const space = getSpace(spaceId)
+              const cwd = space?.workingDir
+
+              terminalGateway.onAgentCommand(
+                spaceId,
+                conversationId,
+                command,
+                '',  // Output will come via tool_result
+                'running',
+                undefined,
+                commandId,  // Pass the generated commandId
+                cwd
+              )
+            }
           }
 
           // Clean up tracking state
@@ -448,6 +493,8 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           })
           // Update lastTextContent for final result
           lastTextContent = currentStreamingText
+          // Update sessionState for recovery after page refresh
+          sessionState.streamingContent = currentStreamingText
           console.log(`[Agent][${conversationId}] Text block completed, length: ${currentStreamingText.length}`)
         }
       }
@@ -493,6 +540,43 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           const toolUseThought = sessionState.thoughts.find((t: Thought) => t.id === toolUseThoughtId)
           if (toolUseThought) {
             toolUseThought.toolResult = toolResult
+
+            // Notify Terminal Gateway for Bash command completion (local mode)
+            if (toolUseThought.toolName === 'Bash' && toolUseThought.toolInput?.command) {
+              const command = toolUseThought.toolInput.command as string
+              console.log(`[Agent][${conversationId}] Bash command completed for terminal: ${command}`)
+
+              // Get cwd from space for prompt display
+              const space = getSpace(spaceId)
+              const cwd = space?.workingDir
+
+              // Retrieve the stored commandId to update the existing command
+              const commandId = toolIdToCommandId.get(thought.id)
+              if (commandId) {
+                console.log(`[Agent][${conversationId}] Found commandId ${commandId} for tool ${thought.id}, updating command`)
+                terminalGateway.onAgentCommand(
+                  spaceId,
+                  conversationId,
+                  command,
+                  toolResult.output,
+                  toolResult.isError ? 'error' : 'completed',
+                  toolResult.isError ? 1 : 0,
+                  commandId,  // Pass stored commandId to update existing command
+                  cwd
+                )
+              } else {
+                console.warn(`[Agent][${conversationId}] No commandId found for tool ${thought.id}, creating new command`)
+                terminalGateway.onAgentCommand(
+                  spaceId,
+                  conversationId,
+                  command,
+                  toolResult.output,
+                  toolResult.isError ? 'error' : 'completed',
+                  toolResult.isError ? 1 : 0,
+                  cwd
+                )
+              }
+            }
           }
 
           // Send thought-delta to merge result into tool_use on frontend
@@ -719,7 +803,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   const getInterruptedErrorMessage = (): string | null => {
     if (finalContent) {
       // Has content: user aborted shows friendly message, other interrupts show warning
-      if (wasAborted) return 'Stopped by user.'
+      if (wasAborted) return null  // CRITICAL: Don't show error when user stops with content
       return isInterrupted ? 'Model response interrupted unexpectedly.' : null
     } else {
       // No content: skip if already has error thought or user aborted

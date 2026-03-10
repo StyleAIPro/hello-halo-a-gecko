@@ -3,7 +3,7 @@
  */
 
 import { ipcMain } from 'electron'
-import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion } from '../services/agent'
+import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion, compactContext } from '../services/agent'
 import { getMainWindow } from '../services/window.service'
 
 export function registerAgentHandlers(): void {
@@ -42,6 +42,7 @@ export function registerAgentHandlers(): void {
 
   // Stop generation for a specific conversation (or all if not specified)
   ipcMain.handle('agent:stop', async (_event, conversationId?: string) => {
+    console.log(`[IPC] agent:stop called with conversationId=${conversationId || 'undefined'}`)
     try {
       stopGeneration(conversationId)
       return { success: true }
@@ -114,4 +115,18 @@ export function registerAgentHandlers(): void {
       return { success: false, servers: [], error: err.message }
     }
   })
+
+  // Manually trigger context compression for a conversation
+  ipcMain.handle(
+    'agent:compact-context',
+    async (_event, conversationId: string) => {
+      try {
+        const success = await compactContext(conversationId)
+        return { success }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
 }

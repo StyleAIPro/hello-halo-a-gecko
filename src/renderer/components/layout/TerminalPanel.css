@@ -1,0 +1,234 @@
+/* Terminal Panel Styles */
+
+.terminal-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #1e1e1e;
+  border-top: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.terminal-panel.expanded {
+  height: 65vh;
+}
+
+.terminal-panel.collapsed {
+  height: 35vh;
+}
+
+.terminal-panel.minimized {
+  height: 52px; /* Only header visible with border */
+}
+
+.terminal-panel.hidden {
+  display: none;
+}
+
+/* Header */
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.terminal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #f8f8f2;
+}
+
+.terminal-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.terminal-status.connected {
+  background: #2d501b;
+  color: #50fa7b;
+}
+
+.terminal-status.disconnected {
+  background: #501b1b;
+  color: #ff5555;
+}
+
+.terminal-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.terminal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.terminal-btn:hover {
+  background: #333;
+  color: #f8f8f2;
+}
+
+.terminal-btn:active {
+  background: #444;
+}
+
+/* Skill Generator Button */
+.terminal-btn.skill-btn {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  font-weight: 500;
+}
+
+.terminal-btn.skill-btn:hover {
+  background: linear-gradient(135deg, #5558e3 0%, #7c4fe0 100%);
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.terminal-btn.skill-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Content */
+.terminal-content {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.terminal-instance {
+  width: 100%;
+  height: 100%;
+}
+
+/* Input Area */
+.terminal-input-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #252526;
+  border-top: 1px solid #333;
+}
+
+.terminal-prompt {
+  color: #50fa7b;
+  font-weight: bold;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+}
+
+.terminal-input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: #f8f8f2;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.terminal-input:focus {
+  border-color: #50fa7b;
+}
+
+.terminal-input::placeholder {
+  color: #6272a4;
+}
+
+.terminal-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.terminal-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #50fa7b;
+  color: #1e1e1e;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.terminal-send-btn:hover:not(:disabled) {
+  background: #69ff94;
+  transform: scale(1.05);
+}
+
+.terminal-send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Help Text */
+.terminal-help {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #6272a4;
+  background: #1e1e1e;
+  border-top: 1px solid #333;
+}
+
+/* Scrollbar */
+.terminal-content ::-webkit-scrollbar {
+  width: 10px;
+}
+
+.terminal-content ::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.terminal-content ::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+}
+
+.terminal-content ::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Xterm overrides */
+.xterm {
+  padding: 4px;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}

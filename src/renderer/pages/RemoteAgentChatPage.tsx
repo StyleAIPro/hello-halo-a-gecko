@@ -1,14 +1,17 @@
 /**
  * Remote Agent Chat Page - Wrapper page for remote agent chat interface
+ * With integrated Shared Terminal for human-agent collaboration
  */
 
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, Server, LayoutGrid, Paperclip, X } from 'lucide-react'
+import { ArrowLeft, Server, LayoutGrid, Paperclip, X, Terminal as TerminalIcon } from 'lucide-react'
 import { Header } from '../components/layout/Header'
+import { SharedTerminalPanel } from '../components/layout/SharedTerminalPanel'
 import { RemoteFileBrowser, type RemoteFile } from '../components/remote-file-browser'
 import { RemoteAgentChat, type RemoteFileAttachment } from '../components/remote-agent-chat'
 import { useAppStore } from '../stores/app.store'
 import { useTranslation } from '../i18n'
+import { api } from '../api'
 
 interface RemoteAgentChatPageProps {
   serverId?: string
@@ -21,8 +24,11 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
   const [selectedFile, setSelectedFile] = useState<RemoteFile | null>(null)
   const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([])
   const [sessionId, setSessionId] = useState<string | undefined>()
+  const [conversationId, setConversationId] = useState<string | undefined>()
+  const [spaceId, setSpaceId] = useState<string | undefined>()
   const [showFileBrowser, setShowFileBrowser] = useState(true)
   const [serverName, setServerName] = useState<string>('')
+  const [showTerminal, setShowTerminal] = useState(false)
 
   const handleFileSelect = (file: RemoteFile) => {
     setSelectedFile(file)
@@ -46,7 +52,7 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
   }
 
   const handleRemoveAttachedFile = (path: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.path !== path))
+    setAttachedFiles(prev => prev.filter(f => f.path === path))
     if (selectedFile?.path === path) {
       setSelectedFile(null)
     }
@@ -75,6 +81,35 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
     goBack()
   }
 
+  // Handle session change from chat component
+  const handleSessionChange = (newSessionId: string | undefined) => {
+    setSessionId(newSessionId)
+  }
+
+  // Handle conversation change (for terminal integration)
+  const handleConversationChange = (newConversationId: string, newSpaceId: string) => {
+    setConversationId(newConversationId)
+    setSpaceId(newSpaceId)
+  }
+
+  // Handle Skill generation
+  const handleGenerateSkill = async () => {
+    if (!spaceId || !conversationId) {
+      console.warn('[RemoteAgentChatPage] Cannot generate skill: missing spaceId or conversationId')
+      return
+    }
+
+    try {
+      const result = await api.generateSkillFromTerminal(spaceId, conversationId)
+      if (result.success && result.data) {
+        console.log('[RemoteAgentChatPage] Skill generated:', result.data)
+        // TODO: Show skill preview modal or save to skill library
+      }
+    } catch (error) {
+      console.error('[RemoteAgentChatPage] Failed to generate skill:', error)
+    }
+  }
+
   return (
     <div className="h-full w-full flex flex-col">
       {/* Header */}
@@ -94,20 +129,34 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
           </>
         }
         right={
-          <button
-            onClick={() => setShowFileBrowser(!showFileBrowser)}
-            className={`p-1.5 rounded-lg transition-colors ${
-              showFileBrowser ? 'bg-secondary' : 'hover:bg-secondary'
-            }`}
-            title={t('Toggle file browser')}
-          >
-            <LayoutGrid className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Terminal Toggle Button */}
+            <button
+              onClick={() => setShowTerminal(!showTerminal)}
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-2 ${
+                showTerminal ? 'bg-primary/20 text-primary' : 'hover:bg-secondary'
+              }`}
+              title={t('Toggle shared terminal')}
+            >
+              <TerminalIcon className="w-4 h-4" />
+              <span className="text-xs">{t('Terminal')}</span>
+            </button>
+
+            <button
+              onClick={() => setShowFileBrowser(!showFileBrowser)}
+              className={`p-1.5 rounded-lg transition-colors ${
+                showFileBrowser ? 'bg-secondary' : 'hover:bg-secondary'
+              }`}
+              title={t('Toggle file browser')}
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </button>
+          </div>
         }
       />
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-4">
+      <main className="flex-1 overflow-hidden p-4 flex flex-col">
         <div className={`flex gap-4 h-full transition-all ${
           showFileBrowser ? 'flex-row' : 'flex-row'
         }`}>
@@ -141,54 +190,62 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
           </div>
 
           {/* Chat Panel */}
-          <div className={`flex-1 transition-all duration-300 ${
-            showFileBrowser ? 'flex' : 'flex'
+          <div className={`flex-1 transition-all duration-300 flex flex-col ${
+            showFileBrowser ? '' : ''
           }`}>
-            <div className="h-full flex flex-col">
-              {/* Attached files */}
-              {attachedFiles.length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-2 p-2 bg-secondary rounded-lg">
-                  {attachedFiles.map((file) => (
-                    <div
-                      key={file.path}
-                      className="flex items-center gap-2 px-2 py-1 bg-background rounded text-sm"
+            {/* Attached files */}
+            {attachedFiles.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2 p-2 bg-secondary rounded-lg">
+                {attachedFiles.map((file) => (
+                  <div
+                    key={file.path}
+                    className="flex items-center gap-2 px-2 py-1 bg-background rounded text-sm"
+                  >
+                    <Paperclip className="w-3 h-3 text-muted-foreground" />
+                    <span className="truncate max-w-[120px]">{file.name}</span>
+                    <button
+                      onClick={() => handleRemoveAttachedFile(file.path)}
+                      className="p-0.5 hover:bg-muted-foreground/20 rounded transition-colors"
                     >
-                      <Paperclip className="w-3 h-3 text-muted-foreground" />
-                      <span className="truncate max-w-[120px]">{file.name}</span>
-                      <button
-                        onClick={() => handleRemoveAttachedFile(file.path)}
-                        className="p-0.5 hover:bg-muted-foreground/20 rounded transition-colors"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              <h3 className="text-sm font-medium text-muted-foreground mb-2">
-                {t('Agent Chat')}
-              </h3>
-              {serverId && (
-                <div className="flex-1 min-h-0">
-                  <RemoteAgentChat
-                    serverId={serverId}
-                    sessionId={sessionId}
-                    onSessionChange={setSessionId}
-                    onFileAttachment={(file) => {
-                      setAttachedFiles(prev => {
-                        if (prev.some(f => f.path === file.path)) {
-                          return prev
-                        }
-                        return [...prev, file]
-                      })
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">
+              {t('Agent Chat')}
+            </h3>
+            {serverId && (
+              <div className="flex-1 min-h-0">
+                <RemoteAgentChat
+                  serverId={serverId}
+                  sessionId={sessionId}
+                  onSessionChange={handleSessionChange}
+                  onConversationChange={handleConversationChange}
+                  onFileAttachment={(file) => {
+                    setAttachedFiles(prev => {
+                      if (prev.some(f => f.path === file.path)) {
+                        return prev
+                      }
+                      return [...prev, file]
+                    })
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Shared Terminal Panel - Same as local space */}
+        {spaceId && conversationId && (
+          <SharedTerminalPanel
+            spaceId={spaceId}
+            conversationId={conversationId}
+            isVisible={showTerminal}
+          />
+        )}
       </main>
     </div>
   )

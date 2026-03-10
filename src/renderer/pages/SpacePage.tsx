@@ -39,6 +39,8 @@ import { useSearchShortcuts } from '../hooks/useSearchShortcuts'
 import { useTranslation } from '../i18n'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { LayoutConfig } from '../types'
+import { SharedTerminalPanel } from '../components/layout/SharedTerminalPanel'
+import { useCanvasLifecycle } from '../hooks/useCanvasLifecycle'
 
 /** Persist a partial layout update to backend config + sync in-memory store */
 function persistLayout(update: Partial<LayoutConfig>) {
@@ -90,6 +92,9 @@ export function SpacePage() {
   const isCanvasTransitioning = useCanvasStore(state => state.isTransitioning)
   const setCanvasOpen = useCanvasStore(state => state.setOpen)
   const setCanvasMaximized = useCanvasStore(state => state.setMaximized)
+
+  // Canvas lifecycle for opening terminal tab
+  const { openTerminal } = useCanvasLifecycle()
 
   // Mobile detection
   const isMobile = useIsMobile()
@@ -226,7 +231,7 @@ export function SpacePage() {
     }
 
     initSpace()
-  }, [currentSpace?.id]) // Only re-run when space ID changes
+  }, [currentSpace?.id])
 
   // Toggle conversation list sidebar with global persistence
   const handleToggleConversationList = useCallback(() => {
@@ -366,6 +371,17 @@ export function SpacePage() {
             {/* Model Selector */}
             <ModelSelector />
 
+            {/* Skills - navigate to Skill management page */}
+            <button
+              onClick={() => setView('skill')}
+              className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
+              title={t('Skill Library')}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+            </button>
+
             <button
               onClick={() => setView('settings')}
               className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
@@ -475,6 +491,10 @@ export function SpacePage() {
             onExpandedChange={setRailExpanded}
             initialWidth={artifactRailWidthConfig}
             onWidthChange={handleArtifactRailWidthChange}
+            onToggleTerminal={() => {
+              openTerminal()
+              setCanvasOpen(true)
+            }}
           />
         )}
       </div>

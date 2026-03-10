@@ -57,7 +57,7 @@ export interface TerminalOutput {
  */
 export interface ThoughtEvent {
   id: string
-  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result'
+  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result' | 'system'
   content?: string
   timestamp: string
   toolName?: string
@@ -172,9 +172,9 @@ const DEFAULT_ALLOWED_TOOLS = [
 ]
 
 /**
- * Session idle timeout in milliseconds (30 minutes, same as local)
+ * Session idle timeout in milliseconds (2 hours - for long-running tasks like docker pulls)
  */
-const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
+const SESSION_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000
 
 /**
  * Cleanup interval in milliseconds (1 minute)
@@ -387,6 +387,9 @@ export class ClaudeManager {
   // Session maps (aligned with local)
   private sessions: Map<string, V2SessionInfo> = new Map()  // conversationId -> V2SessionInfo
   private activeSessions: Map<string, ActiveSessionState> = new Map()  // In-flight requests
+  private interruptedSessions: Set<string> = new Set()  // Sessions marked for interrupt
+  // Track active stream iterators for forceful interruption
+  private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
 
   // Configuration
   private apiKey?: string
@@ -459,6 +462,15 @@ export class ClaudeManager {
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
       includePartialMessages: true,
       maxTurns: 50,
+
+      // === Context Compression Configuration ===
+      // Enable automatic context compaction to prevent token overflow in long conversations
+      // Compact when context reaches 85% of model's context window
+      compactThreshold: 0.85,
+      // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
+      compactRetentionRatio: 0.5,
+      // Allow manual compaction via API
+      enableManualCompact: true,
     }
 
     if (this.pathToClaudeCodeExecutable) {
@@ -542,7 +554,7 @@ export class ClaudeManager {
         }
 
         if (now - info.lastUsedAt > SESSION_IDLE_TIMEOUT_MS) {
-          this.cleanupSession(convId, 'idle timeout (30 min)')
+          this.cleanupSession(convId, 'idle timeout (2 hours)')
         }
       }
     }, CLEANUP_INTERVAL_MS)
@@ -682,7 +694,7 @@ export class ClaudeManager {
    * Legacy method for backward compatibility
    * @deprecated Use getOrCreateSession instead
    */
-  getSession(sessionId: string): SDKSession {
+  getSessionLegacy(sessionId: string): SDKSession {
     // Synchronous wrapper for backward compatibility
     let session = this.sessions.get(sessionId)?.session
     if (!session) {
@@ -714,6 +726,11 @@ export class ClaudeManager {
       conversationId,
       abortController
     })
+    // Update lastUsedAt to prevent idle timeout during active request
+    const session = this.sessions.get(conversationId)
+    if (session) {
+      session.lastUsedAt = Date.now()
+    }
   }
 
   /**
@@ -803,6 +820,9 @@ export class ClaudeManager {
     const abortController = new AbortController()
     this.registerActiveSession(sessionId, abortController)
 
+    // Register this stream iterator for forceful interruption support
+    this.activeStreamIterators.set(sessionId, { abortController })
+
     // Streaming block state - track active blocks by index for delta/stop correlation
     // Key: block index, Value: { type, thoughtId, content/partialJson }
     const streamingBlocks = new Map<number, {
@@ -815,6 +835,8 @@ export class ClaudeManager {
 
     // Tool ID to Thought ID mapping - for merging tool_result into tool_use
     const toolIdToThoughtId = new Map<string, string>()
+    // Tool ID to Tool Name mapping - for including tool name in tool:result events
+    const toolIdToToolName = new Map<string, string>()
 
     // Counter for generating unique thought IDs
     let counter = 0
@@ -824,6 +846,55 @@ export class ClaudeManager {
 
     // Track if any stream_event was received (for fallback handling of thinking/tool_use blocks)
     let hasStreamEvent = false
+
+    // OPTIMIZATION: Delta buffer for batch sending
+    // Instead of sending every character, buffer and flush periodically
+    const DELTA_FLUSH_INTERVAL_MS = 50  // Flush every 50ms
+    const DELTA_FLUSH_MIN_CHARS = 10    // Or when 10+ chars accumulated
+    const deltaBuffers = new Map<string, { content: string; lastFlush: number }>()
+    let deltaFlushTimer: ReturnType<typeof setInterval> | null = null
+
+    // Flush all pending delta buffers
+    const flushAllDeltaBuffers = () => {
+      const now = Date.now()
+      for (const [thoughtId, buffer] of deltaBuffers) {
+        if (buffer.content) {
+          const blockState = [...streamingBlocks.values()].find(b => b.thoughtId === thoughtId)
+          if (blockState) {
+            onThoughtDelta?.({
+              thoughtId,
+              delta: buffer.content,
+              content: blockState.content
+            })
+          }
+          buffer.content = ''
+          buffer.lastFlush = now
+        }
+      }
+    }
+
+    // Start the flush timer
+    deltaFlushTimer = setInterval(flushAllDeltaBuffers, DELTA_FLUSH_INTERVAL_MS)
+
+    // Helper to add delta to buffer (with immediate flush for large deltas)
+    const bufferDelta = (thoughtId: string, delta: string, blockState: { content: string }) => {
+      if (!deltaBuffers.has(thoughtId)) {
+        deltaBuffers.set(thoughtId, { content: '', lastFlush: Date.now() })
+      }
+      const buffer = deltaBuffers.get(thoughtId)!
+      buffer.content += delta
+
+      // Flush immediately if buffer is large enough
+      if (buffer.content.length >= DELTA_FLUSH_MIN_CHARS) {
+        onThoughtDelta?.({
+          thoughtId,
+          delta: buffer.content,
+          content: blockState.content
+        })
+        buffer.content = ''
+        buffer.lastFlush = Date.now()
+      }
+    }
 
     try {
       // CRITICAL: Only send the LAST user message!
@@ -839,7 +910,16 @@ export class ClaudeManager {
       let eventCount = 0
       let textCount = 0
 
-      for await (const event of session.stream()) {
+      // Wrap session.stream() with interrupt-aware iterator
+      // This allows forceful exit when SDK stream is blocked
+      for await (const event of this.wrapStreamWithInterrupt(session.stream(), sessionId, abortController)) {
+        // CRITICAL: Check for interrupt at the start of each iteration
+        // This allows the stream to exit early when user clicks stop button
+        if (this.checkAndClearInterrupt(sessionId)) {
+          console.log(`[ClaudeManager][${sessionId}] Interrupt detected, exiting stream loop`)
+          break
+        }
+
         eventCount++
         const evt = event as any
 
@@ -898,12 +978,8 @@ export class ClaudeManager {
               const delta = streamEvent.delta.thinking || ''
               blockState.content += delta
 
-              // Send delta to renderer for incremental update
-              onThoughtDelta?.({
-                thoughtId: blockState.thoughtId,
-                delta,
-                content: blockState.content  // Also send full content for fallback
-              })
+              // OPTIMIZATION: Buffer delta for batch sending instead of immediate send
+              bufferDelta(blockState.thoughtId, delta, blockState)
             }
             continue
           }
@@ -969,6 +1045,19 @@ export class ClaudeManager {
 
             if (blockState) {
               if (blockState.type === 'thinking') {
+                // OPTIMIZATION: Flush any remaining buffered delta before sending complete
+                const buffer = deltaBuffers.get(blockState.thoughtId)
+                if (buffer && buffer.content) {
+                  onThoughtDelta?.({
+                    thoughtId: blockState.thoughtId,
+                    delta: buffer.content,
+                    content: blockState.content
+                  })
+                  buffer.content = ''
+                }
+                // Clean up delta buffer for this thought
+                deltaBuffers.delete(blockState.thoughtId)
+
                 // Thinking block complete - send final state
                 onThoughtDelta?.({
                   thoughtId: blockState.thoughtId,
@@ -991,6 +1080,10 @@ export class ClaudeManager {
                 // Record mapping for merging tool_result later
                 if (blockState.toolId) {
                   toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId)
+                  // Also store tool name for tool:result event
+                  if (blockState.toolName) {
+                    toolIdToToolName.set(blockState.toolId, blockState.toolName)
+                  }
                 }
 
                 // Send complete signal with parsed input
@@ -1042,6 +1135,18 @@ export class ClaudeManager {
         if (evt.type === 'system') {
           const subtype = evt.subtype as string | undefined
 
+          // Create system thought for connection status (aligned with local message-utils.ts)
+          // Shows "Connected | Model: xxx" in the thinking process
+          const modelName = this.model || 'claude'
+          const systemThought: ThoughtEvent = {
+            id: `thought-system-${sessionId}-${counter++}`,
+            type: 'system',
+            content: `Connected | Model: ${modelName}`,
+            timestamp: new Date().toISOString()
+          }
+          onThought?.(systemThought)
+          console.log(`[ClaudeManager] System thought: ${systemThought.content}`)
+
           // Capture session_id for session resumption
           const sessionIdFromMsg = (evt as any).session_id || (evt as any).message?.session_id
           if (sessionIdFromMsg && !capturedSessionId) {
@@ -1088,6 +1193,26 @@ export class ClaudeManager {
         if (evt.type === 'assistant') {
           const message = evt.message
           console.log(`[ClaudeManager] Assistant event - message.content types:`, message?.content?.map((b: any) => b.type))
+
+          // Process text blocks ALWAYS (not just fallback) - for "AI" label in thinking process
+          // Text blocks show the AI's intermediate text responses in the timeline
+          if (message?.content && Array.isArray(message.content)) {
+            for (const block of message.content) {
+              // Text blocks - send to timeline for AI intermediate responses display
+              // This enables the "AI" label in the thinking process
+              if (block.type === 'text' && block.text) {
+                const thought: ThoughtEvent = {
+                  id: `thought-text-${sessionId}-${counter++}`,
+                  type: 'text',
+                  content: block.text,
+                  timestamp: new Date().toISOString(),
+                  isStreaming: false
+                }
+                onThought?.(thought)
+                console.log(`[ClaudeManager] Text block from assistant message: ${(thought.content || '').substring(0, 100)}...`)
+              }
+            }
+          }
 
           // Fallback: process thinking/tool_use blocks if no stream_event was received
           // This happens when SDK doesn't send stream_event (e.g., session resume mode)
@@ -1159,9 +1284,11 @@ export class ClaudeManager {
                   })
 
                   // Also send tool result event
+                  // CRITICAL: Include tool name so local client can identify Bash commands
+                  const toolName = toolIdToToolName.get(toolUseId) || ''
                   onToolCall?.({
                     id: toolUseId,
-                    name: '',
+                    name: toolName,  // Include tool name for Bash command identification
                     input: {},
                     status: 'result',
                     output: resultContent
@@ -1208,11 +1335,31 @@ export class ClaudeManager {
         }
       }
     } catch (error) {
+      // Check if this is an expected abort/interrupt
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      if (errorMsg === 'Stream aborted' || errorMsg === 'Stream interrupted') {
+        // Expected interrupt - don't re-throw as error, just log and exit gracefully
+        console.log(`[ClaudeManager][${sessionId}] Stream stopped: ${errorMsg}`)
+        return
+      }
+      // Other errors - log and re-throw
       console.error('[ClaudeManager] Stream chat error:', error)
       throw new Error(`Claude stream error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
+      // OPTIMIZATION: Clean up delta flush timer
+      if (deltaFlushTimer) {
+        clearInterval(deltaFlushTimer)
+        deltaFlushTimer = null
+      }
+      // Final flush of any remaining buffered deltas
+      flushAllDeltaBuffers()
+      deltaBuffers.clear()
+
       // Always unregister active session
       this.unregisterActiveSession(sessionId)
+
+      // Unregister stream iterator
+      this.activeStreamIterators.delete(sessionId)
     }
   }
 
@@ -1305,6 +1452,128 @@ export class ClaudeManager {
     return {
       totalSessions: this.sessions.size,
       activeRequests: this.activeSessions.size
+    }
+  }
+
+  /**
+   * Get a session by conversation ID (for interrupt)
+   */
+  getSession(conversationId: string): SDKSession | undefined {
+    const info = this.sessions.get(conversationId)
+    return info?.session
+  }
+
+  /**
+   * Remove a session - called when client explicitly closes the session
+   */
+  removeSession(conversationId: string): void {
+    const info = this.sessions.get(conversationId)
+    if (info) {
+      // Abort any active stream iterator
+      const streamInfo = this.activeStreamIterators.get(conversationId)
+      if (streamInfo) {
+        streamInfo.abortController.abort()
+        this.activeStreamIterators.delete(conversationId)
+        console.log(`[ClaudeManager][${conversationId}] Aborted active stream iterator`)
+      }
+      this.sessions.delete(conversationId)
+      console.log(`[ClaudeManager][${conversationId}] Session removed from cache`)
+    }
+  }
+
+  /**
+   * Mark a session as interrupted
+   */
+  markAsInterrupted(conversationId: string): void {
+    this.interruptedSessions.add(conversationId)
+    console.log(`[ClaudeManager][${conversationId}] Marked as interrupted`)
+  }
+
+  /**
+   * Check if a session is marked as interrupted and clear the flag
+   */
+  checkAndClearInterrupt(conversationId: string): boolean {
+    const wasInterrupted = this.interruptedSessions.has(conversationId)
+    if (wasInterrupted) {
+      this.interruptedSessions.delete(conversationId)
+      console.log(`[ClaudeManager][${conversationId}] Interrupt flag cleared`)
+    }
+    return wasInterrupted
+  }
+
+  /**
+   * Force abort an active stream iterator (for forceful interrupt)
+   */
+  forceAbortStreamIterator(conversationId: string): boolean {
+    const iteratorInfo = this.activeStreamIterators.get(conversationId)
+    if (iteratorInfo) {
+      console.log(`[ClaudeManager][${conversationId}] Force aborting stream iterator`)
+      iteratorInfo.abortController.abort()
+      this.activeStreamIterators.delete(conversationId)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Wrap an async iterator with interrupt support
+   * Periodically checks abort signal and interrupt flag to allow forceful exit
+   */
+  private async *wrapStreamWithInterrupt(
+    stream: AsyncIterable<any>,
+    sessionId: string,
+    abortController: AbortController
+  ): AsyncGenerator<any> {
+    const INTERRUPT_CHECK_INTERVAL_MS = 100  // Check every 100ms
+
+    // Create a promise that rejects when abort is signaled
+    const abortPromise = new Promise<never>((_, reject) => {
+      const checkAbort = () => {
+        if (abortController.signal.aborted) {
+          console.log(`[ClaudeManager][${sessionId}] Abort signal detected in wrapper`)
+          reject(new Error('Stream aborted'))
+          return
+        }
+        // Also check interrupt flag
+        if (this.checkAndClearInterrupt(sessionId)) {
+          console.log(`[ClaudeManager][${sessionId}] Interrupt flag detected in wrapper`)
+          reject(new Error('Stream interrupted'))
+          return
+        }
+        // Schedule next check
+        setTimeout(checkAbort, INTERRUPT_CHECK_INTERVAL_MS)
+      }
+      checkAbort()
+    })
+
+    try {
+      const iterator = stream[Symbol.asyncIterator]()
+
+      while (true) {
+        // Race between getting next event and abort signal
+        const nextEventPromise = iterator.next()
+
+        const result = await Promise.race([
+          nextEventPromise,
+          abortPromise
+        ])
+
+        if (result.done) {
+          break
+        }
+
+        yield result.value
+      }
+    } catch (error) {
+      if (error instanceof Error && (error.message === 'Stream aborted' || error.message === 'Stream interrupted')) {
+        // Expected abort/interrupt - re-throw for caller to handle
+        throw error
+      }
+      // Other errors - log and re-throw
+      console.error(`[ClaudeManager][${sessionId}] Stream wrapper error:`, error)
+      throw error
+    } finally {
+      console.log(`[ClaudeManager][${sessionId}] Stream wrapper cleanup complete`)
     }
   }
 

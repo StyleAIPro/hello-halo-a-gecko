@@ -145,6 +145,11 @@ export function useCanvasLifecycle() {
     []
   )
 
+  const openTerminal = useCallback(
+    () => canvasLifecycle.openTerminal(),
+    []
+  )
+
   const updateBounds = useCallback(
     () => canvasLifecycle.updateActiveBounds(),
     []
@@ -188,6 +193,7 @@ export function useCanvasLifecycle() {
     // Layout Actions
     setOpen,
     toggleOpen,
+    openTerminal,
 
     // BrowserView Actions
     updateBounds,

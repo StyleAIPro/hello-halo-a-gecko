@@ -86,6 +86,10 @@ export interface HaloAPI {
     conversationId: string,
     starred: boolean
   ) => Promise<IpcResponse>
+  getAgentCommands: (
+    spaceId: string,
+    conversationId: string
+  ) => Promise<IpcResponse>
 
   // Agent
   sendMessage: (request: {
@@ -128,6 +132,7 @@ export interface HaloAPI {
   ensureSessionWarm: (spaceId: string, conversationId: string) => Promise<IpcResponse>
   testMcpConnections: () => Promise<{ success: boolean; servers: unknown[]; error?: string }>
   answerQuestion: (data: { conversationId: string; id: string; answers: Record<string, string> }) => Promise<IpcResponse>
+  compactContext: (conversationId: string) => Promise<IpcResponse>
 
   // Event listeners
   onAgentMessage: (callback: (data: unknown) => void) => () => void
@@ -141,6 +146,7 @@ export interface HaloAPI {
   onAgentMcpStatus: (callback: (data: unknown) => void) => () => void
   onAgentCompact: (callback: (data: unknown) => void) => () => void
   onAgentAskQuestion: (callback: (data: unknown) => void) => () => void
+  onAgentTerminal: (callback: (data: unknown) => void) => () => void
 
   // Artifact
   listArtifacts: (spaceId: string) => Promise<IpcResponse>
@@ -404,6 +410,67 @@ export interface HaloAPI {
   storeAddRegistry: (input: { name: string; url: string }) => Promise<IpcResponse>
   storeRemoveRegistry: (registryId: string) => Promise<IpcResponse>
   storeToggleRegistry: (input: { registryId: string; enabled: boolean }) => Promise<IpcResponse>
+
+  // Skill Management
+  skillList: () => Promise<IpcResponse>
+  skillToggle: (skillId: string, enabled: boolean) => Promise<IpcResponse>
+  skillUninstall: (skillId: string) => Promise<IpcResponse>
+  skillExport: (skillId: string) => Promise<IpcResponse>
+  skillInstall: (input: { mode: 'market' | 'yaml'; skillId?: string; yamlContent?: string }) => Promise<IpcResponse>
+  skillFiles: (skillId: string) => Promise<IpcResponse>
+  skillFileContent: (skillId: string, filePath: string) => Promise<IpcResponse>
+
+  // Skill Generator
+  skillAnalyzeConversations: (spaceId: string, conversationIds: string[]) => Promise<IpcResponse>
+  skillCreateTempSession: (options: { skillName: string; context: any }) => Promise<IpcResponse>
+  skillSendTempMessage: (sessionId: string, message: string) => Promise<IpcResponse>
+  skillCloseTempSession: (sessionId: string) => Promise<IpcResponse>
+  skillMarketList: (sourceId?: string, page?: number, pageSize?: number) => Promise<IpcResponse>
+  skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) => Promise<IpcResponse>
+  skillMarketSources: () => Promise<IpcResponse>
+  skillMarketResetCache: (sourceId?: string) => Promise<IpcResponse>
+  skillMarketSetActive: (sourceId: string) => Promise<IpcResponse>
+  skillMarketToggleSource: (sourceId: string, enabled: boolean) => Promise<IpcResponse>
+  skillMarketAddSource: (source: { name: string; url: string; repos?: string[]; description?: string }) => Promise<IpcResponse>
+  skillMarketRemoveSource: (sourceId: string) => Promise<IpcResponse>
+  skillMarketDetail: (skillId: string) => Promise<IpcResponse>
+  skillConfigGet: () => Promise<IpcResponse>
+  skillConfigUpdate: (config: { globalShared?: boolean }) => Promise<IpcResponse>
+  skillRefresh: () => Promise<IpcResponse>
+  skillGenerate: (input: { mode: 'conversation' | 'prompt'; spaceId: string; conversationId?: string; name?: string; description?: string; triggerCommand?: string }) => Promise<IpcResponse>
+  skillAnalyzeConversations: (spaceId: string, conversationIds: string[]) => Promise<IpcResponse>
+  skillCreateTempSession: (options: { skillName: string; context: any }) => Promise<IpcResponse>
+  skillSendTempMessage: (sessionId: string, message: string) => Promise<IpcResponse>
+  skillCloseTempSession: (sessionId: string) => Promise<IpcResponse>
+  onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void) => () => void
+
+  // Terminal
+  getTerminalWebSocketUrl: (spaceId: string, conversationId: string) => Promise<IpcResponse<{ wsUrl: string }>>
+  sendTerminalCommand: (spaceId: string, conversationId: string, command: string) => Promise<IpcResponse>
+  getTerminalOutput: (spaceId: string, conversationId: string, lines?: number) => Promise<IpcResponse<{ lines: string[] }>>
+  generateSkillFromTerminal: (spaceId: string, conversationId: string) => Promise<IpcResponse>
+
+  // Hyper Space (Multi-Agent Collaboration)
+  createHyperSpace: (params: {
+    name: string
+    icon?: string
+    agents: any[]
+    orchestration?: any
+    customPath?: string
+    remoteServerId?: string
+    remotePath?: string
+    useSshTunnel?: boolean
+  }) => Promise<IpcResponse<{ space: any }>>
+  getHyperSpaceStatus: (spaceId: string) => Promise<IpcResponse<{
+    status: string
+    leader: { id: string; status: string }
+    workers: Array<{ id: string; status: string; currentTaskId?: string }>
+    pendingTasks: number
+  }>>
+  addAgentToHyperSpace: (spaceId: string, agent: any) => Promise<IpcResponse>
+  removeAgentFromHyperSpace: (spaceId: string, agentId: string) => Promise<IpcResponse>
+  updateHyperSpaceConfig: (spaceId: string, config: any) => Promise<IpcResponse>
+  getHyperSpaceTasks: (conversationId: string) => Promise<IpcResponse<{ tasks: any[] }>>
 }
 
 interface IpcResponse<T = unknown> {
@@ -488,6 +555,8 @@ const api: HaloAPI = {
     ipcRenderer.invoke('conversation:get-thoughts', spaceId, conversationId, messageId),
   toggleStarConversation: (spaceId, conversationId, starred) =>
     ipcRenderer.invoke('conversation:toggle-star', spaceId, conversationId, starred),
+  getAgentCommands: (spaceId, conversationId) =>
+    ipcRenderer.invoke('conversation:get-agent-commands', spaceId, conversationId),
 
   // Agent
   sendMessage: (request) => ipcRenderer.invoke('agent:send-message', request),
@@ -498,6 +567,7 @@ const api: HaloAPI = {
   ensureSessionWarm: (spaceId, conversationId) => ipcRenderer.invoke('agent:ensure-session-warm', spaceId, conversationId),
   testMcpConnections: () => ipcRenderer.invoke('agent:test-mcp'),
   answerQuestion: (data) => ipcRenderer.invoke('agent:answer-question', data),
+  compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
 
   // Event listeners
   onAgentMessage: (callback) => createEventListener('agent:message', callback),
@@ -511,6 +581,7 @@ const api: HaloAPI = {
   onAgentMcpStatus: (callback) => createEventListener('agent:mcp-status', callback),
   onAgentCompact: (callback) => createEventListener('agent:compact', callback),
   onAgentAskQuestion: (callback) => createEventListener('agent:ask-question', callback),
+  onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),
 
   // Artifact
   listArtifacts: (spaceId) => ipcRenderer.invoke('artifact:list', spaceId),
@@ -704,6 +775,7 @@ const api: HaloAPI = {
     getAgentLogs: (serverId, lines) => ipcRenderer.invoke('remote-server:get-agent-logs', serverId, lines),
     isAgentRunning: (serverId) => ipcRenderer.invoke('remote-server:is-agent-running', serverId),
     updateAgent: (serverId) => ipcRenderer.invoke('remote-server:update-agent', serverId),
+    syncSkills: (serverId) => ipcRenderer.invoke('remote-server:sync-skills', serverId),
   },
 
   // Remote Agent
@@ -733,8 +805,64 @@ const api: HaloAPI = {
   storeRemoveRegistry: (registryId) => ipcRenderer.invoke('store:remove-registry', registryId),
   storeToggleRegistry: (input) => ipcRenderer.invoke('store:toggle-registry', input),
 
+  // Skill Management
+  skillList: () => ipcRenderer.invoke('skill:list'),
+  skillToggle: (skillId, enabled) => ipcRenderer.invoke('skill:toggle', { skillId, enabled }),
+  skillUninstall: (skillId) => ipcRenderer.invoke('skill:uninstall', skillId),
+  skillExport: (skillId) => ipcRenderer.invoke('skill:export', skillId),
+  skillInstall: (input) => ipcRenderer.invoke('skill:install', input),
+  skillMarketList: (sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:list', sourceId, page, pageSize),
+  skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:search', query, sourceId, page, pageSize),
+  skillMarketSources: () => ipcRenderer.invoke('skill:market:sources'),
+  skillMarketResetCache: (sourceId?: string) => ipcRenderer.invoke('skill:market:reset-cache', sourceId),
+  skillMarketSetActiveSource: (sourceId: string) => ipcRenderer.invoke('skill:market:set-active', sourceId),
+  skillMarketToggleSource: (sourceId, enabled) => ipcRenderer.invoke('skill:market:toggle-source', { sourceId, enabled }),
+  skillMarketAddSource: (source: { name: string; url: string; repos?: string[]; description?: string }) => ipcRenderer.invoke('skill:market:add-source', source),
+  skillMarketRemoveSource: (sourceId: string) => ipcRenderer.invoke('skill:market:remove-source', sourceId),
+  skillMarketDetail: (skillId: string) => ipcRenderer.invoke('skill:market:detail', skillId),
+  skillConfigGet: () => ipcRenderer.invoke('skill:config:get'),
+  skillConfigUpdate: (config) => ipcRenderer.invoke('skill:config:update', config),
+  skillRefresh: () => ipcRenderer.invoke('skill:refresh'),
+  skillGenerate: (input) => ipcRenderer.invoke('skill:generate', input),
+  skillFiles: (skillId) => ipcRenderer.invoke('skill:files', skillId),
+  skillFileContent: (skillId, filePath) => ipcRenderer.invoke('skill:file-content', skillId, filePath),
+
+  // Skill Generator
+  skillAnalyzeConversations: (spaceId, conversationIds) => ipcRenderer.invoke('skill:analyze-conversations', spaceId, conversationIds),
+  skillCreateTempSession: (options) => ipcRenderer.invoke('skill:create-temp-session', options),
+  skillSendTempMessage: (sessionId, message) => ipcRenderer.invoke('skill:send-temp-message', sessionId, message),
+  skillCloseTempSession: (sessionId) => ipcRenderer.invoke('skill:close-temp-session', sessionId),
+  onSkillTempMessageChunk: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, chunk: any) => {
+      callback({ sessionId, chunk })
+    }
+    ipcRenderer.on('skill:temp-message-chunk', handler)
+    return () => {
+      ipcRenderer.removeListener('skill:temp-message-chunk', handler)
+    }
+  },
+
+  // Terminal
+  getTerminalWebSocketUrl: (spaceId, conversationId) => ipcRenderer.invoke('system:get-terminal-websocket-url', spaceId, conversationId),
+  sendTerminalCommand: (spaceId, conversationId, command) => ipcRenderer.invoke('terminal:send-command', { spaceId, conversationId, command }),
+  getTerminalOutput: (spaceId, conversationId, lines) => ipcRenderer.invoke('terminal:get-output', { spaceId, conversationId, lines }),
+  generateSkillFromTerminal: (spaceId, conversationId) => ipcRenderer.invoke('skill:generate-from-terminal', { spaceId, conversationId }),
+
   // Notification (in-app toast)
   onNotificationToast: (callback) => createEventListener('notification:toast', callback),
+
+  // Terminal Agent Commands
+  onTerminalAgentCommandStart: (callback) => createEventListener('terminal:agent-command-start', callback),
+  onTerminalAgentCommandOutput: (callback) => createEventListener('terminal:agent-command-output', callback),
+  onTerminalAgentCommandComplete: (callback) => createEventListener('terminal:agent-command-complete', callback),
+
+  // Hyper Space (Multi-Agent Collaboration)
+  createHyperSpace: (params) => ipcRenderer.invoke('hyper-space:create', params),
+  getHyperSpaceStatus: (spaceId) => ipcRenderer.invoke('hyper-space:get-status', spaceId),
+  addAgentToHyperSpace: (spaceId, agent) => ipcRenderer.invoke('hyper-space:add-agent', { spaceId, agent }),
+  removeAgentFromHyperSpace: (spaceId, agentId) => ipcRenderer.invoke('hyper-space:remove-agent', { spaceId, agentId }),
+  updateHyperSpaceConfig: (spaceId, config) => ipcRenderer.invoke('hyper-space:update-config', { spaceId, config }),
+  getHyperSpaceTasks: (conversationId) => ipcRenderer.invoke('hyper-space:get-tasks', conversationId),
 }
 
 contextBridge.exposeInMainWorld('halo', api)

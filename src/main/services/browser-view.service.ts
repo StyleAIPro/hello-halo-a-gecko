@@ -15,7 +15,11 @@
  *   hidden BrowserWindow to prevent lifecycle conflicts with user-visible views
  */
 
-import { BrowserView, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
+
+// BrowserView is imported dynamically to avoid ESM bundling issues
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let BrowserView: any
 
 // ============================================
 // Types
@@ -137,6 +141,12 @@ class BrowserViewManager {
     if (this.views.has(viewId)) {
       console.log(`[BrowserView] View already exists, returning existing state`)
       return this.states.get(viewId)!
+    }
+
+    // Dynamically import BrowserView to avoid ESM bundling issues
+    if (!BrowserView) {
+      const electron = await import('electron')
+      BrowserView = electron.BrowserView
     }
 
     console.log(`[BrowserView] Creating new BrowserView...`)

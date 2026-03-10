@@ -421,15 +421,59 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
     console.log('[IPC] remote-server:update-agent - Deploying latest code...')
     await deployService.deployAgentCode(serverId)
 
-    // Start the agent with new code
+    // Sync skills from local to remote
+    console.log('[IPC] remote-server:update-agent - Syncing skills...')
+    try {
+      const syncResult = await deployService.syncSkills(serverId)
+      console.log('[IPC] remote-server:update-agent - Skills sync result:', syncResult)
+    } catch (syncError) {
+      // Don't fail the update if skill sync fails
+      console.warn('[IPC] remote-server:update-agent - Skills sync failed:', syncError)
+    }
+
+    // Start the agent with new code (will print build info)
     console.log('[IPC] remote-server:update-agent - Starting agent...')
     await deployService.startAgent(serverId)
 
-    console.log('[IPC] remote-server:update-agent - Update complete')
-    return { success: true, data: { message: 'Agent updated and restarted successfully' } }
+    // Get the remote agent version after update
+    console.log('[IPC] remote-server:update-agent - Getting remote version...')
+    const agentCheckResult = await deployService.checkAgentInstalled(serverId)
+
+    // Also get the local package.json version for comparison
+    const localVersionInfo = deployService.getLocalAgentVersion()
+
+    console.log('[IPC] remote-server:update-agent - Update complete', {
+      remoteVersion: agentCheckResult.version,
+      remoteBuildTime: agentCheckResult.buildTime,
+      localVersion: localVersionInfo?.version,
+      localBuildTime: localVersionInfo?.buildTime
+    })
+    return {
+      success: true,
+      data: {
+        message: 'Agent updated and restarted successfully',
+        remoteVersion: agentCheckResult.version || 'unknown',
+        remoteBuildTime: agentCheckResult.buildTime,
+        localVersion: localVersionInfo?.version || 'unknown',
+        localBuildTime: localVersionInfo?.buildTime
+      }
+    }
   } catch (error: unknown) {
     const err = error as Error
     console.error('[IPC] remote-server:update-agent - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+// Sync skills from local to remote server
+ipcMain.handle('remote-server:sync-skills', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:sync-skills - Syncing skills to server:', serverId)
+  try {
+    const result = await deployService.syncSkills(serverId)
+    return { success: true, data: result }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:sync-skills - Failed:', err.message)
     return { success: false, error: err.message }
   }
 })

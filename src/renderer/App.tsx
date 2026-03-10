@@ -32,6 +32,7 @@ const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.H
 const SpacePage = lazy(() => import('./pages/SpacePage').then(m => ({ default: m.SpacePage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const AppsPage = lazy(() => import('./pages/AppsPage').then(m => ({ default: m.AppsPage })))
+const SkillPage = lazy(() => import('./pages/skill/SkillPage').then(m => ({ default: m.SkillPage })))
 const RemoteServersPage = lazy(() => import('./pages/RemoteServersPage').then(m => ({ default: m.RemoteServersPage })))
 const RemoteAgentChatPage = lazy(() => import('./pages/RemoteAgentChatPage').then(m => ({ default: m.RemoteAgentChatPage })))
 
@@ -91,6 +92,7 @@ export default function App() {
     handleAgentThoughtDelta,
     handleAgentCompact,
     handleAskQuestion,
+    handleHyperSpaceProgress,
     currentSpaceId,
     setCurrentSpace: setChatCurrentSpace,
     loadConversations,
@@ -273,6 +275,14 @@ export default function App() {
       }
     })
 
+    // Hyper Space progress updates (subagent progress)
+    const unsubHyperProgress = api.onHyperSpaceProgress((data) => {
+      console.log('[App] Received agent:hyper-progress event:', data)
+      // Handle Hyper Space progress - subagent is making progress
+      // This can be used to show real-time feedback in the UI
+      handleHyperSpaceProgress(data)
+    })
+
     return () => {
       unsubThought()
       unsubThoughtDelta()
@@ -284,6 +294,7 @@ export default function App() {
       unsubCompact()
       unsubAskQuestion()
       unsubMcpStatus()
+      unsubHyperProgress()
     }
   }, [
     handleAgentMessage,
@@ -572,6 +583,12 @@ export default function App() {
         return (
           <Suspense fallback={<PageLoader />}>
             <AppsPage />
+          </Suspense>
+        )
+      case 'skill':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <SkillPage />
           </Suspense>
         )
       case 'remoteServers':

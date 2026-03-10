@@ -426,6 +426,55 @@ export class SSHManager {
   }
 
   /**
+   * Start an interactive shell session
+   * Returns streams for bidirectional communication
+   */
+  async executeShell(): Promise<{
+    stdout: Readable
+    stderr: Readable
+    stdin: Writable
+  } | Error> {
+    if (!this._ready || !this.client) {
+      return new Error('Not connected')
+    }
+
+    console.log('[SSHManager] Starting interactive shell...')
+
+    return new Promise((resolve) => {
+      this.client!.shell((err, stream) => {
+        if (err) {
+          console.error('[SSHManager] Shell execution error:', err)
+          return resolve(err)
+        }
+
+        console.log('[SSHManager] Interactive shell started')
+        resolve({
+          stdout: stream,
+          stderr: stream.stderr,
+          stdin: stream
+        })
+      })
+    })
+  }
+
+  /**
+   * Write data to the interactive shell
+   */
+  writeShell(data: string): void {
+    if (!this._ready || !this.client) {
+      return
+    }
+
+    this.client.shell((err, stream) => {
+      if (err) {
+        console.error('[SSHManager] Shell write error:', err)
+        return
+      }
+      stream.write(data)
+    })
+  }
+
+  /**
    * Disconnect from the remote server
    */
   disconnect(): void {

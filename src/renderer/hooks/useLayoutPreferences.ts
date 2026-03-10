@@ -90,17 +90,12 @@ export function useLayoutPreferences(
       return userRailOverride
     }
 
-    // Priority 2: If canvas is not open, default to expanded
-    if (!isCanvasOpen) {
-      return true
-    }
-
-    // Priority 3: Persisted preference
+    // Priority 2: Persisted preference
     if (layoutPrefs?.artifactRailExpanded !== undefined) {
       return layoutPrefs.artifactRailExpanded
     }
 
-    // Priority 4: Default (collapsed when canvas open)
+    // Priority 3: Default (collapsed)
     return LAYOUT_DEFAULTS.artifactRailExpanded
   })()
 

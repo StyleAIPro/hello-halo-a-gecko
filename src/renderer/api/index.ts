@@ -15,6 +15,9 @@ import {
   clearAuthToken,
   getAuthToken
 } from './transport'
+
+// Re-export onEvent for components that need to listen to IPC events
+export { onEvent } from './transport'
 import type {
   HealthStatusResponse,
   HealthStateResponse,
@@ -23,6 +26,7 @@ import type {
   HealthExportResponse,
   HealthCheckResponse
 } from '../../shared/types'
+import type { InstalledSkill } from '../../shared/skill/skill-types'
 
 // Response type
 interface ApiResponse<T = unknown> {
@@ -399,6 +403,19 @@ export const api = {
     )
   },
 
+  getAgentCommands: async (
+    spaceId: string,
+    conversationId: string
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.getAgentCommands(spaceId, conversationId)
+    }
+    return httpRequest(
+      'GET',
+      `/api/spaces/${spaceId}/conversations/${conversationId}/agent-commands`
+    )
+  },
+
   // ===== Agent =====
   sendMessage: async (request: {
     spaceId: string
@@ -508,6 +525,14 @@ export const api = {
     // HTTP mode: call backend endpoint
     const result = await httpRequest('POST', '/api/agent/test-mcp')
     return result as { success: boolean; servers: unknown[]; error?: string }
+  },
+
+  // Manually trigger context compression for a conversation
+  compactContext: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.compactContext(conversationId)
+    }
+    return httpRequest('POST', '/api/agent/compact', { conversationId })
   },
 
   // ===== Artifact =====
@@ -832,6 +857,8 @@ export const api = {
     onEvent('agent:compact', callback),
   onAgentAskQuestion: (callback: (data: unknown) => void) =>
     onEvent('agent:ask-question', callback),
+  onAgentTerminal: (callback: (data: unknown) => void) =>
+    onEvent('agent:terminal', callback),
   onRemoteStatusChange: (callback: (data: unknown) => void) =>
     onEvent('remote:status-change', callback),
 
@@ -1813,6 +1840,366 @@ export const api = {
       return window.halo.remoteServer.isAgentRunning(serverId)
     }
     return httpRequest('GET', `/api/remote-server/${serverId}/agent-running`)
+  },
+
+  // Sync skills from local to remote server
+  remoteServerSyncSkills: async (serverId: string): Promise<ApiResponse<{ success: boolean; syncedCount: number; message: string }>> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.syncSkills(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/sync-skills`)
+  },
+
+  // ===== Terminal & Skill Generation =====
+  getTerminalWebSocketUrl: async (spaceId: string, conversationId: string): Promise<ApiResponse<{ wsUrl: string }>> => {
+    if (isElectron()) {
+      return window.halo.getTerminalWebSocketUrl(spaceId, conversationId)
+    }
+    // Remote mode: construct WebSocket URL from server
+    const token = getAuthToken()
+    const wsUrl = `ws://localhost:8765/terminal?spaceId=${spaceId}&conversationId=${conversationId}&token=${token || ''}`
+    return { success: true, data: { wsUrl } }
+  },
+
+  // Send command to user terminal
+  sendTerminalCommand: async (spaceId: string, conversationId: string, command: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.sendTerminalCommand(spaceId, conversationId, command)
+    }
+    return httpRequest('POST', '/api/terminal/command', { spaceId, conversationId, command })
+  },
+
+  // Get recent terminal output (for Agent query)
+  getTerminalOutput: async (spaceId: string, conversationId: string, lines?: number): Promise<ApiResponse<{ lines: string[] }>> => {
+    if (isElectron()) {
+      return window.halo.getTerminalOutput(spaceId, conversationId, lines)
+    }
+    return httpRequest('GET', `/api/terminal/output?spaceId=${spaceId}&conversationId=${conversationId}&lines=${lines || 50}`)
+  },
+
+  generateSkillFromTerminal: async (spaceId: string, conversationId: string): Promise<ApiResponse<{
+    id: string
+    name: string
+    description: string
+    triggerCommand: string
+    systemPrompt: string
+    examples: string[]
+  }>> => {
+    if (isElectron()) {
+      return window.halo.generateSkillFromTerminal(spaceId, conversationId)
+    }
+    return httpRequest('POST', '/api/skills/generate-from-terminal', { spaceId, conversationId })
+  },
+
+  saveSkill: async (skill: {
+    name: string
+    description: string
+    triggerCommand: string
+    systemPrompt: string
+    examples?: string[]
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.saveSkill(skill)
+    }
+    return httpRequest('POST', '/api/skills', skill)
+  },
+
+  listSkills: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.listSkills()
+    }
+    return httpRequest('GET', '/api/skills')
+  },
+
+  // ===== Skill Management (New) =====
+  skillList: async (): Promise<ApiResponse<InstalledSkill[]>> => {
+    if (isElectron()) {
+      return window.halo.skillList()
+    }
+    return httpRequest('GET', '/api/skills')
+  },
+
+  skillToggle: async (skillId: string, enabled: boolean): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillToggle(skillId, enabled)
+    }
+    return httpRequest('POST', '/api/skills/toggle', { skillId, enabled })
+  },
+
+  skillUninstall: async (skillId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillUninstall(skillId)
+    }
+    return httpRequest('POST', '/api/skills/uninstall', { skillId })
+  },
+
+  skillExport: async (skillId: string): Promise<ApiResponse<{ yamlContent: string }>> => {
+    if (isElectron()) {
+      return window.halo.skillExport(skillId)
+    }
+    return httpRequest('GET', `/api/skills/${skillId}/export`)
+  },
+
+  skillInstall: async (input: {
+    mode: 'market' | 'yaml'
+    skillId?: string
+    yamlContent?: string
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillInstall(input)
+    }
+    return httpRequest('POST', '/api/skills/install', input)
+  },
+
+  skillMarketList: async (sourceId?: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+    if (isElectron()) {
+      return window.halo.skillMarketList(sourceId, page, pageSize)
+    }
+    return httpRequest('GET', '/api/skills/market')
+  },
+
+  skillMarketSearch: async (query: string, sourceId?: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+    if (isElectron()) {
+      return window.halo.skillMarketSearch(query, sourceId, page, pageSize)
+    }
+    return httpRequest('GET', `/api/skills/market/search?q=${encodeURIComponent(query)}`)
+  },
+
+  skillMarketSources: async (): Promise<ApiResponse<{ sources: any[] }>> => {
+    if (isElectron()) {
+      return window.halo.skillMarketSources()
+    }
+    return httpRequest('GET', '/api/skills/market/sources')
+  },
+
+  skillMarketResetCache: async (sourceId?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketResetCache(sourceId)
+    }
+    return { success: true }
+  },
+
+  skillMarketToggleSource: async (sourceId: string, enabled: boolean): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketToggleSource(sourceId, enabled)
+    }
+    return httpRequest('POST', '/api/skills/market/sources/toggle', { sourceId, enabled })
+  },
+
+  skillMarketSetActiveSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketSetActiveSource(sourceId)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  skillMarketAddSource: async (source: { name: string; url: string; repos?: string[]; description?: string }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketAddSource(source)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  skillMarketRemoveSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketRemoveSource(sourceId)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  skillMarketDetail: async (skillId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketDetail(skillId)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  skillConfigGet: async (): Promise<ApiResponse<{ config: any }>> => {
+    if (isElectron()) {
+      return window.halo.skillConfigGet()
+    }
+    return httpRequest('GET', '/api/skills/config')
+  },
+
+  skillConfigUpdate: async (config: { globalShared?: boolean }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConfigUpdate(config)
+    }
+    return httpRequest('POST', '/api/skills/config', config)
+  },
+
+   skillRefresh: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillRefresh()
+    }
+    return httpRequest('POST', '/api/skills/refresh')
+  },
+
+  skillFiles: async (skillId: string): Promise<ApiResponse<SkillFileNode[]>> => {
+    if (isElectron()) {
+      return window.halo.skillFiles(skillId)
+    }
+    return httpRequest('GET', `/api/skills/${skillId}/files`)
+  },
+
+  skillFileContent: async (skillId: string, filePath: string): Promise<ApiResponse<string>> => {
+    if (isElectron()) {
+      return window.halo.skillFileContent(skillId, filePath)
+    }
+    return httpRequest('GET', `/api/skills/${skillId}/files/${filePath}`)
+  },
+
+  // ============================================
+  // Skill Generator & Temp Agent Session
+  // ============================================
+
+  /**
+   * 分析对话，提取技能模式
+   */
+  skillAnalyzeConversations: async (spaceId: string, conversationIds: string[]): Promise<ApiResponse<{
+    analysisResult: any;
+    similarSkills: any[];
+    suggestedName: string;
+    suggestedCommand: string;
+  }>> => {
+    if (isElectron()) {
+      return window.halo.skillAnalyzeConversations(spaceId, conversationIds)
+    }
+    return httpRequest('POST', '/api/skills/analyze-conversations', { spaceId, conversationIds })
+  },
+
+  /**
+   * 创建临时 Agent 会话
+   */
+  skillCreateTempSession: async (options: {
+    skillName: string;
+    context: any;
+  }): Promise<ApiResponse<{ sessionId: string }>> => {
+    if (isElectron()) {
+      return window.halo.skillCreateTempSession(options)
+    }
+    return httpRequest('POST', '/api/skills/temp-session', options)
+  },
+
+  /**
+   * 发送消息到临时会话
+   */
+  skillSendTempMessage: async (sessionId: string, message: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillSendTempMessage(sessionId, message)
+    }
+    return httpRequest('POST', `/api/skills/temp-session/${sessionId}/message`, { message })
+  },
+
+  /**
+   * 关闭临时会话
+   */
+  skillCloseTempSession: async (sessionId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillCloseTempSession(sessionId)
+    }
+    return httpRequest('DELETE', `/api/skills/temp-session/${sessionId}`)
+  },
+
+  /**
+   * 监听技能生成流式消息
+   */
+  onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void): (() => void) => {
+    if (isElectron() && window.halo.onSkillTempMessageChunk) {
+      return window.halo.onSkillTempMessageChunk(callback)
+    }
+    // 非 Electron 环境暂不支持流式
+    return () => {}
+  },
+
+  // ===== Hyper Space (Multi-Agent Collaboration) =====
+
+  /**
+   * Create a Hyper Space with multiple agents
+   */
+  createHyperSpace: async (params: {
+    name: string
+    icon?: string
+    agents: any[]
+    orchestration?: any
+    customPath?: string
+    remoteServerId?: string
+    remotePath?: string
+    useSshTunnel?: boolean
+  }): Promise<ApiResponse<{ space: any }>> => {
+    if (isElectron()) {
+      return window.halo.createHyperSpace(params)
+    }
+    return httpRequest('POST', '/api/hyper-space/create', params)
+  },
+
+  /**
+   * Get Hyper Space team status
+   */
+  getHyperSpaceStatus: async (spaceId: string): Promise<ApiResponse<{
+    status: string
+    leader: { id: string; status: string }
+    workers: Array<{ id: string; status: string; currentTaskId?: string }>
+    pendingTasks: number
+  }>> => {
+    if (isElectron()) {
+      return window.halo.getHyperSpaceStatus(spaceId)
+    }
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/status`)
+  },
+
+  /**
+   * Add agent to Hyper Space
+   */
+  addAgentToHyperSpace: async (spaceId: string, agent: any): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.addAgentToHyperSpace(spaceId, agent)
+    }
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/agents`, { agent })
+  },
+
+  /**
+   * Remove agent from Hyper Space
+   */
+  removeAgentFromHyperSpace: async (spaceId: string, agentId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.removeAgentFromHyperSpace(spaceId, agentId)
+    }
+    return httpRequest('DELETE', `/api/hyper-space/${spaceId}/agents/${agentId}`)
+  },
+
+  /**
+   * Update Hyper Space orchestration config
+   */
+  updateHyperSpaceConfig: async (spaceId: string, config: any): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.updateHyperSpaceConfig(spaceId, config)
+    }
+    return httpRequest('PUT', `/api/hyper-space/${spaceId}/config`, { config })
+  },
+
+  /**
+   * Get Hyper Space tasks for a conversation
+   */
+  getHyperSpaceTasks: async (conversationId: string): Promise<ApiResponse<{ tasks: any[] }>> => {
+    if (isElectron()) {
+      return window.halo.getHyperSpaceTasks(conversationId)
+    }
+    return httpRequest('GET', `/api/hyper-space/tasks/${conversationId}`)
+  },
+
+  /**
+   * Listen to Hyper Space progress events
+   */
+  onHyperSpaceProgress: (callback: (data: {
+    spaceId: string
+    conversationId: string
+    taskId: string
+    agentId: string
+    delta: string
+    timestamp: number
+  }) => void): (() => void) => {
+    return onEvent('agent:hyper-progress', callback)
   },
 }
 

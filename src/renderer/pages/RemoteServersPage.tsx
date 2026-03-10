@@ -170,17 +170,20 @@ export function RemoteServersPage() {
     setSaving(true)
     setSaveStatus(t('Updating server...'))
     try {
-      const updatedServer: RemoteServer = {
-        ...editingServer,
+      // Use 'as any' to handle type mismatch between local RemoteServer and shared RemoteServer
+      // The backend expects: host, sshPort, username, password (flat structure)
+      const updatedServer: any = {
+        id: editingServer.id,
         name: serverName.trim(),
         host: serverHost.trim(),
-        port: parseInt(serverPort, 10) || 22,
+        sshPort: parseInt(serverPort, 10) || 22,
         username: serverUsername.trim() || undefined,
-        authType,
+        // Pass password - if empty, backend will preserve original
+        password: password.trim() || '',
         workDir: workDir.trim() || undefined,
-        claudeApiKey: editingServer.claudeApiKey,
-        claudeBaseUrl: editingServer.claudeBaseUrl,
-        claudeModel: editingServer.claudeModel,
+        claudeApiKey: (editingServer as any).claudeApiKey,
+        claudeBaseUrl: (editingServer as any).claudeBaseUrl,
+        claudeModel: (editingServer as any).claudeModel,
       }
 
       const result = await api.updateRemoteServer(updatedServer)
@@ -317,8 +320,12 @@ export function RemoteServersPage() {
     resetForm()
   }
 
+  // In edit mode, password can be empty (will preserve original)
+  // In add mode, password is required
   const isFormValid = serverName.trim() && serverHost.trim() &&
-    (authType === 'password' ? password.trim() : keyPath.trim())
+    (authType === 'password'
+      ? (editingServer ? true : password.trim())
+      : keyPath.trim())
 
   return (
     <div className="h-full w-full flex flex-col">
@@ -636,9 +643,14 @@ export function RemoteServersPage() {
                     type="password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={editingServer ? '••••••••' : '••••••••'}
                     className="w-full px-3 py-2 border border-border rounded-lg bg-input text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-colors"
                   />
+                  {editingServer && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('Leave blank to keep current password')}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div>

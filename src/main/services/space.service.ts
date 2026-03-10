@@ -19,6 +19,14 @@ import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync, renameSync } from 'fs'
 import { getHaloDir, getTempSpacePath, getSpacesDir } from './config.service'
 import { v4 as uuidv4 } from 'uuid'
+import type {
+  AgentConfig,
+  OrchestrationConfig,
+  SpaceType,
+  CreateHyperSpaceInput
+} from '../../shared/types/hyper-space'
+import { createOrchestrationConfig } from '../../shared/types/hyper-space'
+import { agentOrchestrator } from './agent/orchestrator'
 
 // Re-export config helper for backward compatibility with existing imports
 export { getSpacesDir } from './config.service'
@@ -43,6 +51,11 @@ interface Space {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+
+  // Hyper Space support
+  spaceType?: SpaceType
+  agents?: AgentConfig[]
+  orchestration?: OrchestrationConfig
 }
 
 interface SpaceLayoutPreferences {
@@ -68,6 +81,11 @@ interface SpaceMeta {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+
+  // Hyper Space support
+  spaceType?: SpaceType
+  agents?: AgentConfig[]
+  orchestration?: OrchestrationConfig
 }
 
 // ============================================================================
@@ -88,6 +106,11 @@ interface SpaceIndexEntry {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+
+  // Hyper Space support
+  spaceType?: SpaceType
+  agents?: AgentConfig[]
+  orchestration?: OrchestrationConfig
 }
 
 interface SpaceIndexV3 {
@@ -133,7 +156,11 @@ function metaToEntry(meta: SpaceMeta, spacePath: string): SpaceIndexEntry {
     claudeSource: meta.claudeSource,
     remoteServerId: meta.remoteServerId,
     remotePath: meta.remotePath,
-    useSshTunnel: meta.useSshTunnel
+    useSshTunnel: meta.useSshTunnel,
+    // Include Hyper Space fields
+    spaceType: meta.spaceType,
+    agents: meta.agents,
+    orchestration: meta.orchestration
   }
 }
 
@@ -310,7 +337,11 @@ function entryToSpace(id: string, entry: SpaceIndexEntry): Space {
     claudeSource: entry.claudeSource || 'local',
     remoteServerId: entry.remoteServerId,
     remotePath: entry.remotePath || '/home',
-    useSshTunnel: entry.useSshTunnel || false  // Default to false for old spaces
+    useSshTunnel: entry.useSshTunnel || false,  // Default to false for old spaces
+    // Hyper Space fields
+    spaceType: entry.spaceType || (entry.claudeSource === 'remote' ? 'remote' : 'local'),
+    agents: entry.agents,
+    orchestration: entry.orchestration
   }
 }
 
@@ -725,5 +756,175 @@ export function saveOnboardingConversation(
   } catch (error) {
     console.error(`[Space] saveOnboardingConversation failed:`, error)
     return null
+  }
+}
+
+// ============================================================================
+// Hyper Space Functions
+// ============================================================================
+
+/**
+ * Create a Hyper Space with multi-agent configuration
+ */
+export function createHyperSpace(params: CreateHyperSpaceInput): Space | null {
+  try {
+    const { name, icon, customPath, agents, orchestration } = params
+
+    // Validate at least one leader
+    const leaders = agents?.filter(a => a.role === 'leader') || []
+    if (leaders.length === 0) {
+      console.error('[Space] Hyper Space requires at least one leader agent')
+      return null
+    }
+
+    // Create the base space first
+    const id = uuidv4()
+    const now = new Date().toISOString()
+
+    // Data always stored centrally under ~/.halo/spaces/{id}/
+    const spacePath = join(getSpacesDir(), id)
+
+    // customPath is stored as workingDir
+    const workingDir = customPath || undefined
+
+    // Create directories
+    mkdirSync(spacePath, { recursive: true })
+    mkdirSync(join(spacePath, '.halo'), { recursive: true })
+    mkdirSync(join(spacePath, '.halo', 'conversations'), { recursive: true })
+
+    // Build orchestration config
+    const orchestrationConfig = createOrchestrationConfig(orchestration)
+
+    // Create meta file with Hyper Space fields
+    const meta: SpaceMeta = {
+      id,
+      name,
+      icon,
+      createdAt: now,
+      updatedAt: now,
+      workingDir,
+      claudeSource: 'local', // Hyper spaces use local orchestrator
+      spaceType: 'hyper',
+      agents,
+      orchestration: orchestrationConfig
+    }
+
+    writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+
+    // Register in index (memory + disk)
+    const entry: SpaceIndexEntry = {
+      path: spacePath,
+      name,
+      icon,
+      createdAt: now,
+      updatedAt: now,
+      workingDir,
+      claudeSource: 'local',
+      spaceType: 'hyper',
+      agents,
+      orchestration: orchestrationConfig
+    }
+    getRegistry().set(id, entry)
+    persistIndex(getRegistry())
+
+    console.log(
+      `[Space] Created Hyper Space ${id}: path=${spacePath}` +
+      `${workingDir ? `, workingDir=${workingDir}` : ''}` +
+      `with ${agents?.length || 0} agents`
+    )
+
+    // Create agent team in orchestrator
+    agentOrchestrator.createTeam({
+      spaceId: id,
+      conversationId: '', // Will be set when conversation starts
+      agents: agents || [],
+      config: orchestration
+    })
+
+    return entryToSpace(id, entry)
+  } catch (error) {
+    console.error('[Space] Failed to create Hyper Space:', error)
+    return null
+  }
+}
+
+/**
+ * Update Hyper Space agents
+ */
+export function updateHyperSpaceAgents(
+  spaceId: string,
+  agents: AgentConfig[]
+): Space | null {
+  const entry = getRegistry().get(spaceId)
+  if (!entry || entry.spaceType !== 'hyper') {
+    return null
+  }
+
+  try {
+    // Validate at least one leader
+    const leaders = agents.filter(a => a.role === 'leader')
+    if (leaders.length === 0) {
+      console.error('[Space] Hyper Space requires at least one leader agent')
+      return null
+    }
+
+    // Update entry
+    entry.agents = agents
+    entry.updatedAt = new Date().toISOString()
+
+    // Persist index
+    persistIndex(getRegistry())
+
+    // Update meta.json
+    const existingMeta = tryReadMeta(entry.path)
+    const meta: SpaceMeta = {
+      ...existingMeta,
+      id: spaceId,
+      name: entry.name,
+      icon: entry.icon,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      preferences: existingMeta?.preferences,
+      workingDir: entry.workingDir,
+      spaceType: 'hyper',
+      agents
+    }
+    writeFileSync(join(entry.path, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+
+    console.log(`[Space] Updated Hyper Space ${spaceId} agents: ${agents.length} agents`)
+
+    return entryToSpaceWithPreferences(spaceId, entry)
+  } catch (error) {
+    console.error('[Space] Failed to update Hyper Space agents:', error)
+    return null
+  }
+}
+
+/**
+ * Get Hyper Space status
+ */
+export function getHyperSpaceStatus(spaceId: string): {
+  isHyper: boolean
+  teamStatus?: ReturnType<typeof agentOrchestrator.getTeamStatus>
+} {
+  const entry = getRegistry().get(spaceId)
+  if (!entry) {
+    return { isHyper: false }
+  }
+
+  const isHyper = entry.spaceType === 'hyper'
+
+  if (!isHyper) {
+    return { isHyper: false }
+  }
+
+  const team = agentOrchestrator.getTeamBySpace(spaceId)
+  if (!team) {
+    return { isHyper: true, teamStatus: null }
+  }
+
+  return {
+    isHyper: true,
+    teamStatus: agentOrchestrator.getTeamStatus(team.id)
   }
 }

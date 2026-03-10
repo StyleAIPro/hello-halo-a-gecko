@@ -397,6 +397,12 @@ export function HomePage() {
                         {t('Remote')}
                       </span>
                     )}
+                    {space.spaceType === 'hyper' && (
+                      <span className="flex items-center gap-1 text-xs bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full flex-shrink-0 ml-1">
+                        <Blocks className="w-3 h-3" />
+                        {t('Hyper')}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
                     <button

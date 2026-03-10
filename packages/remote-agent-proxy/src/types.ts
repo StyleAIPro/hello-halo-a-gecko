@@ -10,7 +10,7 @@ export interface RemoteServerConfig {
 }
 
 export interface ClientMessage {
-  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject'
+  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session'
   sessionId?: string
   payload?: {
     messages?: any[]
@@ -76,7 +76,7 @@ export interface TerminalOutputData {
 // Thought data structures (aligned with local Thought type)
 export interface ThoughtData {
   id: string
-  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result'
+  type: 'thinking' | 'tool_use' | 'tool_result' | 'text' | 'error' | 'result' | 'system'
   content?: string
   timestamp: string
   // For tool_use

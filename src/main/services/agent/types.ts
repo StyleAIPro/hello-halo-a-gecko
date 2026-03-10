@@ -145,6 +145,8 @@ export interface SessionState {
   spaceId: string
   conversationId: string
   thoughts: Thought[]  // Backend accumulates thoughts (Single Source of Truth)
+  streamingContent?: string  // Accumulated streaming text content (for remote sessions)
+  isRemote?: boolean  // Mark if this is a remote session (for stopGeneration handling)
 }
 
 // ============================================
