@@ -8,7 +8,7 @@
  * - Get session state for recovery
  */
 
-import { activeSessions, v2Sessions } from './session-manager'
+import { activeSessions, v2Sessions, unregisterActiveSession } from './session-manager'
 import { getRemoteWsClient } from '../remote-ws/remote-ws-client'
 import type { Thought } from './types'
 
@@ -40,9 +40,9 @@ export async function stopGeneration(conversationId?: string): Promise<void> {
         console.error(`[Agent][control.ts] abortController.abort() error:`, e)
       }
 
-      console.log(`[Agent][control.ts] Deleting from activeSessions...`)
-      activeSessions.delete(conversationId)
-      console.log(`[Agent][control.ts] activeSessions.delete() completed`)
+      // Note: Don't delete from activeSessions here - let send-message.ts handle cleanup
+      // after it persists content. The abort will trigger an AbortError in send-message.ts,
+      // which will then call unregisterActiveSession() after saving content.
 
       // Interrupt V2 Session and drain stale messages
       // SKIP for remote sessions - they don't have a local V2 session

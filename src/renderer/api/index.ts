@@ -1712,9 +1712,9 @@ export const api = {
     return httpRequest('GET', `/api/remote-agent/${serverId}/status`)
   },
 
-  sendRemoteAgentMessage: async (serverId: string, params: { sessionId?: string; content: string }): Promise<ApiResponse> => {
+  sendRemoteAgentMessage: async (serverId: string, params: { sessionId?: string; content: string; attachments?: any[] }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.halo.remoteAgent.sendMessage(serverId, params.content)
+      return window.halo.remoteAgent.chat(serverId, params)
     }
     return httpRequest('POST', `/api/remote-agent/${serverId}/chat`, params)
   },

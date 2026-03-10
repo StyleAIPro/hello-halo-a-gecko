@@ -389,10 +389,13 @@ export interface HaloAPI {
   // Remote Agent
   remoteAgent: {
     sendMessage: (serverId: string, message: string) => Promise<IpcResponse>
+    chat: (serverId: string, params: { sessionId?: string; content: string; attachments?: any[] }) => Promise<IpcResponse>
     fsList: (serverId: string, path?: string) => Promise<IpcResponse>
     fsRead: (serverId: string, path: string) => Promise<IpcResponse>
     fsWrite: (serverId: string, path: string, content: string) => Promise<IpcResponse>
     fsDelete: (serverId: string, path: string) => Promise<IpcResponse>
+    checkConnection: (serverId: string) => Promise<IpcResponse>
+    getMessages: (serverId: string, sessionId: string) => Promise<IpcResponse>
   }
 
   onRemoteAgentStream: (callback: (data: unknown) => void) => () => void
@@ -781,6 +784,7 @@ const api: HaloAPI = {
   // Remote Agent
   remoteAgent: {
     sendMessage: (serverId, message) => ipcRenderer.invoke('remote-agent:send-message', serverId, message),
+    chat: (serverId, params) => ipcRenderer.invoke('remote-agent:chat', serverId, params),
     fsList: (serverId, path) => ipcRenderer.invoke('remote-agent:fs-list', serverId, path),
     fsRead: (serverId, path) => ipcRenderer.invoke('remote-agent:fs-read', serverId, path),
     fsWrite: (serverId, path, content) => ipcRenderer.invoke('remote-agent:fs-write', serverId, path, content),

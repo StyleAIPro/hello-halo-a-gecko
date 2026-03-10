@@ -53,6 +53,18 @@ export interface TerminalOutput {
 }
 
 /**
+ * Token usage statistics
+ */
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  totalCostUsd: number
+  contextWindow: number
+}
+
+/**
  * Thought event (for thinking, tool_use, etc.)
  */
 export interface ThoughtEvent {
@@ -1316,6 +1328,24 @@ export class ClaudeManager {
               capturedSessionId = sessionIdFromMsg as string
               console.log(`[ClaudeManager] Captured SDK session_id from result: ${capturedSessionId}`)
               yield { type: 'session_id', data: { sessionId: capturedSessionId } }
+            }
+          }
+
+          // Extract and yield token usage from result event
+          // SDK result event contains usage info: { usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens } }
+          const usage = (evt as any).usage
+          if (usage) {
+            console.log(`[ClaudeManager] Token usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cache_read=${usage.cache_read_input_tokens}, cache_create=${usage.cache_creation_input_tokens}`)
+            yield {
+              type: 'usage',
+              data: {
+                inputTokens: usage.input_tokens || 0,
+                outputTokens: usage.output_tokens || 0,
+                cacheReadTokens: usage.cache_read_input_tokens || 0,
+                cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+                totalCostUsd: usage.total_cost_usd || 0,
+                contextWindow: usage.context_window || 200000
+              }
             }
           }
 

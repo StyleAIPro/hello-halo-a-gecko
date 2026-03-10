@@ -210,6 +210,19 @@ export function registerRemoteServerHandlers(): void {
     }
   })
 
+  // Send chat message to remote agent via WebSocket and return response with tokenUsage
+  ipcMain.handle('remote-agent:chat', async (_event, serverId: string, params: { sessionId?: string; content: string; attachments?: any[] }) => {
+    console.log('[IPC] remote-agent:chat - Sending chat to agent:', serverId, params.sessionId)
+    try {
+      const response = await deployService.sendAgentChat(serverId, params)
+      return { success: true, data: response }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-agent:chat - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle(
     'remote-agent:fs-list',
     async (_event, serverId: string, directory?: string) => {

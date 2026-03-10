@@ -3,9 +3,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Loader2, Terminal, FileText, Image as ImageIcon, Copy, CheckCircle, AlertCircle, Paperclip, X } from 'lucide-react'
+import { Send, Loader2, Terminal, FileText, Image as ImageIcon, Copy, Check, CheckCircle, AlertCircle, Paperclip, X } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
+import { TokenUsageIndicator } from './chat/TokenUsageIndicator'
+import type { TokenUsage } from '../types'
 
 export interface RemoteFileAttachment {
   path: string
@@ -25,6 +27,7 @@ export interface RemoteAgentMessage {
     path?: string
   }>
   status?: 'sending' | 'sent' | 'error'
+  tokenUsage?: TokenUsage
 }
 
 export interface RemoteAgentChatProps {
@@ -42,6 +45,7 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([])
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -140,7 +144,8 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
             id: `msg-${Date.now() + 1}`,
             role: 'assistant',
             content: result.data.response,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            tokenUsage: result.data.tokenUsage || undefined
           }
           setMessages(prev => [...prev, assistantMessage])
         }
@@ -196,8 +201,10 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
     }
   }
 
-  const copyMessage = (content: string) => {
+  const copyMessage = (messageId: string, content: string) => {
     navigator.clipboard.writeText(content)
+    setCopiedMessageId(messageId)
+    setTimeout(() => setCopiedMessageId(null), 2000)
   }
 
   return (
@@ -293,15 +300,29 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
                     )}
                   </div>
 
-                  {/* Copy button for assistant messages */}
+                  {/* Token usage indicator + copy button for assistant messages */}
                   {message.role === 'assistant' && (
-                    <button
-                      onClick={() => copyMessage(message.content)}
-                      className="absolute top-2 right-2 p-1 opacity-0 hover:opacity-20 transition-opacity text-primary-foreground"
-                      title={t('Copy')}
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
+                    <div className="flex justify-end items-center gap-2 mt-2 pt-1">
+                      {/* Token usage indicator (only show if tokenUsage exists) */}
+                      {message.tokenUsage && (
+                        <TokenUsageIndicator tokenUsage={message.tokenUsage} previousCost={0} />
+                      )}
+                      {/* Copy button */}
+                      <button
+                        onClick={() => copyMessage(message.id, message.content)}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground/60 hover:text-foreground hover:bg-white/5 rounded-md transition-all"
+                        title={t('Copy message')}
+                      >
+                        {copiedMessageId === message.id ? (
+                          <>
+                            <Check size={14} className="text-green-400" />
+                            <span className="text-green-400">{t('Copied')}</span>
+                          </>
+                        ) : (
+                          <Copy size={14} />
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
