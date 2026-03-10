@@ -990,3 +990,172 @@ function generateTitle(): string {
 
   return `Chat ${month}-${day} ${hour}:${minute.toString().padStart(2, '0')}`
 }
+
+// ============================================================================
+// ConversationService Adapter
+// ============================================================================
+
+/**
+ * ConversationService adapter interface for skill generator
+ */
+export interface ConversationService {
+  getConversation(conversationId: string, spaceId?: string): Promise<Conversation | null>
+  getSpaceConversations(spaceId: string): Promise<Conversation[]>
+}
+
+/**
+ * Get the singleton ConversationService adapter
+ */
+export function getConversationService(): ConversationService {
+  return {
+    async getConversation(conversationId: string, spaceId?: string): Promise<Conversation | null> {
+      // If spaceId provided, use it directly
+      if (spaceId) {
+        return getConversation(spaceId, conversationId)
+      }
+      // Check the existing cache first
+      const cached = conversationCache.get(conversationId)
+      if (cached) {
+        return cached.conversation
+      }
+      // Cannot look up without spaceId
+      return null
+    },
+
+    async getSpaceConversations(spaceId: string): Promise<Conversation[]> {
+      const metas = listConversations(spaceId)
+      const conversations: Conversation[] = []
+      for (const meta of metas) {
+        const conv = getConversation(spaceId, meta.id)
+        if (conv) {
+          conversations.push(conv)
+        }
+      }
+      return conversations
+    }
+  }
+}
+
+// ============================================================================
+// Agent Command History Persistence
+// ============================================================================
+
+/**
+ * Agent command record for terminal display
+ */
+export interface AgentCommandRecord {
+  id: string
+  command: string
+  output: string
+  exitCode: number | null
+  status: 'running' | 'completed' | 'error'
+  timestamp: string
+  conversationId: string
+  cwd?: string  // Current working directory
+  cwdLabel?: string  // Display label for cwd (e.g., "~/hello-halo")
+}
+
+/**
+ * Agent commands file structure (similar to thoughts file)
+ */
+interface AgentCommandsFile {
+  version: number
+  conversationId: string
+  commands: AgentCommandRecord[]
+}
+
+const AGENT_COMMANDS_VERSION = 1
+
+/**
+ * Get the file path for agent commands
+ */
+function getAgentCommandsFilePath(conversationsDir: string, conversationId: string): string {
+  return join(conversationsDir, `${conversationId}.agent-commands.json`)
+}
+
+/**
+ * Save agent command to disk
+ */
+export function saveAgentCommand(
+  spaceId: string,
+  conversationId: string,
+  command: AgentCommandRecord
+): void {
+  const conversationsDir = getConversationsDir(spaceId)
+
+  // Ensure conversations directory exists
+  if (!existsSync(conversationsDir)) {
+    mkdirSync(conversationsDir, { recursive: true })
+  }
+
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+
+  // Read existing commands file or create new one
+  let commandsFile: AgentCommandsFile
+  if (existsSync(filePath)) {
+    try {
+      commandsFile = JSON.parse(readFileSync(filePath, 'utf-8'))
+    } catch {
+      commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] }
+    }
+  } else {
+    commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] }
+  }
+
+  // Find existing command by ID and update, or add new command
+  const existingIndex = commandsFile.commands.findIndex(c => c.id === command.id)
+  if (existingIndex >= 0) {
+    commandsFile.commands[existingIndex] = command
+  } else {
+    commandsFile.commands.push(command)
+  }
+
+  // Limit to last 500 commands to prevent file from growing too large
+  if (commandsFile.commands.length > 500) {
+    commandsFile.commands = commandsFile.commands.slice(-500)
+  }
+
+  atomicWriteFileSync(filePath, JSON.stringify(commandsFile))
+}
+
+/**
+ * Load agent commands for a conversation
+ */
+export function loadAgentCommands(
+  spaceId: string,
+  conversationId: string
+): AgentCommandRecord[] {
+  const conversationsDir = getConversationsDir(spaceId)
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+
+  if (!existsSync(filePath)) {
+    return []
+  }
+
+  try {
+    const commandsFile: AgentCommandsFile = JSON.parse(readFileSync(filePath, 'utf-8'))
+    return commandsFile.commands || []
+  } catch (error) {
+    console.error(`[Conversation] Failed to load agent commands for ${conversationId}:`, error)
+    return []
+  }
+}
+
+/**
+ * Clear agent commands for a conversation
+ */
+export function clearAgentCommands(
+  spaceId: string,
+  conversationId: string
+): void {
+  const conversationsDir = getConversationsDir(spaceId)
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+
+  if (existsSync(filePath)) {
+    try {
+      rmSync(filePath)
+    } catch (error) {
+      console.error(`[Conversation] Failed to clear agent commands for ${conversationId}:`, error)
+    }
+  }
+}

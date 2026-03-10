@@ -13,9 +13,13 @@
  * BrowserView order is determined by add order - later added views appear on top.
  */
 
-import { BrowserView, BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+
+// BrowserView is imported dynamically to avoid ESM bundling issues
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let BrowserView: any
 
 // ============================================
 // Types
@@ -109,6 +113,12 @@ class OverlayManager {
    */
   private async doInitialize(): Promise<void> {
     if (!this.mainWindow) return
+
+    // Dynamically import BrowserView to avoid ESM bundling issues
+    if (!BrowserView) {
+      const electron = await import('electron')
+      BrowserView = electron.BrowserView
+    }
 
     console.log('[Overlay] Lazy initializing overlay BrowserView...')
     const startTime = Date.now()

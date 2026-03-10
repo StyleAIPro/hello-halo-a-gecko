@@ -50,9 +50,11 @@ import { initAppRuntime, shutdownAppRuntime } from '../apps/runtime'
 import { registerAppHandlers } from '../ipc/app'
 import { registerNotificationChannelHandlers } from '../ipc/notification-channels'
 import { registerStoreHandlers } from '../ipc/store'
+import { registerSkillHandlers } from '../ipc/skill'
 import { initRegistryService, shutdownRegistryService } from '../store'
 import * as watcherHost from '../services/watcher-host.service'
 import { getExpressApp } from '../http/server'
+import { initTerminalGateway, shutdownTerminalGateway } from '../services/terminal'
 
 // Module-level reference to db for cleanup
 let platformDb: DatabaseManager | null = null
@@ -219,6 +221,26 @@ export function initializeExtendedServices(): void {
   // Store: IPC handlers for App Store registry operations
   registerStoreHandlers()
 
+  // Skill: IPC handlers for Skill management
+  // Requires only ConversationService
+  import('../services/conversation.service')
+    .then(({ getConversationService }) => {
+      const conversationService = getConversationService()
+      if (conversationService) {
+        registerSkillHandlers(conversationService)
+        console.log('[Bootstrap] Skill handlers registered')
+      } else {
+        console.warn('[Bootstrap] Skill handlers deferred - ConversationService not ready')
+      }
+    })
+    .catch((err) => {
+      console.error('[Bootstrap] Skill handlers registration failed:', err)
+    })
+
+  // Terminal Gateway: WebSocket server for shared terminal
+  // Allows frontend to receive agent commands and send user commands
+  initTerminalGateway()
+
   // Windows-specific: Initialize Git Bash in background
   if (process.platform === 'win32') {
     initializeGitBashOnStartup()
@@ -297,6 +319,9 @@ export async function cleanupExtendedServices(): Promise<void> {
 
   // Search: Cancel any ongoing searches
   cleanupSearchHandlers()
+
+  // Terminal Gateway: Close WebSocket server
+  shutdownTerminalGateway()
 
   // Artifact Cache: Close file watchers and clear caches
   await cleanupAllCaches()

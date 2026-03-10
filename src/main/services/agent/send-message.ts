@@ -14,7 +14,7 @@ import { getConfig } from '../config.service'
 import { getConversation, saveSessionId, addMessage, updateLastMessage } from '../conversation.service'
 import { getSpace } from '../space.service'
 import { getRemoteDeployService } from '../../ipc/remote-server'
-import { RemoteWsClient, type RemoteWsClientConfig } from '../remote-ws/remote-ws-client'
+import { RemoteWsClient, type RemoteWsClientConfig, registerActiveClient } from '../remote-ws/remote-ws-client'
 import { type FileChangesSummary, extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes'
 import { notifyTaskComplete } from '../notification.service'
 import { decryptString } from '../secure-storage.service'
@@ -25,6 +25,7 @@ import {
   createAIBrowserMcpServer
 } from '../ai-browser'
 import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
+import { createHyperSpaceMcpServer } from './hyper-space-mcp'
 import type {
   AgentRequest,
   SessionConfig,
@@ -46,18 +47,68 @@ import {
   unregisterActiveSession,
   v2Sessions,
   markSessionRequestStart,
-  markSessionRequestComplete
+  markSessionRequestComplete,
+  activeSessions
 } from './session-manager'
 import {
   formatCanvasContext,
   buildMessageContent,
 } from './message-utils'
-import { onAgentError, runPpidScanAndCleanup } from '../health'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
 import { processStream } from './stream-processor'
+import { terminalGateway } from '../terminal/terminal-gateway'
+import { agentOrchestrator } from './orchestrator'
 
 // Unified fallback error suffix - guides user to check logs
 const FALLBACK_ERROR_HINT = 'Check logs in Settings > System > Logs.'
+
+// ============================================
+// Auth Token Cache for Remote Connections
+// ============================================
+
+// Cache structure: serverId -> { token, timestamp }
+interface AuthTokenCacheEntry {
+  token: string
+  timestamp: number
+}
+
+const authTokenCache = new Map<string, AuthTokenCacheEntry>()
+const AUTH_TOKEN_CACHE_TTL = 5 * 60 * 1000 // 5 minutes TTL
+
+/**
+ * Check if cached auth token is still valid
+ */
+function isAuthTokenCacheValid(serverId: string): boolean {
+  const cached = authTokenCache.get(serverId)
+  if (!cached) return false
+  return Date.now() - cached.timestamp < AUTH_TOKEN_CACHE_TTL
+}
+
+/**
+ * Get cached auth token if valid
+ */
+function getCachedAuthToken(serverId: string): string | null {
+  if (!isAuthTokenCacheValid(serverId)) {
+    authTokenCache.delete(serverId)
+    return null
+  }
+  return authTokenCache.get(serverId)?.token || null
+}
+
+/**
+ * Set auth token in cache
+ */
+function setCachedAuthToken(serverId: string, token: string): void {
+  authTokenCache.set(serverId, { token, timestamp: Date.now() })
+}
+
+/**
+ * Invalidate auth token cache for a server (e.g., on connection failure)
+ */
+export function invalidateAuthTokenCache(serverId: string): void {
+  authTokenCache.delete(serverId)
+  console.log(`[Agent][Remote] Auth token cache invalidated for server ${serverId}`)
+}
 
 // ============================================
 // Send Message
@@ -124,6 +175,114 @@ export async function sendMessage(
     return
   }
   // === Remote routing end ===
+
+  // === Hyper Space execution routing ===
+  // Hyper Space routes tasks to multiple agents (local + remote) via orchestrator
+  if (space?.spaceType === 'hyper' && space.agents && space.agents.length > 0) {
+    console.log(`[Agent] *** ROUTING TO HYPER SPACE EXECUTION *** spaceId=${spaceId}, agents=${space.agents.length}`)
+
+    try {
+      // Ensure team exists for this space
+      let team = agentOrchestrator.getTeamBySpace(spaceId)
+      if (!team) {
+        // Create team from space configuration
+        team = agentOrchestrator.createTeam({
+          spaceId,
+          conversationId,
+          agents: space.agents,
+          config: space.orchestration
+        })
+        console.log(`[Agent] Created new team ${team.id} for Hyper Space ${spaceId}`)
+      }
+
+      // Build user message content (with images if provided)
+      const userContent = await buildMessageContent(message, images)
+
+      // Add user message to conversation
+      addMessage(spaceId, conversationId, {
+        role: 'user',
+        content: message,
+        images: images
+      })
+
+      // Add placeholder for assistant response (aggregated results)
+      addMessage(spaceId, conversationId, {
+        role: 'assistant',
+        content: '',
+        toolCalls: []
+      })
+
+      // Set up progress listener for streaming updates
+      const progressHandler = (data: { taskId: string; agentId: string; delta: string; total: string }) => {
+        // Send progress updates to renderer
+        sendToRenderer('agent:hyper-progress', spaceId, conversationId, {
+          taskId: data.taskId,
+          agentId: data.agentId,
+          delta: data.delta,
+          timestamp: Date.now()
+        })
+      }
+      agentOrchestrator.on('subagent:progress', progressHandler)
+
+      // Dispatch and execute task
+      console.log(`[Agent] Dispatching task to Hyper Space team...`)
+      const tasks = await agentOrchestrator.dispatchAndExecute({
+        spaceId,
+        task: message,
+        conversationId
+      })
+
+      console.log(`[Agent] Hyper Space task completed, ${tasks.length} subtasks finished`)
+
+      // Wait for all tasks to complete (in case they're still running)
+      const completedTasks = await agentOrchestrator.waitForCompletion({
+        conversationId,
+        timeout: space.orchestration?.announce?.timeout || 300000
+      })
+
+      // Aggregate results
+      const aggregationStrategy = space.orchestration?.aggregation?.strategy || 'summarize'
+      const aggregatedResult = agentOrchestrator.aggregateResults(completedTasks, aggregationStrategy)
+
+      console.log(`[Agent] Aggregated result length: ${aggregatedResult.length}`)
+
+      // Update the assistant message with aggregated result
+      updateLastMessage(spaceId, conversationId, {
+        content: aggregatedResult
+      })
+
+      // Notify renderer of completion
+      sendToRenderer('agent:complete', spaceId, conversationId, {
+        result: aggregatedResult,
+        tasksCompleted: completedTasks.length,
+        tasksTotal: tasks.length
+      })
+
+      // Clean up progress listener
+      agentOrchestrator.off('subagent:progress', progressHandler)
+
+      // Notify task complete
+      notifyTaskComplete(space.name || 'Hyper Space')
+
+      console.log('[Agent] Hyper Space execution completed')
+      return
+    } catch (error) {
+      console.error('[Agent] Hyper Space execution error:', error)
+
+      // Update assistant message with error
+      updateLastMessage(spaceId, conversationId, {
+        content: `Hyper Space execution failed: ${error instanceof Error ? error.message : String(error)}`
+      })
+
+      // Notify renderer of error
+      sendToRenderer('agent:error', spaceId, conversationId, {
+        error: error instanceof Error ? error.message : String(error)
+      })
+
+      throw error
+    }
+  }
+  // === Hyper Space routing end ===
 
   const config = getConfig()
   const workDir = getWorkingDir(spaceId)
@@ -339,9 +498,41 @@ export async function sendMessage(
   } catch (error: unknown) {
     const err = error as Error
 
-    // Don't report abort as error
+    // Don't report abort as error, but persist already generated content
     if (err.name === 'AbortError') {
       console.log(`[Agent][${conversationId}] Aborted by user`)
+
+      // CRITICAL: Persist already generated content and thoughts when user stops
+      // This ensures content survives after stop and page refresh
+      const sessionState = activeSessions.get(conversationId)
+      if (sessionState) {
+        const accumulatedContent = sessionState.streamingContent || ''
+        const hasContent = accumulatedContent.length > 0
+        const hasThoughts = sessionState.thoughts.length > 0
+
+        if (hasContent || hasThoughts) {
+          // Extract file changes summary from thoughts
+          let metadata: { fileChanges?: FileChangesSummary } | undefined
+          if (hasThoughts) {
+            try {
+              const fileChangesSummary = extractFileChangesSummaryFromThoughts(sessionState.thoughts)
+              if (fileChangesSummary) {
+                metadata = { fileChanges: fileChangesSummary }
+              }
+            } catch (e) {
+              console.error(`[Agent][${conversationId}] Failed to extract file changes on abort:`, e)
+            }
+          }
+
+          // Update the assistant message with accumulated content and thoughts
+          updateLastMessage(spaceId, conversationId, {
+            content: accumulatedContent,  // CRITICAL: Persist streaming content
+            thoughts: hasThoughts ? [...sessionState.thoughts] : undefined,
+            metadata
+          })
+          console.log(`[Agent][${conversationId}] Persisted on abort: ${accumulatedContent.length} chars, ${sessionState.thoughts.length} thoughts`)
+        }
+      }
       return
     }
 
@@ -469,48 +660,78 @@ async function executeRemoteMessage(
     toolCalls: []
   })
 
+  // CRITICAL: sessionState must be declared here (before try block) so it's accessible in catch block
+  // It will be initialized inside the try block after abortController is created
+  let sessionState: { thoughts: any[]; streamingContent?: string; isRemote?: boolean } | undefined
+
+  // CRITICAL: Declare these variables before try block so they're accessible in catch block
+  // These need to be accessible in catch block for content persistence on abort
+  let streamingContent = ''
+  const thoughts: any[] = []
+  const terminalOutputs: any[] = []
+  const toolCalls: any[] = []
+
   try {
     // Sync auth token from remote server before connecting
-    // This ensures we always use the correct token
-    try {
-      console.log(`[Agent][Remote] Syncing auth token from remote server...`)
-      const decryptedPassword = decryptString(server.password || '')
+    // OPTIMIZATION: Use cached token to avoid SSH connection on every message
+    const cachedToken = getCachedAuthToken(serverId)
+    if (cachedToken && cachedToken === server.authToken) {
+      console.log(`[Agent][Remote] Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
+    } else {
+      // Cache miss or token mismatch - need to sync from remote
+      try {
+        console.log(`[Agent][Remote] Syncing auth token from remote server (cache ${cachedToken ? 'expired' : 'miss'})...`)
+        const decryptedPassword = decryptString(server.password || '')
 
-      // Create temporary SSH manager to read auth token
-      const tempManager = new SSHManager()
-      await tempManager.connect({
-        host: server.host,
-        port: server.sshPort || 22,
-        username: server.username,
-        password: decryptedPassword
-      })
+        // Create temporary SSH manager to read auth token
+        const tempManager = new SSHManager()
+        await tempManager.connect({
+          host: server.host,
+          port: server.sshPort || 22,
+          username: server.username,
+          password: decryptedPassword
+        })
 
-      const envContent = await tempManager.executeCommand(`cat ${DEPLOY_AGENT_PATH}/.env 2>/dev/null || echo ""`)
-      // Match AUTH_TOKEN at the start of a line (not ANTHROPIC_AUTH_TOKEN)
-      const authTokenMatch = envContent.match(/^AUTH_TOKEN=(.+)/m)
-      if (authTokenMatch && authTokenMatch[1]) {
-        const remoteAuthToken = authTokenMatch[1].trim()
-        if (remoteAuthToken !== server.authToken) {
-          console.log(`[Agent][Remote] Updating local auth token to match remote`)
-          server.authToken = remoteAuthToken
-          // Update server in deploy service
-          await deployService.updateServer(serverId, { authToken: remoteAuthToken })
-        } else {
-          console.log(`[Agent][Remote] Auth token already matches`)
+        const envContent = await tempManager.executeCommand(`cat ${DEPLOY_AGENT_PATH}/.env 2>/dev/null || echo ""`)
+        // Match AUTH_TOKEN at the start of a line (not ANTHROPIC_AUTH_TOKEN)
+        const authTokenMatch = envContent.match(/^AUTH_TOKEN=(.+)/m)
+        if (authTokenMatch && authTokenMatch[1]) {
+          const remoteAuthToken = authTokenMatch[1].trim()
+          if (remoteAuthToken !== server.authToken) {
+            console.log(`[Agent][Remote] Updating local auth token to match remote`)
+            server.authToken = remoteAuthToken
+            // Update server in deploy service
+            await deployService.updateServer(serverId, { authToken: remoteAuthToken })
+          }
+          // Update cache with the synced token
+          setCachedAuthToken(serverId, remoteAuthToken)
+          console.log(`[Agent][Remote] Auth token cached for server ${serverId}`)
+        } else if (server.authToken) {
+          // No remote token found, but we have a local token - cache it
+          setCachedAuthToken(serverId, server.authToken)
+          console.log(`[Agent][Remote] Using existing local token (no remote token found)`)
+        }
+
+        // Close temporary SSH connection - SSHManager doesn't have close(), use end()
+        try {
+          ;(tempManager as any).end?.()
+        } catch {}
+      } catch (syncError) {
+        console.warn(`[Agent][Remote] Failed to sync auth token:`, syncError)
+        // Continue anyway, using existing token
+        // Cache the existing token to avoid repeated failed attempts
+        if (server.authToken) {
+          setCachedAuthToken(serverId, server.authToken)
         }
       }
-
-      // Close temporary SSH connection - SSHManager doesn't have close(), use end()
-      try {
-        ;(tempManager as any).end?.()
-      } catch {}
-    } catch (syncError) {
-      console.warn(`[Agent][Remote] Failed to sync auth token:`, syncError)
-      // Continue anyway, using existing token
     }
 
     // Track the local port for WebSocket connection
     let localTunnelPort = server.wsPort || 8080
+
+    // Additional variables for SDK session management
+    let sdkSessionId: string | undefined
+    let effectiveSessionId = conversationId  // Will be updated below
 
     // Establish SSH tunnel if required (default: true for security)
     if (useSshTunnel) {
@@ -560,16 +781,31 @@ async function executeRemoteMessage(
       console.log(`[Agent][Remote] Starting agent...`)
       await startRemoteAgent(serverId)
 
-      // Wait for agent to start
-      console.log(`[Agent][Remote] Waiting for agent to start...`)
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      // OPTIMIZATION: Poll for agent readiness instead of fixed 3s wait
+      // This reduces latency when agent starts quickly, and improves reliability when it takes longer
+      const MAX_WAIT_MS = 10000  // Maximum wait time
+      const CHECK_INTERVAL_MS = 500  // Check every 500ms
+      let waited = 0
+      let agentReady = false
 
-      // Verify agent is running
-      const verifyRunning = await checkRemoteAgentRunning(serverId)
-      console.log(`[Agent][Remote] Agent start verification:`, verifyRunning)
+      console.log(`[Agent][Remote] Waiting for agent to start (polling every ${CHECK_INTERVAL_MS}ms)...`)
 
-      if (!verifyRunning) {
-        const error = 'Failed to start remote agent - process not running after start command'
+      while (waited < MAX_WAIT_MS) {
+        // Check if agent is running
+        const isReady = await checkRemoteAgentRunning(serverId)
+        if (isReady) {
+          agentReady = true
+          console.log(`[Agent][Remote] Agent ready after ${waited}ms`)
+          break
+        }
+
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS))
+        waited += CHECK_INTERVAL_MS
+      }
+
+      if (!agentReady) {
+        const error = `Failed to start remote agent - not running after ${MAX_WAIT_MS}ms timeout`
         console.error('[Agent][Remote]', error)
         throw new Error(error)
       }
@@ -589,14 +825,28 @@ async function executeRemoteMessage(
       useSshTunnel  // Pass SSH tunnel flag
     }
     console.log(`[Agent][Remote] Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
-    const client = new RemoteWsClient(wsConfig)
+
+    // Set effectiveSessionId now that we have sessionId
+    const sessionId = resumeSessionId || conversation?.sessionId
+    effectiveSessionId = sessionId || conversationId
+
+    const client = new RemoteWsClient(wsConfig, effectiveSessionId)
+
+    // Register this client for interrupt support
+    // CRITICAL: Use conversationId (not effectiveSessionId) for consistent lookup in stopGeneration
+    // This ensures the client can be found regardless of session resumption
+    registerActiveClient(conversationId, client)
+
+    // CRITICAL: Also register to activeSessions so stopGeneration can find this remote session
+    // Without this, stopGeneration would skip the remote interrupt logic (it's inside if(session) block)
+    const abortController = new AbortController()
+    sessionState = createSessionState(spaceId, conversationId, abortController)
+    sessionState.isRemote = true  // Mark this as a remote session
+    registerActiveSession(conversationId, sessionState)
+    console.log(`[Agent][Remote] Registered remote session to activeSessions for: ${conversationId}`)
 
     // Register event handlers for streaming response
-    const toolCalls: any[] = []
-    const terminalOutputs: any[] = []
-    let streamingContent = ''
-    const thoughts: any[] = []
-    let sdkSessionId: string | undefined  // SDK's real session ID for resumption
+    // Variables already declared above
 
     // SDK session ID event - capture for session resumption
     client.on('claude:session', (data) => {
@@ -610,11 +860,61 @@ async function executeRemoteMessage(
     })
 
     // Tool call events - format matches frontend ToolCall interface
+    // Track pending Bash commands (toolId -> commandId) for remote agent
+    const remoteToolCommands = new Map<string, string>()
+    // Track active commandId for terminal output streaming (only one Bash command runs at a time)
+    let activeBashCommandId: string | null = null
+    // Accumulate terminal output for each commandId (to be used when tool:result arrives)
+    const commandOutputBuffer = new Map<string, string>()
+
+    // Helper function to get accumulated output for a command
+    const getCommandOutput = (commandId: string): string => {
+      return commandOutputBuffer.get(commandId) || ''
+    }
+
+    // Helper function to accumulate output for a command
+    const accumulateCommandOutput = (commandId: string, output: string) => {
+      const existing = commandOutputBuffer.get(commandId) || ''
+      commandOutputBuffer.set(commandId, existing + output)
+    }
+
     client.on('tool:call', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
-        console.log(`[Agent][Remote] Tool call received:`, toolData.name)
+        console.log(`[Agent][Remote] Tool call received:`, {
+          name: toolData.name,
+          status: toolData.status,
+          id: toolData.id,
+          input: toolData.input ? JSON.stringify(toolData.input).substring(0, 200) : 'empty'
+        })
         toolCalls.push(toolData)
+
+        // Intercept Bash tool calls for terminal panel
+        if (toolData.name === 'Bash' && toolData.input?.command) {
+          const command = toolData.input.command as string
+          const toolId = toolData.id as string
+          console.log(`[Agent][Remote] Bash command intercepted: ${command}`)
+
+          // Generate commandId and store for later update
+          const commandId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`
+          remoteToolCommands.set(toolId, commandId)
+          // Set as active command for terminal output streaming
+          activeBashCommandId = commandId
+
+          // Notify Terminal Gateway about agent command
+          terminalGateway.onAgentCommand(
+            spaceId,
+            conversationId,
+            command,
+            '',  // Output will come via terminal:output
+            'running',
+            undefined,
+            commandId
+          )
+        } else if (toolData.name === 'Bash') {
+          console.warn(`[Agent][Remote] Bash tool call received but input.command is missing:`, JSON.stringify(toolData.input))
+        }
+
         // Send in format expected by handleAgentToolCall
         sendToRenderer('agent:tool-call', spaceId, conversationId, {
           id: toolData.id,
@@ -637,7 +937,50 @@ async function executeRemoteMessage(
     client.on('tool:result', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
-        console.log(`[Agent][Remote] Tool result received`)
+        // Try to get tool name from toolData, or look it up from remoteToolCommands map
+        // The name field may be empty in some SDK responses, but we can infer it from the tool ID
+        const toolName = toolData.name || (remoteToolCommands.has(toolData.id) ? 'Bash' : '')
+        console.log(`[Agent][Remote] Tool result received, name=${toolData.name}, inferredName=${toolName}, output.length=${toolData.output?.length || 0}`)
+
+        // Notify Terminal Gateway about Bash command completion
+        // Check both explicit name and inferred name (for remote commands tracked in remoteToolCommands)
+        if (toolName === 'Bash') {
+          const exitCode = toolData.exit_code !== undefined ? (toolData.exit_code as number) : 0
+          const toolId = toolData.id as string
+          const commandId = remoteToolCommands.get(toolId)
+
+          if (commandId) {
+            // Get accumulated terminal output (SDK's tool_result block may have empty content
+            // while actual output was streamed via terminal:output events)
+            const accumulatedOutput = getCommandOutput(commandId)
+            // Use accumulated output if toolData.output is empty
+            const finalOutput = toolData.output || accumulatedOutput
+
+            console.log(`[Agent][Remote] Updating Bash command ${commandId}, toolData.output.length=${toolData.output?.length || 0}, accumulated.length=${accumulatedOutput.length}, finalOutput.length=${finalOutput.length}`)
+
+            // Also send the command string (in case it wasn't preserved from tool:call)
+            const commandString = toolData.input?.command as string || ''
+
+            terminalGateway.onAgentCommand(
+              spaceId,
+              conversationId,
+              commandString,  // Command string from tool input
+              finalOutput,  // Use accumulated output if SDK output is empty
+              'completed',
+              exitCode,
+              commandId  // Use stored commandId to update existing command
+            )
+            remoteToolCommands.delete(toolId)
+            // Clear active command ID and output buffer
+            if (activeBashCommandId === commandId) {
+              activeBashCommandId = null
+            }
+            commandOutputBuffer.delete(commandId)
+          } else {
+            console.warn(`[Agent][Remote] No commandId found for tool ${toolId}`)
+          }
+        }
+
         sendToRenderer('agent:tool-result', spaceId, conversationId, {
           toolId: toolData.id,
           result: toolData.output || '',
@@ -662,8 +1005,26 @@ async function executeRemoteMessage(
     client.on('terminal:output', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const output = data.data
+        console.log(`[Agent][Remote] terminal:output received: content.length=${output.content?.length || 0}, activeBashCommandId=${activeBashCommandId}`)
         terminalOutputs.push(output)
         sendToRenderer('agent:terminal', spaceId, conversationId, output)
+
+        // Accumulate output for the active command (to be saved when command completes)
+        // This is critical because SDK's tool_result block may have empty content
+        // while actual output is streamed via terminal:output events
+        if (activeBashCommandId) {
+          accumulateCommandOutput(activeBashCommandId, output.content || '')
+
+          // Forward to Terminal Gateway for streaming to frontend
+          terminalGateway.streamOutput(
+            conversationId,
+            activeBashCommandId,  // Use tracked commandId for proper output association
+            output.content || '',
+            true  // isStream
+          )
+        } else {
+          console.warn(`[Agent][Remote] terminal:output received but no activeBashCommandId set`)
+        }
       }
     })
 
@@ -672,6 +1033,8 @@ async function executeRemoteMessage(
       if (data.sessionId === effectiveSessionId) {
         const text = data.data?.text || data.data?.content || ''
         streamingContent += text
+        // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
+        sessionState.streamingContent = streamingContent
         // Send in the format expected by handleAgentMessage
         sendToRenderer('agent:message', spaceId, conversationId, {
           delta: text,
@@ -689,6 +1052,8 @@ async function executeRemoteMessage(
 
         // Store thought for final message
         thoughts.push(thoughtData)
+        // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
+        sessionState.thoughts = [...thoughts]
 
         // Send to renderer in the same format as local agent:thought
         sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData })
@@ -732,6 +1097,8 @@ async function executeRemoteMessage(
           if (deltaData.isReady !== undefined) {
             thought.isReady = deltaData.isReady
           }
+          // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
+          sessionState.thoughts = [...thoughts]
         }
       }
     })
@@ -855,7 +1222,8 @@ async function executeRemoteMessage(
     const sdkSessionIdForResume = sdkSessionId || sessionId
     // CRITICAL: effectiveSessionId is used for event routing comparison
     // Remote server returns this ID in events, so we must compare against it
-    const effectiveSessionId = sessionId || conversationId
+    // (already declared at function scope, just update it here)
+    effectiveSessionId = sessionId || conversationId
     console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
 
     const response = await client.sendChatWithStream(
@@ -920,22 +1288,57 @@ async function executeRemoteMessage(
 
     console.log(`[Agent][Remote] Remote Claude execution completed`)
 
+    // Clean up registered client after completion
+    client.disconnect()
+
   } catch (error) {
     console.error('[Agent][Remote] Execute error:', error)
     const err = error as Error
 
-    sendToRenderer('agent:error', spaceId, conversationId, {
-      type: 'error',
-      error: err.message || 'Remote execution failed'
-    })
+    // Check if this is an abort/stop action (user intentionally stopped)
+    // Also check for AbortError name (standard abort signal)
+    // Use case-insensitive matching for 'interrupt' to match 'Interrupted by user'
+    const isAbort = err.name === 'AbortError' ||
+                    err.message?.includes('aborted') ||
+                    err.message?.toLowerCase().includes('interrupt')
 
-    // Update assistant message with error
+    // CRITICAL: Use sessionState for content/thoughts - it's updated in real-time by event handlers
+    // This ensures we have the latest accumulated content even if interrupt happened mid-stream
+    // Note: sessionState may be undefined if error occurred before it was initialized
+    const accumulatedContent = sessionState?.streamingContent || streamingContent
+    const accumulatedThoughts = (sessionState?.thoughts?.length ?? 0) > 0 ? sessionState!.thoughts : thoughts
+
+    // Always persist already generated content and thoughts
+    // This ensures content survives after stop and page refresh
+    const hasContent = accumulatedContent.length > 0
+    const hasThoughts = accumulatedThoughts.length > 0
+
+    if (hasContent || hasThoughts) {
+      console.log(`[Agent][Remote] Persisting on abort: ${accumulatedContent.length} chars, ${accumulatedThoughts.length} thoughts`)
+    }
+
+    // CRITICAL: Update the assistant message with accumulated content and thoughts
+    // This is the same logic as the normal completion path
     updateLastMessage(spaceId, conversationId, {
-      content: '',
-      error: err.message
+      content: accumulatedContent,  // Keep already generated content
+      terminalOutputs: terminalOutputs.length > 0 ? terminalOutputs : undefined,
+      thoughts: hasThoughts ? accumulatedThoughts : undefined,  // Keep already generated thoughts
+      error: isAbort ? undefined : err.message  // Only show error if not user-initiated abort
     })
 
-    throw err
+    // CRITICAL: Send completion event to notify frontend to stop streaming and reload
+    // This ensures the frontend knows the generation is complete and can display the final content
+    sendToRenderer('agent:complete', spaceId, conversationId, {})
+
+    // Clean up registered client on error too
+    try {
+      client.disconnect()
+    } catch {}
+
+    // Don't throw if user intentionally stopped
+    if (!isAbort) {
+      throw err
+    }
   }
 }
 

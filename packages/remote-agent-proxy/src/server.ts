@@ -1,10 +1,12 @@
 import { WebSocketServer, WebSocket } from 'ws'
+import * as http from 'http'
 import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 
 export class RemoteAgentServer {
   private config: RemoteServerConfig
   private server: WebSocketServer
+  private httpServer?: http.Server
   // Extended client state to track SDK session ID for resumption
   private clients: Map<WebSocket, {
     authenticated: boolean
@@ -111,6 +113,48 @@ export class RemoteAgentServer {
     this.server.on('error', (error) => {
       console.error('Server error:', error)
     })
+
+    // Setup HTTP health endpoint on a separate port (WebSocket port + 1)
+    this.setupHttpHealthEndpoint()
+  }
+
+  /**
+   * Setup HTTP health endpoint for deployment status checks
+   * Listens on WebSocket port + 1
+   */
+  private setupHttpHealthEndpoint(): void {
+    const healthPort = (this.config.port || 8080) + 1
+
+    this.httpServer = http.createServer((req, res) => {
+      if (req.url === '/health' || req.url === '/healthz') {
+        const stats = this.claudeManager.getStats()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          status: 'ok',
+          activeSessions: stats.activeRequests,
+          totalSessions: stats.totalSessions,
+          timestamp: new Date().toISOString()
+        }))
+      } else if (req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          name: 'remote-agent-proxy',
+          version: '1.0.0',
+          endpoints: ['/health', '/healthz']
+        }))
+      } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' })
+        res.end('Not Found')
+      }
+    })
+
+    this.httpServer.listen(healthPort, '0.0.0.0', () => {
+      console.log(`Health endpoint listening on port ${healthPort}`)
+    })
+
+    this.httpServer.on('error', (error) => {
+      console.error(`Health endpoint error:`, error)
+    })
   }
 
   private async handleMessage(ws: WebSocket, message: ClientMessage): Promise<void> {
@@ -137,6 +181,21 @@ export class RemoteAgentServer {
       const token = message.payload?.token
       if (token !== undefined) {
         this.handleAuth(ws, token)
+      }
+    } else if ((message.type as string) === 'claude:interrupt') {
+      // Interrupt an active conversation
+      const sid = sessionId || client.sessionId
+      if (sid) {
+        console.log(`[RemoteAgentServer] Interrupt request for session: ${sid}`)
+        await this.handleClaudeInterrupt(sid)
+      }
+    } else if (message.type === 'close:session') {
+      // Clean up SDK session - called when client disconnects after stop
+      const sid = sessionId || client.sessionId
+      if (sid) {
+        console.log(`[RemoteAgentServer] Close session request for: ${sid}`)
+        this.claudeManager.removeSession(sid)
+        console.log(`[RemoteAgentServer] SDK session removed: ${sid}`)
       }
     } else if (message.type === 'claude:chat') {
       if (!this.config.claudeApiKey) {
@@ -209,6 +268,41 @@ export class RemoteAgentServer {
         this.sendMessage(ws, { type: 'auth:success' })
         console.log('Client authenticated (no auth required)')
       }
+    }
+  }
+
+  /**
+   * Handle interrupt request for an active conversation
+   */
+  private async handleClaudeInterrupt(sessionId: string): Promise<void> {
+    try {
+      console.log(`[RemoteAgentServer] Handling interrupt for session: ${sessionId}`)
+
+      // Get the active session from ClaudeManager and interrupt it
+      const v2Session = this.claudeManager.getSession(sessionId)
+      if (v2Session) {
+        try {
+          // Mark session as interrupted (for streamChat loop to detect)
+          this.claudeManager.markAsInterrupted(sessionId)
+
+          // Call SDK's interrupt method
+          await (v2Session as any).interrupt()
+          console.log(`[RemoteAgentServer] V2 session interrupted for: ${sessionId}`)
+        } catch (e) {
+          console.error(`[RemoteAgentServer] Failed to interrupt V2 session:`, e)
+        }
+      } else {
+        console.log(`[RemoteAgentServer] No active session found for: ${sessionId}`)
+      }
+
+      // CRITICAL: Force abort the stream iterator to stop any pending async operations
+      // This is necessary because SDK's interrupt() may not stop long-running operations
+      const forceAborted = this.claudeManager.forceAbortStreamIterator(sessionId)
+      if (forceAborted) {
+        console.log(`[RemoteAgentServer] Stream iterator force aborted for: ${sessionId}`)
+      }
+    } catch (error) {
+      console.error(`[RemoteAgentServer] Interrupt error for session ${sessionId}:`, error)
     }
   }
 
@@ -319,6 +413,7 @@ export class RemoteAgentServer {
         }
 
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
+        let wasInterrupted = false
         try {
           // Use sdkSessionId from client request for session resumption
           // This enables multi-turn conversations by resuming the SDK session
@@ -369,15 +464,35 @@ export class RemoteAgentServer {
           }
           console.log(`[RemoteAgentServer] Stream completed for session ${sessionId}`)
         } catch (streamError) {
-          console.error(`[RemoteAgentServer] Stream error for session ${sessionId}:`, streamError)
-          throw streamError // Re-throw to be caught by outer try/catch
+          // Check if this is an expected interrupt
+          const errorMessage = streamError instanceof Error ? streamError.message : String(streamError)
+          if (errorMessage === 'Stream interrupted' || errorMessage === 'Stream aborted') {
+            // Expected interrupt - mark and continue normally
+            wasInterrupted = true
+            console.log(`[RemoteAgentServer] Stream interrupted for session ${sessionId}`)
+          } else {
+            // Unexpected error - log and re-throw
+            console.error(`[RemoteAgentServer] Stream error for session ${sessionId}:`, streamError)
+            throw streamError
+          }
         }
 
-        console.log(`[RemoteAgentServer] Chat completed for session ${sessionId}`)
-        this.sendMessage(ws, {
-          type: 'claude:complete',
-          sessionId
-        })
+        // Check if session was interrupted (set by streamChat when interrupt detected)
+        if (this.claudeManager.checkAndClearInterrupt(sessionId)) {
+          wasInterrupted = true
+          console.log(`[RemoteAgentServer] Interrupt detected after streamChat for session ${sessionId}`)
+        }
+
+        // Only send claude:complete if not interrupted
+        if (!wasInterrupted) {
+          console.log(`[RemoteAgentServer] Chat completed for session ${sessionId}`)
+          this.sendMessage(ws, {
+            type: 'claude:complete',
+            sessionId
+          })
+        } else {
+          console.log(`[RemoteAgentServer] Chat interrupted for session ${sessionId}`)
+        }
       } else {
         // Non-streaming mode
         const response = await this.claudeManager.chat(sessionId, chatMessages, options)
@@ -466,6 +581,9 @@ export class RemoteAgentServer {
     this.clients.clear()
     this.server.close()
     this.claudeManager.closeAllSessions()
+    if (this.httpServer) {
+      this.httpServer.close()
+    }
     console.log('Server closed')
   }
 }

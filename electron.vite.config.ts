@@ -70,9 +70,15 @@ export default defineConfig({
         },
         output: {
           format: 'es',
-          entryFileNames: '[name].mjs'
+          entryFileNames: '[name].mjs',
+          // Make electron an external dependency
+          globals: {
+            electron: 'electron'
+          }
         }
-      }
+      },
+      // Don't bundle electron
+      external: ['electron']
     }
   },
   server: {

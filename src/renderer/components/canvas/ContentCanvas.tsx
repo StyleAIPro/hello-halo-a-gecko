@@ -26,6 +26,8 @@
 import { useCallback, useEffect } from 'react'
 import { X, ChevronLeft, Maximize2, Minimize2 } from 'lucide-react'
 import { useCanvasLifecycle, type TabState, type ContentType } from '../../hooks/useCanvasLifecycle'
+import { useSpaceStore } from '../../stores/space.store'
+import { useChatStore } from '../../stores/chat.store'
 import { CanvasTabBar } from './CanvasTabs'
 import { CodeViewer } from './viewers/CodeViewer'
 import { MarkdownViewer } from './viewers/MarkdownViewer'
@@ -37,6 +39,7 @@ import { TextViewer } from './viewers/TextViewer'
 import { BrowserViewer, BrowserViewerFallback } from './viewers/BrowserViewer'
 import { api } from '../../api'
 import { useTranslation } from '../../i18n'
+import { SharedTerminalPanel } from '../layout/SharedTerminalPanel'
 
 // Default URL for new browser tabs
 const DEFAULT_NEW_TAB_URL = 'https://www.bing.com'
@@ -286,19 +289,38 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
       )
 
     case 'terminal':
-      // Terminal view placeholder (future feature)
-      return (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center">
-            <p className="text-lg font-medium mb-2">{t('Terminal output')}</p>
-            <p className="text-sm text-muted-foreground">{t('This feature is coming soon')}</p>
-          </div>
-        </div>
-      )
+      // Terminal view - embedded shared terminal
+      return <TerminalView />
 
     default:
       return <TextViewer tab={tab} onScrollChange={onScrollChange} />
   }
+}
+
+/**
+ * Terminal View - Embedded shared terminal in Canvas
+ */
+function TerminalView() {
+  const currentSpace = useSpaceStore(state => state.currentSpace)
+  const conversationId = useChatStore.getState().getSpaceState(currentSpace?.id ?? '')?.currentConversationId || ''
+
+  if (!currentSpace?.id) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">No space selected</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full w-full">
+      <SharedTerminalPanel
+        spaceId={currentSpace.id}
+        conversationId={conversationId}
+        isVisible={true}
+      />
+    </div>
+  )
 }
 
 /**

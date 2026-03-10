@@ -70,7 +70,8 @@ export {
   ensureSessionWarm,
   closeV2Session,
   closeAllV2Sessions,
-  invalidateAllSessions
+  invalidateAllSessions,
+  compactContext
 } from './session-manager'
 
 // ============================================

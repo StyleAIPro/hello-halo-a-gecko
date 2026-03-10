@@ -18,7 +18,7 @@ import { useSpaceStore } from '../../stores/space.store'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useCanvasLifecycle } from '../../hooks/useCanvasLifecycle'
 import { useCanvasStore } from '../../stores/canvas.store'
-import { ChevronRight, FolderOpen, Monitor, LayoutGrid, FolderTree, X, Globe } from 'lucide-react'
+import { ChevronRight, FolderOpen, Monitor, LayoutGrid, FolderTree, X, Globe, Terminal as TerminalIcon } from 'lucide-react'
 import { ONBOARDING_ARTIFACT_NAME } from '../onboarding/onboardingData'
 import { useTranslation } from '../../i18n'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -43,6 +43,8 @@ interface ArtifactRailProps {
   // Width persistence
   initialWidth?: number             // Persisted width from config
   onWidthChange?: (width: number) => void  // Callback when user finishes resizing
+  // Terminal toggle
+  onToggleTerminal?: () => void  // Callback when user toggles terminal
 }
 
 // Load initial view mode from storage
@@ -92,7 +94,8 @@ export function ArtifactRail({
   externalExpanded,
   onExpandedChange,
   initialWidth,
-  onWidthChange
+  onWidthChange,
+  onToggleTerminal
 }: ArtifactRailProps) {
   const { t } = useTranslation()
 
@@ -110,7 +113,7 @@ export function ArtifactRail({
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   // Use external control if provided, otherwise internal state
   const isControlled = externalExpanded !== undefined
-  const [internalExpanded, setInternalExpanded] = useState(true)
+  const [internalExpanded, setInternalExpanded] = useState(false)  // Default collapsed
   const isExpanded = isControlled ? externalExpanded : internalExpanded
 
   const [isLoading, setIsLoading] = useState(false)
@@ -332,6 +335,11 @@ export function ArtifactRail({
     }
   }, [openUrl, isControlled, onExpandedChange])
 
+  // Handle toggle terminal
+  const handleToggleTerminal = useCallback(() => {
+    onToggleTerminal?.()
+  }, [onToggleTerminal])
+
   // Shared content renderer
   const renderContent = () => (
     <div className="flex-1 overflow-hidden">
@@ -414,6 +422,15 @@ export function ArtifactRail({
           >
             <Globe className="w-4 h-4 text-blue-500" />
             <span>{t('Browser')}</span>
+          </button>
+          {/* Toggle terminal button */}
+          <button
+            onClick={handleToggleTerminal}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground rounded-lg transition-colors"
+            title={t('Toggle terminal')}
+          >
+            <TerminalIcon className="w-4 h-4 text-green-500" />
+            <span>{t('Terminal')}</span>
           </button>
         </div>
       )}
@@ -594,6 +611,13 @@ export function ArtifactRail({
                 title={t('Open browser')}
               >
                 <Globe className="w-5 h-5 text-blue-500" />
+              </button>
+              <button
+                onClick={handleToggleTerminal}
+                className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                title={t('Open terminal')}
+              >
+                <TerminalIcon className="w-5 h-5 text-green-500" />
               </button>
             </>
           )}

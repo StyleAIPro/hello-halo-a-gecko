@@ -412,8 +412,20 @@ export function RemoteServersSection() {
       const result = await api.remoteServerUpdateAgent(serverId)
       console.log('[RemoteServersSection] Update result:', result)
       if (result.success) {
-        addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
-        alert(t('Agent updated successfully'))
+        // Show version info if available
+        const versionInfo = result.data as { remoteVersion?: string; remoteBuildTime?: string; localVersion?: string; localBuildTime?: string } | undefined
+        if (versionInfo?.remoteVersion) {
+          addTerminalEntry(serverId, 'success', `Agent updated successfully!`)
+          addTerminalEntry(serverId, 'output', `Local version: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? ` (Built: ${versionInfo.localBuildTime})` : ''}`)
+          addTerminalEntry(serverId, 'output', `Remote version: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? ` (Built: ${versionInfo.remoteBuildTime})` : ''}`)
+
+          // Also show in alert
+          let alertMessage = `${t('Agent updated successfully')}\n\n${t('Local version')}: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? `\n${t('Local build time')}: ${versionInfo.localBuildTime}` : ''}\n\n${t('Remote version')}: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? `\n${t('Remote build time')}: ${versionInfo.remoteBuildTime}` : ''}`
+          alert(alertMessage)
+        } else {
+          addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
+          alert(t('Agent updated successfully'))
+        }
         await loadServers()
       } else {
         addTerminalEntry(serverId, 'error', `Update failed: ${result.error}`)

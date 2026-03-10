@@ -7,7 +7,8 @@
  */
 
 import path from 'path'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import os from 'os'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync } from 'fs'
 import { app } from 'electron'
 import { ensureOpenAICompatRouter, encodeBackendConfig } from '../../openai-compat-router'
 import type { ApiCredentials } from './types'
@@ -156,7 +157,10 @@ async function resolveAnthropicPassthrough(
   credentials: ApiCredentials
 ): Promise<ResolvedSdkCredentials> {
   const router = await ensureOpenAICompatRouter({ debug: false })
-  const configUrl = credentials.baseUrl.replace(/\/+$/, '') + '/v1/messages'
+
+  // 确保 baseUrl 存在，如果不存在则使用默认值
+  const baseUrl = credentials.baseUrl || 'https://api.anthropic.com'
+  const configUrl = baseUrl.replace(/\/+$/, '') + '/v1/messages'
 
   const anthropicApiKey = encodeBackendConfig({
     url: configUrl,
@@ -293,9 +297,39 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     ANTHROPIC_API_KEY: params.anthropicApiKey,
     ANTHROPIC_BASE_URL: params.anthropicBaseUrl,
 
-    // Halo's own config dir (avoid conflicts with CC's ~/.claude)
+    // Halo's unified config dir at ~/.agents/
+    // Skills are stored in ~/.agents/skills/ and SDK config in ~/.agents/claude-config/
     CLAUDE_CONFIG_DIR: (() => {
-      const configDir = path.join(app.getPath('userData'), 'claude-config')
+      const agentsDir = path.join(os.homedir(), '.agents')
+      const configDir = path.join(agentsDir, 'claude-config')
+      const skillsDir = path.join(agentsDir, 'skills')
+      const configSkillsDir = path.join(configDir, 'skills')
+
+      // Ensure directories exist
+      if (!existsSync(agentsDir)) {
+        mkdirSync(agentsDir, { recursive: true })
+      }
+      if (!existsSync(configDir)) {
+        mkdirSync(configDir, { recursive: true })
+      }
+      if (!existsSync(skillsDir)) {
+        mkdirSync(skillsDir, { recursive: true })
+      }
+
+      // Create symlink from configDir/skills -> agentsDir/skills
+      // SDK looks for skills in $CLAUDE_CONFIG_DIR/skills/
+      // But SkillManager stores skills in ~/.agents/skills/
+      // So we create a symlink to bridge this gap
+      if (!existsSync(configSkillsDir)) {
+        try {
+          // Create symlink (relative path for portability)
+          symlinkSync(skillsDir, configSkillsDir, 'junction')
+          console.log('[SDK Config] Created skills symlink:', configSkillsDir, '->', skillsDir)
+        } catch (err) {
+          console.warn('[SDK Config] Failed to create skills symlink:', err)
+        }
+      }
+
       ensureSandboxSettings(configDir)
       return configDir
     })(),
@@ -379,8 +413,9 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     systemPrompt: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
-    // Enable Skills loading from $CLAUDE_CONFIG_DIR/skills/ and <workspace>/.claude/skills/
-    settingSources: ['user', 'project'],
+    // Enable Skills loading from $CLAUDE_CONFIG_DIR/skills/ ONLY (no project-level skills)
+    // All skills are managed globally in ~/.agents/skills/ via symlink
+    settingSources: ['user'],
     permissionMode: 'bypassPermissions' as const,
     canUseTool: createCanUseTool({
       sendToRenderer,
@@ -394,6 +429,15 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // Sandbox config is written to CLAUDE_CONFIG_DIR/settings.json (see ensureSandboxSettings)
     // instead of passing via SDK's sandbox option → --settings flag → tmpdir temp file.
     // This avoids CLI creating a temp file and chokidar watching the entire tmpdir.
+
+    // === Context Compression Configuration ===
+    // Enable automatic context compaction to prevent token overflow in long conversations
+    // Compact when context reaches 85% of model's context window
+    compactThreshold: 0.85,
+    // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
+    compactRetentionRatio: 0.5,
+    // Allow manual compaction via API
+    enableManualCompact: true,
   }
 
   // Add MCP servers if provided

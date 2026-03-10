@@ -5,7 +5,7 @@
 import { app } from 'electron'
 import { dirname, join } from 'path'
 import { homedir } from 'os'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, cpSync, rmSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 
 // Import analytics config type
@@ -444,6 +444,21 @@ export function getSpacesDir(): string {
   return join(getHaloDir(), 'spaces')
 }
 
+/**
+ * 获取全局 agents 目录 (~/.agents)
+ * 用于存储全局共享的 skills
+ */
+export function getAgentsDir(): string {
+  return join(homedir(), '.agents')
+}
+
+/**
+ * 获取全局 skills 目录 (~/.agents/skills)
+ */
+export function getAgentsSkillsDir(): string {
+  return join(getAgentsDir(), 'skills')
+}
+
 // Default model (Opus 4.5)
 const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
 
@@ -744,9 +759,10 @@ export async function initializeApp(): Promise<void> {
   const spacesDir = getSpacesDir()
   const tempArtifactsDir = join(tempDir, 'artifacts')
   const tempConversationsDir = join(tempDir, 'conversations')
+  const agentsSkillsDir = getAgentsSkillsDir()
 
   // Create directories if they don't exist
-  const dirs = [haloDir, tempDir, spacesDir, tempArtifactsDir, tempConversationsDir]
+  const dirs = [haloDir, tempDir, spacesDir, tempArtifactsDir, tempConversationsDir, agentsSkillsDir]
   for (const dir of dirs) {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
@@ -769,6 +785,71 @@ export async function initializeApp(): Promise<void> {
   // Previously, migration ran inside every getConfig() call without persisting,
   // generating new UUIDs each time and causing inconsistent currentIds.
   migrateAiSourcesToV2OnDisk()
+
+  // Migrate skills to ~/.agents/skills/
+  migrateSkillsToAgentsDir()
+}
+
+/**
+ * Migrate existing skills from ~/.halo/skills/ and space-level skills to ~/.agents/skills/
+ */
+function migrateSkillsToAgentsDir(): void {
+  const agentsSkillsDir = getAgentsSkillsDir()
+
+  // Ensure target directory exists
+  if (!existsSync(agentsSkillsDir)) {
+    mkdirSync(agentsSkillsDir, { recursive: true })
+  }
+
+  // Migrate global skills from ~/.halo/skills/
+  const oldGlobalSkillsDir = join(getHaloDir(), 'skills')
+  if (existsSync(oldGlobalSkillsDir)) {
+    try {
+      const entries = readdirSync(oldGlobalSkillsDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const srcPath = join(oldGlobalSkillsDir, entry.name)
+          const destPath = join(agentsSkillsDir, entry.name)
+          if (!existsSync(destPath)) {
+            cpSync(srcPath, destPath, { recursive: true })
+            console.log(`[Migration] Migrated global skill: ${entry.name}`)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Migration] Failed to migrate global skills:', error)
+    }
+  }
+
+  // Migrate space-level skills (merge into global, skip if already exists)
+  const spacesDir = getSpacesDir()
+  if (existsSync(spacesDir)) {
+    try {
+      const spaces = readdirSync(spacesDir, { withFileTypes: true })
+      for (const space of spaces) {
+        if (space.isDirectory()) {
+          const spaceSkillsDir = join(spacesDir, space.name, '.halo', 'skills')
+          if (existsSync(spaceSkillsDir)) {
+            const skills = readdirSync(spaceSkillsDir, { withFileTypes: true })
+            for (const skill of skills) {
+              if (skill.isDirectory()) {
+                const srcPath = join(spaceSkillsDir, skill.name)
+                const destPath = join(agentsSkillsDir, skill.name)
+                if (!existsSync(destPath)) {
+                  cpSync(srcPath, destPath, { recursive: true })
+                  console.log(`[Migration] Migrated space skill: ${skill.name} from space ${space.name}`)
+                } else {
+                  console.log(`[Migration] Skill ${skill.name} already exists globally, skipping space ${space.name} version`)
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Migration] Failed to migrate space skills:', error)
+    }
+  }
 }
 
 // Get configuration

@@ -1,0 +1,287 @@
+/**
+ * Shared Terminal Panel Styles
+ *
+ * Layout: Left/Right split
+ * - Left: Agent Command Viewer (read-only)
+ * - Right: User Terminal (interactive)
+ */
+
+.shared-terminal-panel {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  background: #0d0d0d;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Header */
+.shared-terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.shared-terminal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.terminal-status {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.terminal-status.connected {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.terminal-status.disconnected {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.terminal-status.connecting {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.shared-terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 12px;
+}
+
+.terminal-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e0e0e0;
+}
+
+.terminal-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Agent Panel Toggle with Status Dot */
+.agent-panel-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Status Dot - 蓝点闪烁（运行时）, 绿点（完成） */
+.status-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: blink-blue 1.5s ease-in-out infinite;
+}
+
+.status-dot.running {
+  background: #3b82f6;
+  animation: blink-blue 1.5s ease-in-out infinite;
+}
+
+.status-dot.completed {
+  background: #22c55e;
+  animation: none;
+  opacity: 1;
+}
+
+@keyframes blink-blue {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+}
+
+/* Body - Left/Right Split */
+.shared-terminal-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  /* Prevent any resize behavior */
+  resize: none;
+}
+
+/* Terminal Panes - Allow flexible sizing with resize handle */
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-pane.agent-pane {
+  flex: 0 0 40%;
+  min-width: 200px;
+}
+
+.terminal-pane.user-pane {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Resize Handle */
+.terminal-resize-handle {
+  width: 4px;
+  background: #333;
+  cursor: col-resize;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.terminal-resize-handle:hover {
+  background: #666;
+}
+
+.terminal-resize-handle:active {
+  background: #888;
+}
+
+/* Collapsible Agent Panel */
+.shared-terminal-body[data-show-agent="false"] .terminal-pane.agent-pane {
+  display: none;
+}
+
+.shared-terminal-body[data-show-agent="false"] .terminal-resize-handle {
+  display: none;
+}
+
+/* User pane expands when agent panel is hidden */
+.shared-terminal-body[data-show-agent="false"] .terminal-pane.user-pane {
+  flex: 1;
+  max-width: none;
+  min-width: 100%;
+}
+
+.shared-terminal-body[data-show-agent="true"] .terminal-pane.user-pane {
+  flex: 1;
+}
+
+.terminal-pane:last-child {
+  border-right: none;
+}
+
+.terminal-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #151515;
+  border-bottom: 1px solid #2a2a2a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pane-title {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.pane-subtitle {
+  color: #666;
+  font-weight: 400;
+}
+
+/* Pane Action Button - push to right side of header */
+.pane-action-btn {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.agent-pane .pane-title {
+  color: #6eb5ff;
+}
+
+.user-pane .pane-title {
+  color: #50fa7b;
+}
+
+/* Terminal Instances */
+.terminal-instance {
+  flex: 1;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.agent-terminal {
+  background: #1a1a2e;
+}
+
+.user-terminal {
+  background: #1e1e1e;
+}
+
+/* Scrollbar Styling */
+.terminal-instance ::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-instance ::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.terminal-instance ::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+.terminal-instance ::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* Responsive - Stack on small screens */
+@media (max-width: 768px) {
+  .shared-terminal-body {
+    flex-direction: column;
+  }
+
+  .terminal-pane {
+    border-right: none;
+    border-bottom: 1px solid #333;
+  }
+
+  .terminal-pane:last-child {
+    border-bottom: none;
+  }
+}

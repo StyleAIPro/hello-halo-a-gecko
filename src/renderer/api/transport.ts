@@ -221,7 +221,11 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'app:activity_entry:new': 'onAppActivityEntry',
       'app:escalation:new': 'onAppEscalation',
       'app:navigate': 'onAppNavigate',
-      'notification:toast': 'onNotificationToast'
+      'notification:toast': 'onNotificationToast',
+      // Terminal agent command events
+      'terminal:agent-command-start': 'onTerminalAgentCommandStart',
+      'terminal:agent-command-output': 'onTerminalAgentCommandOutput',
+      'terminal:agent-command-complete': 'onTerminalAgentCommandComplete'
     }
 
     const method = methodMap[channel]

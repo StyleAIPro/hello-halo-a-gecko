@@ -620,6 +620,38 @@ class CanvasLifecycle {
   }
 
   /**
+   * Open terminal in Canvas
+   */
+  async openTerminal(): Promise<string> {
+    // Check if terminal is already open
+    for (const [tabId, tab] of this.tabs) {
+      if (tab.type === 'terminal') {
+        await this.switchTab(tabId)
+        return tabId
+      }
+    }
+
+    // Create terminal tab
+    const tabId = generateTabId()
+    const tab: TabState = {
+      id: tabId,
+      type: 'terminal',
+      title: 'Terminal',
+      isDirty: false,
+      isLoading: false,
+    }
+
+    this.tabs.set(tabId, tab)
+    this.setOpen(true)
+    this.notifyTabsChange()
+
+    // Switch to new tab
+    await this.switchTab(tabId)
+
+    return tabId
+  }
+
+  /**
    * Attach an existing AI Browser BrowserView to the Canvas
    */
   async attachAIBrowserView(viewId: string, url: string, title?: string): Promise<string> {

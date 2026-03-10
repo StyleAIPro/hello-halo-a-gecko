@@ -16,7 +16,7 @@ import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { MessageList } from './MessageList'
 import type { MessageListHandle } from './MessageList'
-import { InputArea } from './InputArea'
+import { InputArea, type InputAreaRef } from './InputArea'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { Sparkles } from '../icons/ToolIcons'
 import {
@@ -72,6 +72,23 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
   // MessageList ref for scroll control (Virtuoso-based)
   const messageListRef = useRef<MessageListHandle>(null)
+
+  // InputArea ref for appending content from terminal
+  const inputAreaRef = useRef<InputAreaRef>(null)
+
+  // Listen for terminal append events
+  useEffect(() => {
+    const handleAppendTerminalContent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ content: string }>
+      const { content } = customEvent.detail
+      if (content && inputAreaRef.current) {
+        inputAreaRef.current.appendContent(content)
+      }
+    }
+
+    window.addEventListener('append-terminal-content', handleAppendTerminalContent)
+    return () => window.removeEventListener('append-terminal-content', handleAppendTerminalContent)
+  }, [])
 
   // Scroll-to-bottom button visibility — driven by Virtuoso's atBottomStateChange
   const [showScrollButton, setShowScrollButton] = useState(false)
@@ -178,7 +195,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const currentConversation = getCurrentConversation()
   const { isLoadingConversation } = useChatStore()
   const session = getCurrentSession()
-  const { isGenerating, streamingContent, isStreaming, thoughts, isThinking, compactInfo, error, errorType, textBlockVersion, pendingQuestion } = session
+  const { isGenerating, isStopping, streamingContent, isStreaming, thoughts, isThinking, compactInfo, error, errorType, textBlockVersion, pendingQuestion } = session
 
   const onboardingPrompt = getOnboardingPrompt(t)
   const onboardingResponse = getOnboardingAiResponse(t)
@@ -340,11 +357,15 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
       {/* Input area */}
       <InputArea
+        ref={inputAreaRef}
         onSend={handleSend}
         onStop={handleStop}
         isGenerating={isGenerating}
+        isStopping={isStopping}
         placeholder={isCompact ? t('Continue conversation...') : (currentSpace?.isTemp ? t('Say something to Halo...') : t('Continue conversation...'))}
         isCompact={isCompact}
+        spaceId={currentSpace?.id}
+        conversationId={currentConversation?.id}
       />
     </div>
   )

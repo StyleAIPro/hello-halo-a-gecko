@@ -19,8 +19,8 @@
  * - Bottom toolbar for future extensibility
  */
 
-import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, DragEvent } from 'react'
-import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe } from 'lucide-react'
+import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
+import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes } from 'lucide-react'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { getOnboardingPrompt } from '../onboarding/onboardingData'
@@ -28,13 +28,17 @@ import { ImageAttachmentPreview } from './ImageAttachmentPreview'
 import { processImage, isValidImageType, formatFileSize } from '../../utils/imageProcessor'
 import type { ImageAttachment } from '../../types'
 import { useTranslation } from '../../i18n'
+import { api } from '../../api'
 
 interface InputAreaProps {
   onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean) => void
   onStop: () => void
   isGenerating: boolean
+  isStopping?: boolean  // True when user clicked stop, waiting for cleanup
   placeholder?: string
   isCompact?: boolean
+  spaceId?: string
+  conversationId?: string
 }
 
 // Image constraints
@@ -47,7 +51,15 @@ interface ImageError {
   message: string
 }
 
-export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact = false }: InputAreaProps) {
+export interface InputAreaRef {
+  appendContent: (newContent: string) => void
+  setContent: (newContent: string) => void
+}
+
+function InputAreaInternal(
+  { onSend, onStop, isGenerating, isStopping = false, placeholder, isCompact = false, spaceId, conversationId }: InputAreaProps,
+  ref: ForwardedRef<InputAreaRef>
+) {
   const { t } = useTranslation()
   const [content, setContent] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -57,12 +69,35 @@ export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact
   const [imageError, setImageError] = useState<ImageError | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
   const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
+  const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
 
   // AI Browser state
   const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore()
+
+  // Expose methods to parent components via ref
+  useImperativeHandle(ref, () => ({
+    appendContent: (newContent: string) => {
+      setContent(prev => {
+        const separator = prev.trim() ? '\n\n' : ''
+        return prev + separator + newContent
+      })
+      // Focus and move cursor to end
+      setTimeout(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length)
+      }, 50)
+    },
+    setContent: (newContent: string) => {
+      setContent(newContent)
+      setTimeout(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length)
+      }, 50)
+    }
+  }), [])
 
   // Auto-clear error after 3 seconds
   useEffect(() => {
@@ -286,6 +321,25 @@ export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact
   const canSend = isOnboardingSendStep || ((content.trim().length > 0 || images.length > 0) && !isGenerating && !isProcessingImages)
   const hasImages = images.length > 0
 
+  // Handle context compression
+  const handleCompactContext = async () => {
+    if (!conversationId || isCompacting) return
+
+    setIsCompacting(true)
+    try {
+      const result = await api.compactContext(conversationId)
+      if (result.success) {
+        console.log('[InputArea] Context compacted successfully')
+      } else {
+        console.error('[InputArea] Failed to compact context:', result.error)
+      }
+    } catch (error) {
+      console.error('[InputArea] Error compacting context:', error)
+    } finally {
+      setIsCompacting(false)
+    }
+  }
+
   return (
     <div className={`
       border-t border-border/50 bg-background/80 backdrop-blur-sm
@@ -380,6 +434,7 @@ export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact
           {/* Bottom toolbar - always visible, industry standard layout */}
           <InputToolbar
             isGenerating={isGenerating}
+            isStopping={isStopping}
             isOnboarding={isOnboardingSendStep}
             isProcessingImages={isProcessingImages}
             thinkingEnabled={thinkingEnabled}
@@ -395,12 +450,16 @@ export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact
             canSend={canSend}
             onSend={handleSend}
             onStop={onStop}
+            onCompactContext={handleCompactContext}
+            isCompacting={isCompacting}
           />
         </div>
       </div>
     </div>
   )
 }
+
+export const InputArea = forwardRef<InputAreaRef, InputAreaProps>(InputAreaInternal)
 
 /**
  * Input Toolbar - Bottom action bar
@@ -410,6 +469,7 @@ export function InputArea({ onSend, onStop, isGenerating, placeholder, isCompact
  */
 interface InputToolbarProps {
   isGenerating: boolean
+  isStopping: boolean  // True when user clicked stop, waiting for cleanup
   isOnboarding: boolean
   isProcessingImages: boolean
   thinkingEnabled: boolean
@@ -425,10 +485,13 @@ interface InputToolbarProps {
   canSend: boolean
   onSend: () => void
   onStop: () => void
+  onCompactContext: () => void
+  isCompacting: boolean
 }
 
 function InputToolbar({
   isGenerating,
+  isStopping,
   isOnboarding,
   isProcessingImages,
   thinkingEnabled,
@@ -443,12 +506,14 @@ function InputToolbar({
   attachMenuRef,
   canSend,
   onSend,
-  onStop
+  onStop,
+  onCompactContext,
+  isCompacting
 }: InputToolbarProps) {
   const { t } = useTranslation()
   return (
     <div className="flex items-center justify-between px-2 pb-2 pt-1">
-      {/* Left section: attachment button + thinking toggle */}
+      {/* Left section: attachment button + thinking toggle + compact button */}
       <div className="flex items-center gap-1">
         {/* Attachment menu */}
         {!isGenerating && !isOnboarding && (
@@ -537,21 +602,57 @@ function InputToolbar({
             <span className="text-xs">{t('Deep Thinking')}</span>
           </button>
         )}
+
+        {/* Context compression button - triggers manual context compaction */}
+        {!isGenerating && !isOnboarding && (
+          <button
+            onClick={onCompactContext}
+            disabled={isCompacting}
+            className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg
+              transition-colors duration-200
+              ${isCompacting
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
+              }
+              ${isCompacting ? 'cursor-not-allowed' : ''}
+            `}
+            title={isCompacting ? t('Compressing context...') : t('Compress context (free memory)')}
+          >
+            {isCompacting ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Boxes size={15} />
+            )}
+            <span className="text-xs">{t('Compress')}</span>
+          </button>
+        )}
       </div>
 
       {/* Right section: action button only */}
       <div className="flex items-center">
         {isGenerating ? (
-          <button
-            onClick={onStop}
-            className="w-8 h-8 flex items-center justify-center
-              bg-destructive/10 text-destructive rounded-lg
-              hover:bg-destructive/20 active:bg-destructive/30
-              transition-all duration-150"
-            title={t('Stop generation (Esc)')}
-          >
-            <div className="w-3 h-3 border-2 border-current rounded-sm" />
-          </button>
+          isStopping ? (
+            // Stopping state: show spinner, disable click
+            <div
+              className="w-8 h-8 flex items-center justify-center
+                bg-muted/50 text-muted-foreground rounded-lg cursor-not-allowed"
+              title={t('Stopping...')}
+            >
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          ) : (
+            // Normal stop button
+            <button
+              onClick={onStop}
+              className="w-8 h-8 flex items-center justify-center
+                bg-destructive/10 text-destructive rounded-lg
+                hover:bg-destructive/20 active:bg-destructive/30
+                transition-all duration-150"
+              title={t('Stop generation (Esc)')}
+            >
+              <div className="w-3 h-3 border-2 border-current rounded-sm" />
+            </button>
+          )
         ) : (
           <button
             data-onboarding="send-button"

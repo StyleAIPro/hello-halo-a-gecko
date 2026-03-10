@@ -141,3 +141,6 @@ export interface CreateSpaceInput {
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
 }
+
+// Hyper Space types
+export * from './hyper-space'

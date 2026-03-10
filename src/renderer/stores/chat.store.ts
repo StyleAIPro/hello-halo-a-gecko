@@ -24,6 +24,7 @@ import { api } from '../api'
 import type { Conversation, ConversationMeta, Message, ToolCall, Artifact, Thought, AgentEventBase, ImageAttachment, CompactInfo, CanvasContext, AgentErrorType, PendingQuestion, Question, TaskStatus, PulseItem } from '../types'
 import { PULSE_READ_GRACE_PERIOD_MS } from '../types'
 import { canvasLifecycle } from '../services/canvas-lifecycle'
+import { useTerminalStore } from './terminal.store'
 
 // LRU cache size limit
 const CONVERSATION_CACHE_SIZE = 10
@@ -40,6 +41,7 @@ interface SpaceState {
 // Per-session runtime state (isolated per conversation, persists across space switches)
 interface SessionState {
   isGenerating: boolean
+  isStopping: boolean  // True when user clicked stop, waiting for cleanup
   streamingContent: string
   isStreaming: boolean  // True during token-level text streaming
   thoughts: Thought[]
@@ -59,6 +61,7 @@ interface SessionState {
 function createEmptySessionState(): SessionState {
   return {
     isGenerating: false,
+    isStopping: false,
     streamingContent: '',
     isStreaming: false,
     thoughts: [],
@@ -170,6 +173,16 @@ interface ChatState {
   // AskUserQuestion handlers
   handleAskQuestion: (data: AgentEventBase & { id: string; questions: Question[] }) => void
   answerQuestion: (conversationId: string, answers: Record<string, string>) => Promise<void>
+
+  // Hyper Space handlers
+  handleHyperSpaceProgress: (data: {
+    spaceId: string
+    conversationId: string
+    taskId: string
+    agentId: string
+    delta: string
+    timestamp: number
+  }) => void
 
   // Thoughts lazy loading
   loadMessageThoughts: (spaceId: string, conversationId: string, messageId: string) => Promise<Thought[]>
@@ -394,8 +407,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conversationMeta = spaceState.conversations.find((c) => c.id === conversationId)
     if (!conversationMeta) return
 
+    // If Canvas is open, close it before switching conversations
+    // This ensures clean terminal state for the new conversation
+    const { isOpen: canvasIsOpen } = canvasLifecycle
+    if (canvasIsOpen) {
+      canvasLifecycle.setOpen(false)
+    }
+
     // Subscribe to conversation events (for remote mode)
     api.subscribeToConversation(conversationId)
+
+    // Switch terminal state to the new conversation
+    useTerminalStore.getState().switchConversation(conversationId)
 
     // Update the pointer + move unseen/error items to readAt grace period
     set((state) => {
@@ -490,18 +513,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     // Check if this conversation has an active session and recover thoughts
-    // Only recover if the session was already marked as generating in the frontend
-    // This prevents restoring stale state from terminated sessions
+    // This handles page refresh during active generation - backend still has active session
+    // but frontend state was lost, so we need to restore it
     try {
       const response = await api.getSessionState(conversationId)
       if (response.success && response.data) {
-        const sessionState = response.data as { isActive: boolean; thoughts: Thought[]; spaceId?: string }
-        const currentSession = get().sessions.get(conversationId)
+        const sessionState = response.data as { isActive: boolean; thoughts: Thought[]; streamingContent?: string; spaceId?: string }
 
-        // Only recover state if frontend already has this session as active
-        // This prevents restoring stale state after user has switched away
-        if (sessionState.isActive && sessionState.thoughts.length > 0 && currentSession?.isGenerating) {
-          console.log(`[ChatStore] Recovering ${sessionState.thoughts.length} thoughts for conversation ${conversationId}`)
+        // If backend reports active session, restore frontend state
+        // This handles page refresh during streaming - we need to set isGenerating=true
+        // so that subsequent stream events are not ignored
+        if (sessionState.isActive) {
+          const hasThoughts = sessionState.thoughts.length > 0
+          const hasStreamingContent = (sessionState.streamingContent?.length ?? 0) > 0
+          console.log(`[ChatStore] Recovering active session for conversation ${conversationId}: ${hasThoughts ? `${sessionState.thoughts.length} thoughts` : 'no thoughts yet'}${hasStreamingContent ? `, ${sessionState.streamingContent!.length} chars streaming` : ''}`)
 
           set((state) => {
             const newSessions = new Map(state.sessions)
@@ -509,8 +534,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             newSessions.set(conversationId, {
               ...existingSession,
-              isThinking: true,
-              thoughts: sessionState.thoughts
+              // CRITICAL: Set isGenerating=true so subsequent stream events are processed
+              // Without this, events are ignored due to the check in handleAgentThought/handleAgentMessage
+              isGenerating: true,
+              isStreaming: true,
+              isThinking: hasThoughts,
+              thoughts: hasThoughts ? sessionState.thoughts : existingSession.thoughts,
+              // Restore streaming content if available (for remote sessions)
+              streamingContent: sessionState.streamingContent || existingSession.streamingContent
             })
 
             return { sessions: newSessions }
@@ -690,6 +721,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const newSessions = new Map(state.sessions)
         newSessions.set(conversationId, {
           isGenerating: true,
+          isStopping: false,  // Initialize stopping state
           streamingContent: '',
           isStreaming: false,
           thoughts: [],
@@ -801,32 +833,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Stop generation for a specific conversation
   stopGeneration: async (conversationId?: string) => {
     const targetId = conversationId || get().getCurrentSpaceState().currentConversationId
-    try {
-      await api.stopGeneration(targetId)
+    if (!targetId) return
 
-      if (targetId) {
-        set((state) => {
-          const newSessions = new Map(state.sessions)
-          const session = newSessions.get(targetId)
-          if (session) {
-            newSessions.set(targetId, {
-              ...session,
-              isGenerating: false,
-              isThinking: false,
-              streamingContent: '',      // 清理流式内容
-              thoughts: [],              // 清理思考数据
-              textBlockVersion: 0,       // 重置文本块版本
-              // Mark pending question as cancelled on stop
-              pendingQuestion: session.pendingQuestion?.status === 'active'
-                ? { ...session.pendingQuestion, status: 'cancelled' as const }
-                : session.pendingQuestion
-            })
-          }
-          return { sessions: newSessions }
+    // Step 1: Immediately set isStopping=true to show "stopping..." UI
+    // Keep isGenerating=true so user can't send new messages during stop
+    set((state) => {
+      const newSessions = new Map(state.sessions)
+      const session = newSessions.get(targetId)
+      if (session && session.isGenerating) {
+        newSessions.set(targetId, {
+          ...session,
+          isStopping: true,  // Show stopping state
+          // Keep isGenerating=true to prevent new messages
+          // Keep streamingContent and thoughts - they will be preserved
         })
       }
+      return { sessions: newSessions }
+    })
+
+    try {
+      // Step 2: Send stop request to backend
+      await api.stopGeneration(targetId)
+      // Note: isGenerating and isStopping will be cleared in handleAgentComplete
+      // This ensures we wait for backend to finish cleanup and save content
     } catch (error) {
       console.error('Failed to stop generation:', error)
+      // On error, clear stopping state
+      set((state) => {
+        const newSessions = new Map(state.sessions)
+        const session = newSessions.get(targetId)
+        if (session) {
+          newSessions.set(targetId, {
+            ...session,
+            isStopping: false,
+            isGenerating: false,
+          })
+        }
+        return { sessions: newSessions }
+      })
     }
   },
 
@@ -902,7 +946,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => {
       const newSessions = new Map(state.sessions)
-      const session = newSessions.get(conversationId) || createEmptySessionState()
+      const session = newSessions.get(conversationId)
+
+      // CRITICAL: Ignore events if not generating or if stopping
+      // This prevents stale events from previous requests after interrupt
+      if (!session?.isGenerating || session?.isStopping) {
+        console.log(`[ChatStore] Ignoring agent message - not generating or stopping: ${conversationId}`)
+        return state
+      }
 
       // New text block signal: increment version number
       // StreamingBubble detects version change to reset activeSnapshotLen
@@ -938,7 +989,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (toolCall.requiresApproval) {
       set((state) => {
         const newSessions = new Map(state.sessions)
-        const session = newSessions.get(conversationId) || createEmptySessionState()
+        const session = newSessions.get(conversationId)
+
+        // CRITICAL: Ignore events if not generating or if stopping
+        // This prevents stale events from previous requests after interrupt
+        if (!session?.isGenerating || session?.isStopping) {
+          console.log(`[ChatStore] Ignoring agent tool call - not generating or stopping: ${conversationId}`)
+          return state
+        }
+
         newSessions.set(conversationId, {
           ...session,
           pendingToolApproval: toolCall as ToolCall
@@ -979,8 +1038,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         errorType: errorType || null,
         isGenerating: false,
         isThinking: false,
-        // Only add error thought for non-interrupted errors
-        thoughts: errorType === 'interrupted' ? session.thoughts : [...session.thoughts, errorThought],
+        isStopping: false,  // Clear stopping state on error
+        isStreaming: false, // Clear streaming state on error
+        // CRITICAL FIX: Always clear thoughts on error to prevent stale data leaking to next message
+        // Interrupted errors should not retain old thoughts - they will be loaded from backend if persisted
+        thoughts: errorType === 'interrupted' ? [] : [...session.thoughts, errorThought],
         // Mark pending question as cancelled on error
         pendingQuestion: session.pendingQuestion?.status === 'active'
           ? { ...session.pendingQuestion, status: 'cancelled' as const }
@@ -1083,6 +1145,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             newSessions.set(conversationId, {
               ...currentSession,
               isGenerating: false,
+              isStopping: false,        // Clear stopping state
               isThinking: false,        // 清理思考状态
               streamingContent: '',
               thoughts: [],             // 清理思考数据
@@ -1104,6 +1167,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (error) {
       console.error('[ChatStore] Failed to reload conversation:', error)
       // Even on error, must clear state to avoid stale content
+      // CRITICAL: Must also clear isStopping to prevent UI stuck in "stopping" state
       set((state) => {
         const newSessions = new Map(state.sessions)
         const currentSession = newSessions.get(conversationId)
@@ -1111,7 +1175,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           newSessions.set(conversationId, {
             ...currentSession,
             isGenerating: false,
+            isStopping: false,  // CRITICAL: Clear stopping state (fix for remote space stop button stuck)
+            isThinking: false,  // Clear thinking state
             streamingContent: '',
+            thoughts: [],       // Clear thoughts
             compactInfo: null,  // Clear temporary compact notification
             pendingQuestion: null  // Clear pending question
           })
@@ -1128,7 +1195,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => {
       const newSessions = new Map(state.sessions)
-      const session = newSessions.get(conversationId) || createEmptySessionState()
+      const session = newSessions.get(conversationId)
+
+      // CRITICAL: Ignore events if not generating or if stopping
+      // This prevents stale events from previous requests after interrupt
+      if (!session?.isGenerating || session?.isStopping) {
+        console.log(`[ChatStore] Ignoring agent thought - not generating or stopping: ${conversationId}`)
+        return state
+      }
 
       // Check if thought with same id already exists (avoid duplicates after recovery)
       const existingIds = new Set(session.thoughts.map(t => t.id))
@@ -1158,7 +1232,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const newSessions = new Map(state.sessions)
       const session = newSessions.get(conversationId)
-      if (!session) return state
+
+      // CRITICAL: Ignore events if not generating or if stopping
+      // This prevents stale events from previous requests after interrupt
+      if (!session?.isGenerating || session?.isStopping) {
+        console.log(`[ChatStore] Ignoring agent thought delta - not generating or stopping: ${conversationId}`)
+        return state
+      }
 
       // Find the thought to update
       const thoughtIndex = session.thoughts.findIndex(t => t.id === thoughtId)
@@ -1213,7 +1293,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => {
       const newSessions = new Map(state.sessions)
-      const session = newSessions.get(conversationId) || createEmptySessionState()
+      const session = newSessions.get(conversationId)
+
+      // CRITICAL: Ignore events if not generating or if stopping
+      // This prevents stale events from previous requests after interrupt
+      if (!session?.isGenerating || session?.isStopping) {
+        console.log(`[ChatStore] Ignoring agent compact - not generating or stopping: ${conversationId}`)
+        return state
+      }
 
       newSessions.set(conversationId, {
         ...session,
@@ -1230,7 +1317,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => {
       const newSessions = new Map(state.sessions)
-      const session = newSessions.get(conversationId) || createEmptySessionState()
+      const session = newSessions.get(conversationId)
+
+      // CRITICAL: Ignore events if not generating or if stopping
+      // This prevents stale events from previous requests after interrupt
+      if (!session?.isGenerating || session?.isStopping) {
+        console.log(`[ChatStore] Ignoring ask question - not generating or stopping: ${conversationId}`)
+        return state
+      }
 
       newSessions.set(conversationId, {
         ...session,
@@ -1275,6 +1369,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })
     } catch (error) {
       console.error('[ChatStore] Failed to answer question:', error)
+    }
+  },
+
+  // Handle Hyper Space progress updates from subagents
+  handleHyperSpaceProgress: (data) => {
+    const { spaceId, conversationId, taskId, agentId, delta, timestamp } = data
+    console.log(`[ChatStore] handleHyperSpaceProgress [${conversationId}] task=${taskId}, agent=${agentId}`)
+
+    // For now, we'll log the progress and potentially show it in the UI
+    // This could be extended to show a progress indicator or subagent status panel
+    // The streaming content from subagents is aggregated by the orchestrator
+
+    // Check if user is currently viewing this conversation
+    const state = get()
+    const currentSpaceState = state.spaceStates.get(spaceId)
+    const isViewing = currentSpaceState?.currentConversationId === conversationId
+
+    if (isViewing) {
+      // Could update UI state here to show subagent progress
+      // For now, just log it
+      console.log(`[ChatStore] Subagent ${agentId} progress on task ${taskId}: ${delta.length} chars`)
     }
   },
 

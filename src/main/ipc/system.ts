@@ -7,6 +7,8 @@ import { dirname } from 'path'
 import log from 'electron-log/main.js'
 import { setAutoLaunch, getAutoLaunch } from '../services/config.service'
 import { getMainWindow, onMainWindowChange } from '../services/window.service'
+import { getServerInfo } from '../http/server'
+import { validateToken } from '../http/auth'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -140,6 +142,66 @@ export function registerSystemHandlers(): void {
     } catch (error) {
       const err = error as Error
       console.error('[Settings] system:open-log-folder - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Get terminal WebSocket URL
+  ipcMain.handle('system:get-terminal-websocket-url', async (_event, spaceId: string, conversationId: string) => {
+    try {
+      // For local Electron mode, use a simple local token
+      // Token validation in TerminalGateway will accept this for local connections
+      const serverInfo = getServerInfo()
+      const token = serverInfo.token || 'local-electron-mode'
+
+      // Construct WebSocket URL
+      const wsUrl = `ws://localhost:8765/terminal?spaceId=${spaceId}&conversationId=${conversationId}&token=${token}`
+
+      console.log(`[Terminal] WebSocket URL generated for space=${spaceId}, conv=${conversationId}`)
+      return { success: true, data: { wsUrl } }
+    } catch (error) {
+      const err = error as Error
+      console.error('[Terminal] Failed to get terminal WebSocket URL:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Send command to user terminal
+  ipcMain.handle('terminal:send-command', async (_event, { spaceId, conversationId, command }: { spaceId: string, conversationId: string, command: string }) => {
+    try {
+      const { terminalGateway } = await import('../services/terminal/terminal-gateway')
+
+      // Send command to terminal gateway
+      terminalGateway.onUserCommand(spaceId, conversationId, command)
+
+      console.log(`[Terminal] Command sent: ${command}`)
+      return { success: true }
+    } catch (error) {
+      const err = error as Error
+      console.error('[Terminal] Failed to send command:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Get recent terminal output
+  ipcMain.handle('terminal:get-output', async (_event, { spaceId, conversationId, lines }: { spaceId: string, conversationId: string, lines?: number }) => {
+    try {
+      const { sharedTerminalService } = await import('../services/terminal/shared-terminal-service')
+
+      const sessionId = `${spaceId}:${conversationId}`
+      const session = sharedTerminalService.getSession(sessionId)
+
+      if (!session) {
+        return { success: false, error: 'No active terminal session' }
+      }
+
+      const outputLines = session.getRecentOutput(lines || 50)
+      const lineContents = outputLines.map(line => line.content)
+
+      return { success: true, data: { lines: lineContents } }
+    } catch (error) {
+      const err = error as Error
+      console.error('[Terminal] Failed to get terminal output:', err.message)
       return { success: false, error: err.message }
     }
   })
