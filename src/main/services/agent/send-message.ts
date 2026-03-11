@@ -1259,11 +1259,12 @@ async function executeRemoteMessage(
       }
     )
 
-    console.log(`[Agent][Remote] Received response from remote Claude: ${response.substring(0, 100)}...`)
+    console.log(`[Agent][Remote] Received response from remote Claude: ${response.content?.substring(0, 100)}...`)
 
     // Send final message content (the streaming already sent deltas)
+    // response is { content: string, tokenUsage?: any }
     sendToRenderer('agent:message', spaceId, conversationId, {
-      content: streamingContent || response,
+      content: streamingContent || response.content,
       isComplete: true,
       isStreaming: false
     })
@@ -1288,12 +1289,14 @@ async function executeRemoteMessage(
     // Update the assistant message with the response
     // Note: Don't include toolCalls in final message - tools are already shown in thinking process
     // Instead, show file changes summary (aligned with local space behavior)
+    // response is { content: string, tokenUsage?: any }
     updateLastMessage(spaceId, conversationId, {
-      content: streamingContent || response,
+      content: streamingContent || response.content,
       // toolCalls is intentionally NOT included - tools are displayed in thinking process
       terminalOutputs: terminalOutputs.length > 0 ? terminalOutputs : undefined,
       thoughts: thoughts.length > 0 ? thoughts : undefined,
-      metadata
+      metadata,
+      tokenUsage: response.tokenUsage
     })
 
     // Save session ID for future resumption

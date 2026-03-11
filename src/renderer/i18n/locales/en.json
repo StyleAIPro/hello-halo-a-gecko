@@ -1005,5 +1005,9 @@
   "Terminal content appended to input": "Terminal content appended to input",
   "Terminal not ready": "Terminal not ready",
   "No terminal content to append": "No terminal content to append",
-  "No commands to export": "No commands to export"
+  "No commands to export": "No commands to export",
+  "Compress context (free memory)": "Compress context (free memory)",
+  "Compress": "Compress",
+  "Loading skills...": "Loading skills...",
+  "Sync": "Sync"
 }

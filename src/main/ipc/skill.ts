@@ -48,13 +48,17 @@ export function registerSkillHandlers(
   // ── skill:install ──────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:install',
-    async (_event, input: {
+    async (event, input: {
       mode: 'market' | 'yaml';
       skillId?: string;
       yamlContent?: string;
     }) => {
       if (input.mode === 'market' && input.skillId) {
-        return skillController.installSkillFromMarket(input.skillId);
+        // 流式输出回调
+        const onOutput = (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+          event.sender.send('skill:install-output', input.skillId, data);
+        };
+        return skillController.installSkillFromMarket(input.skillId, onOutput);
       } else if (input.mode === 'yaml' && input.yamlContent) {
         return skillController.installSkillFromYaml(input.yamlContent);
       }
@@ -140,6 +144,46 @@ export function registerSkillHandlers(
     'skill:market:detail',
     async (_event, skillId: string) => {
       return skillController.getMarketSkillDetail(skillId);
+    }
+  );
+
+  // ── skill:market:sources ────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:market:sources',
+    async () => {
+      return skillController.getMarketSources();
+    }
+  );
+
+  // ── skill:market:add-source ─────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:market:add-source',
+    async (_event, source: { name: string; url: string; repos?: string[]; description?: string }) => {
+      return skillController.addMarketSource(source);
+    }
+  );
+
+  // ── skill:market:remove-source ──────────────────────────────────────────
+  ipcMain.handle(
+    'skill:market:remove-source',
+    async (_event, sourceId: string) => {
+      return skillController.removeMarketSource(sourceId);
+    }
+  );
+
+  // ── skill:market:toggle-source ──────────────────────────────────────────
+  ipcMain.handle(
+    'skill:market:toggle-source',
+    async (_event, input: { sourceId: string; enabled: boolean }) => {
+      return skillController.toggleMarketSource(input.sourceId, input.enabled);
+    }
+  );
+
+  // ── skill:market:set-active ─────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:market:set-active',
+    async (_event, sourceId: string) => {
+      return skillController.setActiveMarketSource(sourceId);
     }
   );
 

@@ -1006,5 +1006,9 @@
   "Terminal content appended to input": "终端内容已追加到输入框",
   "Terminal not ready": "终端未就绪",
   "No terminal content to append": "没有终端内容可追加",
-  "No commands to export": "没有命令可导出"
+  "No commands to export": "没有命令可导出",
+  "Compress context (free memory)": "压缩上下文（释放内存）",
+  "Compress": "压缩",
+  "Loading skills...": "正在加载技能...",
+  "Sync": "同步"
 }
