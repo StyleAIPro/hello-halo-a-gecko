@@ -20,7 +20,8 @@ import {
   Download,
   Store,
   Check,
-  RefreshCw
+  RefreshCw,
+  Terminal
 } from 'lucide-react'
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
@@ -37,6 +38,11 @@ function extractAppId(skillId: string): string {
   const fullPath = idParts[1] || ''
   const skillName = fullPath.includes('/') ? fullPath.split('/').pop() || '' : fullPath
   return skillName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-')
+}
+
+interface InstallOutput {
+  type: 'stdout' | 'stderr' | 'complete' | 'error'
+  content: string
 }
 
 export function SkillMarket() {
@@ -60,6 +66,10 @@ export function SkillMarket() {
   // 安装中的技能 ID
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null)
 
+  // 安装输出
+  const [installOutputs, setInstallOutputs] = useState<InstallOutput[]>([])
+  const outputRef = useRef<HTMLDivElement>(null)
+
   // 滚动容器引用
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -78,6 +88,20 @@ export function SkillMarket() {
     setPage(1)
     setHasMore(true)
   }, [debouncedQuery])
+
+  // 监听安装输出
+  useEffect(() => {
+    const cleanup = api.onSkillInstallOutput((data) => {
+      setInstallOutputs(prev => [...prev, data.output])
+      // 滚动到底部
+      setTimeout(() => {
+        if (outputRef.current) {
+          outputRef.current.scrollTop = outputRef.current.scrollHeight
+        }
+      }, 0)
+    })
+    return cleanup
+  }, [])
 
   // 加载已安装的技能列表 - 只在组件挂载时执行一次
   useEffect(() => {
@@ -143,18 +167,23 @@ export function SkillMarket() {
 
   // 安装技能
   const handleInstall = async (skill: RemoteSkillItem) => {
+    // 打开右侧详情面板
+    setSelectedSkill(skill)
+    // 清空之前的输出
+    setInstallOutputs([])
     setInstallingSkillId(skill.id)
+
     try {
       const result = await api.skillInstall({ mode: 'market', skillId: skill.id })
       if (result.success) {
         await loadInstalledSkills()
       } else {
         console.error('Failed to install skill:', result.error)
-        alert(t('Failed to install skill') + ': ' + (result.error || 'Unknown error'))
+        setInstallOutputs(prev => [...prev, { type: 'error', content: `\n✗ ${result.error || 'Unknown error'}\n` }])
       }
     } catch (error) {
       console.error('Failed to install skill:', error)
-      alert(t('Failed to install skill') + ': ' + (error instanceof Error ? error.message : 'Unknown error'))
+      setInstallOutputs(prev => [...prev, { type: 'error', content: `\n✗ ${error instanceof Error ? error.message : 'Unknown error'}\n` }])
     } finally {
       setInstallingSkillId(null)
     }
@@ -315,11 +344,14 @@ export function SkillMarket() {
 
       {/* 右侧：技能详情 */}
       {selectedSkill && (
-        <div className="w-80 border-l border-border overflow-y-auto">
+        <div className="w-96 border-l border-border flex flex-col">
           <div className="p-3 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">{t('Details')}</h2>
             <button
-              onClick={() => setSelectedSkill(null)}
+              onClick={() => {
+                setSelectedSkill(null)
+                setInstallOutputs([])
+              }}
               className="p-1 hover:bg-secondary rounded"
             >
               <X className="w-4 h-4" />
@@ -422,6 +454,35 @@ export function SkillMarket() {
               })()}
             </div>
           </div>
+
+          {/* 终端输出区域 */}
+          {installOutputs.length > 0 && (
+            <div className="flex-1 border-t border-border flex flex-col min-h-0">
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2 bg-secondary/50">
+                <Terminal className="w-4 h-4 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">{t('Terminal Output')}</span>
+              </div>
+              <div
+                ref={outputRef}
+                className="flex-1 overflow-y-auto bg-black p-3 font-mono text-xs leading-relaxed"
+              >
+                {installOutputs.map((output, index) => (
+                  <div
+                    key={index}
+                    className={`whitespace-pre-wrap ${
+                      output.type === 'stderr' || output.type === 'error'
+                        ? 'text-red-400'
+                        : output.type === 'complete'
+                        ? 'text-green-400'
+                        : 'text-green-400'
+                    }`}
+                  >
+                    {output.content}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

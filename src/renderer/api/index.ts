@@ -1972,6 +1972,41 @@ export const api = {
     return { success: false, error: 'Only available in desktop app' }
   },
 
+  skillMarketSources: async (): Promise<ApiResponse<any[]>> => {
+    if (isElectron()) {
+      return window.halo.skillMarketSources()
+    }
+    return httpRequest('GET', '/api/skills/market/sources')
+  },
+
+  skillMarketToggleSource: async (sourceId: string, enabled: boolean): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketToggleSource(sourceId, enabled)
+    }
+    return httpRequest('POST', '/api/skills/market/toggle-source', { sourceId, enabled })
+  },
+
+  skillMarketSetActiveSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketSetActiveSource(sourceId)
+    }
+    return httpRequest('POST', '/api/skills/market/set-active', { sourceId })
+  },
+
+  skillMarketAddSource: async (source: { name: string; url: string; repos?: string[]; description?: string }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketAddSource(source)
+    }
+    return httpRequest('POST', '/api/skills/market/add-source', source)
+  },
+
+  skillMarketRemoveSource: async (sourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillMarketRemoveSource(sourceId)
+    }
+    return httpRequest('DELETE', `/api/skills/market/sources/${sourceId}`)
+  },
+
   skillConfigGet: async (): Promise<ApiResponse<{ config: any }>> => {
     if (isElectron()) {
       return window.halo.skillConfigGet()
@@ -2067,6 +2102,17 @@ export const api = {
       return window.halo.onSkillTempMessageChunk(callback)
     }
     // 非 Electron 环境暂不支持流式
+    return () => {}
+  },
+
+  /**
+   * 监听技能安装输出
+   */
+  onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+    if (isElectron() && window.halo.onSkillInstallOutput) {
+      return window.halo.onSkillInstallOutput(callback)
+    }
+    // 非 Electron 环境暂不支持
     return () => {}
   },
 

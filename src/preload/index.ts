@@ -432,7 +432,7 @@ export interface HaloAPI {
   skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) => Promise<IpcResponse>
   skillMarketSources: () => Promise<IpcResponse>
   skillMarketResetCache: (sourceId?: string) => Promise<IpcResponse>
-  skillMarketSetActive: (sourceId: string) => Promise<IpcResponse>
+  skillMarketSetActiveSource: (sourceId: string) => Promise<IpcResponse>
   skillMarketToggleSource: (sourceId: string, enabled: boolean) => Promise<IpcResponse>
   skillMarketAddSource: (source: { name: string; url: string; repos?: string[]; description?: string }) => Promise<IpcResponse>
   skillMarketRemoveSource: (sourceId: string) => Promise<IpcResponse>
@@ -446,6 +446,7 @@ export interface HaloAPI {
   skillSendTempMessage: (sessionId: string, message: string) => Promise<IpcResponse>
   skillCloseTempSession: (sessionId: string) => Promise<IpcResponse>
   onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void) => () => void
+  onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void) => () => void
 
   // Terminal
   getTerminalWebSocketUrl: (spaceId: string, conversationId: string) => Promise<IpcResponse<{ wsUrl: string }>>
@@ -843,6 +844,15 @@ const api: HaloAPI = {
     ipcRenderer.on('skill:temp-message-chunk', handler)
     return () => {
       ipcRenderer.removeListener('skill:temp-message-chunk', handler)
+    }
+  },
+  onSkillInstallOutput: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, skillId: string, output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+      callback({ skillId, output })
+    }
+    ipcRenderer.on('skill:install-output', handler)
+    return () => {
+      ipcRenderer.removeListener('skill:install-output', handler)
     }
   },
 
