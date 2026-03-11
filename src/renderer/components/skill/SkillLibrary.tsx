@@ -51,6 +51,9 @@ export function SkillLibrary() {
     syncSkillsToRemote,
   } = useSkillStore()
 
+  // 组件挂载时不再自动刷新，由 SkillPage 统一管理
+  // 用户可通过刷新按钮手动刷新
+
   // 抽屉状态
   const [showFilesDrawer, setShowFilesDrawer] = useState(false)
   const [fileTree, setFileTree] = useState<FileNode[] | null>(null)

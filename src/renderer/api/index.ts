@@ -1951,60 +1951,18 @@ export const api = {
     return httpRequest('POST', '/api/skills/install', input)
   },
 
-  skillMarketList: async (sourceId?: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+  skillMarketList: async (page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
     if (isElectron()) {
-      return window.halo.skillMarketList(sourceId, page, pageSize)
+      return window.halo.skillMarketList(page, pageSize)
     }
     return httpRequest('GET', '/api/skills/market')
   },
 
-  skillMarketSearch: async (query: string, sourceId?: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+  skillMarketSearch: async (query: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
     if (isElectron()) {
-      return window.halo.skillMarketSearch(query, sourceId, page, pageSize)
+      return window.halo.skillMarketSearch(query, page, pageSize)
     }
     return httpRequest('GET', `/api/skills/market/search?q=${encodeURIComponent(query)}`)
-  },
-
-  skillMarketSources: async (): Promise<ApiResponse<{ sources: any[] }>> => {
-    if (isElectron()) {
-      return window.halo.skillMarketSources()
-    }
-    return httpRequest('GET', '/api/skills/market/sources')
-  },
-
-  skillMarketResetCache: async (sourceId?: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillMarketResetCache(sourceId)
-    }
-    return { success: true }
-  },
-
-  skillMarketToggleSource: async (sourceId: string, enabled: boolean): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillMarketToggleSource(sourceId, enabled)
-    }
-    return httpRequest('POST', '/api/skills/market/sources/toggle', { sourceId, enabled })
-  },
-
-  skillMarketSetActiveSource: async (sourceId: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillMarketSetActiveSource(sourceId)
-    }
-    return { success: false, error: 'Only available in desktop app' }
-  },
-
-  skillMarketAddSource: async (source: { name: string; url: string; repos?: string[]; description?: string }): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillMarketAddSource(source)
-    }
-    return { success: false, error: 'Only available in desktop app' }
-  },
-
-  skillMarketRemoveSource: async (sourceId: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillMarketRemoveSource(sourceId)
-    }
-    return { success: false, error: 'Only available in desktop app' }
   },
 
   skillMarketDetail: async (skillId: string): Promise<ApiResponse> => {

@@ -1231,22 +1231,57 @@ WRAPPER
       throw new Error(`Server not found: ${id}`)
     }
 
-    // TODO: Implement WebSocket-based chat with tokenUsage tracking
-    // For now, return placeholder response
-    console.log(`[RemoteDeployService] Sending chat to agent:`, params.content)
+    // Get the WebSocket client for this server
+    const wsClient = this.getOrCreateWsClient(id, server)
 
-    return {
-      response: 'Chat response (placeholder - WebSocket implementation pending)',
-      sessionId: params.sessionId,
-      tokenUsage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheCreationTokens: 0,
-        totalCostUsd: 0,
-        contextWindow: 200000
+    try {
+      // Send chat message with streaming
+      const result = await wsClient.sendChatWithStream(params.sessionId || `session-${Date.now()}`, [
+        { role: 'user', content: params.content }
+      ])
+
+      return {
+        response: result.content,
+        sessionId: params.sessionId,
+        tokenUsage: result.tokenUsage ? {
+          inputTokens: result.tokenUsage.inputTokens || 0,
+          outputTokens: result.tokenUsage.outputTokens || 0,
+          cacheReadTokens: result.tokenUsage.cacheReadTokens || 0,
+          cacheCreationTokens: result.tokenUsage.cacheCreationTokens || 0,
+          totalCostUsd: result.tokenUsage.totalCostUsd || 0,
+          contextWindow: result.tokenUsage.contextWindow || 200000
+        } : undefined
       }
+    } catch (error) {
+      console.error(`[RemoteDeployService] Failed to send chat to agent:`, error)
+      throw error
     }
+  }
+
+  /**
+   * Get or create WebSocket client for a server
+   */
+  private getOrCreateWsClient(id: string, server: RemoteServerConfig): any {
+    // Dynamic import to avoid circular dependency
+    const { RemoteWsClient } = require('../remote-ws/remote-ws-client')
+
+    // Check if we already have a client for this server
+    const existingClient = (RemoteWsClient as any).getRemoteWsClient(id)
+    if (existingClient) {
+      return existingClient
+    }
+
+    // Create new WebSocket client
+    const wsConfig = {
+      serverId: id,
+      host: server.ssh.host,
+      port: 8080,  // Default WebSocket port for remote-agent-proxy
+      useSshTunnel: false,  // TODO: Support SSH tunneling
+      authToken: server.password || ''  // Use SSH password as auth token for now
+    }
+
+    const client = new RemoteWsClient(wsConfig)
+    return client
   }
 
   /**

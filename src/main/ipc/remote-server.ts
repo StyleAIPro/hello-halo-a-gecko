@@ -334,7 +334,9 @@ export function registerRemoteServerHandlers(): void {
   ipcMain.handle('remote-agent:get-messages', async (_event, serverId: string, sessionId: string) => {
     console.log('[IPC] remote-agent:get-messages - Getting messages:', serverId, sessionId)
     try {
-      // TODO: Implement message retrieval
+      // For now, return empty array since remote agent doesn't persist messages
+      // The UI will show messages from the current session only
+      // TODO: Implement message persistence for remote agent sessions
       return { success: true, data: [] }
     } catch (error: unknown) {
       const err = error as Error
