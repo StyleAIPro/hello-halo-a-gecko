@@ -22,7 +22,7 @@ export interface ClientMessage {
 
 export interface ServerMessage {
   type: 'auth:success' | 'auth:failed' |
-         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' |
+         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' | 'claude:usage' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
          'terminal:output' |
@@ -172,6 +172,7 @@ export class RemoteWsClient extends EventEmitter {
       if (this.isInterrupted) {
         const blockedTypes = [
           'claude:stream',
+          'claude:usage',
           'thought',
           'thought:delta',
           'tool:call',
@@ -205,6 +206,10 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'claude:stream':
           this.emit('claude:stream', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'claude:usage':
+          this.emit('claude:usage', { sessionId: message.sessionId, data: message.data })
           break
 
         case 'claude:complete':
@@ -321,9 +326,10 @@ export class RemoteWsClient extends EventEmitter {
    * Send a chat message with streaming response
    * Returns a Promise that resolves with the full response
    */
-  sendChatWithStream(sessionId: string, messages: any[], options: any = {}): Promise<string> {
+  sendChatWithStream(sessionId: string, messages: any[], options: any = {}): Promise<{ content: string; tokenUsage?: any }> {
     return new Promise((resolve, reject) => {
       let fullContent = ''
+      let tokenUsage: any = null
       let isComplete = false
 
       // Timeout configuration - extended for long-running tasks
@@ -376,6 +382,15 @@ export class RemoteWsClient extends EventEmitter {
         }
       }
 
+      // Handle token usage
+      const usageHandler = (data: any) => {
+        if (data.sessionId === sessionId) {
+          resetTimeout()
+          tokenUsage = data.data
+          console.log(`[RemoteWsClient:${this.config.serverId}] Received token usage:`, tokenUsage)
+        }
+      }
+
       const completeHandler = (data: any) => {
         if (data.sessionId === sessionId) {
           isComplete = true
@@ -384,6 +399,7 @@ export class RemoteWsClient extends EventEmitter {
             timeoutTimer = null
           }
           this.off('claude:stream', streamHandler)
+          this.off('claude:usage', usageHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
           this.off('thought', activityHandler)
@@ -395,7 +411,7 @@ export class RemoteWsClient extends EventEmitter {
           // No need to unsubscribe them here as they are not registered in this method
           // Return any content from complete message if stream was empty
           const finalContent = fullContent || data.data?.content || ''
-          resolve(finalContent)
+          resolve({ content: finalContent, tokenUsage })
         }
       }
 
@@ -407,6 +423,7 @@ export class RemoteWsClient extends EventEmitter {
             timeoutTimer = null
           }
           this.off('claude:stream', streamHandler)
+          this.off('claude:usage', usageHandler)
           this.off('claude:complete', completeHandler)
           this.off('claude:error', errorHandler)
           this.off('thought', activityHandler)
@@ -430,6 +447,7 @@ export class RemoteWsClient extends EventEmitter {
       // Note: thought and thought:delta events are already emitted by handleMessage()
       // They will be received directly by executeRemoteMessage() in send-message.ts
       this.on('claude:stream', streamHandler)
+      this.on('claude:usage', usageHandler)
       this.on('claude:complete', completeHandler)
       this.on('claude:error', errorHandler)
       // Register activity handlers for long-running task support

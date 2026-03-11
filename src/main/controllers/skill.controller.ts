@@ -7,8 +7,7 @@ import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
 import { ConversationService } from '../services/conversation.service';
-import { SkillSpec, SkillGenerateOptions, RemoteSkillItem } from '../../shared/skill/skill-types';
-import { parse as parseYaml } from 'yaml';
+import { SkillGenerateOptions } from '../../shared/skill/skill-types';
 
 let skillManager: SkillManager;
 let skillMarket: SkillMarketService;
@@ -59,76 +58,59 @@ export async function getSkillDetail(skillId: string) {
   }
 }
 
-function buildDefaultSpec(skillDetail: RemoteSkillItem, content: string): SkillSpec {
-  const skillId = skillDetail.id.split(':')[1];
-  return {
-    spec_version: '1.0',
-    name: skillDetail.name,
-    type: 'skill',
-    description: skillDetail.description,
-    system_prompt: content,
-    version: skillDetail.version,
-    author: skillDetail.author,
-    trigger_command: '/' + skillId,
-    tags: skillDetail.tags
-  };
-}
-
 export async function installSkillFromMarket(skillId: string): Promise<{ success: boolean; error?: string }> {
   try {
     await ensureInitialized();
 
     console.log('[SkillController] Installing skill from market:', skillId);
 
+    // 1. 获取技能安装信息
     const downloadResult = await skillMarket.downloadSkill(skillId);
-    console.log('[SkillController] Download result:', downloadResult.success, downloadResult.error);
 
-    if (!downloadResult.success || !downloadResult.content) {
+    if (!downloadResult.success || !downloadResult.githubRepo || !downloadResult.skillName) {
       return { success: false, error: downloadResult.error || 'Failed to download skill' };
     }
 
-    const skillDetail = await skillMarket.getSkillDetail(skillId);
-    console.log('[SkillController] Skill detail found:', !!skillDetail);
-
-    if (!skillDetail) {
-      return { success: false, error: 'Skill not found' };
-    }
-
-    const content = downloadResult.content;
-    let spec: SkillSpec;
-
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (frontmatterMatch) {
-      try {
-        const frontmatter = parseYaml(frontmatterMatch[1]) as Record<string, unknown>;
-        const body = content.slice(frontmatterMatch[0].length).trim();
-        spec = {
-          spec_version: '1.0',
-          name: (frontmatter.name as string) || skillDetail.name,
-          type: 'skill',
-          description: (frontmatter.description as string) || skillDetail.description,
-          system_prompt: body || content,
-          version: (frontmatter.version as string) || skillDetail.version,
-          author: (frontmatter.author as string) || skillDetail.author,
-          trigger_command: (frontmatter.trigger_command as string) || '/' + skillDetail.id.split(':')[1],
-          tags: (frontmatter.tags as string[]) || skillDetail.tags
-        };
-      } catch {
-        spec = buildDefaultSpec(skillDetail, content);
-      }
-    } else {
-      spec = buildDefaultSpec(skillDetail, content);
-    }
-
-    console.log('[SkillController] Installing skill with spec:', spec.name);
-
-    await skillManager.installSkill(spec, {
-      systemPrompt: spec.system_prompt || content,
-      triggerCommand: spec.trigger_command
+    console.log('[SkillController] Skill info:', {
+      githubRepo: downloadResult.githubRepo,
+      skillName: downloadResult.skillName
     });
 
-    console.log('[SkillController] Skill installed successfully:', skillId);
-    return { success: true };
+    // 2. 使用 npx 命令安装技能
+    // 命令格式：npx skills add <github-repo> --skill <skill-name>
+    // 默认安装到 ~/.agents/skills/
+    const { exec } = await import('child_process');
+    const util = await import('util');
+    const execPromise = util.promisify(exec);
+
+    const command = `npx --yes skills add https://github.com/${downloadResult.githubRepo} --skill ${downloadResult.skillName}`;
+
+    console.log('[SkillController] Executing command:', command);
+
+    try {
+      const { stdout, stderr } = await execPromise(command, {
+        env: { ...process.env },
+        timeout: 120000 // 2 分钟超时
+      });
+
+      if (stderr && !stderr.includes('npm warn')) {
+        console.warn('[SkillController] Installation stderr:', stderr);
+      }
+
+      console.log('[SkillController] Installation stdout:', stdout);
+      console.log('[SkillController] Skill installed successfully:', skillId);
+
+      // 3. 刷新技能列表
+      await skillManager.refresh();
+
+      return { success: true };
+    } catch (execError: any) {
+      console.error('[SkillController] Command execution error:', execError);
+      return {
+        success: false,
+        error: execError.message || 'Failed to execute installation command'
+      };
+    }
   } catch (error) {
     console.error('[SkillController] Failed to install skill:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Failed to install skill' };
@@ -193,10 +175,10 @@ export async function generateSkillFromPrompt(options: SkillGenerateOptions) {
 }
 
 // Market functions
-export async function listMarketSkills(sourceId?: string, page?: number, pageSize?: number) {
+export async function listMarketSkills(page?: number, pageSize?: number) {
   try {
-    console.log('[SkillController] listMarketSkills called:', { sourceId, page, pageSize });
-    const result = await skillMarket.getSkills(sourceId, page, pageSize);
+    console.log('[SkillController] listMarketSkills called:', { page, pageSize });
+    const result = await skillMarket.getSkills(page, pageSize);
     console.log('[SkillController] listMarketSkills result:', {
       skillsCount: result.skills.length,
       total: result.total,
@@ -209,17 +191,17 @@ export async function listMarketSkills(sourceId?: string, page?: number, pageSiz
   }
 }
 
-export async function searchMarketSkills(query: string, sourceId?: string, page?: number, pageSize?: number) {
+export async function searchMarketSkills(query: string, page?: number, pageSize?: number) {
   try {
-    const result = await skillMarket.searchSkills(query, sourceId, page, pageSize);
+    const result = await skillMarket.searchSkills(query, page, pageSize);
     return { success: true, data: result };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to search skills' };
   }
 }
 
-export function resetMarketCache(sourceId?: string): { success: boolean } {
-  skillMarket.resetCache(sourceId);
+export async function resetMarketCache(): { success: boolean } {
+  skillMarket.resetCache();
   return { success: true };
 }
 
@@ -232,51 +214,6 @@ export async function getMarketSkillDetail(skillId: string) {
     return { success: true, data: skill };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to get skill detail' };
-  }
-}
-
-export async function getMarketSources() {
-  try {
-    const sources = skillMarket.getSources();
-    return { success: true, data: sources };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get market sources' };
-  }
-}
-
-export async function setActiveMarketSource(sourceId: string) {
-  try {
-    await skillMarket.setActiveSource(sourceId);
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to set active source' };
-  }
-}
-
-export async function toggleMarketSource(sourceId: string, enabled: boolean) {
-  try {
-    await skillMarket.toggleSource(sourceId, enabled);
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to toggle market source' };
-  }
-}
-
-export async function addMarketSource(source: { name: string; url: string; repos?: string[]; description?: string }) {
-  try {
-    const newSource = await skillMarket.addSource(source);
-    return { success: true, data: newSource };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to add market source' };
-  }
-}
-
-export async function removeMarketSource(sourceId: string) {
-  try {
-    const result = await skillMarket.removeSource(sourceId);
-    return { success: result };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to remove market source' };
   }
 }
 

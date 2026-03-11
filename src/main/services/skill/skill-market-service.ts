@@ -1,6 +1,6 @@
 /**
  * Skill Market Service - 技能市场服务
- * 负责从多个源获取技能列表
+ * 只支持 skills.sh 源
  */
 
 import * as path from 'path';
@@ -8,7 +8,7 @@ import * as fs from 'fs/promises';
 import { RemoteSkillItem, SkillMarketSource, SkillMarketConfig } from '../../shared/skill/skill-types';
 import { getAgentsSkillsDir } from '../config.service';
 
-// 内置的市场源
+// 唯一的市场源
 const BUILTIN_SOURCES: SkillMarketSource[] = [
   {
     id: 'skills.sh',
@@ -18,46 +18,7 @@ const BUILTIN_SOURCES: SkillMarketSource[] = [
     enabled: true,
     icon: '🚀',
     description: 'Vercel\'s open agent skills ecosystem'
-  },
-  {
-    id: 'anthropics',
-    name: 'Anthropic Skills',
-    type: 'github',
-    url: 'https://github.com/anthropics/skills',
-    enabled: true,
-    icon: '🤖',
-    description: 'Official Anthropic skills',
-    repos: ['anthropics/skills']
-  },
-  {
-    id: 'vercel-labs',
-    name: 'Vercel Labs',
-    type: 'github',
-    url: 'https://github.com/vercel-labs/agent-skills',
-    enabled: true,
-    icon: '▲',
-    description: 'Vercel agent skills collection',
-    repos: ['vercel-labs/agent-skills', 'vercel-labs/skills']
   }
-];
-
-// 用于无限滚动的搜索词列表（当 API 不支持分页时使用）
-const SEARCH_TERMS = [
-  'skill',        // 默认/首次加载
-  'react',        // React 相关
-  'typescript',   // TypeScript
-  'node',         // Node.js
-  'python',       // Python
-  'api',          // API 相关
-  'test',         // 测试
-  'git',          // Git
-  'database',     // 数据库
-  'deploy',       // 部署
-  'security',     // 安全
-  'performance',  // 性能
-  'docker',       // Docker
-  'nextjs',       // Next.js
-  'design',       // 设计
 ];
 
 export class SkillMarketService {
@@ -67,10 +28,6 @@ export class SkillMarketService {
 
   // 技能缓存：源ID -> 技能列表
   private skillsCache: Map<string, RemoteSkillItem[]> = new Map();
-  // 已加载的搜索词索引：源ID -> 当前搜索词索引
-  private searchTermIndex: Map<string, number> = new Map();
-  // 当前搜索查询（用于重置）
-  private currentSearchQuery: string = '';
 
   private constructor() {
     this.configPath = path.join(getAgentsSkillsDir(), '..', 'skill-market-config.json');
@@ -205,29 +162,11 @@ export class SkillMarketService {
   /**
    * 获取技能列表（支持无限滚动）
    */
-  async getSkills(sourceId?: string, page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
-    console.log('[SkillMarketService] getSkills called:', { sourceId, page, pageSize });
-    const targetSourceId = sourceId || this.config.activeSourceId;
-    const source = this.config.sources.find(s => s.id === targetSourceId);
-
-    if (!source || !source.enabled) {
-      console.log('[SkillMarketService] Source not found or disabled:', targetSourceId);
-      return { skills: [], total: 0, hasMore: false };
-    }
+  async getSkills(page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    console.log('[SkillMarketService] getSkills called:', { page, pageSize });
 
     try {
-      switch (source.id) {
-        case 'skills.sh':
-          return await this.fetchFromSkillsShWithInfiniteScroll(page, pageSize);
-        case 'anthropics':
-        case 'vercel-labs':
-          return await this.fetchFromGitHubPaginated(source.repos || [], source.id, page, pageSize);
-        default:
-          if (source.type === 'github' || source.type === 'custom') {
-            return await this.fetchFromGitHubPaginated(source.repos || [], source.id, page, pageSize);
-          }
-          return { skills: [], total: 0, hasMore: false };
-      }
+      return await this.fetchFromSkillsShWithInfiniteScroll(page, pageSize);
     } catch (error) {
       console.error('[SkillMarketService] getSkills error:', error);
       return { skills: [], total: 0, hasMore: false };
@@ -240,18 +179,15 @@ export class SkillMarketService {
   resetCache(sourceId?: string): void {
     if (sourceId) {
       this.skillsCache.delete(sourceId);
-      this.searchTermIndex.delete(sourceId);
     } else {
       this.skillsCache.clear();
-      this.searchTermIndex.clear();
     }
-    this.currentSearchQuery = '';
     console.log('[SkillMarketService] Cache reset for:', sourceId || 'all');
   }
 
   /**
-   * 从 skills.sh 获取技能（无限滚动）
-   * 使用不同的搜索词来获取更多结果
+   * 从 skills.sh 获取技能（按下载量排序）
+   * 直接爬取网站首页，获取按下载量排序的技能列表
    */
   private async fetchFromSkillsShWithInfiniteScroll(
     page: number = 1,
@@ -262,42 +198,113 @@ export class SkillMarketService {
 
     // 获取或初始化缓存
     let cachedSkills = this.skillsCache.get(sourceId) || [];
-    let termIndex = this.searchTermIndex.get(sourceId) || 0;
 
-    // 如果缓存不够，尝试从 API 加载更多
-    while (cachedSkills.length < offset + pageSize && termIndex < SEARCH_TERMS.length) {
-      const searchTerm = SEARCH_TERMS[termIndex];
-      console.log(`[SkillMarketService] Fetching with search term "${searchTerm}" (index ${termIndex})`);
-
-      const newSkills = await this.fetchFromSkillsShAPI(searchTerm);
-
-      // 去重：只添加新的技能
-      const existingIds = new Set(cachedSkills.map(s => s.id));
-      const uniqueNewSkills = newSkills.filter(s => !existingIds.has(s.id));
-
-      if (uniqueNewSkills.length > 0) {
-        cachedSkills = [...cachedSkills, ...uniqueNewSkills];
-        this.skillsCache.set(sourceId, cachedSkills);
-        console.log(`[SkillMarketService] Added ${uniqueNewSkills.length} new skills, total cached: ${cachedSkills.length}`);
-      }
-
-      termIndex++;
-      this.searchTermIndex.set(sourceId, termIndex);
-
-      // 如果没有新技能，继续尝试下一个搜索词
-      if (uniqueNewSkills.length === 0) {
-        continue;
-      }
+    // 如果缓存为空，从首页爬取
+    if (cachedSkills.length === 0) {
+      console.log('[SkillMarketService] Fetching skills from skills.sh homepage');
+      cachedSkills = await this.fetchFromSkillsShHomepage();
+      this.skillsCache.set(sourceId, cachedSkills);
+      console.log(`[SkillMarketService] Cached ${cachedSkills.length} skills from homepage`);
     }
 
     // 从缓存中分页
     const total = cachedSkills.length;
-    const hasMore = termIndex < SEARCH_TERMS.length || offset + pageSize < total;
+    const hasMore = offset + pageSize < total;
     const skills = cachedSkills.slice(offset, offset + pageSize);
 
     console.log(`[SkillMarketService] Returning ${skills.length} skills, total: ${total}, hasMore: ${hasMore}`);
 
     return { skills, total, hasMore };
+  }
+
+  /**
+   * 从 skills.sh 首页爬取按下载量排序的技能列表
+   */
+  private async fetchFromSkillsShHomepage(): Promise<RemoteSkillItem[]> {
+    try {
+      const response = await fetch('https://skills.sh', {
+        headers: {
+          'Accept': 'text/html',
+          'User-Agent': 'Halo-App'
+        }
+      });
+
+      if (!response.ok) {
+        console.error('[SkillMarketService] skills.sh homepage error:', response.status);
+        return [];
+      }
+
+      const html = await response.text();
+      return this.parseSkillsFromHTML(html);
+    } catch (error) {
+      console.error('[SkillMarketService] Failed to fetch skills.sh homepage:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 从 HTML 中解析技能列表
+   */
+  private parseSkillsFromHTML(html: string): RemoteSkillItem[] {
+    const skills: RemoteSkillItem[] = [];
+
+    // 匹配技能卡片的正则表达式
+    // 使用特定的类名来精确定位技能卡片：grid grid-cols-[auto_1fr_auto]
+    // 格式：<a ... grid grid-cols-[auto_1fr_auto] ... href="/owner/repo/skillId">...<rank>...<name>...<source>...<installs>...</a>
+    const cardPattern = /<a[^>]*grid grid-cols-\[auto_1fr_auto\][^>]*href="\/([^/]+)\/([^/]+)\/([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+
+    let match: RegExpExecArray | null;
+    while ((match = cardPattern.exec(html)) !== null) {
+      const [, owner, repo, skillId, content] = match;
+
+      // 提取排名
+      const rankMatch = content.match(/font-mono[^>]*>\s*(\d+)\s*<\/span>/);
+      if (!rankMatch) continue;
+
+      // 提取技能名称
+      const nameMatch = content.match(/<h3[^>]*>\s*([^<]+)\s*<\/h3>/);
+      if (!nameMatch) continue;
+      const skillName = nameMatch[1].trim();
+
+      // 提取来源
+      const sourceMatch = content.match(/<p[^>]*>\s*([^<]+)\s*<\/p>/);
+      const source = sourceMatch ? sourceMatch[1].trim() : `${owner}/${repo}`;
+
+      // 提取下载量（最后一个 font-mono span）
+      const installsMatches = content.matchAll(/font-mono[^>]*>\s*([\d.]+[KMB]?)\s*<\/span>/g);
+      const installsArray = Array.from(installsMatches, m => m[1]);
+      const installsStr = installsArray.length > 0 ? installsArray[installsArray.length - 1] : '0';
+
+      // 解析下载量（转换为数字）
+      let installs = 0;
+      if (installsStr) {
+        const num = parseFloat(installsStr.replace(/[KMB]/g, (m: string) => {
+          if (m === 'K') return 'e3';
+          if (m === 'M') return 'e6';
+          if (m === 'B') return 'e9';
+          return '';
+        }));
+        installs = Math.floor(num);
+      }
+
+      skills.push({
+        id: `skills.sh:${owner}/${repo}/${skillId}`,
+        name: this.formatSkillName(skillId),
+        description: `Skill from ${source}`,
+        version: '1.0.0',
+        author: owner,
+        tags: [],
+        installs,
+        lastUpdated: new Date().toISOString(),
+        sourceId: 'skills.sh',
+        githubRepo: `${owner}/${repo}`,
+        githubPath: `skills/${skillId}`,
+        skillContent: undefined
+      });
+    }
+
+    console.log('[SkillMarketService] Parsed', skills.length, 'skills from HTML');
+    return skills;
   }
 
   /**
@@ -361,56 +368,32 @@ export class SkillMarketService {
   }
 
   /**
-   * 搜索技能（全局搜索，支持分页）
+   * 搜索技能（支持分页）
    */
-  async searchSkills(query: string, sourceId?: string, page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
-    console.log('[SkillMarketService] searchSkills called:', { query, sourceId, page, pageSize });
-
-    const targetSourceId = sourceId || this.config.activeSourceId;
-    const source = this.config.sources.find(s => s.id === targetSourceId);
-
-    if (!source || !source.enabled) {
-      return { skills: [], total: 0, hasMore: false };
-    }
+  async searchSkills(query: string, page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    console.log('[SkillMarketService] searchSkills called:', { query, page, pageSize });
 
     try {
-      // For skills.sh, search directly with the query
-      if (source.id === 'skills.sh') {
-        const searchCacheKey = `search:${query}`;
+      const searchCacheKey = `search:${query}`;
 
-        // Check if we have cached results for this query
-        let cachedSkills = this.skillsCache.get(searchCacheKey);
+      // 检查是否有缓存
+      let cachedSkills = this.skillsCache.get(searchCacheKey);
 
-        if (!cachedSkills) {
-          // Fetch from API with the user's query
-          console.log('[SkillMarketService] Searching skills.sh with query:', query);
-          cachedSkills = await this.fetchFromSkillsShAPI(query);
-          this.skillsCache.set(searchCacheKey, cachedSkills);
-        }
-
-        // Paginate from cache
-        const offset = (page - 1) * pageSize;
-        const total = cachedSkills.length;
-        const hasMore = offset + pageSize < total;
-        const skills = cachedSkills.slice(offset, offset + pageSize);
-
-        return { skills, total, hasMore };
+      if (!cachedSkills) {
+        // 从 API 获取
+        console.log('[SkillMarketService] Searching skills.sh with query:', query);
+        cachedSkills = await this.fetchFromSkillsShAPI(query);
+        this.skillsCache.set(searchCacheKey, cachedSkills);
       }
 
-      // For other sources, use local filtering
-      const result = await this.getSkills(sourceId, 1, 10000);
-      const lowerQuery = query.toLowerCase();
-      const filtered = result.skills.filter(skill =>
-        skill.name.toLowerCase().includes(lowerQuery) ||
-        skill.description.toLowerCase().includes(lowerQuery) ||
-        skill.author.toLowerCase().includes(lowerQuery) ||
-        skill.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
-      );
+      // 分页
+      const offset = (page - 1) * pageSize;
+      const total = cachedSkills.length;
+      const hasMore = offset + pageSize < total;
 
-      const total = filtered.length;
-      const startIndex = (page - 1) * pageSize;
-      const skills = filtered.slice(startIndex, startIndex + pageSize);
-      const hasMore = startIndex + pageSize < total;
+      // 按下载量从高到低排序
+      const sortedSkills = [...cachedSkills].sort((a, b) => (b.installs || 0) - (a.installs || 0));
+      const skills = sortedSkills.slice(offset, offset + pageSize);
 
       return { skills, total, hasMore };
     } catch (error) {
@@ -425,18 +408,11 @@ export class SkillMarketService {
   async getSkillDetail(skillId: string): Promise<RemoteSkillItem | null> {
     console.log('[SkillMarketService] getSkillDetail called:', skillId);
 
-    // Parse the skill ID - format is "sourceId:rest"
-    const colonIndex = skillId.indexOf(':');
-    if (colonIndex === -1) {
-      return null;
-    }
-    const sourceId = skillId.substring(0, colonIndex);
-    const id = skillId.substring(colonIndex + 1);
-
-    // For skills.sh, construct skill details from the ID format
-    // ID format: "skills.sh:owner/repo/skillName"
-    if (sourceId === 'skills.sh') {
+    // ID 格式："skills.sh:owner/repo/skillName"
+    if (skillId.startsWith('skills.sh:')) {
+      const id = skillId.substring('skills.sh:'.length);
       const parts = id.split('/');
+
       if (parts.length >= 3) {
         const skillName = parts[parts.length - 1];
         const repo = parts.slice(0, parts.length - 1).join('/');
@@ -452,17 +428,16 @@ export class SkillMarketService {
           lastUpdated: new Date().toISOString(),
           sourceId: 'skills.sh',
           githubRepo: repo,
-          // Most skills are in a 'skills' subdirectory in the repo
           githubPath: `skills/${skillName}`
         };
 
-        // Fetch content from GitHub
+        // 从 GitHub 获取内容
         try {
           const content = await this.fetchSkillContent(repo, `skills/${skillName}`);
           if (content) {
             skill.fullDescription = content;
             skill.skillContent = content;
-            // Extract description from content
+            // 提取第一段作为描述
             const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'));
             if (lines.length > 0) {
               skill.description = lines[0].substring(0, 150);
@@ -476,208 +451,15 @@ export class SkillMarketService {
       }
     }
 
-    // For other sources, use the original approach
-    const result = await this.getSkills(sourceId, 1, 10000);
-    const skill = result.skills.find(s => s.id === skillId);
-
-    if (!skill) {
-      return null;
-    }
-
-    // 如果还没有详细内容，尝试获取
-    if (!skill.fullDescription && skill.githubRepo) {
-      try {
-        const content = await this.fetchSkillContent(skill.githubRepo, skill.githubPath || id);
-        skill.fullDescription = content;
-        skill.skillContent = content;
-      } catch (error) {
-        console.error('[SkillMarketService] Failed to fetch skill detail:', error);
-      }
-    }
-
-    return skill;
+    return null;
   }
 
   /**
-   * 从 GitHub 仓库获取技能（支持分页）
+   * 下载技能并返回安装信息（GitHub 仓库和技能名称）
    */
-  private async fetchFromGitHubPaginated(repos: string[], sourceId: string, page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
-    const skills: RemoteSkillItem[] = [];
-
-    for (const repo of repos) {
-      try {
-        const response = await fetch(`https://api.github.com/repos/${repo}/contents`, {
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Halo-App'
-          }
-        });
-
-        if (!response.ok) continue;
-
-        const data = await response.json();
-        if (!Array.isArray(data)) continue;
-
-        for (const item of data) {
-          if (item.type === 'dir' && !item.name.startsWith('.') && !item.name.startsWith('_')) {
-            skills.push({
-              id: `${sourceId}:${item.name}`,
-              name: this.formatSkillName(item.name),
-              description: `Skill from ${repo}`,
-              version: '1.0.0',
-              author: repo.split('/')[0],
-              tags: [],
-              lastUpdated: new Date().toISOString(),
-              sourceId,
-              githubRepo: repo,
-              githubPath: item.name,
-              downloadUrl: `https://github.com/${repo}/tree/main/${item.name}`
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`[SkillMarketService] Failed to fetch from ${repo}:`, error);
-      }
-    }
-
-    const total = skills.length;
-    const startIndex = (page - 1) * pageSize;
-    const pageSkills = skills.slice(startIndex, startIndex + pageSize);
-    const hasMore = startIndex + pageSize < total;
-
-    return { skills: pageSkills, total, hasMore };
-  }
-
-  /**
-   * 从 GitHub 仓库获取技能
-   */
-  private async fetchFromGitHub(repos: string[], sourceId: string): Promise<RemoteSkillItem[]> {
-    const skills: RemoteSkillItem[] = [];
-
-    for (const repo of repos) {
-      try {
-        const response = await fetch(`https://api.github.com/repos/${repo}/contents`, {
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Halo-App'
-          }
-        });
-
-        if (!response.ok) continue;
-
-        const data = await response.json();
-        if (!Array.isArray(data)) continue;
-
-        for (const item of data) {
-          if (item.type === 'dir' && !item.name.startsWith('.') && !item.name.startsWith('_')) {
-            let description = `Skill from ${repo}`;
-
-            // 尝试获取 SKILL.md 的描述
-            try {
-              const skillContent = await this.fetchSkillContent(repo, item.name);
-              if (skillContent) {
-                // 提取第一段作为描述
-                const lines = skillContent.split('\n').filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('---'));
-                if (lines.length > 0) {
-                  description = lines[0].substring(0, 150);
-                }
-              }
-            } catch {
-              // 忽略错误
-            }
-
-            skills.push({
-              id: `${sourceId}:${item.name}`,
-              name: this.formatSkillName(item.name),
-              description,
-              version: '1.0.0',
-              author: repo.split('/')[0],
-              tags: [],
-              lastUpdated: new Date().toISOString(),
-              sourceId,
-              githubRepo: repo,
-              githubPath: item.name,
-              downloadUrl: `https://github.com/${repo}/tree/main/${item.name}`
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`[SkillMarketService] Failed to fetch from ${repo}:`, error);
-      }
-    }
-
-    return skills;
-  }
-
-  /**
-   * 获取技能内容
-   */
-  async fetchSkillContent(repo: string, skillPath: string): Promise<string> {
-    // Extract skill name from path (could be "skills/xxx" or just "xxx")
-    const skillName = skillPath.replace(/^skills\//, '').replace(/^skills-/, '')
-
-    // Generate variations of the skill name to try
-    // Some skills have prefixes like "vercel-" that don't match the directory name
-    const skillNameVariations = [
-      skillName,                              // Original name
-      skillName.replace(/^[a-z]+-/, ''),      // Remove prefix (e.g., "vercel-react" -> "react")
-    ]
-
-    // Generate all possible base paths
-    const basePaths: string[] = []
-    for (const name of skillNameVariations) {
-      basePaths.push(name)                    // Direct path
-      basePaths.push(`skills/${name}`)        // In skills/ subdirectory
-    }
-
-    // Also try original path as-is
-    basePaths.unshift(skillPath)
-
-    console.log('[SkillMarketService] Trying paths:', basePaths)
-
-    // 对每个路径尝试 SKILL.md 和 README.md
-    for (const path of basePaths) {
-      // 尝试获取 SKILL.md
-      try {
-        const skillMdUrl = `https://raw.githubusercontent.com/${repo}/main/${path}/SKILL.md`
-        console.log('[SkillMarketService] Trying SKILL.md URL:', skillMdUrl)
-        const response = await fetch(skillMdUrl)
-        console.log('[SkillMarketService] SKILL.md response:', response.status, response.statusText)
-        if (response.ok) {
-          const text = await response.text()
-          console.log('[SkillMarketService] Found SKILL.md at:', path, 'length:', text.length)
-          return text
-        }
-      } catch (err) {
-        console.log('[SkillMarketService] SKILL.md fetch error:', err)
-      }
-
-      // 尝试获取 README.md
-      try {
-        const readmeUrl = `https://raw.githubusercontent.com/${repo}/main/${path}/README.md`
-        console.log('[SkillMarketService] Trying README.md URL:', readmeUrl)
-        const response = await fetch(readmeUrl)
-        console.log('[SkillMarketService] README.md response:', response.status, response.statusText)
-        if (response.ok) {
-          const text = await response.text()
-          console.log('[SkillMarketService] Found README.md at:', path, 'length:', text.length)
-          return text
-        }
-      } catch (err) {
-        console.log('[SkillMarketService] README.md fetch error:', err)
-      }
-    }
-
-    console.log('[SkillMarketService] No content found for:', repo, skillPath)
-    return ''
-  }
-
-  /**
-   * 下载技能并安装
-   */
-  async downloadSkill(skillId: string): Promise<{ success: boolean; content?: string; error?: string }> {
+  async downloadSkill(skillId: string): Promise<{ success: boolean; githubRepo?: string; skillName?: string; error?: string }> {
     console.log('[SkillMarketService] downloadSkill called:', skillId)
-    const [sourceId, id] = skillId.split(':')
+
     const skill = await this.getSkillDetail(skillId)
 
     if (!skill) {
@@ -688,30 +470,64 @@ export class SkillMarketService {
     console.log('[SkillMarketService] Skill detail:', {
       name: skill.name,
       githubRepo: skill.githubRepo,
-      githubPath: skill.githubPath,
-      hasContent: !!skill.skillContent
+      githubPath: skill.githubPath
     })
 
-    try {
-      let content = skill.skillContent
-
-      // 如果没有缓存的内容，从 GitHub 获取
-      if (!content && skill.githubRepo) {
-        console.log('[SkillMarketService] Fetching content from GitHub:', skill.githubRepo, skill.githubPath || id)
-        content = await this.fetchSkillContent(skill.githubRepo, skill.githubPath || id)
-        console.log('[SkillMarketService] Fetched content length:', content?.length || 0)
-      }
-
-      if (!content) {
-        console.log('[SkillMarketService] No content available')
-        return { success: false, error: 'Failed to fetch skill content' }
-      }
-
-      return { success: true, content }
-    } catch (error) {
-      console.error('[SkillMarketService] Download error:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Download failed' }
+    if (!skill.githubRepo) {
+      console.log('[SkillMarketService] No GitHub repo available')
+      return { success: false, error: 'No GitHub repo available' }
     }
+
+    return {
+      success: true,
+      githubRepo: skill.githubRepo,
+      skillName: skill.githubPath?.split('/').pop() || skill.name.toLowerCase().replace(/\s+/g, '-')
+    }
+  }
+
+  /**
+   * 获取技能内容（SKILL.md 或 README.md）
+   */
+  async fetchSkillContent(repo: string, skillPath: string): Promise<string> {
+    const skillName = skillPath.replace(/^skills\//, '').replace(/^skills-/, '')
+
+    // 生成多种路径变体
+    const skillNameVariations = [
+      skillName,
+      skillName.replace(/^[a-z]+-/, ''),
+    ]
+
+    const basePaths: string[] = []
+    for (const name of skillNameVariations) {
+      basePaths.push(name)
+      basePaths.push(`skills/${name}`)
+    }
+    basePaths.unshift(skillPath)
+
+    // 尝试 SKILL.md 和 README.md
+    for (const path of basePaths) {
+      try {
+        const skillMdUrl = `https://raw.githubusercontent.com/${repo}/main/${path}/SKILL.md`
+        const response = await fetch(skillMdUrl)
+        if (response.ok) {
+          return await response.text()
+        }
+      } catch {
+        // 继续尝试
+      }
+
+      try {
+        const readmeUrl = `https://raw.githubusercontent.com/${repo}/main/${path}/README.md`
+        const response = await fetch(readmeUrl)
+        if (response.ok) {
+          return await response.text()
+        }
+      } catch {
+        // 继续尝试
+      }
+    }
+
+    return ''
   }
 
   /**

@@ -1,9 +1,10 @@
 /**
  * SkillMarket - 技能市场
  *
- * 支持多个技能源（skills.sh, skillsmp.com 等）
+ * 只支持 skills.sh 源
  * - 无限滚动加载
  * - 全局搜索
+ * - 使用 npx 命令安装技能
  */
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
@@ -11,7 +12,6 @@ import { useSkillStore } from '../../stores/skill/skill.store'
 import { useTranslation } from '../../i18n'
 import {
   Search,
-  RefreshCw,
   Plus,
   Trash2,
   ExternalLink,
@@ -19,22 +19,17 @@ import {
   X,
   Download,
   Store,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react'
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
-
-const SOURCES = [
-  { id: 'skills.sh', name: 'Skills.sh', icon: '🚀', description: "Vercel's skills ecosystem" },
-  { id: 'anthropics', name: 'Anthropic Skills', icon: '🤖', description: 'Official Anthropic skills' },
-  { id: 'vercel-labs', name: 'Vercel Labs', icon: '▲', description: 'Vercel agent skills' }
-]
 
 const PAGE_SIZE = 20
 
 /**
  * Extract appId from skill ID
- * ID format: "source:owner/repo/skillName" or "source:skillName"
+ * ID format: "skills.sh:owner/repo/skillName"
  * AppId format: skill-name (lowercase with dashes)
  */
 function extractAppId(skillId: string): string {
@@ -47,9 +42,6 @@ function extractAppId(skillId: string): string {
 export function SkillMarket() {
   const { t } = useTranslation()
   const { installedSkills, loadInstalledSkills } = useSkillStore()
-
-  // 当前选中的源
-  const [activeSourceId, setActiveSourceId] = useState('skills.sh')
 
   // 选中的技能
   const [selectedSkill, setSelectedSkill] = useState<RemoteSkillItem | null>(null)
@@ -65,7 +57,7 @@ export function SkillMarket() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
-  // 安装中的技能ID
+  // 安装中的技能 ID
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null)
 
   // 滚动容器引用
@@ -80,19 +72,20 @@ export function SkillMarket() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  // 当搜索词或源切换时重置
+  // 当搜索词切换时重置
   useEffect(() => {
     setSkills([])
     setPage(1)
     setHasMore(true)
-  }, [debouncedQuery, activeSourceId])
+  }, [debouncedQuery])
 
-  // 加载已安装的技能列表
+  // 加载已安装的技能列表 - 只在组件挂载时执行一次
   useEffect(() => {
     loadInstalledSkills()
-  }, [loadInstalledSkills])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // 已安装的技能ID集合
+  // 已安装的技能 ID 集合
   const installedSkillIds = useMemo(() => {
     return new Set(installedSkills.map(s => s.appId))
   }, [installedSkills])
@@ -106,9 +99,9 @@ export function SkillMarket() {
     try {
       let result
       if (debouncedQuery.trim()) {
-        result = await api.skillMarketSearch(debouncedQuery, activeSourceId, pageNum, PAGE_SIZE)
+        result = await api.skillMarketSearch(debouncedQuery, pageNum, PAGE_SIZE)
       } else {
-        result = await api.skillMarketList(activeSourceId, pageNum, PAGE_SIZE)
+        result = await api.skillMarketList(pageNum, PAGE_SIZE)
       }
 
       if (result.success && result.data) {
@@ -128,19 +121,21 @@ export function SkillMarket() {
       setLoading(false)
       loadingRef.current = false
     }
-  }, [debouncedQuery, activeSourceId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery])
 
-  // 初始加载
+  // 初始加载 - 当搜索词变化时重新加载
   useEffect(() => {
     loadSkills(1, true)
-  }, [debouncedQuery, activeSourceId, loadSkills])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery])
 
   // 无限滚动处理
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const container = e.currentTarget
     const { scrollTop, scrollHeight, clientHeight } = container
 
-    // 距离底部100px时加载更多
+    // 距离底部 100px 时加载更多
     if (scrollHeight - scrollTop - clientHeight < 100 && hasMore && !loading && !loadingRef.current) {
       loadSkills(page + 1)
     }
@@ -178,48 +173,9 @@ export function SkillMarket() {
     }
   }
 
-  // 源切换
-  const handleSourceChange = async (sourceId: string) => {
-    // 重置旧源的缓存
-    await api.skillMarketResetCache(activeSourceId)
-    setActiveSourceId(sourceId)
-    setSelectedSkill(null)
-    setSearchQuery('')
-    setDebouncedQuery('')
-  }
-
   return (
     <div className="flex h-full">
-      {/* 左侧：源列表 */}
-      <div className="w-56 border-r border-border overflow-y-auto">
-        <div className="p-3 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">{t('Sources')}</h2>
-        </div>
-
-        <div className="p-2 space-y-1">
-          {SOURCES.map((source) => (
-            <div
-              key={source.id}
-              onClick={() => handleSourceChange(source.id)}
-              className={`
-                flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors
-                ${activeSourceId === source.id
-                  ? 'bg-primary/20 text-primary'
-                  : 'hover:bg-secondary/50'
-                }
-              `}
-            >
-              <span className="text-base">{source.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{source.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{source.description}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 中间：技能列表 */}
+      {/* 左侧：技能列表 */}
       <div className="flex-1 flex flex-col">
         {/* 搜索栏 */}
         <div className="p-3 border-b border-border">
@@ -230,8 +186,20 @@ export function SkillMarket() {
               placeholder={t('Search skills...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full pl-10 pr-10 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
+            <button
+              onClick={() => {
+                setSkills([])
+                setPage(1)
+                setHasMore(true)
+                loadSkills(1, true)
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              title={t('Refresh')}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
             {loading ? (
@@ -347,7 +315,7 @@ export function SkillMarket() {
 
       {/* 右侧：技能详情 */}
       {selectedSkill && (
-        <div className="w-72 border-l border-border overflow-y-auto">
+        <div className="w-80 border-l border-border overflow-y-auto">
           <div className="p-3 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">{t('Details')}</h2>
             <button
@@ -378,6 +346,16 @@ export function SkillMarket() {
               </p>
             </div>
 
+            {selectedSkill.fullDescription && (
+              <div>
+                <h4 className="text-xs font-medium text-foreground mb-1">{t('Full Description')}</h4>
+                <div
+                  className="text-xs text-muted-foreground prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: selectedSkill.fullDescription.slice(0, 1000) + '...' }}
+                />
+              </div>
+            )}
+
             {selectedSkill.tags && selectedSkill.tags.length > 0 && (
               <div>
                 <h4 className="text-xs font-medium text-foreground mb-1">{t('Tags')}</h4>
@@ -396,7 +374,7 @@ export function SkillMarket() {
 
             {selectedSkill.githubRepo && (
               <a
-                href={selectedSkill.githubUrl || `https://github.com/${selectedSkill.githubRepo}`}
+                href={`https://github.com/${selectedSkill.githubRepo}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-xs text-primary hover:text-primary/80"
