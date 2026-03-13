@@ -400,6 +400,7 @@ export function listSpaces(): Space[] {
 
   for (const [id, entry] of getRegistry()) {
     if (entry.isTemp) continue  // halo-temp is returned via getHaloSpace()
+    if (isSkillSpace(id)) continue  // skill space is hidden from the list
 
     if (!existsSync(entry.path)) {
       invalidIds.push(id)
@@ -927,4 +928,89 @@ export function getHyperSpaceStatus(spaceId: string): {
     isHyper: true,
     teamStatus: agentOrchestrator.getTeamStatus(team.id)
   }
+}
+
+// ============================================================================
+// Skill Space Functions
+// ============================================================================
+
+// 固定的技能空间 ID
+const SKILL_SPACE_ID = 'halo-skill-creator'
+
+/**
+ * 获取或创建技能专用空间
+ * 这是一个隐藏空间，用于技能生成器的会话
+ * 路径固定为 ~/.agents/skills
+ */
+export function getOrCreateSkillSpace(): Space {
+  const registry = getRegistry()
+
+  // 检查是否已存在
+  const existingEntry = registry.get(SKILL_SPACE_ID)
+  if (existingEntry && existsSync(existingEntry.path)) {
+    return entryToSpace(SKILL_SPACE_ID, existingEntry)
+  }
+
+  // 创建新的技能空间
+  const now = new Date().toISOString()
+
+  // 使用 ~/.agents/skills 作为工作目录（这是技能存放的位置）
+  const skillsDir = join(getHaloDir(), '..', '.agents', 'skills')
+  // 空间数据存储在 ~/.halo/spaces/halo-skill-creator/
+  const spacePath = join(getSpacesDir(), SKILL_SPACE_ID)
+
+  // 创建目录
+  mkdirSync(spacePath, { recursive: true })
+  mkdirSync(join(spacePath, '.halo'), { recursive: true })
+  mkdirSync(join(spacePath, '.halo', 'conversations'), { recursive: true })
+
+  // 确保技能目录存在
+  if (!existsSync(skillsDir)) {
+    mkdirSync(skillsDir, { recursive: true })
+  }
+
+  // 创建 meta 文件
+  const meta: SpaceMeta = {
+    id: SKILL_SPACE_ID,
+    name: 'Skill Creator',
+    icon: 'wand-2',
+    createdAt: now,
+    updatedAt: now,
+    workingDir: skillsDir,  // 技能目录作为工作目录
+    claudeSource: 'local'
+  }
+
+  writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+
+  // 注册到索引（内存 + 磁盘）
+  const entry: SpaceIndexEntry = {
+    path: spacePath,
+    name: 'Skill Creator',
+    icon: 'wand-2',
+    createdAt: now,
+    updatedAt: now,
+    workingDir: skillsDir,
+    claudeSource: 'local'
+  }
+
+  registry.set(SKILL_SPACE_ID, entry)
+  persistIndex(registry)
+
+  console.log(`[Space] Created skill space: path=${spacePath}, workingDir=${skillsDir}`)
+
+  return entryToSpace(SKILL_SPACE_ID, entry)
+}
+
+/**
+ * 获取技能空间 ID
+ */
+export function getSkillSpaceId(): string {
+  return SKILL_SPACE_ID
+}
+
+/**
+ * 检查是否是技能空间
+ */
+export function isSkillSpace(spaceId: string): boolean {
+  return spaceId === SKILL_SPACE_ID
 }

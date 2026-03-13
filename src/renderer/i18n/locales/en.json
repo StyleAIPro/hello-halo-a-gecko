@@ -1009,5 +1009,14 @@
   "Compress context (free memory)": "Compress context (free memory)",
   "Compress": "Compress",
   "Loading skills...": "Loading skills...",
-  "Sync": "Sync"
+  "Sync": "Sync",
+  "Click space to expand, then select conversations": "Click space to expand, then select conversations",
+  "Select all": "Select all",
+  "Skill requirements (optional)": "Skill requirements (optional)",
+  "Describe what kind of skill you want to create...": "Describe what kind of skill you want to create...",
+  "Select conversations from any space and let AI create a reusable skill for you.": "Select conversations from any space and let AI create a reusable skill for you.",
+  "Select Conversations": "Select Conversations",
+  "{count} conversations selected": "{count} conversations selected",
+  "skill-creator skill is not installed. Please install it from the Skill Market first.": "skill-creator skill is not installed. Please install it from the Skill Market first.",
+  "Skill Configuration": "Skill Configuration"
 }
