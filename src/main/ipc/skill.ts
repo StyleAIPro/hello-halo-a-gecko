@@ -238,11 +238,19 @@ export function registerSkillHandlers(
   // ── skill:create-temp-session ───────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:create-temp-session',
-    async (_event, options: {
+    async (event, options: {
       skillName: string;
       context: any;
     }) => {
-      return skillController.createTempAgentSession(options);
+      // Set up streaming callback for initial message response
+      // Use skill:temp-message-chunk event (same as send-temp-message) for consistency
+      const onChunk = (sessionId: string, chunk: any) => {
+        event.sender.send('skill:temp-message-chunk', sessionId, chunk);
+      };
+      return skillController.createTempAgentSession({
+        ...options,
+        onChunk
+      });
     }
   );
 
@@ -263,6 +271,67 @@ export function registerSkillHandlers(
     'skill:close-temp-session',
     async (_event, sessionId: string) => {
       return skillController.closeTempAgentSession(sessionId);
+    }
+  );
+
+  // ============================================
+  // Skill Conversation (持久化会话)
+  // ============================================
+
+  // ── skill:conversation:list ────────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:list',
+    async () => {
+      return skillController.listSkillConversations();
+    }
+  );
+
+  // ── skill:conversation:get ──────────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:get',
+    async (_event, conversationId: string) => {
+      return skillController.getSkillConversation(conversationId);
+    }
+  );
+
+  // ── skill:conversation:create ───────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:create',
+    async (_event, title?: string) => {
+      return skillController.createSkillConversation(title);
+    }
+  );
+
+  // ── skill:conversation:delete ───────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:delete',
+    async (_event, conversationId: string) => {
+      return skillController.deleteSkillConversation(conversationId);
+    }
+  );
+
+  // ── skill:conversation:send ─────────────────────────────────────────────────────────
+  // 注意：现在使用标准的 agent:* IPC 事件发送流式数据（与主对话框相同）
+  ipcMain.handle(
+    'skill:conversation:send',
+    async (_event, conversationId: string, message: string) => {
+      return skillController.sendSkillConversationMessage(conversationId, message);
+    }
+  );
+
+  // ── skill:conversation:stop ─────────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:stop',
+    async (_event, conversationId: string) => {
+      return skillController.stopSkillGeneration(conversationId);
+    }
+  );
+
+  // ── skill:conversation:close ────────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:conversation:close',
+    async (_event, conversationId: string) => {
+      return skillController.closeSkillConversation(conversationId);
     }
   );
 

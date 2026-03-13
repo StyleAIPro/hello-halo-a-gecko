@@ -11,17 +11,6 @@ import type { InstalledSkill, RemoteSkillItem, SkillMarketSource, SkillLibraryCo
 // ============================================
 
 /**
- * Agent 消息
- */
-export interface AgentMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string
-  isStreaming?: boolean
-}
-
-/**
  * 对话分析结果
  */
 export interface ConversationAnalysis {
@@ -91,12 +80,8 @@ interface SkillState {
     systemPrompt: string
   } | null
 
-  // === Agent 会话状态 ===
-  agentSessionId: string | null
-  agentStatus: 'idle' | 'running' | 'complete' | 'error'
-  agentMessages: AgentMessage[]
+  // Agent 面板状态（仅用于控制面板显示）
   agentPanelOpen: boolean
-  agentError: string | null
 
   // Actions - 已安装技能
   loadInstalledSkills: () => Promise<void>
@@ -139,15 +124,8 @@ interface SkillState {
   clearGeneratorState: () => void
   setGeneratedSkillSpec: (spec: SkillState['generatedSkillSpec']) => void
 
-  // Actions - Agent 会话
-  createAgentSession: (skillName: string, selectedConversations?: { id: string; title: string; spaceId: string; spaceName: string; updatedAt: string }[]) => Promise<boolean>
-  sendAgentMessage: (message: string) => Promise<void>
-  closeAgentSession: () => Promise<void>
-  addAgentMessage: (message: AgentMessage) => void
-  updateLastAgentMessage: (content: string, isStreaming?: boolean) => void
-  setAgentStatus: (status: SkillState['agentStatus']) => void
+  // Actions - Agent 面板
   setAgentPanelOpen: (open: boolean) => void
-  setAgentSessionId: (id: string | null) => void
 }
 
 // ============================================
@@ -172,12 +150,8 @@ const initialState = {
   analysisError: null,
   similarSkills: [],
   generatedSkillSpec: null,
-  // Agent 会话状态
-  agentSessionId: null,
-  agentStatus: 'idle' as const,
-  agentMessages: [],
+  // Agent 面板状态
   agentPanelOpen: false,
-  agentError: null,
 }
 
 // ============================================
@@ -479,237 +453,17 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       analysisError: null,
       similarSkills: [],
       generatedSkillSpec: null,
-      agentSessionId: null,
-      agentStatus: 'idle',
-      agentMessages: [],
-      agentPanelOpen: false,
-      agentError: null
+      agentPanelOpen: false
     })
   },
 
   setGeneratedSkillSpec: (spec) => set({ generatedSkillSpec: spec }),
 
   // ==========================================
-  // Agent 会话
+  // Agent 面板
   // ==========================================
 
-  /**
-   * 创建 Agent 会话（简化版：不需要先分析)
-   */
-  createAgentSession: async (skillName: string, selectedConversations?: { id: string; title: string; spaceId: string; spaceName: string; updatedAt: string }[])    => {
-    try {
-      // 验证参数
-      if (!skillName || !skillName.trim()) {
-        set({ agentError: 'Skill name is required' })
-        return false
-      }
-
-      // 构建初始消息
-      const conversationContext = selectedConversations && selectedConversations.length > 0
-        ? selectedConversations.map(c => `[${c.spaceName}] ${c.title}`).join('\n\n')
-        : '无对话历史'
-
-      // 生成安全的触发命令
-      const safeSkillName = (skillName || '').replace(/[^a-z0-9]/g, '') || 'skill'
-
-      const initialPrompt = `请根据以下对话历史帮我创建一个技能：
-
-## 对话历史:
-${conversationContext}
-
-## 要求:
-1. 技能名称: ${skillName}
-2. 触发命令: /${safeSkillName}
-
-## 输出格式
-请输出完整的 SKILL.yaml 文件内容，`
-
-      // 创建会话
-      const result = await api.skillCreateTempSession({
-        skillName,
-        context: {
-          conversationAnalysis: null, // 暂时为空，          similarSkills: [],
-          mode: 'create',
-          initialPrompt // 添加初始 prompt
-        }
-      })
-
-      if (result.success && result.data?.sessionId) {
-        set({
-          agentSessionId: result.data.sessionId,
-          agentStatus: 'idle',
-          agentPanelOpen: true,
-          agentError: null,
-          agentMessages: [{
-            id: Date.now().toString(),
-            role: 'user',
-            content: initialPrompt,
-            timestamp: new Date().toISOString()
-          }]
-        })
-        return true
-      } else {
-        set({ agentError: result.error || 'Failed to create session' })
-        return false
-      }
-    } catch (error) {
-      set({ agentError: error instanceof Error ? error.message : 'Failed to create session' })
-      return false
-    }
-  },
-
-  sendAgentMessage: async (message: string) => {
-    const { agentSessionId } = get()
-
-    if (!agentSessionId) {
-      set({ agentError: 'No active session' })
-      return
-    }
-
-    // 添加用户消息
-    const userMsg: AgentMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: message,
-      timestamp: new Date().toISOString()
-    }
-    set((state) => ({ agentMessages: [...state.agentMessages, userMsg] }))
-
-    // 添加占位的 assistant 消息
-    const assistantMsgId = (Date.now() + 1).toString()
-    const assistantMsg: AgentMessage = {
-      id: assistantMsgId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-      isStreaming: true
-    }
-    set((state) => ({ agentMessages: [...state.agentMessages, assistantMsg], agentStatus: 'running' }))
-
-    try {
-      // 发送消息，流式响应会通过 handleChunk 回调处理
-      const handleChunk = (data: { sessionId: string; chunk: any }) => {
-        // 忽略不属于当前会话的消息
-        if (data.sessionId !== agentSessionId) return
-
-        const chunk = data.chunk
-
-        // 处理不同类型的 chunk
-        if (chunk.type === 'text' && chunk.content) {
-          // 追加文本内容
-          set((state) => {
-            const messages = [...state.agentMessages]
-            if (messages.length > 0) {
-              const lastMsg = messages[messages.length - 1]
-              if (lastMsg.role === 'assistant') {
-                messages[messages.length - 1] = {
-                  ...lastMsg,
-                  content: lastMsg.content + chunk.content,
-                  isStreaming: true
-                }
-              }
-            }
-            return { agentMessages: messages }
-          })
-        } else if (chunk.type === 'complete') {
-          // 标记流式结束
-          set((state) => {
-            const messages = [...state.agentMessages]
-            if (messages.length > 0) {
-              const lastMsg = messages[messages.length - 1]
-              if (lastMsg.role === 'assistant') {
-                messages[messages.length - 1] = {
-                  ...lastMsg,
-                  isStreaming: false
-                }
-              }
-            }
-            return { agentStatus: 'complete' }
-          })
-        } else if (chunk.type === 'error') {
-          set({
-            agentError: chunk.content || 'Unknown error',
-            agentStatus: 'error'
-          })
-        } else if (chunk.type === 'thinking' && chunk.content) {
-          // 处理思考过程（可选显示）
-          console.log('[SkillGenerator] Thinking:', chunk.content)
-        } else if (chunk.type === 'tool_use' && chunk.toolName) {
-          // 处理工具使用（显示给用户）
-          set((state) => {
-            const messages = [...state.agentMessages]
-            if (messages.length > 0) {
-              const lastMsg = messages[messages.length - 1]
-              if (lastMsg.role === 'assistant') {
-                const toolInfo = `\n[使用工具: ${chunk.toolName}]\n`
-                messages[messages.length - 1] = {
-                  ...lastMsg,
-                  content: lastMsg.content + toolInfo,
-                  isStreaming: true
-                }
-              }
-            }
-            return { agentMessages: messages }
-          })
-        }
-      }
-
-      // 注册一次性监听器（消息发送完成后自动清理）
-      const cleanup = window.halo.onSkillTempMessageChunk(handleChunk)
-
-      // 发送消息
-      await api.skillSendTempMessage(agentSessionId, message)
-
-      // 注意： cleanup 在这里不需要立即调用，因为流式响应可能还在继续
-      // 可以在 closeAgentSession 中调用 cleanup
-    } catch (error) {
-      set({ agentError: error instanceof Error ? error.message : 'Failed to send message', agentStatus: 'error' })
-    }
-  },
-
-  closeAgentSession: async () => {
-    const { agentSessionId } = get()
-
-    if (agentSessionId) {
-      try {
-        await api.skillCloseTempSession(agentSessionId)
-      } catch (error) {
-        console.error('Failed to close session:', error)
-      }
-    }
-
-    set({
-      agentSessionId: null,
-      agentStatus: 'idle',
-      agentMessages: [],
-      agentError: null
-    })
-  },
-
-  addAgentMessage: (message) => {
-    set((state) => ({ agentMessages: [...state.agentMessages, message] }))
-  },
-
-  updateLastAgentMessage: (content, isStreaming = false) => {
-    set((state) => {
-      const messages = [...state.agentMessages]
-      if (messages.length > 0) {
-        const lastMsg = messages[messages.length - 1]
-        if (lastMsg.role === 'assistant') {
-          messages[messages.length - 1] = {
-            ...lastMsg,
-            content: lastMsg.content + content,
-            isStreaming
-          }
-        }
-      }
-      return { agentMessages: messages }
-    })
-  },
-
-  setAgentStatus: (status) => set({ agentStatus: status }),
   setAgentPanelOpen: (open) => set({ agentPanelOpen: open }),
-  setAgentSessionId: (id) => set({ agentSessionId: id }),
 
   // ==========================================
   // Remote sync

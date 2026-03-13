@@ -291,6 +291,30 @@ export const api = {
     return httpRequest('GET', `/api/spaces/${spaceId}/preferences`)
   },
 
+  // Get or create skill space
+  getSkillSpace: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.getSkillSpace()
+    }
+    return httpRequest('GET', '/api/spaces/skill-space')
+  },
+
+  // Get skill space ID
+  getSkillSpaceId: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.getSkillSpaceId()
+    }
+    return httpRequest('GET', '/api/spaces/skill-space/id')
+  },
+
+  // Check if space is skill space
+  isSkillSpace: async (spaceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.isSkillSpace(spaceId)
+    }
+    return httpRequest('GET', `/api/spaces/${spaceId}/is-skill-space`)
+  },
+
   // ===== Conversation =====
   listConversations: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
@@ -2113,6 +2137,89 @@ export const api = {
       return window.halo.onSkillInstallOutput(callback)
     }
     // 非 Electron 环境暂不支持
+    return () => {}
+  },
+
+  // ===== Skill Conversation (持久化会话) =====
+
+  /**
+   * 列出技能生成器的所有会话
+   */
+  skillConversationList: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationList()
+    }
+    return httpRequest('GET', '/api/skills/conversations')
+  },
+
+  /**
+   * 获取技能生成器会话详情
+   */
+  skillConversationGet: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationGet(conversationId)
+    }
+    return httpRequest('GET', `/api/skills/conversations/${conversationId}`)
+  },
+
+  /**
+   * 创建新的技能生成器会话
+   */
+  skillConversationCreate: async (title?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationCreate(title)
+    }
+    return httpRequest('POST', '/api/skills/conversations', { title })
+  },
+
+  /**
+   * 删除技能生成器会话
+   */
+  skillConversationDelete: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationDelete(conversationId)
+    }
+    return httpRequest('DELETE', `/api/skills/conversations/${conversationId}`)
+  },
+
+  /**
+   * 发送消息到技能生成器会话
+   */
+  skillConversationSend: async (conversationId: string, message: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationSend(conversationId, message)
+    }
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/send`, { message })
+  },
+
+  /**
+   * 停止技能生成器消息生成
+   */
+  skillConversationStop: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationStop(conversationId)
+    }
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/stop`)
+  },
+
+  /**
+   * 关闭技能生成器会话
+   */
+  skillConversationClose: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationClose(conversationId)
+    }
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/close`)
+  },
+
+  /**
+   * 监听技能会话流式消息
+   */
+  onSkillConversationChunk: (callback: (data: { conversationId: string; chunk: any }) => void): (() => void) => {
+    if (isElectron() && window.halo.onSkillConversationChunk) {
+      return window.halo.onSkillConversationChunk(callback)
+    }
+    // 非 Electron 环境暂不支持流式
     return () => {}
   },
 

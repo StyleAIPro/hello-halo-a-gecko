@@ -535,17 +535,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const newSessions = new Map(state.sessions)
             const existingSession = newSessions.get(conversationId) || createEmptySessionState()
 
+            // IMPORTANT: If frontend already has an active streaming session, preserve it.
+            // This handles the case when user switches away from a streaming conversation
+            // and switches back - the frontend state is accurate and shouldn't be overwritten
+            // by backend state which might be stale or incomplete.
+            // Only recover from backend when frontend state is missing (e.g., page refresh).
+            const frontendHasActiveSession = existingSession.isGenerating && existingSession.streamingContent
+
+            // Use frontend state if available, otherwise use backend state
+            const effectiveStreamingContent = frontendHasActiveSession
+              ? existingSession.streamingContent
+              : (sessionState.streamingContent || existingSession.streamingContent)
+            const effectiveHasStreamingContent = (effectiveStreamingContent?.length ?? 0) > 0
+
             newSessions.set(conversationId, {
               ...existingSession,
               // CRITICAL: Only set isGenerating=true if there's actual streaming content
-              // Without streaming content, this is likely a completed conversation where backend
-              // session hasn't been cleaned up yet - don't show spurious thinking/answering frames
-              isGenerating: hasStreamingContent,
-              isStreaming: hasStreamingContent,
-              isThinking: hasThoughts && hasStreamingContent,
+              // Prefer frontend state when available to preserve streaming during conversation switches
+              isGenerating: effectiveHasStreamingContent,
+              isStreaming: effectiveHasStreamingContent,
+              isThinking: hasThoughts && effectiveHasStreamingContent,
               thoughts: hasThoughts ? sessionState.thoughts : existingSession.thoughts,
-              // Restore streaming content if available (for remote sessions)
-              streamingContent: sessionState.streamingContent || existingSession.streamingContent
+              // Use the effective streaming content determined above
+              streamingContent: effectiveStreamingContent
             })
 
             return { sessions: newSessions }
@@ -948,9 +960,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isNewTextBlock?: boolean  // Signal from content_block_start (type='text')
     }
 
+    // DEBUG: Log all incoming agent messages
+    console.log(`[ChatStore] handleAgentMessage received for ${conversationId}, delta: ${delta?.substring(0, 20)}...`)
+
     set((state) => {
       const newSessions = new Map(state.sessions)
       const session = newSessions.get(conversationId)
+
+      // DEBUG: Log session state
+      console.log(`[ChatStore] Session exists: ${!!session}, isGenerating: ${session?.isGenerating}, isStopping: ${session?.isStopping}`)
 
       // CRITICAL: Ignore events if not generating or if stopping
       // This prevents stale events from previous requests after interrupt
@@ -1502,6 +1520,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 // when the fingerprint is unchanged.
 // ==========================================
 
+// Skill Creator space ID - this space's conversations are hidden from Pulse
+const SKILL_CREATOR_SPACE_ID = 'halo-skill-creator'
+
 /**
  * Extract a pulse-relevant fingerprint from sessions.
  * Only includes fields that affect deriveTaskStatus().
@@ -1519,6 +1540,7 @@ function _extractPulseFingerprint(sessions: Map<string, SessionState>): string {
 
 /**
  * Compute pulse items from state (same logic as the original usePulseItems selector).
+ * Filters out skill-creator space conversations.
  */
 function _computePulseItems(state: ChatState): PulseItem[] {
   const items: PulseItem[] = []
@@ -1526,6 +1548,11 @@ function _computePulseItems(state: ChatState): PulseItem[] {
 
   const getSpaceName = (spaceId: string): string => {
     return spaceId === 'halo-temp' ? 'Halo' : spaceId
+  }
+
+  // Helper to check if we should skip this space
+  const shouldSkipSpace = (spaceId: string): boolean => {
+    return spaceId === SKILL_CREATOR_SPACE_ID
   }
 
   // 1. Active sessions
@@ -1540,6 +1567,9 @@ function _computePulseItems(state: ChatState): PulseItem[] {
       if (meta) break
     }
     if (!meta) continue
+
+    // Skip skill-creator space
+    if (shouldSkipSpace(meta.spaceId)) continue
 
     items.push({
       conversationId,
@@ -1556,6 +1586,10 @@ function _computePulseItems(state: ChatState): PulseItem[] {
   // 2. Unseen completions
   for (const [conversationId, info] of state.unseenCompletions) {
     if (addedIds.has(conversationId)) continue
+
+    // Skip skill-creator space
+    if (shouldSkipSpace(info.spaceId)) continue
+
     let meta: ConversationMeta | undefined
     for (const [, ss] of state.spaceStates) {
       meta = ss.conversations.find(c => c.id === conversationId)
@@ -1574,7 +1608,10 @@ function _computePulseItems(state: ChatState): PulseItem[] {
   }
 
   // 3. Starred conversations
-  for (const [, ss] of state.spaceStates) {
+  for (const [spaceId, ss] of state.spaceStates) {
+    // Skip skill-creator space
+    if (shouldSkipSpace(spaceId)) continue
+
     for (const conv of ss.conversations) {
       if (!conv.starred || addedIds.has(conv.id)) continue
       items.push({
@@ -1595,6 +1632,10 @@ function _computePulseItems(state: ChatState): PulseItem[] {
   for (const [conversationId, info] of state.pulseReadAt) {
     if (addedIds.has(conversationId)) continue
     if (now - info.readAt >= PULSE_READ_GRACE_PERIOD_MS) continue
+
+    // Skip skill-creator space
+    if (shouldSkipSpace(info.spaceId)) continue
+
     items.push({
       conversationId,
       spaceId: info.spaceId,
@@ -1628,28 +1669,46 @@ function _computePulseItems(state: ChatState): PulseItem[] {
 
 /**
  * Count pulse items (same logic as the original usePulseCount selector).
+ * Filters out skill-creator space conversations.
  */
 function _computePulseCount(state: ChatState): number {
   let count = 0
   const countedIds = new Set<string>()
 
+  // Helper to get spaceId for a conversation
+  const getSpaceIdForConversation = (conversationId: string): string | null => {
+    for (const [spaceId, ss] of state.spaceStates) {
+      if (ss.conversations.some(c => c.id === conversationId)) {
+        return spaceId
+      }
+    }
+    return null
+  }
+
   for (const [conversationId, session] of state.sessions) {
     const hasUnseen = state.unseenCompletions.has(conversationId)
     const status = deriveTaskStatus(session, hasUnseen)
     if (status !== 'idle') {
+      const spaceId = getSpaceIdForConversation(conversationId)
+      // Skip skill-creator space
+      if (spaceId === SKILL_CREATOR_SPACE_ID) continue
       count++
       countedIds.add(conversationId)
     }
   }
 
-  for (const [conversationId] of state.unseenCompletions) {
+  for (const [conversationId, info] of state.unseenCompletions) {
+    // Skip skill-creator space
+    if (info.spaceId === SKILL_CREATOR_SPACE_ID) continue
     if (!countedIds.has(conversationId)) {
       count++
       countedIds.add(conversationId)
     }
   }
 
-  for (const [, ss] of state.spaceStates) {
+  for (const [spaceId, ss] of state.spaceStates) {
+    // Skip skill-creator space
+    if (spaceId === SKILL_CREATOR_SPACE_ID) continue
     for (const conv of ss.conversations) {
       if (conv.starred && !countedIds.has(conv.id)) {
         count++
@@ -1660,6 +1719,8 @@ function _computePulseCount(state: ChatState): number {
 
   const now = Date.now()
   for (const [conversationId, info] of state.pulseReadAt) {
+    // Skip skill-creator space
+    if (info.spaceId === SKILL_CREATOR_SPACE_ID) continue
     if (!countedIds.has(conversationId) && now - info.readAt < PULSE_READ_GRACE_PERIOD_MS) {
       count++
       countedIds.add(conversationId)
@@ -1677,10 +1738,13 @@ let _prevStarredFingerprint = ''
 
 /**
  * Extract a fingerprint of starred conversations across all spaces.
+ * Filters out skill-creator space conversations.
  */
 function _extractStarredFingerprint(spaceStates: Map<string, SpaceState>): string {
   const parts: string[] = []
-  for (const [, ss] of spaceStates) {
+  for (const [spaceId, ss] of spaceStates) {
+    // Skip skill-creator space
+    if (spaceId === SKILL_CREATOR_SPACE_ID) continue
     for (const conv of ss.conversations) {
       if (conv.starred) {
         parts.push(`${conv.id}:${conv.title}:${conv.updatedAt}`)

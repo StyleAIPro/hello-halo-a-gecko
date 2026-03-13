@@ -379,6 +379,127 @@ import {
 } from '../services/skill/temp-agent-session';
 import { findSimilarSkills } from '../services/skill/similarity-calculator';
 
+// ============================================
+// Skill Conversation Service (持久化会话)
+// ============================================
+
+import * as skillConversationService from '../services/skill/skill-conversation.service';
+
+/**
+ * 列出技能生成器的所有会话
+ */
+export async function listSkillConversations() {
+  try {
+    const conversations = skillConversationService.listSkillConversations();
+    return { success: true, data: conversations };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to list skill conversations'
+    };
+  }
+}
+
+/**
+ * 获取技能生成器会话详情
+ */
+export async function getSkillConversation(conversationId: string) {
+  try {
+    const conversation = skillConversationService.getSkillConversation(conversationId);
+    if (!conversation) {
+      return { success: false, error: 'Conversation not found' };
+    }
+    return { success: true, data: conversation };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill conversation'
+    };
+  }
+}
+
+/**
+ * 创建新的技能生成器会话
+ */
+export async function createSkillConversation(title?: string) {
+  try {
+    const conversation = skillConversationService.createSkillConversation(title);
+    return { success: true, data: conversation };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to create skill conversation'
+    };
+  }
+}
+
+/**
+ * 删除技能生成器会话
+ */
+export async function deleteSkillConversation(conversationId: string) {
+  try {
+    const result = skillConversationService.deleteSkillConversation(conversationId);
+    return { success: result };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to delete skill conversation'
+    };
+  }
+}
+
+/**
+ * 发送消息到技能生成器会话
+ *
+ * 注意：流式事件通过标准的 agent:message, agent:thought 等 IPC 通道发送，
+ * 与主对话框使用相同的事件系统。前端通过 chat.store 处理这些事件。
+ */
+export async function sendSkillConversationMessage(
+  conversationId: string,
+  message: string
+) {
+  try {
+    // 服务现在直接使用 sendToRenderer 发送标准的 IPC 事件
+    const result = await skillConversationService.sendSkillMessage(conversationId, message);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send message'
+    };
+  }
+}
+
+/**
+ * 停止技能生成器消息生成
+ */
+export async function stopSkillGeneration(conversationId: string) {
+  try {
+    skillConversationService.stopSkillGeneration(conversationId);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to stop generation'
+    };
+  }
+}
+
+/**
+ * 关闭技能生成器会话
+ */
+export async function closeSkillConversation(conversationId: string) {
+  try {
+    skillConversationService.closeSkillSession(conversationId);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to close skill conversation'
+    };
+  }
+}
+
 /**
  * 分析对话，提取技能模式
  */
@@ -441,18 +562,22 @@ export async function analyzeConversations(
 /**
  * 创建临时 Agent 会话
  * 支持直接传入 context 或通过对话分析生成 context
+ * @param onChunk 可选的流式回调,用于创建会话后自动发送初始消息
  */
-export async function createTempAgentSession(options: {
-  skillName: string;
-  conversationIds?: string[];
-  spaceIds?: string[];
-  context?: {
-    conversationAnalysis?: any;
-    similarSkills?: any[];
-    mode?: 'create' | 'optimize';
-    initialPrompt?: string;
-  };
-}) {
+export async function createTempAgentSession(
+  options: {
+    skillName: string;
+    conversationIds?: string[];
+    spaceIds?: string[];
+    context?: {
+      conversationAnalysis?: any;
+      similarSkills?: any[];
+      mode?: 'create' | 'optimize';
+      initialPrompt?: string;
+    };
+    onChunk?: (chunk: StreamChunk) => void
+  }
+) {
   try {
     // 如果直接提供了 context，直接使用
     if (options.context) {
@@ -468,7 +593,8 @@ export async function createTempAgentSession(options: {
           similarSkills: options.context.similarSkills || [],
           mode: options.context.mode || 'create',
           initialPrompt: options.context.initialPrompt
-        }
+        },
+        onChunk: options.onChunk
       });
       return result;
     }
@@ -510,7 +636,8 @@ export async function createTempAgentSession(options: {
 
     const result = await createSdkTempSession({
       skillName: options.skillName,
-      context
+      context,
+      onChunk: options.onChunk
     });
     return result;
   } catch (error) {

@@ -1010,5 +1010,18 @@
   "Compress context (free memory)": "压缩上下文（释放内存）",
   "Compress": "压缩",
   "Loading skills...": "正在加载技能...",
-  "Sync": "同步"
+  "Sync": "同步",
+  "Click space to expand, then select conversations": "点击空间展开，然后选择会话",
+  "Select all": "全选",
+  "Skill requirements (optional)": "技能合成要求（可选）",
+  "Describe what kind of skill you want to create...": "描述你想要创建什么样的技能...",
+  "Select conversations from any space and let AI create a reusable skill for you.": "从任意空间选择对话，让 AI 为你创建可复用的技能。",
+  "Select Conversations": "选择对话",
+  "{count} conversations selected": "已选择 {count} 个对话",
+  "skill-creator skill is not installed. Please install it from the Skill Market first.": "skill-creator 技能未安装。请先从技能市场安装。",
+  "Skill Configuration": "技能配置",
+  "AI is generating skill. You can continue the conversation to refine it.": "AI 正在生成技能，你可以继续对话来优化它。",
+  "No files yet...": "暂无文件...",
+  "Select a file to preview": "选择文件预览",
+  "Starting...": "启动中..."
 }

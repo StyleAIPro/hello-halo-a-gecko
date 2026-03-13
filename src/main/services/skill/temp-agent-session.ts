@@ -27,6 +27,9 @@ export interface TempSessionOptions {
     mode: 'create' | 'optimize'
     initialPrompt?: string  // 添加可选的初始 prompt
   }
+  // 可选的流式回调,用于创建会话后自动发送初始消息
+  // 回调函数接收 sessionId 和 chunk，方便前端过滤消息
+  onChunk?: (sessionId: string, chunk: StreamChunk) => void
 }
 
 export interface TempSession {
@@ -107,31 +110,102 @@ export async function createTempAgentSession(
     console.log(`[TempAgent] Creating session ${sessionId} for skill: ${options.skillName}`)
 
     // 创建 V2 Session
-    const session = await unstable_v2_createSession(sdkOptions as any) as any
+    const sdkSession = await unstable_v2_createSession(sdkOptions as any) as any
 
     console.log(`[TempAgent] Session ${sessionId} created`)
 
     // 初始化消息，包含上下文
     const initialMessage = buildInitialMessage(options)
 
+    // 添加 assistant 消息占位符
+    const assistantMsgId = `${sessionId}-assistant-init`
+    const assistantMsg: TempSessionMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      isStreaming: true
+    }
+
     const tempSession: TempSession = {
       id: sessionId,
       skillName: options.skillName,
-      status: 'idle',
+      status: 'running',  // 设置为 running 状态
       createdAt: Date.now(),
-      session,
+      session: sdkSession,
       messages: [{
         id: `${sessionId}-init`,
         role: 'user',
         content: initialMessage,
         timestamp: new Date().toISOString()
-      }]
+      }, assistantMsg]  // 添加 assistant 消息
     }
 
     tempSessions.set(sessionId, tempSession)
     activeStreams.set(sessionId, abortController)
 
-    return { success: true, sessionId }
+    console.log(`[TempAgent] Session ${sessionId} created, sending initial message...`)
+
+    // 异步发送初始消息（在后台执行），不阻塞返回
+    ; (async () => {
+      try {
+        // 使用 send() + stream() 模式（V2 Session 接口）
+        console.log(`[TempAgent][${sessionId}] Calling send()...`)
+        sdkSession.send({
+          role: 'user',
+          content: initialMessage
+        })
+        console.log(`[TempAgent][${sessionId}] send() completed, starting stream()...`)
+        let fullContent = ''
+
+        for await (const event of sdkSession.stream()) {
+          console.log(`[TempAgent][${sessionId}] Received event:`, event?.type)
+          const chunk = processStreamEvent(event)
+          if (chunk) {
+            // 如果提供了 onChunk 回调，使用它通知前端
+            if (options.onChunk) {
+              options.onChunk(sessionId, chunk)
+            }
+            if (chunk.type === 'text' && chunk.content) {
+              fullContent += chunk.content
+            }
+          }
+        }
+
+        // 更新 assistant 消息
+        const session = tempSessions.get(sessionId)
+        if (session) {
+          const lastMsg = session.messages[session.messages.length - 1]
+          if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content = fullContent
+            lastMsg.isStreaming = false
+          }
+          session.status = 'complete'
+        }
+
+        // 通知流式完成
+        if (options.onChunk) {
+          options.onChunk(sessionId, { type: 'complete' })
+        }
+
+        console.log(`[TempAgent] Initial message sent and completed for session ${sessionId}`)
+      } catch (sendError) {
+        console.error(`[TempAgent] Failed to send initial message:`, sendError)
+        const session = tempSessions.get(sessionId)
+        if (session) {
+          session.status = 'error'
+          session.error = sendError instanceof Error ? sendError.message : 'Failed to send initial message'
+        }
+        if (options.onChunk) {
+          options.onChunk(sessionId, {
+            type: 'error',
+            content: sendError instanceof Error ? sendError.message : 'Failed to send initial message'
+          })
+        }
+      }
+    })()
+
+    return { success: true, data: { sessionId } }
   } catch (error) {
     console.error('[TempAgent] Failed to create session:', error)
     return {
@@ -185,9 +259,13 @@ export async function sendTempAgentMessage(
     // 发送消息并处理流式响应
     let fullContent = ''
 
-    const stream = session.session.query(message)
+    // 使用 send() + stream() 模式（V2 Session 接口）
+    session.session.send({
+      role: 'user',
+      content: message
+    })
 
-    for await (const event of stream) {
+    for await (const event of session.session.stream()) {
       const chunk = processStreamEvent(event)
       if (chunk) {
         onChunk(chunk)
@@ -296,18 +374,18 @@ function buildInitialMessage(options: TempSessionOptions): string {
   const { skillName, context } = options
   const { conversationAnalysis, similarSkills, mode, initialPrompt } = context
 
-  // 如果提供了初始 prompt，直接使用
+  // 如果提供了初始 prompt,直接使用
   if (initialPrompt) {
     return initialPrompt
   }
 
-  // 如果没有对话分析，使用简化模式
+  // 如果没有对话分析,使用简化模式
   if (!conversationAnalysis) {
     return `## 任务
 请创建新技能: ${skillName}
 
 ## 指令
-请使用 Write 工具创建 SKILL.yaml 文件到 ~/.agents/skills/${skillName}/ 目录，确保包含:
+请使用 Write 工具创建 SKILL.yaml 文件到 ~/.agents/skills/${skillName}/ 目录。确保包含:
 1. name: 技能名称
 2. description: 技能描述
 3. trigger_command: 触发命令（如 /${skillName.replace(/[^a-z0-9]/g, '')}）
@@ -343,7 +421,7 @@ ${conversationAnalysis.toolPattern.successPattern}
     message += `
 ## 相似技能
 
-发现 ${similarSkills.length} 个相似技能，建议优化现有技能而不是创建新的:
+发现 ${similarSkills.length} 个相似技能,建议优化现有技能而不是创建新的:
 
 `
     for (const skill of similarSkills.slice(0, 3)) {

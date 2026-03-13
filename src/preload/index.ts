@@ -448,6 +448,16 @@ export interface HaloAPI {
   onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void) => () => void
   onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void) => () => void
 
+  // Skill Conversation (持久化会话)
+  skillConversationList: () => Promise<IpcResponse>
+  skillConversationGet: (conversationId: string) => Promise<IpcResponse>
+  skillConversationCreate: (title?: string) => Promise<IpcResponse>
+  skillConversationDelete: (conversationId: string) => Promise<IpcResponse>
+  skillConversationSend: (conversationId: string, message: string) => Promise<IpcResponse>
+  skillConversationStop: (conversationId: string) => Promise<IpcResponse>
+  skillConversationClose: (conversationId: string) => Promise<IpcResponse>
+  onSkillConversationChunk: (callback: (data: { conversationId: string; chunk: any }) => void) => () => void
+
   // Terminal
   getTerminalWebSocketUrl: (spaceId: string, conversationId: string) => Promise<IpcResponse<{ wsUrl: string }>>
   sendTerminalCommand: (spaceId: string, conversationId: string, command: string) => Promise<IpcResponse>
@@ -541,6 +551,9 @@ const api: HaloAPI = {
   updateSpacePreferences: (spaceId, preferences) =>
     ipcRenderer.invoke('space:update-preferences', spaceId, preferences),
   getSpacePreferences: (spaceId) => ipcRenderer.invoke('space:get-preferences', spaceId),
+  getSkillSpace: () => ipcRenderer.invoke('space:get-skill-space'),
+  getSkillSpaceId: () => ipcRenderer.invoke('space:get-skill-space-id'),
+  isSkillSpace: (spaceId) => ipcRenderer.invoke('space:is-skill-space', spaceId),
 
   // Conversation
   listConversations: (spaceId) => ipcRenderer.invoke('conversation:list', spaceId),
@@ -853,6 +866,24 @@ const api: HaloAPI = {
     ipcRenderer.on('skill:install-output', handler)
     return () => {
       ipcRenderer.removeListener('skill:install-output', handler)
+    }
+  },
+
+  // Skill Conversation (持久化会话)
+  skillConversationList: () => ipcRenderer.invoke('skill:conversation:list'),
+  skillConversationGet: (conversationId) => ipcRenderer.invoke('skill:conversation:get', conversationId),
+  skillConversationCreate: (title) => ipcRenderer.invoke('skill:conversation:create', title),
+  skillConversationDelete: (conversationId) => ipcRenderer.invoke('skill:conversation:delete', conversationId),
+  skillConversationSend: (conversationId, message) => ipcRenderer.invoke('skill:conversation:send', conversationId, message),
+  skillConversationStop: (conversationId) => ipcRenderer.invoke('skill:conversation:stop', conversationId),
+  skillConversationClose: (conversationId) => ipcRenderer.invoke('skill:conversation:close', conversationId),
+  onSkillConversationChunk: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, conversationId: string, chunk: any) => {
+      callback({ conversationId, chunk })
+    }
+    ipcRenderer.on('skill:conversation-chunk', handler)
+    return () => {
+      ipcRenderer.removeListener('skill:conversation-chunk', handler)
     }
   },
 
