@@ -12,7 +12,10 @@ import {
   openSpaceFolder,
   updateSpace,
   updateSpacePreferences,
-  getSpacePreferences
+  getSpacePreferences,
+  getOrCreateSkillSpace,
+  getSkillSpaceId,
+  isSkillSpace
 } from '../services/space.service'
 import { getSpacesDir } from '../services/config.service'
 
@@ -164,6 +167,41 @@ export function registerSpaceHandlers(): void {
     try {
       const preferences = getSpacePreferences(spaceId)
       return { success: true, data: preferences }
+    } catch (error: unknown) {
+      const err = error as Error
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Get or create skill space
+  ipcMain.handle('space:get-skill-space', async () => {
+    try {
+      const space = getOrCreateSkillSpace()
+      console.log('[SpaceIPC] space:get-skill-space response: id=%s', space?.id)
+      return { success: true, data: space }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[SpaceIPC] space:get-skill-space error:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Get skill space ID
+  ipcMain.handle('space:get-skill-space-id', async () => {
+    try {
+      const spaceId = getSkillSpaceId()
+      return { success: true, data: spaceId }
+    } catch (error: unknown) {
+      const err = error as Error
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Check if space is skill space
+  ipcMain.handle('space:is-skill-space', async (_event, spaceId: string) => {
+    try {
+      const result = isSkillSpace(spaceId)
+      return { success: true, data: result }
     } catch (error: unknown) {
       const err = error as Error
       return { success: false, error: err.message }
