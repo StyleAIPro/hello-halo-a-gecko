@@ -519,6 +519,12 @@ export class ClaudeManager {
     options.env.DISABLE_TELEMETRY = '1'
     options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
+    // Use ~/.agents/claude-config/ for SDK config (consistent with local Halo)
+    // This ensures session files are stored in a predictable location
+    const agentsDir = path.join(os.homedir(), '.agents')
+    const configDir = path.join(agentsDir, 'claude-config')
+    options.env.CLAUDE_CONFIG_DIR = configDir
+
     // CRITICAL: IS_SANDBOX=1 is required for bypass-permissions mode when running as root
     // This must be passed to the Claude CLI subprocess, not just the remote-agent-proxy process
     options.env.IS_SANDBOX = '1'
@@ -1495,6 +1501,11 @@ export class ClaudeManager {
 
   /**
    * Remove a session - called when client explicitly closes the session
+   *
+   * CRITICAL: This method MUST close the SDK session to prevent state pollution.
+   * When a user interrupts a conversation, the SDK process may be in an inconsistent
+   * state. If we don't close it properly, the next request might reuse this "dirty"
+   * process, causing garbled output and tool call errors.
    */
   removeSession(conversationId: string): void {
     const info = this.sessions.get(conversationId)
@@ -1506,6 +1517,21 @@ export class ClaudeManager {
         this.activeStreamIterators.delete(conversationId)
         console.log(`[ClaudeManager][${conversationId}] Aborted active stream iterator`)
       }
+
+      // CRITICAL: Close the SDK session to release the underlying process
+      // Without this, the SDK process continues running with potentially corrupted state
+      try {
+        info.session.close()
+        console.log(`[ClaudeManager][${conversationId}] SDK session closed`)
+      } catch (e: any) {
+        // Ignore EPIPE errors (process already exited)
+        if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
+          console.log(`[ClaudeManager][${conversationId}] Session close: EPIPE (process already exited)`)
+        } else {
+          console.warn(`[ClaudeManager][${conversationId}] Error closing session:`, e?.message || e)
+        }
+      }
+
       this.sessions.delete(conversationId)
       console.log(`[ClaudeManager][${conversationId}] Session removed from cache`)
     }
