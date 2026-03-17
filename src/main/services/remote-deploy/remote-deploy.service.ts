@@ -1706,13 +1706,18 @@ WRAPPER
     }
 
     const localSkillsDir = getAgentsSkillsDir()
-    const remoteSkillsDir = '~/.agents/skills'
 
     try {
+      // Get remote home directory (SFTP doesn't expand ~, we need absolute path)
+      this.emitDeployProgress(id, 'sync-skills', '正在获取远程目录信息...', 5)
+      const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
+      const remoteSkillsDir = `${remoteHome}/.agents/skills`
+      console.log(`[RemoteDeployService] Remote home: ${remoteHome}, skills dir: ${remoteSkillsDir}`)
+
       // Create remote skills directory if it doesn't exist
       this.emitDeployProgress(id, 'sync-skills', '正在创建远程 skills 目录...', 10)
       await manager.executeCommand(`mkdir -p ${remoteSkillsDir}`)
-      await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)
+      await manager.executeCommand(`mkdir -p ${remoteHome}/.agents/claude-config`)
 
       // Check if local skills directory exists
       if (!fs.existsSync(localSkillsDir)) {

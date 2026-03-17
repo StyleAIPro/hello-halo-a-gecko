@@ -462,7 +462,10 @@ function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
   console.log(`[Agent] Migration check: workDir="${workDir}" -> projectDir="${projectDir}"`)
 
   // 2. Build old and new paths
-  const newConfigDir = path.join(app.getPath('userData'), 'claude-config')
+  // Note: CLAUDE_CONFIG_DIR is set to ~/.agents/claude-config/ in sdk-config.ts
+  // This is the actual path where SDK writes session files
+  const newConfigDir = path.join(os.homedir(), '.agents', 'claude-config')
+  // Legacy path (used by original Claude Code CLI before Halo's isolation)
   const oldConfigDir = path.join(os.homedir(), '.claude')
 
   const newPath = path.join(newConfigDir, 'projects', projectDir, sessionFile)

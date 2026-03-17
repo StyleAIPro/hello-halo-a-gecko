@@ -837,17 +837,15 @@ When done, your results will be automatically announced to the parent agent.`
         throw new Error('Failed to create session for local subagent')
       }
 
-      // Send the task to the local agent
-      const response = await session.query({
-        messages: [{
-          role: 'user',
-          content: subtask.task
-        }]
+      // Send the task to the local agent using send() + stream() pattern
+      session.send({
+        role: 'user',
+        content: subtask.task
       })
 
       // Extract the response content
       let result = ''
-      for await (const event of response) {
+      for await (const event of session.stream()) {
         if (event.type === 'content_block_delta') {
           const delta = event.delta as any
           if (delta?.text) {
