@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
-import { Terminal as TerminalIcon, PanelLeft, PanelLeftClose, Download, ArrowRightToLine } from 'lucide-react'
+import { Terminal as TerminalIcon, PanelLeft, PanelLeftClose, Download, ArrowRightToLine, MessageSquarePlus } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { useTranslation } from '../../i18n'
@@ -51,6 +51,14 @@ export function SharedTerminalPanel({
   const [agentTerminalStatus, setAgentTerminalStatus] = useState<'idle' | 'running' | 'completed'>('idle')
   // Agent panel width percentage (for resize handle)
   const [agentPaneWidth, setAgentPaneWidth] = useState(40)
+
+  // Selection popup state for user terminal
+  const [selectionPopup, setSelectionPopup] = useState<{
+    visible: boolean
+    text: string
+    x: number
+    y: number
+  }>({ visible: false, text: '', x: 0, y: 0 })
 
   const isVisible = parentIsVisible !== undefined ? parentIsVisible : true
 
@@ -524,6 +532,42 @@ export function SharedTerminalPanel({
     term.writeln('\x1b[90mPress Ctrl+` to toggle Agent Commands panel\x1b[0m')
     term.writeln('')
 
+    // Selection popup - use mouseup event to capture selection and position
+    const handleMouseUp = (e: MouseEvent) => {
+      // Small delay to ensure selection is complete
+      setTimeout(() => {
+        const selection = term.getSelection()
+        console.log('[SharedTerminal] Mouse up, selection:', selection?.length || 0, 'chars')
+
+        if (selection && selection.trim().length > 0) {
+          // Position popup near the mouse cursor
+          const x = e.clientX - 60 // Center the popup
+          const y = e.clientY + 10 // Slightly below cursor
+
+          console.log('[SharedTerminal] Showing popup at:', x, y)
+          setSelectionPopup({
+            visible: true,
+            text: selection,
+            x: x,
+            y: y
+          })
+        }
+      }, 10)
+    }
+
+    // Also listen for selection changes to hide popup when selection is cleared
+    const selectionDisposable = term.onSelectionChange(() => {
+      const selection = term.getSelection()
+      if (!selection || selection.trim().length === 0) {
+        setSelectionPopup(prev => prev.visible ? { ...prev, visible: false } : prev)
+      }
+    })
+
+    const container = userTerminalRef.current
+    if (container) {
+      container.addEventListener('mouseup', handleMouseUp)
+    }
+
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       userFitAddon.fit()
@@ -532,6 +576,10 @@ export function SharedTerminalPanel({
 
     return () => {
       resizeObserver.disconnect()
+      selectionDisposable.dispose()
+      if (container) {
+        container.removeEventListener('mouseup', handleMouseUp)
+      }
       // NOTE: Do NOT dispose the terminal - keep it for re-use when panel reopens
     }
   }, [isVisible, conversationId])
@@ -825,6 +873,40 @@ export function SharedTerminalPanel({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // Close selection popup when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!selectionPopup.visible) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.selection-popup') && !target.closest('.xterm-selection')) {
+        setSelectionPopup(prev => ({ ...prev, visible: false }))
+        const term = userXtermRef.current
+        if (term) {
+          term.clearSelection()
+        }
+      }
+    }
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectionPopup(prev => ({ ...prev, visible: false }))
+        const term = userXtermRef.current
+        if (term) {
+          term.clearSelection()
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [selectionPopup.visible])
+
   // Handle export to markdown
   const handleExportCommands = useCallback(async () => {
     const commands = getCommandsForConversation(conversationId)
@@ -874,6 +956,29 @@ export function SharedTerminalPanel({
     window.dispatchEvent(event)
     console.log('[SharedTerminal] Terminal content appended to input')
   }, [])
+
+  // Handle send selected text to chat input
+  const handleSendSelectionToInput = useCallback(() => {
+    if (!selectionPopup.text.trim()) {
+      return
+    }
+
+    // Dispatch custom event to append to input
+    const event = new CustomEvent('append-terminal-content', {
+      detail: {
+        content: `\`\`\`\n${selectionPopup.text}\n\`\`\``
+      }
+    })
+    window.dispatchEvent(event)
+    console.log('[SharedTerminal] Selection sent to input:', selectionPopup.text.length, 'chars')
+
+    // Hide popup and clear selection
+    setSelectionPopup(prev => ({ ...prev, visible: false }))
+    const term = userXtermRef.current
+    if (term) {
+      term.clearSelection()
+    }
+  }, [selectionPopup.text])
 
   if (!isVisible) {
     return null
@@ -950,6 +1055,28 @@ export function SharedTerminalPanel({
           <div ref={userTerminalRef} className="terminal-instance user-terminal" />
         </div>
       </div>
+
+      {/* Selection Popup - 显示在选中文本附近 */}
+      {selectionPopup.visible && (
+        <div
+          className="selection-popup"
+          style={{
+            position: 'fixed',
+            left: selectionPopup.x,
+            top: selectionPopup.y + 5,
+            zIndex: 1000
+          }}
+        >
+          <button
+            className="selection-popup-btn"
+            onClick={handleSendSelectionToInput}
+            title={t('Send to chat input')}
+          >
+            <MessageSquarePlus className="w-4 h-4" />
+            <span>{t('Send to Chat')}</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
