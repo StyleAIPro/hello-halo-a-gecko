@@ -4,7 +4,7 @@
  * Main page for managing skills including:
  * - Library: View and manage installed skills
  * - Market: Browse and install skills from market
- * - Generator: Create new skills from conversation history
+ * - Editor: AI-assisted skill file editor
  */
 
 import { useEffect, useMemo } from 'react'
@@ -14,9 +14,9 @@ import { useAppStore } from '../../stores/app.store'
 import { Header } from '../../components/layout/Header'
 import { SkillLibrary } from '../../components/skill/SkillLibrary'
 import { SkillMarket } from '../../components/skill/SkillMarket'
-import { SkillGenerator } from '../../components/skill/SkillGenerator'
+import { SkillEditorPage } from '../../components/skill/SkillEditor'
 import { useTranslation } from '../../i18n'
-import { Book, Store, Sparkles, Settings, ArrowLeft } from 'lucide-react'
+import { Book, Store, FileCode, Settings, ArrowLeft } from 'lucide-react'
 
 export function SkillPage() {
   const { t } = useTranslation()
@@ -53,9 +53,9 @@ export function SkillPage() {
       icon: Store,
     },
     {
-      id: 'generator' as const,
-      label: t('Skill Generator'),
-      icon: Sparkles,
+      id: 'editor' as const,
+      label: t('技能生成器'),
+      icon: FileCode,
     },
   ], [t])
 
@@ -126,7 +126,7 @@ export function SkillPage() {
 
         {!loading && currentView === 'library' && <SkillLibrary />}
         {!marketLoading && currentView === 'market' && <SkillMarket />}
-        {currentView === 'generator' && <SkillGenerator />}
+        {currentView === 'editor' && <SkillEditorPage />}
       </div>
     </div>
   )

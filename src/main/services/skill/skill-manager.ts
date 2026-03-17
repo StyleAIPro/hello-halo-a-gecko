@@ -293,6 +293,33 @@ export class SkillManager {
   }
 
   /**
+   * 保存技能文件内容
+   */
+  async saveSkillFileContent(skillId: string, filePath: string, content: string): Promise<boolean> {
+    const fullPath = path.join(this.skillsDir, skillId, filePath);
+
+    try {
+      // 安全检查：确保路径在技能目录内
+      const normalizedPath = path.normalize(fullPath);
+      const skillDir = path.join(this.skillsDir, skillId);
+      if (!normalizedPath.startsWith(skillDir)) {
+        console.error('[SkillManager] Invalid file path:', filePath);
+        return false;
+      }
+
+      // 确保目录存在
+      const dir = path.dirname(normalizedPath);
+      await fs.mkdir(dir, { recursive: true });
+
+      await fs.writeFile(normalizedPath, content, 'utf-8');
+      return true;
+    } catch (error) {
+      console.error('[SkillManager] Failed to save file:', filePath, error);
+      return false;
+    }
+  }
+
+  /**
    * 安装 skill
    */
   async installSkill(spec: SkillSpec, skillData: {

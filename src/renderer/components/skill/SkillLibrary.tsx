@@ -5,7 +5,7 @@
  * 同时支持抽屉式文件浏览器
  */
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useSkillStore } from '../../stores/skill/skill.store'
 import { useTranslation } from '../../i18n'
 import {
@@ -23,7 +23,8 @@ import {
   Loader2,
   CloudUpload,
   RefreshCw,
-  Server
+  Server,
+  GripVertical
 } from 'lucide-react'
 import type { InstalledSkill, SkillFileNode } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
@@ -60,6 +61,44 @@ export function SkillLibrary() {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [loadingFiles, setLoadingFiles] = useState(false)
+
+  // 抽屉宽度状态（支持拖动调整）
+  const [drawerWidth, setDrawerWidth] = useState(384) // 默认 384px (w-96)
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeRef = useRef<HTMLDivElement>(null)
+
+  // 拖动调整宽度
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return
+      const newWidth = window.innerWidth - e.clientX
+      // 限制最小和最大宽度
+      const minWidth = 280
+      const maxWidth = 600
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        setDrawerWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
 
   // 同步状态
   const [showSyncModal, setShowSyncModal] = useState(false)
@@ -308,7 +347,25 @@ export function SkillLibrary() {
 
         {/* 文件抽屉 */}
         {showFilesDrawer && selectedSkillId && (
-          <div className="w-96 border-l border-border flex flex-col">
+          <div
+            className="border-l border-border flex flex-col relative"
+            style={{ width: `${drawerWidth}px` }}
+          >
+            {/* 拖动调整宽度的手柄 */}
+            <div
+              ref={resizeRef}
+              onMouseDown={handleMouseDown}
+              className={`
+                absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10
+                hover:bg-primary/50 transition-colors
+                ${isResizing ? 'bg-primary' : 'bg-transparent'}
+              `}
+            >
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 transition-opacity">
+                <GripVertical className="w-3 h-3 text-muted-foreground" />
+              </div>
+            </div>
+
             {/* 抽屉头部 */}
             <div className="flex items-center justify-between p-3 border-b border-border">
               <h3 className="text-sm font-medium text-foreground">
@@ -322,58 +379,61 @@ export function SkillLibrary() {
               </button>
             </div>
 
-            {/* 文件树 */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {loadingFiles ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : fileTree && fileTree.length > 0 ? (
-                <div className="space-y-1">
-                  {fileTree.map((node) => (
-                    <FileTreeNode
-                      key={node.path}
-                      node={node}
-                      level={0}
-                      selectedPath={selectedFilePath}
-                      onSelect={(path, type) => {
-                        if (type === 'file') {
-                          loadFileContent(selectedSkillId, path)
-                        }
+            {/* 内容区域：文件树 + 文件预览 */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* 文件树 - 紧凑显示，只占需要的空间 */}
+              <div className="shrink-0 max-h-[40%] overflow-y-auto p-2">
+                {loadingFiles ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : fileTree && fileTree.length > 0 ? (
+                  <div className="space-y-1">
+                    {fileTree.map((node) => (
+                      <FileTreeNode
+                        key={node.path}
+                        node={node}
+                        level={0}
+                        selectedPath={selectedFilePath}
+                        onSelect={(path, type) => {
+                          if (type === 'file') {
+                            loadFileContent(selectedSkillId, path)
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-4 text-muted-foreground">
+                    <Folder className="w-5 h-5 mr-2 opacity-50" />
+                    <span className="text-xs">{t('No files found')}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 文件预览 - 占满剩余空间到底部 */}
+              {selectedFilePath && fileContent !== null && (
+                <div className="border-t border-border flex flex-col min-h-0 flex-1">
+                  <div className="flex items-center justify-between p-2 border-b border-border bg-secondary/50 shrink-0">
+                    <span className="text-xs font-mono truncate">{selectedFilePath.split('/').pop()}</span>
+                    <button
+                      onClick={() => {
+                        setSelectedFilePath(null)
+                        setFileContent(null)
                       }}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <Folder className="w-5 h-5 mr-2 opacity-50" />
-                  <span className="text-xs">{t('No files found')}</span>
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {t('Close')}
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                    <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+                      {typeof fileContent === 'string' ? fileContent.slice(0, 5000) : 'No content'}
+                    </pre>
+                  </div>
                 </div>
               )}
             </div>
-
-            {/* 文件预览 */}
-            {selectedFilePath && fileContent !== null && (
-              <div className="border-t border-border">
-                <div className="flex items-center justify-between p-2 border-b border-border bg-secondary/50">
-                  <span className="text-xs font-mono truncate">{selectedFilePath.split('/').pop()}</span>
-                  <button
-                    onClick={() => {
-                      setSelectedFilePath(null)
-                      setFileContent(null)
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {t('Close')}
-                  </button>
-                </div>
-                <div className="flex-1 overflow-auto p-2">
-                  <pre className="text-xs font-mono whitespace-pre-wrap break-words">
-                    {typeof fileContent === 'string' ? fileContent.slice(0, 5000) : 'No content'}
-                  </pre>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

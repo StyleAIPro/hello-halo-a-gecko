@@ -61,7 +61,7 @@ interface SkillState {
   config: SkillLibraryConfig | null
 
   // 当前视图
-  currentView: 'library' | 'market' | 'generator'
+  currentView: 'library' | 'market' | 'editor'
   searchQuery: string
   selectedSkillId: string | null
 
@@ -107,7 +107,7 @@ interface SkillState {
   updateConfig: (config: Partial<SkillLibraryConfig>) => Promise<void>
 
   // Actions - UI
-  setCurrentView: (view: 'library' | 'market' | 'generator') => void
+  setCurrentView: (view: 'library' | 'market' | 'editor') => void
   setSearchQuery: (query: string) => void
   setSelectedSkillId: (id: string | null) => void
   refreshSkills: () => Promise<void>
