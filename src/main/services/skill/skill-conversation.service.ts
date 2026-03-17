@@ -51,6 +51,8 @@ import type { Thought } from '../agent/types'
 export interface SkillConversationOptions {
   title?: string
   initialPrompt?: string
+  /** 关联的技能 ID */
+  relatedSkillId?: string
 }
 
 export interface SkillConversationSession {
@@ -82,8 +84,12 @@ export function ensureSkillSpace() {
 
 /**
  * 列出技能生成器的所有会话
+ * @param relatedSkillId 可选，按技能 ID 过滤会话
  */
-export function listSkillConversations(): ConversationMeta[] {
+export function listSkillConversations(relatedSkillId?: string): ConversationMeta[] {
+  if (relatedSkillId !== undefined) {
+    return listConversations(SKILL_SPACE_ID, { relatedSkillId })
+  }
   return listConversations(SKILL_SPACE_ID)
 }
 
@@ -96,15 +102,21 @@ export function getSkillConversation(conversationId: string): Conversation | nul
 
 /**
  * 创建新的技能生成器会话
+ * @param title 会话标题
+ * @param relatedSkillId 可选，关联的技能 ID
  */
-export function createSkillConversation(title?: string): Conversation {
+export function createSkillConversation(title?: string, relatedSkillId?: string): Conversation {
   // 确保技能空间存在
   ensureSkillSpace()
 
-  // 创建持久化会话
-  const conversation = createConversation(SKILL_SPACE_ID, title || 'Skill Generator')
+  // 创建持久化会话，关联 skillId
+  const conversation = createConversation(
+    SKILL_SPACE_ID,
+    title || 'Skill Generator',
+    { relatedSkillId }
+  )
 
-  console.log(`[SkillConv] Created conversation: ${conversation.id}`)
+  console.log(`[SkillConv] Created conversation: ${conversation.id}${relatedSkillId ? ` for skill: ${relatedSkillId}` : ''}`)
 
   return conversation
 }
@@ -139,7 +151,21 @@ export function deleteSkillConversation(conversationId: string): boolean {
  */
 export async function sendSkillMessage(
   conversationId: string,
-  message: string
+  message: string,
+  metadata?: {
+    selectedConversations?: Array<{
+      id: string
+      title: string
+      spaceName: string
+      messageCount: number
+      formattedContent?: string
+    }>
+    sourceWebpages?: Array<{
+      url: string
+      title?: string
+      content?: string
+    }>
+  }
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // 设置主窗口引用，以便 sendToRenderer 可以工作
@@ -159,10 +185,14 @@ export async function sendSkillMessage(
       conversationId = conversation.id
     }
 
-    // 添加用户消息到持久化存储
+    // 添加用户消息到持久化存储（包含 metadata 用于折叠卡片显示）
     addMessageToStorage(SKILL_SPACE_ID, conversationId, {
       role: 'user',
-      content: message
+      content: message,
+      metadata: metadata ? {
+        selectedConversations: metadata.selectedConversations,
+        sourceWebpages: metadata.sourceWebpages
+      } : undefined
     })
 
     // 获取 API 凭证

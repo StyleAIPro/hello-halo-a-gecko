@@ -371,6 +371,20 @@ export interface Message {
   tokenUsage?: TokenUsage;  // Token usage for this assistant message
   metadata?: {
     fileChanges?: FileChangesSummary;  // Lightweight file changes for immediate display
+    /** 技能生成器：选中的会话信息（用于折叠卡片显示） */
+    selectedConversations?: Array<{
+      id: string;
+      title: string;
+      spaceName: string;
+      messageCount: number;
+      formattedContent?: string;
+    }>;
+    /** 技能生成器：参考的网页信息（用于折叠卡片显示） */
+    sourceWebpages?: Array<{
+      url: string;
+      title?: string;
+      content?: string;
+    }>;
   };
   error?: string;  // Error message when assistant response failed (e.g., 429 rate limit)
 }

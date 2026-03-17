@@ -422,6 +422,7 @@ export interface HaloAPI {
   skillInstall: (input: { mode: 'market' | 'yaml'; skillId?: string; yamlContent?: string }) => Promise<IpcResponse>
   skillFiles: (skillId: string) => Promise<IpcResponse>
   skillFileContent: (skillId: string, filePath: string) => Promise<IpcResponse>
+  skillFileSave: (skillId: string, filePath: string, content: string) => Promise<IpcResponse>
 
   // Skill Generator
   skillAnalyzeConversations: (spaceId: string, conversationIds: string[]) => Promise<IpcResponse>
@@ -449,11 +450,28 @@ export interface HaloAPI {
   onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void) => () => void
 
   // Skill Conversation (持久化会话)
-  skillConversationList: () => Promise<IpcResponse>
+  skillConversationList: (relatedSkillId?: string) => Promise<IpcResponse>
   skillConversationGet: (conversationId: string) => Promise<IpcResponse>
-  skillConversationCreate: (title?: string) => Promise<IpcResponse>
+  skillConversationCreate: (title?: string, relatedSkillId?: string) => Promise<IpcResponse>
   skillConversationDelete: (conversationId: string) => Promise<IpcResponse>
-  skillConversationSend: (conversationId: string, message: string) => Promise<IpcResponse>
+  skillConversationSend: (
+    conversationId: string,
+    message: string,
+    metadata?: {
+      selectedConversations?: Array<{
+        id: string
+        title: string
+        spaceName: string
+        messageCount: number
+        formattedContent?: string
+      }>
+      sourceWebpages?: Array<{
+        url: string
+        title?: string
+        content?: string
+      }>
+    }
+  ) => Promise<IpcResponse>
   skillConversationStop: (conversationId: string) => Promise<IpcResponse>
   skillConversationClose: (conversationId: string) => Promise<IpcResponse>
   onSkillConversationChunk: (callback: (data: { conversationId: string; chunk: any }) => void) => () => void
@@ -844,6 +862,7 @@ const api: HaloAPI = {
   skillGenerate: (input) => ipcRenderer.invoke('skill:generate', input),
   skillFiles: (skillId) => ipcRenderer.invoke('skill:files', skillId),
   skillFileContent: (skillId, filePath) => ipcRenderer.invoke('skill:file-content', skillId, filePath),
+  skillFileSave: (skillId, filePath, content) => ipcRenderer.invoke('skill:file-save', skillId, filePath, content),
 
   // Skill Generator
   skillAnalyzeConversations: (spaceId, conversationIds) => ipcRenderer.invoke('skill:analyze-conversations', spaceId, conversationIds),
@@ -870,13 +889,14 @@ const api: HaloAPI = {
   },
 
   // Skill Conversation (持久化会话)
-  skillConversationList: () => ipcRenderer.invoke('skill:conversation:list'),
+  skillConversationList: (relatedSkillId) => ipcRenderer.invoke('skill:conversation:list', relatedSkillId),
   skillConversationGet: (conversationId) => ipcRenderer.invoke('skill:conversation:get', conversationId),
-  skillConversationCreate: (title) => ipcRenderer.invoke('skill:conversation:create', title),
+  skillConversationCreate: (title, relatedSkillId) => ipcRenderer.invoke('skill:conversation:create', title, relatedSkillId),
   skillConversationDelete: (conversationId) => ipcRenderer.invoke('skill:conversation:delete', conversationId),
-  skillConversationSend: (conversationId, message) => ipcRenderer.invoke('skill:conversation:send', conversationId, message),
+  skillConversationSend: (conversationId, message, metadata) => ipcRenderer.invoke('skill:conversation:send', conversationId, message, metadata),
   skillConversationStop: (conversationId) => ipcRenderer.invoke('skill:conversation:stop', conversationId),
   skillConversationClose: (conversationId) => ipcRenderer.invoke('skill:conversation:close', conversationId),
+  fetchWebPageContent: (url) => ipcRenderer.invoke('skill:fetch-webpage', url),
   onSkillConversationChunk: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, conversationId: string, chunk: any) => {
       callback({ conversationId, chunk })

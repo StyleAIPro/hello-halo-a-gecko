@@ -84,6 +84,20 @@ interface Message {
   tokenUsage?: TokenUsage
   metadata?: {
     fileChanges?: FileChangesSummary
+    /** 技能生成器：选中的会话信息（用于折叠卡片显示） */
+    selectedConversations?: Array<{
+      id: string
+      title: string
+      spaceName: string
+      messageCount: number
+      formattedContent?: string
+    }>
+    /** 技能生成器：参考的网页信息（用于折叠卡片显示） */
+    sourceWebpages?: Array<{
+      url: string
+      title?: string
+      content?: string
+    }>
   }
   error?: string  // Error message when assistant response failed (e.g., 429 rate limit)
 }
@@ -107,12 +121,16 @@ export interface ConversationMeta {
   messageCount: number
   preview?: string
   starred?: boolean
+  /** 关联的技能 ID（用于 skill 编辑器会话隔离） */
+  relatedSkillId?: string
 }
 
 interface Conversation extends ConversationMeta {
   messages: Message[]
   sessionId?: string
   version?: number  // 2 = thoughts stored separately
+  /** 关联的技能 ID（用于 skill 编辑器会话隔离） */
+  relatedSkillId?: string
 }
 
 // Thoughts file structure
@@ -563,6 +581,10 @@ function toMeta(conversation: Conversation): ConversationMeta {
     meta.starred = true
   }
 
+  if (conversation.relatedSkillId) {
+    meta.relatedSkillId = conversation.relatedSkillId
+  }
+
   return meta
 }
 
@@ -694,25 +716,38 @@ function getConversationsDir(spaceId: string): string {
 }
 
 // List all conversations for a space (returns lightweight metadata)
-export function listConversations(spaceId: string): ConversationMeta[] {
+export function listConversations(spaceId: string, filter?: { relatedSkillId?: string }): ConversationMeta[] {
   const conversationsDir = getConversationsDir(spaceId)
 
   const index = readIndex(conversationsDir)
+  let conversations: ConversationMeta[]
+
   if (index) {
-    return index.conversations
+    conversations = index.conversations
+  } else {
+    conversations = fullScanConversations(conversationsDir, spaceId)
+    if (conversations.length > 0) {
+      writeIndex(conversationsDir, conversations)
+    }
   }
 
-  const metas = fullScanConversations(conversationsDir, spaceId)
-
-  if (metas.length > 0) {
-    writeIndex(conversationsDir, metas)
+  // Apply filter if provided
+  if (filter?.relatedSkillId !== undefined) {
+    conversations = conversations.filter(conv => {
+      // If filter.relatedSkillId is null/undefined, return conversations without relatedSkillId
+      if (!filter.relatedSkillId) {
+        return !conv.relatedSkillId
+      }
+      // Otherwise, return conversations that match the skillId
+      return conv.relatedSkillId === filter.relatedSkillId
+    })
   }
 
-  return metas
+  return conversations
 }
 
 // Create a new conversation (always v2 format)
-export function createConversation(spaceId: string, title?: string): Conversation {
+export function createConversation(spaceId: string, title?: string, options?: { relatedSkillId?: string }): Conversation {
   const id = uuidv4()
   const now = new Date().toISOString()
 
@@ -724,7 +759,8 @@ export function createConversation(spaceId: string, title?: string): Conversatio
     updatedAt: now,
     messageCount: 0,
     messages: [],
-    version: CONVERSATION_FORMAT_VERSION
+    version: CONVERSATION_FORMAT_VERSION,
+    relatedSkillId: options?.relatedSkillId
   }
 
   const conversationsDir = getConversationsDir(spaceId)

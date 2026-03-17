@@ -366,6 +366,19 @@ export async function getSkillFileContent(skillId: string, filePath: string) {
   }
 }
 
+export async function saveSkillFileContent(skillId: string, filePath: string, content: string) {
+  try {
+    await ensureInitialized();
+    const success = await skillManager.saveSkillFileContent(skillId, filePath, content);
+    if (!success) {
+      return { success: false, error: 'Failed to save file' };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to save file content' };
+  }
+}
+
 // ============================================
 // Skill Generator & Temp Agent Session
 // ============================================
@@ -387,10 +400,11 @@ import * as skillConversationService from '../services/skill/skill-conversation.
 
 /**
  * 列出技能生成器的所有会话
+ * @param relatedSkillId 可选，按技能 ID 过滤会话
  */
-export async function listSkillConversations() {
+export async function listSkillConversations(relatedSkillId?: string) {
   try {
-    const conversations = skillConversationService.listSkillConversations();
+    const conversations = skillConversationService.listSkillConversations(relatedSkillId);
     return { success: true, data: conversations };
   } catch (error) {
     return {
@@ -420,10 +434,12 @@ export async function getSkillConversation(conversationId: string) {
 
 /**
  * 创建新的技能生成器会话
+ * @param title 会话标题
+ * @param relatedSkillId 可选，关联的技能 ID
  */
-export async function createSkillConversation(title?: string) {
+export async function createSkillConversation(title?: string, relatedSkillId?: string) {
   try {
-    const conversation = skillConversationService.createSkillConversation(title);
+    const conversation = skillConversationService.createSkillConversation(title, relatedSkillId);
     return { success: true, data: conversation };
   } catch (error) {
     return {
@@ -456,11 +472,25 @@ export async function deleteSkillConversation(conversationId: string) {
  */
 export async function sendSkillConversationMessage(
   conversationId: string,
-  message: string
+  message: string,
+  metadata?: {
+    selectedConversations?: Array<{
+      id: string
+      title: string
+      spaceName: string
+      messageCount: number
+      formattedContent?: string
+    }>
+    sourceWebpages?: Array<{
+      url: string
+      title?: string
+      content?: string
+    }>
+  }
 ) {
   try {
     // 服务现在直接使用 sendToRenderer 发送标准的 IPC 事件
-    const result = await skillConversationService.sendSkillMessage(conversationId, message);
+    const result = await skillConversationService.sendSkillMessage(conversationId, message, metadata);
     return result;
   } catch (error) {
     return {
@@ -781,4 +811,196 @@ function generateSkillName(analysis: any): string {
 function generateTriggerCommand(analysis: any): string {
   const name = generateSkillName(analysis);
   return `/${name.replace(/-/g, '')}`;
+}
+
+// ============================================
+// Web Page Content Fetcher
+// ============================================
+
+/**
+ * 获取网页内容（用于从网页创建技能）
+ * 使用 MCP web_reader 工具获取网页内容
+ */
+export async function fetchWebPageContent(url: string): Promise<{
+  success: boolean;
+  data?: { title: string; content: string };
+  error?: string;
+}> {
+  try {
+    // 动态导入 MCP 工具
+    const { MCPManager } = await import('../services/agent/mcp-manager');
+    const mcpManager = MCPManager.getInstance();
+
+    // 获取 web_reader 工具
+    const webReader = mcpManager.getTool('web_reader', 'webReader');
+    if (!webReader) {
+      // 降级：使用简单的 HTTP fetch
+      return await fetchWithHttp(url);
+    }
+
+    // 调用 MCP web_reader 工具
+    const result = await mcpManager.callTool('web_reader', 'webReader', {
+      url,
+      return_format: 'markdown',
+      retain_images: false,
+      no_cache: false,
+    });
+
+    if (result.isError) {
+      console.error('[SkillController] MCP web_reader error:', result.content);
+      // 降级：使用简单的 HTTP fetch
+      return await fetchWithHttp(url);
+    }
+
+    // 解析结果
+    let content = '';
+    let title = new URL(url).hostname;
+
+    if (result.content) {
+      for (const item of result.content) {
+        if (item.type === 'text') {
+          content += item.text || '';
+        }
+      }
+    }
+
+    // 从内容中提取标题
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    if (titleMatch) {
+      title = titleMatch[1].trim();
+    }
+
+    // 限制内容长度（最多 5000 字符）
+    if (content.length > 5000) {
+      content = content.slice(0, 5000) + '\n\n...(内容已截断)';
+    }
+
+    return {
+      success: true,
+      data: { title, content }
+    };
+  } catch (error) {
+    console.error('[SkillController] Failed to fetch webpage with MCP:', error);
+    // 降级：使用简单的 HTTP fetch
+    return await fetchWithHttp(url);
+  }
+}
+
+/**
+ * 降级方案：使用 HTTP fetch 获取网页内容
+ */
+async function fetchWithHttp(url: string): Promise<{
+  success: boolean;
+  data?: { title: string; content: string };
+  error?: string;
+}> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+      signal: AbortSignal.timeout(30000)
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`
+      };
+    }
+
+    let html = await response.text();
+
+    // 提取标题
+    let title = '';
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      title = titleMatch[1].trim();
+    }
+
+    // 简单的 HTML to Markdown 转换
+    let content = htmlToMarkdown(html);
+
+    // 限制内容长度（最多 5000 字符）
+    if (content.length > 5000) {
+      content = content.slice(0, 5000) + '...(内容已截断)';
+    }
+
+    return {
+      success: true,
+      data: {
+        title: title || new URL(url).hostname,
+        content
+      }
+    };
+  } catch (error) {
+    console.error('[SkillController] Failed to fetch webpage:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '获取网页失败'
+    };
+  }
+}
+
+/**
+ * 简单的 HTML to Markdown 转换
+ */
+function htmlToMarkdown(html: string): string {
+  let md = html;
+
+  // 移除 script 和 style 标签及其内容
+  md = md.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  md = md.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  md = md.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+  md = md.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+  md = md.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+  md = md.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
+
+  // 转换标题
+  md = md.replace(/<h1[^>]*>([^<]+)<\/h1>/gi, '# $1\n\n');
+  md = md.replace(/<h2[^>]*>([^<]+)<\/h2>/gi, '## $1\n\n');
+  md = md.replace(/<h3[^>]*>([^<]+)<\/h3>/gi, '### $1\n\n');
+  md = md.replace(/<h4[^>]*>([^<]+)<\/h4>/gi, '#### $1\n\n');
+  md = md.replace(/<h5[^>]*>([^<]+)<\/h5>/gi, '##### $1\n\n');
+  md = md.replace(/<h6[^>]*>([^<]+)<\/h6>/gi, '###### $1\n\n');
+
+  // 转换段落
+  md = md.replace(/<p[^>]*>([^<]+)<\/p>/gi, '$1\n\n');
+
+  // 转换链接
+  md = md.replace(/<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/gi, '[$2]($1)');
+
+  // 转换加粗和斜体
+  md = md.replace(/<(strong|b)[^>]*>([^<]+)<\/(strong|b)>/gi, '**$2**');
+  md = md.replace(/<(em|i)[^>]*>([^<]+)<\/(em|i)>/gi, '*$2*');
+
+  // 转换代码块
+  md = md.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```\n\n');
+  md = md.replace(/<code[^>]*>([^<]+)<\/code>/gi, '`$1`');
+
+  // 转换列表
+  md = md.replace(/<li[^>]*>([^<]+)<\/li>/gi, '- $1\n');
+  md = md.replace(/<\/?[ou]l[^>]*>/gi, '\n');
+
+  // 转换换行
+  md = md.replace(/<br\s*\/?>/gi, '\n');
+
+  // 移除其他 HTML 标签
+  md = md.replace(/<[^>]+>/g, '');
+
+  // 解码 HTML 实体
+  md = md.replace(/&nbsp;/g, ' ');
+  md = md.replace(/&amp;/g, '&');
+  md = md.replace(/&lt;/g, '<');
+  md = md.replace(/&gt;/g, '>');
+  md = md.replace(/&quot;/g, '"');
+
+  // 清理多余空白
+  md = md.replace(/\n{3,}/g, '\n\n');
+  md = md.replace(/[ \t]{2,}/g, ' ');
+  md = md.trim();
+
+  return md;
 }

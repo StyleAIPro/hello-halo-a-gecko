@@ -227,6 +227,14 @@ export function registerSkillHandlers(
     }
   );
 
+  // ── skill:file-save ────────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:file-save',
+    async (_event, skillId: string, filePath: string, content: string) => {
+      return skillController.saveSkillFileContent(skillId, filePath, content);
+    }
+  );
+
   // ── skill:analyze-conversations ───────────────────────────────────────────────────
   ipcMain.handle(
     'skill:analyze-conversations',
@@ -281,8 +289,8 @@ export function registerSkillHandlers(
   // ── skill:conversation:list ────────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:conversation:list',
-    async () => {
-      return skillController.listSkillConversations();
+    async (_event, relatedSkillId?: string) => {
+      return skillController.listSkillConversations(relatedSkillId);
     }
   );
 
@@ -297,8 +305,8 @@ export function registerSkillHandlers(
   // ── skill:conversation:create ───────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:conversation:create',
-    async (_event, title?: string) => {
-      return skillController.createSkillConversation(title);
+    async (_event, title?: string, relatedSkillId?: string) => {
+      return skillController.createSkillConversation(title, relatedSkillId);
     }
   );
 
@@ -314,8 +322,26 @@ export function registerSkillHandlers(
   // 注意：现在使用标准的 agent:* IPC 事件发送流式数据（与主对话框相同）
   ipcMain.handle(
     'skill:conversation:send',
-    async (_event, conversationId: string, message: string) => {
-      return skillController.sendSkillConversationMessage(conversationId, message);
+    async (
+      _event,
+      conversationId: string,
+      message: string,
+      metadata?: {
+        selectedConversations?: Array<{
+          id: string
+          title: string
+          spaceName: string
+          messageCount: number
+          formattedContent?: string
+        }>
+        sourceWebpages?: Array<{
+          url: string
+          title?: string
+          content?: string
+        }>
+      }
+    ) => {
+      return skillController.sendSkillConversationMessage(conversationId, message, metadata);
     }
   );
 
@@ -332,6 +358,15 @@ export function registerSkillHandlers(
     'skill:conversation:close',
     async (_event, conversationId: string) => {
       return skillController.closeSkillConversation(conversationId);
+    }
+  );
+
+  // ── skill:fetch-webpage ────────────────────────────────────────────────────────────
+  // 获取网页内容（用于从网页创建技能）
+  ipcMain.handle(
+    'skill:fetch-webpage',
+    async (_event, url: string) => {
+      return skillController.fetchWebPageContent(url);
     }
   );
 

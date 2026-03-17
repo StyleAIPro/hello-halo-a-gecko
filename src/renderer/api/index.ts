@@ -2066,6 +2066,13 @@ export const api = {
     return httpRequest('GET', `/api/skills/${skillId}/files/${filePath}`)
   },
 
+  skillFileSave: async (skillId: string, filePath: string, content: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillFileSave(skillId, filePath, content)
+    }
+    return httpRequest('POST', `/api/skills/${skillId}/files/${filePath}`, { content })
+  },
+
   // ============================================
   // Skill Generator & Temp Agent Session
   // ============================================
@@ -2144,12 +2151,14 @@ export const api = {
 
   /**
    * 列出技能生成器的所有会话
+   * @param relatedSkillId 可选，按技能 ID 过滤会话
    */
-  skillConversationList: async (): Promise<ApiResponse> => {
+  skillConversationList: async (relatedSkillId?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.halo.skillConversationList()
+      return window.halo.skillConversationList(relatedSkillId)
     }
-    return httpRequest('GET', '/api/skills/conversations')
+    const query = relatedSkillId ? `?relatedSkillId=${encodeURIComponent(relatedSkillId)}` : ''
+    return httpRequest('GET', `/api/skills/conversations${query}`)
   },
 
   /**
@@ -2164,12 +2173,14 @@ export const api = {
 
   /**
    * 创建新的技能生成器会话
+   * @param title 会话标题
+   * @param relatedSkillId 可选，关联的技能 ID
    */
-  skillConversationCreate: async (title?: string): Promise<ApiResponse> => {
+  skillConversationCreate: async (title?: string, relatedSkillId?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.halo.skillConversationCreate(title)
+      return window.halo.skillConversationCreate(title, relatedSkillId)
     }
-    return httpRequest('POST', '/api/skills/conversations', { title })
+    return httpRequest('POST', '/api/skills/conversations', { title, relatedSkillId })
   },
 
   /**
@@ -2184,12 +2195,32 @@ export const api = {
 
   /**
    * 发送消息到技能生成器会话
+   * @param conversationId 会话 ID
+   * @param message 消息内容
+   * @param metadata 可选的元数据（包含选中的会话、参考网页等，用于折叠卡片显示）
    */
-  skillConversationSend: async (conversationId: string, message: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.halo.skillConversationSend(conversationId, message)
+  skillConversationSend: async (
+    conversationId: string,
+    message: string,
+    metadata?: {
+      selectedConversations?: Array<{
+        id: string
+        title: string
+        spaceName: string
+        messageCount: number
+        formattedContent?: string
+      }>
+      sourceWebpages?: Array<{
+        url: string
+        title?: string
+        content?: string
+      }>
     }
-    return httpRequest('POST', `/api/skills/conversations/${conversationId}/send`, { message })
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.skillConversationSend(conversationId, message, metadata)
+    }
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/send`, { message, metadata })
   },
 
   /**
@@ -2210,6 +2241,16 @@ export const api = {
       return window.halo.skillConversationClose(conversationId)
     }
     return httpRequest('POST', `/api/skills/conversations/${conversationId}/close`)
+  },
+
+  /**
+   * 获取网页内容（用于从网页创建技能）
+   */
+  fetchWebPageContent: async (url: string): Promise<ApiResponse<{ title: string; content: string }>> => {
+    if (isElectron()) {
+      return window.halo.fetchWebPageContent(url)
+    }
+    return httpRequest('POST', '/api/skills/fetch-webpage', { url })
   },
 
   /**
