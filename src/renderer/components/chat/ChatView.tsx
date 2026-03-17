@@ -327,7 +327,6 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
             <EmptyState isTemp={currentSpace?.isTemp || false} isCompact={isCompact} />
           ) : (
             <MessageList
-              key={currentConversation?.id ?? 'empty'}
               ref={messageListRef}
               messages={displayMessages}
               streamingContent={displayStreamingContent}

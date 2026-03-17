@@ -35,9 +35,31 @@ export function RemoteServersSection() {
   const [checkingAgent, setCheckingAgent] = React.useState<string | null>(null)
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
-  const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(new Map())
+  const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(() => {
+    // Load from localStorage on init
+    try {
+      const saved = localStorage.getItem('remote-server-terminal-entries')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return new Map(Object.entries(parsed))
+      }
+    } catch (e) {
+      console.error('[RemoteServersSection] Failed to load terminal entries from localStorage:', e)
+    }
+    return new Map()
+  })
   // Track servers that user manually disconnected - don't auto-reconnect these
   const [manuallyDisconnected, setManuallyDisconnected] = React.useState<Set<string>>(new Set())
+
+  // Save terminal entries to localStorage whenever they change
+  React.useEffect(() => {
+    try {
+      const obj = Object.fromEntries(terminalEntries)
+      localStorage.setItem('remote-server-terminal-entries', JSON.stringify(obj))
+    } catch (e) {
+      console.error('[RemoteServersSection] Failed to save terminal entries to localStorage:', e)
+    }
+  }, [terminalEntries])
 
   // Load servers on mount
   React.useEffect(() => {
@@ -338,9 +360,8 @@ export function RemoteServersSection() {
   const handleCheckAgent = async (serverId: string) => {
     setCheckingAgent(serverId)
     expandServer(serverId)
-    clearTerminal(serverId)
-
-    addTerminalEntry(serverId, 'command', 'Checking agent status...')
+    // Don't clear terminal - preserve update agent output
+    addTerminalEntry(serverId, 'command', '\n--- Checking agent status ---')
     console.log('[RemoteServersSection] Checking agent for server:', serverId)
 
     try {
@@ -404,10 +425,11 @@ export function RemoteServersSection() {
     if (!confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
     setUpdatingAgent(serverId)
     expandServer(serverId)
+    // Clear terminal only when starting a new update (as requested by user)
     clearTerminal(serverId)
 
     console.log('[RemoteServersSection] Updating agent for server:', serverId)
-    addTerminalEntry(serverId, 'command', 'Updating remote agent to latest version...')
+    addTerminalEntry(serverId, 'command', '=== Updating remote agent to latest version ===')
     try {
       const result = await api.remoteServerUpdateAgent(serverId)
       console.log('[RemoteServersSection] Update result:', result)
