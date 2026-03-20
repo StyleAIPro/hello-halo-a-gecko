@@ -38,6 +38,16 @@ interface SpaceState {
   currentConversationId: string | null
 }
 
+// Pending message in queue (waiting for current generation to complete)
+interface PendingMessage {
+  id: string
+  content: string
+  images?: ImageAttachment[]
+  thinkingEnabled?: boolean
+  aiBrowserEnabled?: boolean
+  timestamp: number
+}
+
 // Per-session runtime state (isolated per conversation, persists across space switches)
 interface SessionState {
   isGenerating: boolean
@@ -55,6 +65,8 @@ interface SessionState {
   textBlockVersion: number
   // Pending question from AskUserQuestion tool
   pendingQuestion: PendingQuestion | null
+  // Pending messages queue - messages waiting for current generation to complete
+  pendingMessages: PendingMessage[]
 }
 
 // Create empty session state
@@ -71,7 +83,8 @@ function createEmptySessionState(): SessionState {
     errorType: null,
     compactInfo: null,
     textBlockVersion: 0,
-    pendingQuestion: null
+    pendingQuestion: null,
+    pendingMessages: []
   }
 }
 
@@ -149,6 +162,9 @@ interface ChatState {
 
   // Error handling
   continueAfterInterrupt: (conversationId: string) => void
+
+  // Clear pending messages
+  clearPendingMessages: (conversationId: string) => void
 
   // Event handlers (called from App component) - with session IDs
   handleAgentMessage: (data: AgentEventBase & { content: string; isComplete: boolean }) => void
@@ -535,27 +551,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const newSessions = new Map(state.sessions)
             const existingSession = newSessions.get(conversationId) || createEmptySessionState()
 
-            // IMPORTANT: If frontend already has an active streaming session, preserve it.
-            // This handles the case when user switches away from a streaming conversation
+            // IMPORTANT: If frontend already has an active session, preserve its state.
+            // This handles the case when user switches away from a generating conversation
             // and switches back - the frontend state is accurate and shouldn't be overwritten
             // by backend state which might be stale or incomplete.
             // Only recover from backend when frontend state is missing (e.g., page refresh).
-            const frontendHasActiveSession = existingSession.isGenerating && existingSession.streamingContent
+            // NOTE: We check isGenerating only (not streamingContent) because in early
+            // "thinking" phase, streamingContent is empty but the session is still active.
+            const frontendHasActiveSession = existingSession.isGenerating
 
             // Use frontend state if available, otherwise use backend state
             const effectiveStreamingContent = frontendHasActiveSession
               ? existingSession.streamingContent
-              : (sessionState.streamingContent || existingSession.streamingContent)
+              : (sessionState.streamingContent || '')
             const effectiveHasStreamingContent = (effectiveStreamingContent?.length ?? 0) > 0
+
+            // Determine isThinking: prefer frontend state, otherwise check if backend has thoughts
+            const effectiveIsThinking = frontendHasActiveSession
+              ? existingSession.isThinking
+              : hasThoughts
+
+            // Use frontend thoughts if available, otherwise backend thoughts
+            const effectiveThoughts = frontendHasActiveSession
+              ? existingSession.thoughts
+              : (hasThoughts ? sessionState.thoughts : existingSession.thoughts)
 
             newSessions.set(conversationId, {
               ...existingSession,
-              // CRITICAL: Only set isGenerating=true if there's actual streaming content
-              // Prefer frontend state when available to preserve streaming during conversation switches
-              isGenerating: effectiveHasStreamingContent,
+              // CRITICAL: When backend reports isActive, keep isGenerating=true
+              // This handles the "thinking" phase where no streamingContent exists yet
+              isGenerating: true,
               isStreaming: effectiveHasStreamingContent,
-              isThinking: hasThoughts && effectiveHasStreamingContent,
-              thoughts: hasThoughts ? sessionState.thoughts : existingSession.thoughts,
+              isThinking: effectiveIsThinking,
+              thoughts: effectiveThoughts,
               // Use the effective streaming content determined above
               streamingContent: effectiveStreamingContent
             })
@@ -718,6 +746,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // Send message (with optional images for multi-modal, optional AI Browser and thinking mode)
+  // Supports queuing: if already generating, adds message to pendingMessages queue
   sendMessage: async (content, images, aiBrowserEnabled, thinkingEnabled) => {
     const conversation = get().getCurrentConversation()
     const conversationMeta = get().getCurrentConversationMeta()
@@ -730,6 +759,66 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const conversationId = conversationMeta?.id || conversation?.id
     if (!conversationId) return
+
+    // Check if currently generating - if so, queue the message instead
+    const currentSession = get().getSession(conversationId)
+    if (currentSession.isGenerating) {
+      console.log('[ChatStore] Currently generating, queueing message')
+      const pendingMsg: PendingMessage = {
+        id: `pending-${Date.now()}`,
+        content,
+        images,
+        thinkingEnabled,
+        aiBrowserEnabled,
+        timestamp: Date.now()
+      }
+
+      // Add user message to UI immediately (even when queued)
+      const userMessage: Message = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        content,
+        timestamp: new Date().toISOString(),
+        images: images
+      }
+
+      set((state) => {
+        const newSessions = new Map(state.sessions)
+        const session = newSessions.get(conversationId) || createEmptySessionState()
+        newSessions.set(conversationId, {
+          ...session,
+          pendingMessages: [...session.pendingMessages, pendingMsg]
+        })
+
+        // Update cache if conversation is loaded (so message appears in UI)
+        const newCache = new Map(state.conversationCache)
+        const cached = newCache.get(conversationId)
+        if (cached) {
+          newCache.set(conversationId, {
+            ...cached,
+            messages: [...cached.messages, userMessage],
+            updatedAt: new Date().toISOString()
+          })
+        }
+
+        // Update metadata (messageCount)
+        const newSpaceStates = new Map(state.spaceStates)
+        const spaceState = newSpaceStates.get(currentSpaceId)
+        if (spaceState) {
+          newSpaceStates.set(currentSpaceId, {
+            ...spaceState,
+            conversations: spaceState.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, messageCount: c.messageCount + 1, updatedAt: new Date().toISOString() }
+                : c
+            )
+          })
+        }
+
+        return { spaceStates: newSpaceStates, conversationCache: newCache, sessions: newSessions }
+      })
+      return
+    }
 
     try {
       // Initialize/reset session state for this conversation
@@ -747,7 +836,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           errorType: null,
           compactInfo: null,
           textBlockVersion: 0,
-          pendingQuestion: null
+          pendingQuestion: null,
+          pendingMessages: []
         })
         return { sessions: newSessions }
       })
@@ -949,6 +1039,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  // Clear pending messages for a conversation
+  clearPendingMessages: (conversationId: string) => {
+    set((state) => {
+      const newSessions = new Map(state.sessions)
+      const session = newSessions.get(conversationId)
+      if (session) {
+        newSessions.set(conversationId, {
+          ...session,
+          pendingMessages: []
+        })
+      }
+      return { sessions: newSessions }
+    })
+  },
+
   // Handle agent message - update session-specific streaming content
   // Supports both incremental (delta) and full (content) modes for backward compatibility
   handleAgentMessage: (data) => {
@@ -1076,9 +1181,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Handle complete - reload conversation from backend (Single Source of Truth)
   // Key: Only set isGenerating=false AFTER backend data is loaded to prevent flash
+  // Also processes pending messages queue if any
   handleAgentComplete: async (data) => {
     const { spaceId, conversationId } = data
     console.log(`[ChatStore] handleAgentComplete [${conversationId}]`)
+
+    // Check for pending messages before completing
+    const sessionBeforeComplete = get().getSession(conversationId)
+    const pendingMessages = sessionBeforeComplete.pendingMessages || []
 
     // Check if user is currently viewing this conversation
     const state = get()
@@ -1164,18 +1274,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const newSessions = new Map(state.sessions)
           const currentSession = newSessions.get(conversationId)
           if (currentSession) {
-            newSessions.set(conversationId, {
-              ...currentSession,
-              isGenerating: false,
-              isStopping: false,        // Clear stopping state
-              isThinking: false,        // 清理思考状态
-              streamingContent: '',
-              thoughts: [],             // 清理思考数据
-              compactInfo: null,  // Clear temporary compact notification
-              pendingQuestion: null,  // Clear pending question
-              error: null,  // Clear session error — now persisted in message.error
-              errorType: null
-            })
+            // Check if there are pending messages to send
+            const remainingPending = currentSession.pendingMessages || []
+            const hasPendingMessages = remainingPending.length > 0
+
+            if (hasPendingMessages) {
+              // Get the first pending message
+              const nextMessage = remainingPending[0]
+              const restMessages = remainingPending.slice(1)
+
+              console.log(`[ChatStore] Processing pending message [${conversationId}]`)
+
+              // Keep generating state but reset streaming content
+              newSessions.set(conversationId, {
+                ...currentSession,
+                isStopping: false,
+                isThinking: true,
+                streamingContent: '',
+                thoughts: [],
+                compactInfo: null,
+                pendingQuestion: null,
+                error: null,
+                errorType: null,
+                pendingMessages: restMessages,
+                textBlockVersion: (currentSession.textBlockVersion || 0) + 1
+              })
+            } else {
+              // No pending messages, clear all state
+              newSessions.set(conversationId, {
+                ...currentSession,
+                isGenerating: false,
+                isStopping: false,        // Clear stopping state
+                isThinking: false,        // 清理思考状态
+                streamingContent: '',
+                thoughts: [],             // 清理思考数据
+                compactInfo: null,  // Clear temporary compact notification
+                pendingQuestion: null,  // Clear pending question
+                error: null,  // Clear session error — now persisted in message.error
+                errorType: null
+              })
+            }
           }
 
           return {
@@ -1185,6 +1323,84 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         })
         console.log(`[ChatStore] Conversation reloaded from backend [${conversationId}]`)
+
+        // If there were pending messages, send the first one now
+        if (pendingMessages.length > 0) {
+          const nextMessage = pendingMessages[0]
+
+          // Add user message to UI
+          const userMessage: Message = {
+            id: `msg-${Date.now()}`,
+            role: 'user',
+            content: nextMessage.content,
+            timestamp: new Date().toISOString(),
+            images: nextMessage.images
+          }
+
+          set((state) => {
+            const newCache = new Map(state.conversationCache)
+            const cached = newCache.get(conversationId)
+            if (cached) {
+              newCache.set(conversationId, {
+                ...cached,
+                messages: [...cached.messages, userMessage],
+                updatedAt: new Date().toISOString()
+              })
+            }
+
+            const newSpaceStates = new Map(state.spaceStates)
+            const ss = newSpaceStates.get(spaceId)
+            if (ss) {
+              newSpaceStates.set(spaceId, {
+                ...ss,
+                conversations: ss.conversations.map((c) =>
+                  c.id === conversationId
+                    ? { ...c, messageCount: c.messageCount + 1, updatedAt: new Date().toISOString() }
+                    : c
+                )
+              })
+            }
+            return { spaceStates: newSpaceStates, conversationCache: newCache }
+          })
+
+          // Build canvas context
+          const buildCanvasContext = (): CanvasContext | undefined => {
+            if (!canvasLifecycle.getIsOpen() || canvasLifecycle.getTabCount() === 0) {
+              return undefined
+            }
+            const tabs = canvasLifecycle.getTabs()
+            const activeTabId = canvasLifecycle.getActiveTabId()
+            const activeTab = canvasLifecycle.getActiveTab()
+            return {
+              isOpen: true,
+              tabCount: tabs.length,
+              activeTab: activeTab ? {
+                type: activeTab.type,
+                title: activeTab.title,
+                url: activeTab.url,
+                path: activeTab.path
+              } : null,
+              tabs: tabs.map(t => ({
+                type: t.type,
+                title: t.title,
+                url: t.url,
+                path: t.path,
+                isActive: t.id === activeTabId
+              }))
+            }
+          }
+
+          // Send the pending message
+          await api.sendMessage({
+            spaceId,
+            conversationId,
+            message: nextMessage.content,
+            images: nextMessage.images,
+            aiBrowserEnabled: nextMessage.aiBrowserEnabled,
+            thinkingEnabled: nextMessage.thinkingEnabled,
+            canvasContext: buildCanvasContext()
+          })
+        }
       }
     } catch (error) {
       console.error('[ChatStore] Failed to reload conversation:', error)
@@ -1202,7 +1418,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamingContent: '',
             thoughts: [],       // Clear thoughts
             compactInfo: null,  // Clear temporary compact notification
-            pendingQuestion: null  // Clear pending question
+            pendingQuestion: null,  // Clear pending question
+            pendingMessages: []  // Clear pending messages on error
           })
         }
         return { sessions: newSessions }

@@ -42,7 +42,8 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     sendMessage,
     stopGeneration,
     continueAfterInterrupt,
-    answerQuestion
+    answerQuestion,
+    clearPendingMessages
   } = useChatStore()
 
   // Onboarding state
@@ -195,7 +196,8 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const currentConversation = getCurrentConversation()
   const { isLoadingConversation } = useChatStore()
   const session = getCurrentSession()
-  const { isGenerating, isStopping, streamingContent, isStreaming, thoughts, isThinking, compactInfo, error, errorType, textBlockVersion, pendingQuestion } = session
+  const { isGenerating, isStopping, streamingContent, isStreaming, thoughts, isThinking, compactInfo, error, errorType, textBlockVersion, pendingQuestion, pendingMessages } = session
+  const pendingCount = pendingMessages?.length || 0
 
   const onboardingPrompt = getOnboardingPrompt(t)
   const onboardingResponse = getOnboardingAiResponse(t)
@@ -253,7 +255,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const { enabled: aiBrowserEnabled } = useAIBrowserStore()
 
   // Handle send (with optional images for multi-modal messages, optional thinking mode)
-  const handleSend = async (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean) => {
+  const handleSend = async (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabledFromInput?: boolean) => {
     // In onboarding mode, intercept and play mock response
     if (isOnboarding && currentStep === 'send-message') {
       handleOnboardingSend()
@@ -261,16 +263,26 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     }
 
     // Can send if has text OR has images
-    if ((!content.trim() && (!images || images.length === 0)) || isGenerating) return
+    // Note: isGenerating check removed - messages are now queued in store
+    if (!content.trim() && (!images || images.length === 0)) return
 
+    // Use aiBrowserEnabled from parameter if provided, otherwise use store value
+    const useAiBrowser = aiBrowserEnabledFromInput ?? aiBrowserEnabled
     // Pass both AI Browser and thinking state to sendMessage
-    await sendMessage(content, images, aiBrowserEnabled, thinkingEnabled)
+    await sendMessage(content, images, useAiBrowser, thinkingEnabled)
   }
 
   // Handle stop - stops the current conversation's generation
   const handleStop = async () => {
     if (currentConversation) {
       await stopGeneration(currentConversation.id)
+    }
+  }
+
+  // Handle clear pending messages
+  const handleClearPending = () => {
+    if (currentConversation) {
+      clearPendingMessages(currentConversation.id)
     }
   }
 
@@ -359,8 +371,10 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
         ref={inputAreaRef}
         onSend={handleSend}
         onStop={handleStop}
+        onClearPending={handleClearPending}
         isGenerating={isGenerating}
         isStopping={isStopping}
+        pendingCount={pendingCount}
         placeholder={isCompact ? t('Continue conversation...') : (currentSpace?.isTemp ? t('Say something to Halo...') : t('Continue conversation...'))}
         isCompact={isCompact}
         spaceId={currentSpace?.id}

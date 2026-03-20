@@ -20,9 +20,10 @@
  */
 
 import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
-import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes } from 'lucide-react'
+import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes, Clock, X } from 'lucide-react'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
+import { useSpaceStore } from '../../stores/space.store'
 import { getOnboardingPrompt } from '../onboarding/onboardingData'
 import { ImageAttachmentPreview } from './ImageAttachmentPreview'
 import { processImage, isValidImageType, formatFileSize } from '../../utils/imageProcessor'
@@ -31,10 +32,12 @@ import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 
 interface InputAreaProps {
-  onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean) => void
+  onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabled?: boolean) => void
   onStop: () => void
+  onClearPending?: () => void  // Clear pending messages
   isGenerating: boolean
   isStopping?: boolean  // True when user clicked stop, waiting for cleanup
+  pendingCount?: number  // Number of messages waiting in queue
   placeholder?: string
   isCompact?: boolean
   spaceId?: string
@@ -57,7 +60,7 @@ export interface InputAreaRef {
 }
 
 function InputAreaInternal(
-  { onSend, onStop, isGenerating, isStopping = false, placeholder, isCompact = false, spaceId, conversationId }: InputAreaProps,
+  { onSend, onStop, onClearPending, isGenerating, isStopping = false, pendingCount = 0, placeholder, isCompact = false, spaceId, conversationId }: InputAreaProps,
   ref: ForwardedRef<InputAreaRef>
 ) {
   const { t } = useTranslation()
@@ -76,6 +79,29 @@ function InputAreaInternal(
 
   // AI Browser state
   const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore()
+
+  // Space state - to determine if this is a local or remote space
+  const currentSpaceId = useSpaceStore(state => state.currentSpace?.id)
+  const currentSpaceType = useSpaceStore(state => {
+    if (!state.currentSpace) return null
+    return {
+      isTemp: state.currentSpace.isTemp,
+      claudeSource: state.currentSpace.claudeSource
+    }
+  })
+
+  // Initialize AI Browser based on space type
+  // Local space (isTemp or claudeSource === 'local'): enable AI Browser by default
+  // Remote space (claudeSource === 'remote'): disable AI Browser by default
+  useEffect(() => {
+    if (!spaceId || !currentSpaceType) return
+
+    const isLocalSpace = currentSpaceType.isTemp || currentSpaceType.claudeSource === 'local' || currentSpaceType.claudeSource === undefined
+    const shouldBeEnabled = isLocalSpace
+
+    console.log(`[InputArea] Space changed: ${spaceId}, isLocal=${isLocalSpace}, claudeSource=${currentSpaceType.claudeSource}, enabling AI Browser: ${shouldBeEnabled}`)
+    setAIBrowserEnabled(shouldBeEnabled)
+  }, [spaceId, currentSpaceType?.isTemp, currentSpaceType?.claudeSource])
 
   // Expose methods to parent components via ref
   useImperativeHandle(ref, () => ({
@@ -273,12 +299,14 @@ function InputAreaInternal(
   }, [isGenerating, isOnboardingSendStep])
 
   // Handle send
+  // Note: Messages are now queued if already generating (handled in store)
   const handleSend = () => {
     const textToSend = isOnboardingSendStep ? onboardingPrompt : content.trim()
     const hasContent = textToSend || images.length > 0
 
-    if (hasContent && !isGenerating) {
-      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled)
+    // Only check isProcessingImages, not isGenerating (queuing is handled in store)
+    if (hasContent && !isProcessingImages) {
+      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled)
 
       if (!isOnboardingSendStep) {
         setContent('')
@@ -317,8 +345,9 @@ function InputAreaInternal(
   }
 
   // In onboarding mode, can always send (prefilled content)
-  // Can send if has text OR has images (and not processing/generating)
-  const canSend = isOnboardingSendStep || ((content.trim().length > 0 || images.length > 0) && !isGenerating && !isProcessingImages)
+  // Can send if has text OR has images (and not processing images)
+  // Note: isGenerating is not checked here - queuing is handled in store
+  const canSend = isOnboardingSendStep || ((content.trim().length > 0 || images.length > 0) && !isProcessingImages)
   const hasImages = images.length > 0
 
   // Handle context compression
@@ -420,7 +449,7 @@ function InputAreaInternal(
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               placeholder={placeholder || t('Type a message, let Halo help you...')}
-              disabled={isGenerating}
+              disabled={isOnboardingSendStep}  // Only disabled during onboarding
               readOnly={isOnboardingSendStep}
               rows={1}
               className={`w-full bg-transparent resize-none
@@ -435,6 +464,8 @@ function InputAreaInternal(
           <InputToolbar
             isGenerating={isGenerating}
             isStopping={isStopping}
+            pendingCount={pendingCount}
+            onClearPending={onClearPending}
             isOnboarding={isOnboardingSendStep}
             isProcessingImages={isProcessingImages}
             thinkingEnabled={thinkingEnabled}
@@ -470,6 +501,8 @@ export const InputArea = forwardRef<InputAreaRef, InputAreaProps>(InputAreaInter
 interface InputToolbarProps {
   isGenerating: boolean
   isStopping: boolean  // True when user clicked stop, waiting for cleanup
+  pendingCount: number  // Number of messages waiting in queue
+  onClearPending?: () => void  // Clear pending messages
   isOnboarding: boolean
   isProcessingImages: boolean
   thinkingEnabled: boolean
@@ -492,6 +525,8 @@ interface InputToolbarProps {
 function InputToolbar({
   isGenerating,
   isStopping,
+  pendingCount,
+  onClearPending,
   isOnboarding,
   isProcessingImages,
   thinkingEnabled,
@@ -628,8 +663,31 @@ function InputToolbar({
         )}
       </div>
 
-      {/* Right section: action button only */}
-      <div className="flex items-center">
+      {/* Right section: pending indicator + action button */}
+      <div className="flex items-center gap-2">
+        {/* Pending messages indicator with cancel button */}
+        {isGenerating && pendingCount > 0 && (
+          <div
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-primary/10 text-primary text-xs"
+            title={t('{{count}} message(s) queued', { count: pendingCount })}
+          >
+            <Clock size={12} className="animate-pulse" />
+            <span>{pendingCount}</span>
+            {onClearPending && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClearPending()
+                }}
+                className="ml-1 p-0.5 rounded hover:bg-primary/20 transition-colors"
+                title={t('Cancel pending messages')}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        )}
+
         {isGenerating ? (
           isStopping ? (
             // Stopping state: show spinner, disable click
