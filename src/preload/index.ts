@@ -126,6 +126,17 @@ export interface HaloAPI {
     }
   }) => Promise<IpcResponse>
   stopGeneration: (conversationId?: string) => Promise<IpcResponse>
+  injectMessage: (request: {
+    conversationId: string
+    content: string
+    images?: Array<{
+      type: string
+      data: string
+      mediaType: string
+    }>
+    thinkingEnabled?: boolean
+    aiBrowserEnabled?: boolean
+  }) => Promise<IpcResponse>
   approveTool: (conversationId: string) => Promise<IpcResponse>
   rejectTool: (conversationId: string) => Promise<IpcResponse>
   getSessionState: (conversationId: string) => Promise<IpcResponse>
@@ -147,6 +158,8 @@ export interface HaloAPI {
   onAgentCompact: (callback: (data: unknown) => void) => () => void
   onAgentAskQuestion: (callback: (data: unknown) => void) => () => void
   onAgentTerminal: (callback: (data: unknown) => void) => () => void
+  onAgentTurnBoundary: (callback: (data: unknown) => void) => () => void
+  onAgentInjectionStart: (callback: (data: unknown) => void) => () => void
 
   // Artifact
   listArtifacts: (spaceId: string) => Promise<IpcResponse>
@@ -596,6 +609,7 @@ const api: HaloAPI = {
   // Agent
   sendMessage: (request) => ipcRenderer.invoke('agent:send-message', request),
   stopGeneration: (conversationId) => ipcRenderer.invoke('agent:stop', conversationId),
+  injectMessage: (request) => ipcRenderer.invoke('agent:inject-message', request),
   approveTool: (conversationId) => ipcRenderer.invoke('agent:approve-tool', conversationId),
   rejectTool: (conversationId) => ipcRenderer.invoke('agent:reject-tool', conversationId),
   getSessionState: (conversationId) => ipcRenderer.invoke('agent:get-session-state', conversationId),
@@ -617,6 +631,8 @@ const api: HaloAPI = {
   onAgentCompact: (callback) => createEventListener('agent:compact', callback),
   onAgentAskQuestion: (callback) => createEventListener('agent:ask-question', callback),
   onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),
+  onAgentTurnBoundary: (callback) => createEventListener('agent:turn-boundary', callback),
+  onAgentInjectionStart: (callback) => createEventListener('agent:injection-start', callback),
 
   // Artifact
   listArtifacts: (spaceId) => ipcRenderer.invoke('artifact:list', spaceId),

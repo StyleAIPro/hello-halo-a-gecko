@@ -283,6 +283,40 @@ export default function App() {
       handleHyperSpaceProgress(data)
     })
 
+    // Turn boundary - check for pending messages and inject if any
+    const unsubTurnBoundary = api.onAgentTurnBoundary((data) => {
+      console.log('[App] Received agent:turn-boundary event:', data)
+      const event = data as AgentEventBase & { toolName?: string; toolId: string; timestamp: number }
+      // Get pending messages from chat store and inject if any
+      const state = useChatStore.getState()
+      const session = state.getSession(event.conversationId)
+      const pendingMessages = session.pendingMessages || []
+
+      if (pendingMessages.length > 0) {
+        const firstMessage = pendingMessages[0]
+        console.log(`[App] Found ${pendingMessages.length} pending message(s), injecting first one`)
+
+        // Inject the message to backend
+        api.injectMessage({
+          conversationId: event.conversationId,
+          content: firstMessage.content,
+          images: firstMessage.images,
+          thinkingEnabled: firstMessage.thinkingEnabled,
+          aiBrowserEnabled: firstMessage.aiBrowserEnabled
+        }).then((result) => {
+          if (result.success) {
+            console.log('[App] Message injected successfully')
+            // Remove the injected message from frontend queue
+            state.removePendingMessage(event.conversationId, firstMessage.id)
+          } else {
+            console.error('[App] Failed to inject message:', result.error)
+          }
+        }).catch((err) => {
+          console.error('[App] Error injecting message:', err)
+        })
+      }
+    })
+
     return () => {
       unsubThought()
       unsubThoughtDelta()
@@ -295,6 +329,7 @@ export default function App() {
       unsubAskQuestion()
       unsubMcpStatus()
       unsubHyperProgress()
+      unsubTurnBoundary()
     }
   }, [
     handleAgentMessage,

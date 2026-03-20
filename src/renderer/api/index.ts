@@ -492,6 +492,25 @@ export const api = {
     return httpRequest('POST', '/api/agent/stop', { conversationId })
   },
 
+  // Inject message at turn boundary (for turn-level message injection)
+  injectMessage: async (request: {
+    conversationId: string
+    content: string
+    images?: Array<{
+      type: string
+      data: string
+      mediaType: string
+    }>
+    thinkingEnabled?: boolean
+    aiBrowserEnabled?: boolean
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.injectMessage(request)
+    }
+    // Remote mode not supported for injection
+    return { success: false, error: 'Message injection only available in desktop app' }
+  },
+
   approveTool: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.halo.approveTool(conversationId)
@@ -883,6 +902,10 @@ export const api = {
     onEvent('agent:ask-question', callback),
   onAgentTerminal: (callback: (data: unknown) => void) =>
     onEvent('agent:terminal', callback),
+  onAgentTurnBoundary: (callback: (data: unknown) => void) =>
+    onEvent('agent:turn-boundary', callback),
+  onAgentInjectionStart: (callback: (data: unknown) => void) =>
+    onEvent('agent:injection-start', callback),
   onRemoteStatusChange: (callback: (data: unknown) => void) =>
     onEvent('remote:status-change', callback),
 

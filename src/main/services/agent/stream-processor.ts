@@ -37,6 +37,64 @@ import { getSpace } from '../space.service'
 const FALLBACK_ERROR_HINT = 'Check logs in Settings > System > Logs.'
 
 // ============================================
+// Turn-Level Message Injection
+// ============================================
+
+/**
+ * Pending injection message for turn-level continuation.
+ * When user sends a message during generation, it's stored here
+ * and will be sent after the current stream completes.
+ */
+interface PendingInjection {
+  content: string
+  images?: Array<{ type: string; data: string; mediaType: string }>
+  thinkingEnabled?: boolean
+  aiBrowserEnabled?: boolean
+}
+
+// Map: conversationId -> PendingInjection
+const pendingInjections = new Map<string, PendingInjection>()
+
+/**
+ * Queue a message for turn-level injection.
+ * Called when frontend receives turn-boundary event and has pending messages.
+ */
+export function queueInjection(
+  conversationId: string,
+  content: string,
+  images?: Array<{ type: string; data: string; mediaType: string }>,
+  thinkingEnabled?: boolean,
+  aiBrowserEnabled?: boolean
+): void {
+  console.log(`[Agent][${conversationId}] Queuing injection message: ${content.slice(0, 50)}...`)
+  pendingInjections.set(conversationId, {
+    content,
+    images,
+    thinkingEnabled,
+    aiBrowserEnabled
+  })
+}
+
+/**
+ * Get and clear pending injection for a conversation.
+ */
+export function getAndClearInjection(conversationId: string): PendingInjection | undefined {
+  const injection = pendingInjections.get(conversationId)
+  if (injection) {
+    pendingInjections.delete(conversationId)
+    console.log(`[Agent][${conversationId}] Retrieved and cleared injection`)
+  }
+  return injection
+}
+
+/**
+ * Check if there's a pending injection for a conversation.
+ */
+export function hasPendingInjection(conversationId: string): boolean {
+  return pendingInjections.has(conversationId)
+}
+
+// ============================================
 // Types
 // ============================================
 
@@ -78,6 +136,8 @@ export interface StreamResult {
   errorThought?: Thought
   /** Whether the session hit the SDK's maxTurns limit (error_max_turns subtype) */
   reachedMaxTurns: boolean
+  /** Whether there's a pending injection message to continue the conversation */
+  hasPendingInjection: boolean
 }
 
 /**
@@ -594,6 +654,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             isError: thought.isError || false
           })
 
+          // Send turn-boundary event for message injection opportunity
+          // This allows frontend to inject pending user messages at natural boundaries
+          sendToRenderer('agent:turn-boundary', spaceId, conversationId, {
+            toolName: toolUseThought?.toolName,
+            toolId: thought.id,
+            timestamp: Date.now()
+          })
+
           console.log(`[Agent][${conversationId}] Tool result merged into thought ${toolUseThoughtId}`)
         } else {
           // No mapping found - fall back to separate thought (shouldn't happen normally)
@@ -604,6 +672,11 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             toolId: thought.id,
             result: thought.toolOutput || '',
             isError: thought.isError || false
+          })
+          // Also send turn-boundary for consistency
+          sendToRenderer('agent:turn-boundary', spaceId, conversationId, {
+            toolId: thought.id,
+            timestamp: Date.now()
           })
           console.log(`[Agent][${conversationId}] Tool result fallback (no mapping): ${thought.id}`)
         }
@@ -777,6 +850,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   }
 
   // Build the result object
+  // Check for pending injection before completing
+  const hasPendingInjectionFlag = hasPendingInjection(conversationId)
+
   const result: StreamResult = {
     finalContent,
     thoughts: sessionState.thoughts,
@@ -786,11 +862,19 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     wasAborted,
     hasErrorThought,
     errorThought,
-    reachedMaxTurns: hadMaxTurnsReached
+    reachedMaxTurns: hadMaxTurnsReached,
+    hasPendingInjection: hasPendingInjectionFlag
   }
 
   // Notify caller for storage handling
   callbacks.onComplete(result)
+
+  // If there's a pending injection, DON'T send complete event yet
+  // The caller will handle continuation and send complete later
+  if (hasPendingInjectionFlag) {
+    console.log(`[Agent][${conversationId}] Pending injection detected - deferring agent:complete`)
+    return result
+  }
 
   // Always send complete event to unblock frontend
   sendToRenderer('agent:complete', spaceId, conversationId, {

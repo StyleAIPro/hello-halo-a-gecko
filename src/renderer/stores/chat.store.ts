@@ -165,6 +165,7 @@ interface ChatState {
 
   // Clear pending messages
   clearPendingMessages: (conversationId: string) => void
+  removePendingMessage: (conversationId: string, messageId: string) => void
 
   // Event handlers (called from App component) - with session IDs
   handleAgentMessage: (data: AgentEventBase & { content: string; isComplete: boolean }) => void
@@ -1048,6 +1049,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
         newSessions.set(conversationId, {
           ...session,
           pendingMessages: []
+        })
+      }
+      return { sessions: newSessions }
+    })
+  },
+
+  // Remove a specific pending message by ID
+  removePendingMessage: (conversationId: string, messageId: string) => {
+    set((state) => {
+      const newSessions = new Map(state.sessions)
+      const session = newSessions.get(conversationId)
+      if (session) {
+        newSessions.set(conversationId, {
+          ...session,
+          pendingMessages: session.pendingMessages.filter(m => m.id !== messageId)
         })
       }
       return { sessions: newSessions }

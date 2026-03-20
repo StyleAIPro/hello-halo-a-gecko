@@ -5,6 +5,7 @@
 import { ipcMain } from 'electron'
 import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion, compactContext } from '../services/agent'
 import { getMainWindow } from '../services/window.service'
+import { queueInjection } from '../services/agent/stream-processor'
 
 export function registerAgentHandlers(): void {
 
@@ -51,6 +52,40 @@ export function registerAgentHandlers(): void {
       return { success: false, error: err.message }
     }
   })
+
+  // Inject message at turn boundary (for turn-level message injection)
+  ipcMain.handle(
+    'agent:inject-message',
+    async (
+      _event,
+      request: {
+        conversationId: string
+        content: string
+        images?: Array<{
+          type: string
+          data: string
+          mediaType: string
+        }>
+        thinkingEnabled?: boolean
+        aiBrowserEnabled?: boolean
+      }
+    ) => {
+      try {
+        console.log(`[IPC] agent:inject-message called for conversationId=${request.conversationId}`)
+        queueInjection(
+          request.conversationId,
+          request.content,
+          request.images,
+          request.thinkingEnabled,
+          request.aiBrowserEnabled
+        )
+        return { success: true }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
 
   // Approve/reject tool execution - no-op (all permissions auto-allowed)
   ipcMain.handle('agent:approve-tool', async () => ({ success: true }))

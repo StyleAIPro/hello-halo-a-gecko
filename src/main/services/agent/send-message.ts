@@ -22,8 +22,13 @@ import sshTunnelService from '../remote-ssh/ssh-tunnel.service'
 import { SSHManager } from '../remote-ssh/ssh-manager'
 import {
   AI_BROWSER_SYSTEM_PROMPT,
-  createAIBrowserMcpServer
+  createAIBrowserMcpServer,
+  initializeAIBrowser
 } from '../ai-browser'
+import {
+  GH_SEARCH_SYSTEM_PROMPT,
+  createGhSearchMcpServer
+} from '../gh-search'
 import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
 import { createHyperSpaceMcpServer } from './hyper-space-mcp'
 import type {
@@ -55,7 +60,7 @@ import {
   buildMessageContent,
 } from './message-utils'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
-import { processStream } from './stream-processor'
+import { processStream, getAndClearInjection, type PendingInjection } from './stream-processor'
 import { terminalGateway } from '../terminal/terminal-gateway'
 import { agentOrchestrator } from './orchestrator'
 
@@ -331,6 +336,12 @@ export async function sendMessage(
     // Build MCP servers config (including AI Browser if enabled)
     const mcpServers: Record<string, any> = enabledMcpServers ? { ...enabledMcpServers } : {}
     if (aiBrowserEnabled) {
+      // Initialize AI Browser module with mainWindow before creating MCP server
+      // This ensures browserContext.mainWindow is set for IPC notifications
+      if (mainWindow) {
+        initializeAIBrowser(mainWindow)
+        console.log(`[Agent][${conversationId}] AI Browser module initialized`)
+      }
       mcpServers['ai-browser'] = createAIBrowserMcpServer()
       console.log(`[Agent][${conversationId}] AI Browser MCP server added`)
     }
@@ -338,6 +349,11 @@ export async function sendMessage(
     // Always add halo-apps MCP for automation control
     mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
     console.log(`[Agent][${conversationId}] Halo Apps MCP server added`)
+
+    // Always add gh-search MCP for GitHub search capabilities
+    mcpServers['gh-search'] = createGhSearchMcpServer()
+    console.log(`[Agent][${conversationId}] GitHub Search MCP server added`)
+
     console.log(`[mcpServers]${Object.keys(mcpServers)}`)
     // Build base SDK options using shared configuration
     const sdkOptions = buildBaseSdkOptions({
@@ -352,7 +368,8 @@ export async function sendMessage(
         stderrBuffer += data  // Accumulate for error reporting
       },
       mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
-      maxTurns: config.agent?.maxTurns
+      maxTurns: config.agent?.maxTurns,
+      contextWindow: resolvedCredentials.contextWindow
     })
 
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
@@ -429,68 +446,111 @@ export async function sendMessage(
       // The stream processor handles all streaming logic, renderer events,
       // token usage tracking, and end-of-stream error detection.
       // Caller-specific storage is handled via the onComplete callback.
-      await processStream({
-        v2Session,
-        sessionState,
-        spaceId,
-        conversationId,
-        messageContent,
-        displayModel: resolvedCredentials.displayModel,
-        abortController,
-        t0,
-        callbacks: {
-          onComplete: (streamResult) => {
-            // Mark session request complete for health tracking
-            markSessionRequestComplete(conversationId)
 
-            // Save session ID for future resumption
-            if (streamResult.capturedSessionId) {
-              saveSessionId(spaceId, conversationId, streamResult.capturedSessionId)
-              console.log(`[Agent][${conversationId}] Session ID saved:`, streamResult.capturedSessionId)
-            }
+      // Store initial message content for the first iteration
+      let currentMessageContent = messageContent
+      let isFirstIteration = true
 
-            // Persist content and/or error to conversation
-            const { finalContent, thoughts, tokenUsage, hasErrorThought, errorThought } = streamResult
-            if (finalContent || hasErrorThought) {
-              if (finalContent) {
-                console.log(`[Agent][${conversationId}] Saving content: ${finalContent.length} chars`)
-              }
-              if (hasErrorThought) {
-                console.log(`[Agent][${conversationId}] Persisting error to message: ${errorThought?.content}`)
+      // Loop to handle turn-level message injection
+      while (true) {
+        const result = await processStream({
+          v2Session,
+          sessionState,
+          spaceId,
+          conversationId,
+          messageContent: currentMessageContent,
+          displayModel: resolvedCredentials.displayModel,
+          abortController,
+          t0,
+          callbacks: {
+            onComplete: (streamResult) => {
+              // Only mark request complete and unregister if NOT continuing
+              if (!streamResult.hasPendingInjection) {
+                // Mark session request complete for health tracking
+                markSessionRequestComplete(conversationId)
               }
 
-              // Extract file changes summary for immediate display (without loading thoughts)
-              let metadata: { fileChanges?: FileChangesSummary } | undefined
-              if (thoughts.length > 0) {
-                try {
-                  const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
-                  if (fileChangesSummary) {
-                    metadata = { fileChanges: fileChangesSummary }
-                    console.log(`[Agent][${conversationId}] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
-                  }
-                } catch (error) {
-                  console.error(`[Agent][${conversationId}] Failed to extract file changes:`, error)
+              // Save session ID for future resumption
+              if (streamResult.capturedSessionId) {
+                saveSessionId(spaceId, conversationId, streamResult.capturedSessionId)
+                console.log(`[Agent][${conversationId}] Session ID saved:`, streamResult.capturedSessionId)
+              }
+
+              // Persist content and/or error to conversation
+              const { finalContent, thoughts, tokenUsage, hasErrorThought, errorThought } = streamResult
+              if (finalContent || hasErrorThought) {
+                if (finalContent) {
+                  console.log(`[Agent][${conversationId}] Saving content: ${finalContent.length} chars`)
                 }
+                if (hasErrorThought) {
+                  console.log(`[Agent][${conversationId}] Persisting error to message: ${errorThought?.content}`)
+                }
+
+                // Extract file changes summary for immediate display (without loading thoughts)
+                let metadata: { fileChanges?: FileChangesSummary } | undefined
+                if (thoughts.length > 0) {
+                  try {
+                    const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
+                    if (fileChangesSummary) {
+                      metadata = { fileChanges: fileChangesSummary }
+                      console.log(`[Agent][${conversationId}] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
+                    }
+                  } catch (error) {
+                    console.error(`[Agent][${conversationId}] Failed to extract file changes:`, error)
+                  }
+                }
+
+                updateLastMessage(spaceId, conversationId, {
+                  content: finalContent,
+                  thoughts: thoughts.length > 0 ? [...thoughts] : undefined,
+                  tokenUsage: tokenUsage || undefined,
+                  metadata,
+                  error: errorThought?.content
+                })
+              } else {
+                console.log(`[Agent][${conversationId}] No content to save`)
               }
 
-              updateLastMessage(spaceId, conversationId, {
-                content: finalContent,
-                thoughts: thoughts.length > 0 ? [...thoughts] : undefined,
-                tokenUsage: tokenUsage || undefined,
-                metadata,
-                error: errorThought?.content
-              })
-            } else {
-              console.log(`[Agent][${conversationId}] No content to save`)
+              // CRITICAL: Unregister active session after completion
+              // This ensures that getPageState returns isActive: false after completion,
+              // preventing frontend from incorrectly restoring isGenerating state on refresh
+              // Only unregister if NOT continuing with injection
+              if (!streamResult.hasPendingInjection) {
+                unregisterActiveSession(conversationId)
+              }
             }
+          }
+        })
 
-            // CRITICAL: Unregister active session after completion
-            // This ensures that getPageState returns isActive: false after completion,
-            // preventing frontend from incorrectly restoring isGenerating state on refresh
-            unregisterActiveSession(conversationId)
+        // Check if we need to continue with a pending injection
+        if (result.hasPendingInjection) {
+          const injection = getAndClearInjection(conversationId)
+          if (injection) {
+            console.log(`[Agent][${conversationId}] Continuing with injected message: ${injection.content.slice(0, 50)}...`)
+
+            // Build the injection message content
+            const injectionContent = buildMessageContent(injection.content, injection.images)
+
+            // Update current message content for next iteration
+            currentMessageContent = injectionContent
+
+            // Reset session state for the new message (but keep thoughts)
+            sessionState.streamingContent = ''
+            sessionState.isThinking = true
+
+            // Notify frontend that we're continuing
+            sendToRenderer('agent:injection-start', spaceId, conversationId, {
+              content: injection.content
+            })
+
+            // Continue the loop to process the injection
+            continue
           }
         }
-      })
+
+        // No pending injection, we're done
+        break
+      }
     } catch (streamError) {
       // Mark session request complete on error too
       markSessionRequestComplete(conversationId)
