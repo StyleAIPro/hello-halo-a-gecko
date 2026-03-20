@@ -409,6 +409,7 @@ export class ClaudeManager {
   private pathToClaudeCodeExecutable?: string
   private workDir?: string
   private model?: string
+  private contextWindow?: number  // Context window size for compression threshold
 
   // Config generation for change detection
   private configGeneration = 0
@@ -421,13 +422,15 @@ export class ClaudeManager {
     baseUrl?: string,
     pathToClaudeCodeExecutable?: string,
     workDir?: string,
-    model?: string
+    model?: string,
+    contextWindow?: number
   ) {
     this.apiKey = apiKey
     this.baseUrl = baseUrl
     this.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable
     this.workDir = workDir || process.cwd()
     this.model = model
+    this.contextWindow = contextWindow
 
     // Start cleanup interval
     this.startCleanupInterval()
@@ -448,11 +451,12 @@ export class ClaudeManager {
   /**
    * Increment config generation (call when config changes)
    */
-  updateConfig(apiKey?: string, baseUrl?: string, workDir?: string, model?: string): void {
+  updateConfig(apiKey?: string, baseUrl?: string, workDir?: string, model?: string, contextWindow?: number): void {
     this.apiKey = apiKey
     this.baseUrl = baseUrl
     this.workDir = workDir || process.cwd()
     this.model = model
+    this.contextWindow = contextWindow
     this.configGeneration++
     console.log(`[ClaudeManager] Config updated, generation: ${this.configGeneration}`)
   }
@@ -477,12 +481,14 @@ export class ClaudeManager {
 
       // === Context Compression Configuration ===
       // Enable automatic context compaction to prevent token overflow in long conversations
-      // Compact when context reaches 85% of model's context window
+      // Compact when context reaches 85% of model's context window (default 200K)
       compactThreshold: 0.85,
       // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
       compactRetentionRatio: 0.5,
       // Allow manual compaction via API
       enableManualCompact: true,
+      // Use configured context window (defaults to 200K if not specified)
+      ...(this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),
     }
 
     if (this.pathToClaudeCodeExecutable) {

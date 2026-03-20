@@ -56,7 +56,7 @@ export const useAIBrowserStore = create<AIBrowserState>()(
     (set) => ({
       // Initial state
       enabled: false,
-      defaultEnabled: false,
+      defaultEnabled: true,
       activeViewId: null,
       activeUrl: null,
       isOperating: false,

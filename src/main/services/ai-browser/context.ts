@@ -19,7 +19,8 @@ import {
   createAccessibilitySnapshot,
   getElementBoundingBox,
   scrollIntoView,
-  focusElement
+  focusElement,
+  invalidateSnapshotCache
 } from './snapshot'
 import type {
   BrowserContextInterface,
@@ -210,14 +211,16 @@ export class BrowserContext implements BrowserContextInterface {
 
   /**
    * Create a new accessibility snapshot
+   * @param verbose - Include all nodes (verbose mode)
+   * @param forceRefresh - If true, skip cache and fetch fresh snapshot
    */
-  async createSnapshot(verbose: boolean = false): Promise<AccessibilitySnapshot> {
+  async createSnapshot(verbose: boolean = false, forceRefresh: boolean = false): Promise<AccessibilitySnapshot> {
     const webContents = this.getWebContents()
     if (!webContents) {
       throw new Error('No active browser view')
     }
 
-    this.lastSnapshot = await createAccessibilitySnapshot(webContents, verbose)
+    this.lastSnapshot = await createAccessibilitySnapshot(webContents, verbose, forceRefresh)
     return this.lastSnapshot
   }
 
@@ -229,13 +232,148 @@ export class BrowserContext implements BrowserContextInterface {
   }
 
   /**
-   * Get an element by its UID from the last snapshot
+   * Invalidate the snapshot cache
+   * Call this after DOM-modifying operations to ensure fresh data on next snapshot
    */
-  getElementByUid(uid: string): AccessibilityNode | null {
-    if (!this.lastSnapshot) {
-      return null
+  invalidateSnapshot(): void {
+    this.lastSnapshot = null
+    const webContents = this.getWebContents()
+    if (webContents) {
+      invalidateSnapshotCache(webContents)
     }
+  }
+
+  /**
+   * Get an element by its UID from the last snapshot
+   * @param uid - The element UID from a snapshot
+   * @param refresh - If true, refresh the snapshot before looking up
+   */
+  async getElementByUid(uid: string, refresh: boolean = false): Promise<AccessibilityNode | null> {
+    if (!this.lastSnapshot || refresh) {
+      try {
+        await this.createSnapshot()
+      } catch (e) {
+        console.warn('[BrowserContext] Failed to refresh snapshot:', e)
+        if (!this.lastSnapshot) return null
+      }
+    }
+
     return this.lastSnapshot.idToNode.get(uid) || null
+  }
+
+  /**
+   * Find an element by stable ID (cross-snapshot matching)
+   * @param stableId - The stable ID (role:name format)
+   */
+  findElementByStableId(stableId: string): AccessibilityNode | null {
+    if (!this.lastSnapshot) return null
+
+    for (const node of this.lastSnapshot.idToNode.values()) {
+      if (node.stableId === stableId) {
+        return node
+      }
+    }
+    return null
+  }
+
+  /**
+   * Find an element by partial UID match or stable ID pattern
+   * Used as fallback when exact UID lookup fails
+   * @param uid - The original UID that wasn't found
+   */
+  findElementByPartialMatch(uid: string): AccessibilityNode | null {
+    if (!this.lastSnapshot) return null
+
+    // Try to extract stableId pattern from UID
+    // UID format: snap_N_M, try to find by role:name pattern
+    const parts = uid.split('_')
+    if (parts.length >= 2) {
+      // Try finding nodes with matching suffix pattern
+      const suffix = parts.slice(1).join('_')
+      for (const node of this.lastSnapshot.idToNode.values()) {
+        if (node.uid.endsWith(suffix)) {
+          return node
+        }
+      }
+    }
+
+    // Try to find by stableId if UID contains role info
+    for (const node of this.lastSnapshot.idToNode.values()) {
+      // Check if stableId contains parts of the uid
+      if (node.stableId && uid.toLowerCase().includes(node.role.toLowerCase())) {
+        return node
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Resolve an element by UID with automatic fallback mechanisms
+   * 1. Try exact UID match
+   * 2. Try refreshing snapshot and re-matching
+   * 3. Try partial UID match
+   * 4. Try stableId match if UID can be parsed
+   * @param uid - The element UID
+   * @param operation - The operation being performed (for error messages)
+   */
+  async resolveElement(uid: string, operation: string = 'operation'): Promise<AccessibilityNode> {
+    // Step 1: Try exact match
+    let element = await this.getElementByUid(uid, false)
+    if (element) {
+      return element
+    }
+
+    // Step 2: Refresh snapshot and retry
+    element = await this.getElementByUid(uid, true)
+    if (element) {
+      console.log(`[BrowserContext] Element ${uid} found after snapshot refresh`)
+      return element
+    }
+
+    // Step 3: Try partial match
+    element = this.findElementByPartialMatch(uid)
+    if (element) {
+      console.log(`[BrowserContext] Element ${uid} matched partially to ${element.uid}`)
+      return element
+    }
+
+    // Step 4: Try stableId match (extract from original UID if possible)
+    const stableIdMatch = uid.match(/snap_\d+_(.+)/)
+    if (stableIdMatch) {
+      // Try finding any interactive element with similar characteristics
+      const targetIndex = stableIdMatch[1]
+      const nodes = Array.from(this.lastSnapshot?.idToNode.values() || [])
+      const interactiveNodes = nodes.filter(n =>
+        n.role !== 'generic' && n.role !== 'group'
+      )
+      const index = parseInt(targetIndex, 10)
+      if (!isNaN(index) && index < interactiveNodes.length) {
+        element = interactiveNodes[index]
+        console.log(`[BrowserContext] Element ${uid} approximated to ${element.uid}`)
+        return element
+      }
+    }
+
+    // All methods failed
+    const availableElements = this.getInteractiveElementCount()
+    throw new Error(
+      `Element not found: ${uid}\n` +
+      `Operation: ${operation}\n` +
+      `Page: ${this.lastSnapshot?.url || 'unknown'}\n` +
+      `Available interactive elements: ${availableElements}\n` +
+      `Hint: Try getting a fresh snapshot with browser_snapshot and use new UIDs`
+    )
+  }
+
+  /**
+   * Get count of interactive elements in current snapshot
+   */
+  getInteractiveElementCount(): number {
+    if (!this.lastSnapshot) return 0
+    return Array.from(this.lastSnapshot.idToNode.values()).filter(
+      n => n.role !== 'generic' && n.role !== 'group' && n.role !== 'none'
+    ).length
   }
 
   // ============================================
@@ -564,6 +702,9 @@ export class BrowserContext implements BrowserContextInterface {
       button: 'left',
       clickCount: options?.dblClick ? 2 : 1
     })
+
+    // Invalidate snapshot cache after DOM-modifying operation
+    this.invalidateSnapshot()
   }
 
   /**
@@ -647,6 +788,9 @@ export class BrowserContext implements BrowserContextInterface {
 
     // Insert new text
     await this.sendCDPCommand('Input.insertText', { text: value })
+
+    // Invalidate snapshot cache after DOM-modifying operation
+    this.invalidateSnapshot()
   }
 
   /**
@@ -1074,6 +1218,61 @@ export class BrowserContext implements BrowserContextInterface {
         clearInterval(interval)
       }
     })
+  }
+
+  /**
+   * Ensure page is stable before performing operations.
+   * Waits for:
+   * 1. Navigation to complete (isLoading === false)
+   * 2. No pending network requests for 500ms
+   * 3. No JavaScript dialogs
+   *
+   * This helps prevent "element not found" errors caused by operating
+   * on a page that's still loading or changing.
+   *
+   * @param timeout - Maximum time to wait (default 10s)
+   */
+  async ensurePageStable(timeout: number = 10_000): Promise<void> {
+    const deadline = Date.now() + timeout
+
+    // Step 1: Wait for navigation to complete
+    const viewId = this.activeViewId
+    if (!viewId) return // No active view, skip stability check
+
+    // Quick check - if not loading, skip navigation wait
+    const state = browserViewManager.getState(viewId)
+    if (state?.isLoading) {
+      const navTimeout = Math.min(5000, deadline - Date.now())
+      if (navTimeout > 0) {
+        await this.waitForNavigation(navTimeout)
+      }
+    }
+
+    // Step 2: Wait for network idle (no requests for 500ms)
+    const networkIdleTimeout = 500
+    let networkIdleStart = Date.now()
+
+    while (Date.now() < deadline) {
+      const requests = this.getNetworkRequests()
+      const pendingRequests = requests.filter(r => !r.status || r.status === 0)
+
+      if (pendingRequests.length === 0) {
+        // No pending requests, check if we've been idle long enough
+        if (Date.now() - networkIdleStart >= networkIdleTimeout) {
+          break // Network is stable
+        }
+      } else {
+        // Has pending requests, reset idle timer
+        networkIdleStart = Date.now()
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    // Step 3: Check for pending dialogs
+    if (this.pendingDialog) {
+      console.warn('[BrowserContext] Page has pending dialog during stability check')
+    }
   }
 
   // ============================================

@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * AI Browser Module - Main Entry Point
  *
  * This module provides AI-controlled browser capabilities for Halo.
@@ -21,13 +21,6 @@
 import { BrowserWindow } from 'electron'
 import { browserContext, BrowserContext, createScopedBrowserContext } from './context'
 import { browserViewManager } from '../browser-view.service'
-import {
-  allTools,
-  getToolNames,
-  getToolDefinitions,
-  findTool
-} from './tools'
-import type { AIBrowserTool, ToolResult } from './types'
 
 // Import SDK MCP server creator
 import { createAIBrowserMcpServer, getAIBrowserSdkToolNames } from './sdk-mcp-server'
@@ -83,21 +76,15 @@ function extendBrowserViewManager(): void {
 }
 
 // ============================================
-// Tool Registration
+// Tool Registration (SDK MCP Server)
 // ============================================
 
 /**
  * Get all AI Browser tool names for SDK allowedTools
+ * Delegates to SDK MCP server implementation
  */
 export function getAIBrowserToolNames(): string[] {
-  return getToolNames()
-}
-
-/**
- * Get tool definitions for SDK registration
- */
-export function getAIBrowserToolDefinitions() {
-  return getToolDefinitions()
+  return getAIBrowserSdkToolNames()
 }
 
 /**
@@ -105,44 +92,6 @@ export function getAIBrowserToolDefinitions() {
  */
 export function isAIBrowserTool(toolName: string): boolean {
   return toolName.startsWith('browser_')
-}
-
-// ============================================
-// Tool Execution
-// ============================================
-
-/**
- * Execute an AI Browser tool
- *
- * @param toolName - Name of the tool to execute
- * @param params - Tool parameters
- * @returns Tool result
- */
-export async function executeAIBrowserTool(
-  toolName: string,
-  params: Record<string, unknown>
-): Promise<ToolResult> {
-  const tool = findTool(toolName)
-
-  if (!tool) {
-    return {
-      content: `Unknown AI Browser tool: ${toolName}`,
-      isError: true
-    }
-  }
-
-  try {
-    console.log(`[AI Browser] Executing tool: ${toolName}`)
-    const result = await tool.handler(params, browserContext)
-    console.log(`[AI Browser] Tool completed: ${toolName}`)
-    return result
-  } catch (error) {
-    console.error(`[AI Browser] Tool error: ${toolName}`, error)
-    return {
-      content: `Tool execution failed: ${(error as Error).message}`,
-      isError: true
-    }
-  }
 }
 
 // ============================================
@@ -160,6 +109,17 @@ export const AI_BROWSER_SYSTEM_PROMPT = `
 ## AI Browser
 
 You can now control Halo's embedded real browser. All browser tools are provided via MCP server "ai-browser".
+
+### Priority Instruction
+**When AI Browser is enabled (user toggled it on):**
+- **PREFER** using ai-browser tools for web interactions over built-in WebFetch/WebSearch
+- Use ai-browser when you need to: interact with pages (click, fill forms), take screenshots, execute JavaScript, or debug web content
+- Use \`mcp__ai-browser__browser_new_page\` to open any website
+- Use \`mcp__ai-browser__browser_snapshot\` to read page content
+- Use \`mcp__ai-browser__browser_click\`, \`mcp__ai-browser__browser_fill\`, etc. to interact with pages
+
+**When AI Browser is disabled:**
+- Use built-in WebFetch/WebSearch for reading web content
 
 ### Core Workflow
 1. Use \`mcp__ai-browser__browser_new_page\` to open a webpage

@@ -59,6 +59,7 @@ import {
   formatCanvasContext,
   buildMessageContent,
 } from './message-utils'
+import { uploadImagesForMcp } from '../image-upload.service'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
 import { processStream, getAndClearInjection, type PendingInjection } from './stream-processor'
 import { terminalGateway } from '../terminal/terminal-gateway'
@@ -433,6 +434,19 @@ export async function sendMessage(
     // Prepare message content (canvas context prefix + multi-modal images)
     if (images && images.length > 0) {
       console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s)`)
+
+      // Upload images to make them accessible via URL for MCP tools
+      // This is essential for non-multimodal models that use MCP tools like analyze_image
+      // to process images, as those tools may run in remote environments
+      try {
+        const uploadedImages = await uploadImagesForMcp(images, spaceId)
+        console.log(`[Agent][${conversationId}] Images uploaded: ${uploadedImages.length} images with URLs`)
+        // Replace images with uploaded versions that have URLs
+        images = uploadedImages
+      } catch (error) {
+        console.error(`[Agent][${conversationId}] Image upload failed:`, error)
+        // Continue with original images (base64) - will work for multimodal models
+      }
     }
     const canvasPrefix = formatCanvasContext(canvasContext)
     const messageWithContext = canvasPrefix + message

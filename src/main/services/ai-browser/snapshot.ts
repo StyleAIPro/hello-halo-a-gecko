@@ -8,6 +8,10 @@
  *
  * The snapshot allows AI to reference elements by UID without
  * needing to understand CSS selectors or DOM structure.
+ *
+ * Performance Optimization:
+ * - Implements caching with TTL to avoid redundant CDP calls
+ * - Cache is invalidated on page navigation or explicit refresh
  */
 
 import type { WebContents } from 'electron'
@@ -15,6 +19,141 @@ import type { AccessibilityNode, AccessibilitySnapshot } from './types'
 
 // Counter for generating unique snapshot IDs
 let snapshotCounter = 0
+
+// ============================================
+// Snapshot Cache
+// ============================================
+
+/**
+ * Cache entry for accessibility snapshots
+ */
+interface SnapshotCacheEntry {
+  snapshot: AccessibilitySnapshot
+  timestamp: number
+  url: string  // Track URL to detect navigation
+}
+
+/**
+ * Snapshot cache configuration
+ */
+const SNAPSHOT_CACHE_TTL = 500  // 500ms TTL
+const SNAPSHOT_CACHE_MAX_SIZE = 10  // Max entries per verbose mode
+
+/**
+ * Global snapshot cache
+ * Key: `${webContentsId}:${verbose}`
+ */
+const snapshotCache = new Map<string, SnapshotCacheEntry>()
+
+/**
+ * Generate cache key for a WebContents
+ */
+function getCacheKey(webContents: WebContents, verbose: boolean): string {
+  return `${webContents.id}:${verbose}`
+}
+
+/**
+ * Check if cache entry is valid (not expired and URL matches)
+ */
+function isCacheValid(entry: SnapshotCacheEntry, currentUrl: string): boolean {
+  const now = Date.now()
+  const isExpired = (now - entry.timestamp) > SNAPSHOT_CACHE_TTL
+  const urlMatches = entry.url === currentUrl
+  return !isExpired && urlMatches
+}
+
+/**
+ * Get cached snapshot if valid
+ */
+export function getCachedSnapshot(
+  webContents: WebContents,
+  verbose: boolean = false
+): AccessibilitySnapshot | null {
+  const key = getCacheKey(webContents, verbose)
+  const entry = snapshotCache.get(key)
+
+  if (!entry) {
+    return null
+  }
+
+  const currentUrl = webContents.getURL()
+  if (isCacheValid(entry, currentUrl)) {
+    console.log(`[Snapshot] Cache hit for webContents ${webContents.id} (verbose=${verbose})`)
+    return entry.snapshot
+  }
+
+  // Cache expired or URL changed, remove it
+  snapshotCache.delete(key)
+  return null
+}
+
+/**
+ * Store snapshot in cache
+ */
+function cacheSnapshot(
+  webContents: WebContents,
+  verbose: boolean,
+  snapshot: AccessibilitySnapshot
+): void {
+  const key = getCacheKey(webContents, verbose)
+
+  // Enforce max cache size (simple LRU: clear all if over limit)
+  if (snapshotCache.size >= SNAPSHOT_CACHE_MAX_SIZE * 2) {
+    // Keep only recent entries
+    const entries = Array.from(snapshotCache.entries())
+      .sort((a, b) => b[1].timestamp - a[1].timestamp)
+      .slice(0, SNAPSHOT_CACHE_MAX_SIZE)
+    snapshotCache.clear()
+    entries.forEach(([k, v]) => snapshotCache.set(k, v))
+  }
+
+  snapshotCache.set(key, {
+    snapshot,
+    timestamp: Date.now(),
+    url: webContents.getURL()
+  })
+
+  console.log(`[Snapshot] Cached for webContents ${webContents.id} (verbose=${verbose})`)
+}
+
+/**
+ * Invalidate cache for a specific WebContents
+ * Call this after page interactions that may change the DOM
+ */
+export function invalidateSnapshotCache(webContents: WebContents): void {
+  const id = webContents.id
+  let cleared = 0
+
+  for (const key of snapshotCache.keys()) {
+    if (key.startsWith(`${id}:`)) {
+      snapshotCache.delete(key)
+      cleared++
+    }
+  }
+
+  if (cleared > 0) {
+    console.log(`[Snapshot] Invalidated ${cleared} cache entries for webContents ${id}`)
+  }
+}
+
+/**
+ * Clear all snapshot cache
+ */
+export function clearSnapshotCache(): void {
+  const size = snapshotCache.size
+  snapshotCache.clear()
+  console.log(`[Snapshot] Cleared ${size} cache entries`)
+}
+
+/**
+ * Generate a stable ID for cross-snapshot element matching
+ * Based on role and name, truncated to 50 chars
+ */
+function generateStableId(role: string, name: string): string {
+  const stableId = `${role}:${name}`.slice(0, 50)
+  // Replace special chars that might cause issues in selectors
+  return stableId.replace(/[^a-zA-Z0-9:_\-\s]/g, '')
+}
 
 /**
  * CDP AXNode structure from Accessibility.getFullAXTree
@@ -100,11 +239,24 @@ const STRUCTURAL_ROLES = new Set([
 
 /**
  * Create an accessibility snapshot from a WebContents
+ *
+ * @param webContents - The WebContents to snapshot
+ * @param verbose - Whether to include all nodes (verbose mode)
+ * @param forceRefresh - If true, skip cache and fetch fresh snapshot
  */
 export async function createAccessibilitySnapshot(
   webContents: WebContents,
-  verbose: boolean = false
+  verbose: boolean = false,
+  forceRefresh: boolean = false
 ): Promise<AccessibilitySnapshot> {
+  // Check cache first (unless force refresh)
+  if (!forceRefresh) {
+    const cached = getCachedSnapshot(webContents, verbose)
+    if (cached) {
+      return cached
+    }
+  }
+
   const snapshotId = `snap_${++snapshotCounter}`
   const idToNode = new Map<string, AccessibilityNode>()
   let nodeIndex = 0
@@ -216,8 +368,14 @@ export async function createAccessibilitySnapshot(
 
       // Create the node
       const uid = `${snapshotId}_${nodeIndex++}`
+
+      // Generate stable ID for cross-snapshot element matching
+      // Format: role:name (truncated to 50 chars)
+      const stableId = generateStableId(role, name)
+
       const node: AccessibilityNode = {
         uid,
+        stableId,
         role,
         name,
         backendNodeId: cdpNode.backendDOMNodeId || 0,
@@ -307,6 +465,9 @@ export async function createAccessibilitySnapshot(
         return formatSnapshot(this, verbose)
       }
     }
+
+    // Cache the snapshot for future use
+    cacheSnapshot(webContents, verbose, snapshot)
 
     return snapshot
   } finally {

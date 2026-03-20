@@ -82,6 +82,9 @@ export function ProviderSelector({
   )
   const [modelSearchQuery, setModelSearchQuery] = useState('')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [contextWindow, setContextWindow] = useState<number | undefined>(
+    editingSource?.contextWindow
+  )
 
   // Get current provider config
   const currentProvider = useMemo(() =>
@@ -247,6 +250,7 @@ export function ProviderSelector({
         apiKey,
         model: finalModel,
         availableModels,
+        contextWindow: contextWindow || undefined,
         createdAt: editingSource?.createdAt || now,
         updatedAt: now
       }
@@ -621,6 +625,26 @@ export function ProviderSelector({
                 )}
               </div>
             )}
+          </div>
+
+          {/* Context Window */}
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
+              {t('Context Window (tokens)')}
+            </label>
+            <input
+              type="number"
+              value={contextWindow || ''}
+              onChange={(e) => setContextWindow(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+              placeholder={t('e.g. 200000 for Claude, 1000000 for Qwen')}
+              min={1024}
+              step={1024}
+              className="w-full px-3 py-2 bg-input border border-border rounded-lg
+                       text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.')}
+            </p>
           </div>
 
           {/* Notes */}

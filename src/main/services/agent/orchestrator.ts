@@ -817,7 +817,8 @@ When done, your results will be automatically announced to the parent agent.`
         stderrHandler: (data: string) => {
           console.error(`[Subagent][${childConversationId}] stderr:`, data)
         },
-        mcpServers: { 'hyper-space': hyperSpaceMcp }
+        mcpServers: { 'hyper-space': hyperSpaceMcp },
+        contextWindow: resolvedCredentials.contextWindow
       })
 
       // Apply subagent-specific system prompt

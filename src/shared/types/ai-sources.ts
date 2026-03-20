@@ -191,6 +191,8 @@ export interface AISource {
   model: string
   /** Available models list (at least one required) */
   availableModels: ModelOption[]
+  /** Context window size in tokens (for automatic compression threshold calculation) */
+  contextWindow?: number
 
   // ===== Metadata (Required) =====
   /** Creation timestamp (ISO 8601) */

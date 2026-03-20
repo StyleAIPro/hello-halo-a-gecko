@@ -81,6 +81,8 @@ export interface BaseSdkOptionsParams {
   mcpServers?: Record<string, any> | null
   /** Maximum tool call turns per message (from config) */
   maxTurns?: number
+  /** Context window size in tokens (for compression threshold calculation) */
+  contextWindow?: number
 }
 
 // ============================================
@@ -386,10 +388,11 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     conversationId,
     abortController,
     stderrHandler,
-    mcpServers
+    mcpServers,
+    contextWindow
   } = params
 
-  console.log(`[SDK Config] buildBaseSdkOptions: workDir="${workDir}", spaceId="${spaceId}"`)
+  console.log(`[SDK Config] buildBaseSdkOptions: workDir="${workDir}", spaceId="${spaceId}", contextWindow=${contextWindow || 'default'}`)
 
   // Build environment variables
   const env = buildSdkEnv({
@@ -432,12 +435,14 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
 
     // === Context Compression Configuration ===
     // Enable automatic context compaction to prevent token overflow in long conversations
-    // Compact when context reaches 85% of model's context window
+    // Compact when context reaches 85% of model's configured context window (default 200K)
     compactThreshold: 0.85,
     // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
     compactRetentionRatio: 0.5,
     // Allow manual compaction via API
     enableManualCompact: true,
+    // Use configured context window (defaults to 200K if not specified)
+    ...(contextWindow ? { modelContextWindow: contextWindow } : {}),
   }
 
   // Add MCP servers if provided

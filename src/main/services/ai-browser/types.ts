@@ -80,6 +80,7 @@ export interface AIBrowserTool {
  */
 export interface AccessibilityNode {
   uid: string              // Format: {snapshotId}_{nodeIndex}
+  stableId?: string        // Cross-snapshot stable ID (role:name hash)
   role: string             // 'button', 'textbox', 'link', etc.
   name: string             // Accessible name
   value?: string           // Current value (for inputs/selects)

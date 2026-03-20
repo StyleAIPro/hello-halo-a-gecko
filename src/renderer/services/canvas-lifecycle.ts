@@ -738,10 +738,23 @@ class CanvasLifecycle {
 
     console.log(`[CanvasLifecycle] Closing tab: ${tabId}`)
 
-    // Destroy BrowserView if this is a browser/pdf tab
+    // Handle BrowserView lifecycle
+    // IMPORTANT: AI BrowserViews (starting with 'ai-browser-') are owned by the AI
+    // and should only be HIDDEN, not destroyed. Canvas owns views starting with 'browser-tab-'.
     const hasBrowserView = (tab.type === 'browser' || tab.type === 'pdf') && tab.browserViewId
     if (hasBrowserView) {
-      await this.destroyBrowserView(tab.browserViewId!)
+      const viewId = tab.browserViewId!
+      const isAIBrowserView = viewId.startsWith('ai-browser-')
+
+      if (isAIBrowserView) {
+        // AI BrowserView - only hide it, don't destroy
+        // AI manages the lifecycle of its own views
+        console.log(`[CanvasLifecycle] Hiding AI BrowserView (not destroying): ${viewId}`)
+        await this.hideBrowserView(viewId)
+      } else {
+        // Canvas-owned BrowserView - safe to destroy
+        await this.destroyBrowserView(viewId)
+      }
     }
 
     // Remove tab
@@ -768,11 +781,22 @@ class CanvasLifecycle {
   async closeAll(): Promise<void> {
     console.log('[CanvasLifecycle] Closing all tabs')
 
-    // Destroy all browser views (browser and pdf types)
+    // Handle BrowserView lifecycle for all tabs
+    // IMPORTANT: AI BrowserViews are only hidden, not destroyed
     for (const [, tab] of this.tabs) {
       const hasBrowserView = (tab.type === 'browser' || tab.type === 'pdf') && tab.browserViewId
       if (hasBrowserView) {
-        await this.destroyBrowserView(tab.browserViewId!)
+        const viewId = tab.browserViewId!
+        const isAIBrowserView = viewId.startsWith('ai-browser-')
+
+        if (isAIBrowserView) {
+          // AI BrowserView - only hide it
+          console.log(`[CanvasLifecycle] Hiding AI BrowserView (not destroying): ${viewId}`)
+          await this.hideBrowserView(viewId)
+        } else {
+          // Canvas-owned BrowserView - safe to destroy
+          await this.destroyBrowserView(viewId)
+        }
       }
     }
 

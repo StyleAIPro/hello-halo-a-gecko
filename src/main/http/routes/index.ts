@@ -1391,5 +1391,64 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     }
   })
 
+  // ===== Image Upload Routes =====
+
+  // GET /api/remote/uploads/:spaceId/:filename — serve uploaded images for MCP tools
+  app.get('/api/remote/uploads/:spaceId/:filename', (req: Request, res: Response) => {
+    try {
+      const { spaceId, filename } = req.params
+
+      if (!spaceId || !filename) {
+        res.status(400).json({ success: false, error: 'Missing spaceId or filename' })
+        return
+      }
+
+      // Validate filename to prevent path traversal
+      if (filename.includes('..') || filename.includes('/')) {
+        res.status(400).json({ success: false, error: 'Invalid filename' })
+        return
+      }
+
+      // Build file path
+      const uploadsDir = join(electronApp.getPath('userData'), 'uploads', spaceId)
+      const filepath = join(uploadsDir, filename)
+
+      // Verify file exists and is within uploads directory
+      const realPath = realpathSync(filepath)
+      if (!realPath.startsWith(uploadsDir)) {
+        res.status(403).json({ success: false, error: 'Access denied' })
+        return
+      }
+
+      if (!existsSync(filepath)) {
+        res.status(404).json({ success: false, error: 'File not found' })
+        return
+      }
+
+      // Determine content type based on file extension
+      const ext = filename.split('.').pop()?.toLowerCase()
+      const contentTypes: Record<string, string> = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp'
+      }
+      const contentType = contentTypes[ext || 'png'] || 'application/octet-stream'
+
+      // Stream the file
+      const stat = statSync(filepath)
+      res.setHeader('Content-Type', contentType)
+      res.setHeader('Content-Length', stat.size)
+      res.setHeader('Cache-Control', 'no-cache')
+
+      const stream = createReadStream(filepath)
+      stream.pipe(res)
+    } catch (error) {
+      console.error('[HTTP] Upload file serve error:', error)
+      res.status(500).json({ success: false, error: (error as Error).message })
+    }
+  })
+
   console.log('[HTTP] API routes registered')
 }

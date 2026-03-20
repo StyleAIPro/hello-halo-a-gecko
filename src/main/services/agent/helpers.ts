@@ -223,7 +223,8 @@ export async function getApiCredentials(config: ReturnType<typeof getConfig>): P
     customHeaders: backendConfig.headers,
     apiType: backendConfig.apiType,
     forceStream: backendConfig.forceStream,
-    filterContent: backendConfig.filterContent
+    filterContent: backendConfig.filterContent,
+    contextWindow: currentSource?.contextWindow
   }
 }
 

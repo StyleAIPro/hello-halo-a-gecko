@@ -726,7 +726,8 @@ export async function ensureSessionWarm(
       console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data)
     },
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
-    maxTurns: config.agent?.maxTurns
+    maxTurns: config.agent?.maxTurns,
+    contextWindow: resolvedCredentials.contextWindow
   })
 
   try {

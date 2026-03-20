@@ -29,6 +29,8 @@ export interface ApiCredentials {
   forceStream?: boolean
   /** Filter sensitive content from messages (e.g., GitHub URLs) */
   filterContent?: boolean
+  /** Context window size in tokens (for compression threshold calculation) */
+  contextWindow?: number
 }
 
 // ============================================

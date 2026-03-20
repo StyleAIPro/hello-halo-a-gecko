@@ -222,6 +222,8 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   let receivedResult = false
   // Track if any stream_event was received (for fallback handling in parseSDKMessage)
   let hasStreamEvent = false
+  // Track if pending injection was detected at turn boundary (for turn-level message injection)
+  let hadPendingInjection = false
 
   // Streaming block state - track active blocks by index for delta/stop correlation
   // Key: block index, Value: { type, thoughtId, content/partialJson }
@@ -662,6 +664,19 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             timestamp: Date.now()
           })
 
+          // Wait briefly for frontend to respond with injection request
+          // This gives the IPC round-trip time to complete (150ms for local, 300ms for remote)
+          const WAIT_FOR_INJECTION_MS = 300
+          await new Promise(resolve => setTimeout(resolve, WAIT_FOR_INJECTION_MS))
+
+          // Check if frontend queued an injection during the wait
+          if (hasPendingInjection(conversationId)) {
+            console.log(`[Agent][${conversationId}] Injection detected at turn boundary!`)
+            // Set flag to tell the outer loop to continue with new message
+            hadPendingInjection = true
+            // Don't break - let the stream complete naturally with the result message
+          }
+
           console.log(`[Agent][${conversationId}] Tool result merged into thought ${toolUseThoughtId}`)
         } else {
           // No mapping found - fall back to separate thought (shouldn't happen normally)
@@ -678,6 +693,13 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             toolId: thought.id,
             timestamp: Date.now()
           })
+
+          // Wait briefly for frontend to respond with injection request
+          await new Promise(resolve => setTimeout(resolve, 150))
+          if (hasPendingInjection(conversationId)) {
+            console.log(`[Agent][${conversationId}] Injection detected at turn boundary (fallback)`)
+          }
+
           console.log(`[Agent][${conversationId}] Tool result fallback (no mapping): ${thought.id}`)
         }
       } else {
@@ -850,8 +872,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   }
 
   // Build the result object
-  // Check for pending injection before completing
-  const hasPendingInjectionFlag = hasPendingInjection(conversationId)
+  // Check for pending injection - either detected at turn boundary or queued at end
+  // Use hadPendingInjection (set at turn boundary) for accurate turn-level detection
+  const hasPendingInjectionFlag = hadPendingInjection || hasPendingInjection(conversationId)
 
   const result: StreamResult = {
     finalContent,

@@ -68,6 +68,68 @@ function imageResult(text: string, data: string, mimeType: string) {
 }
 
 /**
+ * Retry wrapper for element operations.
+ * Automatically refreshes snapshot and re-resolves element on "Element not found" errors.
+ *
+ * This handles the common case where the page changes between snapshot and operation,
+ * causing the UID to become stale. The wrapper will:
+ * 1. Try the operation
+ * 2. On "Element not found" error, refresh snapshot and retry with resolveElement
+ * 3. On second failure, throw with detailed error message
+ *
+ * @param operationFn - The operation to perform (receives refreshSnapshot callback)
+ * @param label - Operation label for error messages
+ * @param ctx - Browser context
+ * @param uid - Element UID
+ */
+async function withRetry<T>(
+  operationFn: (refreshSnapshot: () => Promise<void>) => Promise<T>,
+  label: string,
+  ctx: BrowserContext,
+  uid?: string
+): Promise<T> {
+  try {
+    // First attempt
+    return await operationFn(async () => {
+      await ctx.createSnapshot()
+    })
+  } catch (error) {
+    const errorMsg = (error as Error).message
+    const isElementNotFound = errorMsg.includes('Element not found') || errorMsg.includes('not found')
+
+    // Only retry for element resolution failures
+    if (!isElementNotFound || !uid) {
+      throw error
+    }
+
+    console.log(`[sdk-mcp-server] ${label} failed with "${errorMsg}", retrying with fresh snapshot...`)
+
+    try {
+      // Refresh snapshot and retry with re-resolution
+      await ctx.createSnapshot()
+      console.log(`[sdk-mcp-server] Snapshot refreshed, re-resolving element ${uid}`)
+
+      // Use resolveElement for smart re-resolution with fallback
+      const element = await ctx.resolveElement(uid, label)
+      console.log(`[sdk-mcp-server] Element ${uid} re-resolved to ${element.uid}`)
+
+      // Retry the operation with the new element
+      return await operationFn(async () => {
+        // Snapshot already refreshed above
+      })
+    } catch (retryError) {
+      // Second attempt failed - throw with context
+      const finalError = new Error(
+        `${label} failed after retry: ${(retryError as Error).message}\n` +
+        `The element may have been removed from the page or the page structure changed.\n` +
+        `Try getting a fresh snapshot with browser_snapshot and use the new element UIDs.`
+      )
+      throw finalError
+    }
+  }
+}
+
+/**
  * Determine how to fill a form element, handling combobox disambiguation.
  */
 async function fillFormElement(ctx: BrowserContext, uid: string, value: string): Promise<void> {
@@ -333,8 +395,16 @@ const browser_click = tool(
     }
 
     try {
+      // Ensure page is stable before operating
+      await ctx.ensurePageStable()
+
       await withTimeout(
-        ctx.clickElement(args.uid, { dblClick: args.dblClick || false }),
+        withRetry(
+          async () => ctx.clickElement(args.uid, { dblClick: args.dblClick || false }),
+          'Click element',
+          ctx,
+          args.uid
+        ),
         TOOL_TIMEOUT,
         'browser_click'
       )
@@ -361,8 +431,16 @@ const browser_hover = tool(
     }
 
     try {
+      // Ensure page is stable before operating
+      await ctx.ensurePageStable()
+
       await withTimeout(
-        ctx.hoverElement(args.uid),
+        withRetry(
+          async () => ctx.hoverElement(args.uid),
+          'Hover element',
+          ctx,
+          args.uid
+        ),
         TOOL_TIMEOUT,
         'browser_hover'
       )
@@ -386,8 +464,16 @@ const browser_fill = tool(
     }
 
     try {
+      // Ensure page is stable before operating
+      await ctx.ensurePageStable()
+
       await withTimeout(
-        fillFormElement(ctx, args.uid, args.value),
+        withRetry(
+          async () => fillFormElement(ctx, args.uid, args.value),
+          'Fill element',
+          ctx,
+          args.uid
+        ),
         TOOL_TIMEOUT,
         'browser_fill'
       )
@@ -412,12 +498,20 @@ const browser_fill_form = tool(
       return textResult('No active browser page.', true)
     }
 
+    // Ensure page is stable before operating
+    await ctx.ensurePageStable()
+
     const errors: string[] = []
 
     for (const elem of args.elements) {
       try {
         await withTimeout(
-          fillFormElement(ctx, elem.uid, elem.value),
+          withRetry(
+            async () => fillFormElement(ctx, elem.uid, elem.value),
+            'Fill form element',
+            ctx,
+            elem.uid
+          ),
           TOOL_TIMEOUT,
           'browser_fill_form'
         )
@@ -450,8 +544,16 @@ const browser_drag = tool(
     }
 
     try {
+      // Ensure page is stable before operating
+      await ctx.ensurePageStable()
+
       await withTimeout(
-        ctx.dragElement(args.from_uid, args.to_uid),
+        withRetry(
+          async () => ctx.dragElement(args.from_uid, args.to_uid),
+          'Drag element',
+          ctx,
+          args.from_uid
+        ),
         TOOL_TIMEOUT,
         'browser_drag'
       )
@@ -499,10 +601,11 @@ const browser_upload_file = tool(
     }
 
     try {
-      const element = ctx.getElementByUid(args.uid)
-      if (!element) {
-        throw new Error(`Element not found: ${args.uid}`)
-      }
+      // Ensure page is stable before operating
+      await ctx.ensurePageStable()
+
+      // Use resolveElement for robust element lookup with fallback
+      const element = await ctx.resolveElement(args.uid, 'Upload file')
 
       await withTimeout(
         ctx.sendCDPCommand('DOM.setFileInputFiles', {

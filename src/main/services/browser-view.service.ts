@@ -92,6 +92,28 @@ class BrowserViewManager {
     mainWindow.on('closed', () => {
       this.destroyAll()
     })
+
+    // Handle system suspend/resume events
+    // When system wakes from sleep, BrowserViews may still be visible but
+    // the app state might have changed. Hide all visible views on resume
+    // to prevent "ghost" BrowserViews from appearing.
+    const { powerMonitor } = require('electron')
+
+    powerMonitor.on('resume', () => {
+      console.log('[BrowserView] System resumed from sleep, hiding all visible BrowserViews')
+      // Hide all views that are on mainWindow (not offscreen AI views)
+      for (const [viewId, view] of this.views) {
+        if (!this.offscreenViewIds.has(viewId)) {
+          try {
+            this.mainWindow?.removeBrowserView(view)
+          } catch (e) {
+            // View might not be on window, ignore
+          }
+        }
+      }
+      // Clear active view since we hid everything
+      this.activeViewId = null
+    })
   }
 
   /**
@@ -270,6 +292,19 @@ class BrowserViewManager {
     if (this.activeViewId && this.activeViewId !== viewId) {
       console.log(`[BrowserView] Hiding previous active view: ${this.activeViewId}`)
       this.hide(this.activeViewId)
+    }
+
+    // If this view was on offscreen window, remove it first to avoid conflicts
+    // A BrowserView can only belong to one window at a time
+    if (this.offscreenViewIds.has(viewId) && this.offscreenWindow && !this.offscreenWindow.isDestroyed()) {
+      console.log(`[BrowserView] Removing view from offscreen window before adding to mainWindow: ${viewId}`)
+      try {
+        this.offscreenWindow.removeBrowserView(view)
+      } catch (e) {
+        // View might not be on offscreen window, ignore error
+      }
+      // Mark this view as no longer offscreen since it's being shown in mainWindow
+      this.offscreenViewIds.delete(viewId)
     }
 
     // Add to window

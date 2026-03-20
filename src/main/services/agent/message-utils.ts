@@ -51,12 +51,12 @@ ${tabsSummary}
  * Build multi-modal message content for Claude API
  *
  * @param text - Text content of the message
- * @param images - Optional image attachments
+ * @param images - Optional image attachments (can be base64 or URL)
  * @returns Plain text string or array of content blocks for multi-modal
  */
 export function buildMessageContent(
   text: string,
-  images?: ImageAttachment[]
+  images?: (ImageAttachment | { id: string; url: string; mediaType: string })[]
 ): string | Array<{ type: string; [key: string]: unknown }> {
   // If no images, just return plain text
   if (!images || images.length === 0) {
@@ -76,14 +76,40 @@ export function buildMessageContent(
 
   // Add image blocks
   for (const image of images) {
-    contentBlocks.push({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: image.mediaType,
-        data: image.data
+    // Check if this is an uploaded image (has URL) or base64 image
+    if ('url' in image && image.url) {
+      // Use URL format for images that have been uploaded
+      // Check if it's a data URL or HTTP URL
+      if (image.url.startsWith('data:') || image.url.startsWith('http://') || image.url.startsWith('https://')) {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'url',
+            url: image.url
+          }
+        })
+      } else if (image.url.startsWith('file://')) {
+        // File URL - use base64 fallback if we have the data
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mediaType,
+            data: (image as any).data || ''  // Fallback, should have data if file://
+          }
+        })
       }
-    })
+    } else if ('data' in image && image.data) {
+      // Original base64 format
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: image.mediaType,
+          data: image.data
+        }
+      })
+    }
   }
 
   return contentBlocks

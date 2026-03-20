@@ -223,7 +223,8 @@ export async function sendSkillMessage(
         console.error(`[SkillConv][${conversationId}] stderr:`, data)
       },
       mcpServers: null,
-      maxTurns: config.agent?.maxTurns
+      maxTurns: config.agent?.maxTurns,
+      contextWindow: resolvedCredentials.contextWindow
     })
 
     // 配置 skill-creator 技能

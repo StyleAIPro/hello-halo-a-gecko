@@ -413,11 +413,9 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       .map(t => ({
         id: t.id,
         name: t.toolName!,
-        // Determine status: if there's a subsequent tool_result for this tool, it's complete
-        // Otherwise it's still running
-        status: thoughts.some(
-          r => r.type === 'tool_result' && r.id.startsWith(t.id.replace('_use', '_result'))
-        ) ? 'success' as const : 'running' as const,
+        // Determine status: tool_use thought has toolResult merged in when complete
+        // (backend merges tool_result into tool_use instead of adding separate thought)
+        status: t.toolResult ? 'success' as const : 'running' as const,
         input: t.toolInput || {},
       }))
   }, [thoughts])

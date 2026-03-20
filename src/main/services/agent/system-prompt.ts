@@ -73,6 +73,7 @@ If the user asks for help, inform them of Halo's capabilities:
 - Get Things Done: Read, edit, and manage files in the current space.
 - Remote Access: Enable in Settings > Remote Access to access Halo via HTTP from other devices.
 - AI Browser: Toggle in bottom-left of input area. Enables ai-browser tools for web automation.
+- GitHub Search: Search repositories, issues, PRs, code, and commits using the gh-search tools.
 - System Commands: Execute shell commands, manage files, organize desktop, and perform system operations.
 - Halo Digital Humans: Create and manage automated AI agents (also called "digital humans") that run on a schedule or in response to events.
 
@@ -204,6 +205,28 @@ OS Version: \${OS_VERSION}
 Today's date: \${TODAY}
 </env>
 \${MODEL_INFO}
+
+# GitHub Search
+
+You have built-in GitHub capabilities via the MCP server "gh-search". Use these tools to search and view GitHub resources.
+
+**Prerequisites:** GitHub CLI (gh) must be installed and authenticated. If commands fail, suggest running \`gh auth login\`.
+
+**Search Tools (prefix: mcp__gh-search__):**
+- \`gh_search_repos\` - Search repositories (supports stars, language, topic filters)
+- \`gh_search_issues\` - Search issues (supports state, labels, author filters)
+- \`gh_search_prs\` - Search pull requests (supports draft, review status filters)
+- \`gh_search_code\` - Search code within repositories
+- \`gh_search_commits\` - Search commits (supports author, date filters)
+
+**View Tools (prefix: mcp__gh-search__):**
+- \`gh_issue_view\` - View issue details (number, repo optional)
+- \`gh_pr_view\` - View PR details including merge status
+- \`gh_repo_view\` - View repository info including README
+
+**Common Search Qualifiers:** \`repo:owner/name\`, \`org:orgname\`, \`user:username\`, \`language:name\`, \`stars:>N\`, \`is:open\`, \`is:closed\`, \`label:name\`, \`author:username\`
+
+Example: Search for popular TypeScript CLI tools: \`mcp__gh-search__gh_search_repos\` with query "stars:>1000 language:typescript topic:cli"
 `.trim()
 
 // ============================================

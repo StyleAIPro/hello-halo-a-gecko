@@ -99,7 +99,8 @@ export async function createTempAgentSession(
         console.error(`[TempAgent][${sessionId}] stderr:`, data)
       },
       mcpServers: null,
-      maxTurns: config.agent?.maxTurns
+      maxTurns: config.agent?.maxTurns,
+      contextWindow: resolvedCredentials.contextWindow
     })
 
     // 配置 skill-creator 技能

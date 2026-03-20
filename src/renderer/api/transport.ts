@@ -209,6 +209,8 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'agent:mcp-status': 'onAgentMcpStatus',
       'agent:compact': 'onAgentCompact',
       'agent:ask-question': 'onAgentAskQuestion',
+      'agent:turn-boundary': 'onAgentTurnBoundary',
+      'agent:injection-start': 'onAgentInjectionStart',
       'remote:status-change': 'onRemoteStatusChange',
       'browser:state-change': 'onBrowserStateChange',
       'browser:zoom-changed': 'onBrowserZoomChanged',
