@@ -10,6 +10,7 @@ import type { RemoteServer } from '../../../shared/types'
 import * as fs from 'fs'
 import path from 'path'
 import os from 'os'
+import crypto from 'crypto'
 import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt'
 
 /**
@@ -894,6 +895,192 @@ WRAPPER
   }
 
   /**
+   * Fast update: only upload changed files, skip full environment setup.
+   * Falls back to full deployAgentCode() if this is the first deployment.
+   */
+  async updateAgentCode(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    const manager = this.getSSHManager(id)
+
+    // Ensure SSH connection
+    if (!manager.isConnected()) {
+      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5)
+      await this.connectServer(id)
+      const connectedManager = this.getSSHManager(id)
+      if (!connectedManager.isConnected()) {
+        throw new Error(`Failed to establish SSH connection to ${server.name}`)
+      }
+    }
+
+    // Check if this is the first deployment (no version.json on remote)
+    const firstDeployCheck = await manager.executeCommandFull(
+      `test -f ${DEPLOY_AGENT_PATH}/version.json && echo "DEPLOYED" || echo "NOT_DEPLOYED"`
+    )
+
+    if (!firstDeployCheck.stdout.includes('DEPLOYED')) {
+      this.emitCommandOutput(id, 'output', '首次部署，执行完整安装...')
+      this.emitDeployProgress(id, 'prepare', '首次部署中...', 10)
+      return this.deployAgentCode(id)
+    }
+
+    // --- Incremental update path ---
+    this.emitCommandOutput(id, 'command', '增量更新模式 (跳过环境初始化)')
+    this.emitDeployProgress(id, 'upload', '正在检查文件变更...', 10)
+
+    const packageDir = getRemoteAgentProxyPath()
+    const distDir = path.join(packageDir, 'dist')
+    const patchesDir = path.join(packageDir, 'patches')
+
+    // 1. Upload changed dist files
+    let changedFiles = 0
+    const distFiles = fs.readdirSync(distDir).filter(f => fs.statSync(path.join(distDir, f)).isFile())
+    for (let i = 0; i < distFiles.length; i++) {
+      const file = distFiles[i]
+      const localPath = path.join(distDir, file)
+      const remotePath = `${DEPLOY_AGENT_PATH}/dist/${file}`
+      const progress = 10 + Math.round(((i + 1) / distFiles.length) * 20)
+      this.emitDeployProgress(id, 'upload', `正在检查 ${file}...`, progress)
+
+      // Compare md5 with remote
+      const localMd5 = this.computeMd5(localPath)
+      const remoteMd5Result = await manager.executeCommandFull(`md5sum ${remotePath} 2>/dev/null | awk '{print $1}' || echo ""`)
+      const remoteMd5 = remoteMd5Result.stdout.trim()
+
+      if (localMd5 !== remoteMd5) {
+        await manager.uploadFile(localPath, remotePath)
+        changedFiles++
+        this.emitCommandOutput(id, 'output', `  ↑ ${file} (已更新)`)
+      }
+    }
+    this.emitCommandOutput(id, 'output', `dist 文件: ${changedFiles}/${distFiles.length} 已更新`)
+
+    // Also upload version.json to root
+    const versionJsonPath = path.join(distDir, 'version.json')
+    if (fs.existsSync(versionJsonPath)) {
+      const localMd5 = this.computeMd5(versionJsonPath)
+      const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/version.json 2>/dev/null | awk '{print $1}' || echo ""`)
+      if (localMd5 !== remoteMd5Result.stdout.trim()) {
+        await manager.uploadFile(versionJsonPath, `${DEPLOY_AGENT_PATH}/version.json`)
+      }
+    }
+
+    // 2. Upload package.json and check if npm install is needed
+    this.emitDeployProgress(id, 'install', '正在检查依赖变更...', 35)
+    const packageJsonPath = path.join(packageDir, 'package.json')
+    const localPkgMd5 = this.computeMd5(packageJsonPath)
+    const remotePkgMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/package.json 2>/dev/null | awk '{print $1}' || echo ""`)
+
+    if (localPkgMd5 !== remotePkgMd5Result.stdout.trim()) {
+      // package.json changed → npm install needed
+      await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
+      this.emitCommandOutput(id, 'output', 'package.json 已变更，执行 npm install...')
+      this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 40)
+
+      const installResult = await manager.executeCommandStreaming(
+        `cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`,
+        (type, data) => {
+          const lines = data.split('\n').filter(line => line.trim())
+          for (const line of lines) {
+            this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+          }
+        }
+      )
+
+      if (installResult.exitCode !== 0) {
+        this.emitCommandOutput(id, 'error', `npm install 失败: ${installResult.stderr || installResult.stdout}`)
+        throw new Error(`npm install failed: ${installResult.stderr || installResult.stdout}`)
+      }
+      this.emitCommandOutput(id, 'success', '✓ 依赖安装完成')
+    } else {
+      this.emitCommandOutput(id, 'output', 'package.json 未变更，跳过 npm install')
+    }
+
+    // 3. Check if global SDK needs updating
+    this.emitDeployProgress(id, 'install', '正在检查 SDK 版本...', 55)
+    const localVersionInfo = this.getLocalAgentVersion()
+    if (localVersionInfo?.version) {
+      const remoteVersionResult = await manager.executeCommandFull(
+        `${AGENT_CHECK_COMMAND} | grep -oP 'claude-agent-sdk@\\K[^\\s]+' || echo ""`
+      )
+      const remoteSdkVersion = remoteVersionResult.stdout.trim()
+      if (remoteSdkVersion && remoteSdkVersion !== localVersionInfo.version) {
+        this.emitCommandOutput(id, 'output', `SDK 版本变更: ${remoteSdkVersion} → ${localVersionInfo.version}`)
+        this.emitDeployProgress(id, 'install', '正在更新 SDK...', 57)
+        await manager.executeCommandStreaming(
+          'npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
+          (type, data) => {
+            const lines = data.split('\n').filter(line => line.trim())
+            for (const line of lines) {
+              this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+            }
+          }
+        )
+      } else {
+        this.emitCommandOutput(id, 'output', 'SDK 版本未变更，跳过全局安装')
+      }
+    }
+
+    // 4. Upload local patched SDK (if changed)
+    this.emitDeployProgress(id, 'sdk', '正在检查 SDK 补丁...', 65)
+    const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
+    const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
+    const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
+    const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
+
+    if (fs.existsSync(localSdkFile)) {
+      const localSdkMd5 = this.computeMd5(localSdkFile)
+      const remoteSdkMd5Result = await manager.executeCommandFull(`md5sum ${remoteSdkPath}/sdk.mjs 2>/dev/null | awk '{print $1}' || echo ""`)
+      if (localSdkMd5 !== remoteSdkMd5Result.stdout.trim()) {
+        await manager.executeCommand(`mkdir -p ${remoteSdkPath}`)
+        await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`)
+        this.emitCommandOutput(id, 'output', 'SDK 补丁已更新')
+      } else {
+        this.emitCommandOutput(id, 'output', 'SDK 补丁未变更，跳过上传')
+      }
+    }
+
+    // 5. Upload patches (if changed)
+    if (fs.existsSync(patchesDir)) {
+      const patchFiles = fs.readdirSync(patchesDir)
+      let patchChanged = 0
+      for (const file of patchFiles) {
+        const localPath = path.join(patchesDir, file)
+        if (fs.statSync(localPath).isFile()) {
+          const localMd5 = this.computeMd5(localPath)
+          const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/patches/${file} 2>/dev/null | awk '{print $1}' || echo ""`)
+          if (localMd5 !== remoteMd5Result.stdout.trim()) {
+            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
+            patchChanged++
+          }
+        }
+      }
+      if (patchChanged > 0) {
+        this.emitCommandOutput(id, 'output', `patches: ${patchChanged} 个文件已更新`)
+      }
+    }
+
+    // 6. Sync system prompt
+    this.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 75)
+    await this.syncSystemPrompt(id)
+
+    this.emitDeployProgress(id, 'complete', '✓ 更新完成!', 100)
+    this.emitCommandOutput(id, 'success', '========================================')
+    this.emitCommandOutput(id, 'success', '增量更新完成!')
+    this.emitCommandOutput(id, 'success', '========================================')
+  }
+
+  /**
+   * Compute MD5 hash of a local file
+   */
+  private computeMd5(filePath: string): string {
+    return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex')
+  }
+
+  /**
    * Start the agent on the remote server
    */
   async startAgent(id: string): Promise<void> {
@@ -1755,11 +1942,12 @@ WRAPPER
           // Create remote skill directory
           await manager.executeCommand(`mkdir -p ${remoteSkillPath}`)
 
-          // Recursively upload all files in the skill directory
-          await this.uploadDirectoryRecursive(manager, localSkillPath, remoteSkillPath)
+          // Recursively upload only changed files in the skill directory
+          const uploadStats = { uploaded: 0, skipped: 0 }
+          await this.uploadDirectoryRecursive(manager, localSkillPath, remoteSkillPath, uploadStats)
 
           syncedCount++
-          this.emitCommandOutput(id, 'output', `✓ Skill "${skillName}" 同步成功`)
+          this.emitCommandOutput(id, 'output', `✓ Skill "${skillName}" 同步成功 (${uploadStats.uploaded} 更新, ${uploadStats.skipped} 跳过)`)
           console.log(`[RemoteDeployService] Synced skill: ${skillName}`)
         } catch (skillError) {
           failedCount++
@@ -1793,13 +1981,16 @@ WRAPPER
   }
 
   /**
-   * Recursively upload a directory to remote server
+   * Recursively upload a directory to remote server with incremental sync.
+   * Only uploads files whose md5 differs from the remote copy.
    */
   private async uploadDirectoryRecursive(
     manager: SSHManager,
     localDir: string,
-    remoteDir: string
+    remoteDir: string,
+    stats?: { uploaded: number; skipped: number }
   ): Promise<void> {
+    if (!stats) stats = { uploaded: 0, skipped: 0 }
     const entries = fs.readdirSync(localDir, { withFileTypes: true })
 
     for (const entry of entries) {
@@ -1809,10 +2000,21 @@ WRAPPER
       if (entry.isDirectory()) {
         // Create remote directory and recurse
         await manager.executeCommand(`mkdir -p ${remotePath}`)
-        await this.uploadDirectoryRecursive(manager, localPath, remotePath)
+        await this.uploadDirectoryRecursive(manager, localPath, remotePath, stats)
       } else if (entry.isFile()) {
-        // Upload file
-        await manager.uploadFile(localPath, remotePath)
+        // Compare md5 with remote, only upload if changed
+        const localMd5 = this.computeMd5(localPath)
+        const remoteMd5Result = await manager.executeCommandFull(
+          `md5sum ${remotePath} 2>/dev/null | awk '{print $1}' || echo ""`
+        )
+        const remoteMd5 = remoteMd5Result.stdout.trim()
+
+        if (localMd5 !== remoteMd5) {
+          await manager.uploadFile(localPath, remotePath)
+          stats.uploaded++
+        } else {
+          stats.skipped++
+        }
       }
     }
   }
