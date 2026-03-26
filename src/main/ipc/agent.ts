@@ -28,10 +28,12 @@ export function registerAgentHandlers(): void {
           size?: number
         }>
         thinkingEnabled?: boolean  // Enable extended thinking mode
+        aiBrowserEnabled?: boolean  // Enable AI Browser
+        agentId?: string  // Target agent for Hyper Space
       }
     ) => {
       try {
-        console.log(`[IPC] agent:send-message called with spaceId=${request.spaceId}, conversationId=${request.conversationId}`)
+        console.log(`[IPC] agent:send-message called with spaceId=${request.spaceId}, conversationId=${request.conversationId}, agentId=${request.agentId || 'leader'}`)
         await sendMessage(getMainWindow(), request)
         return { success: true }
       } catch (error: unknown) {

@@ -12,7 +12,7 @@ import type {
   SubagentTask,
   CreateHyperSpaceInput
 } from '../../shared/types/hyper-space'
-import { createSpace, getSpace, updateSpace } from '../services/space.service'
+import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service'
 import type { Space } from '../../shared/types'
 
 /**
@@ -30,7 +30,20 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:create', async (_event, input: CreateHyperSpaceInput) => {
     try {
-      // Create the space with hyper type
+      // Use createHyperSpace for hyper spaces
+      if (input.spaceType === 'hyper') {
+        const space = createHyperSpace(input)
+
+        if (!space) {
+          return { success: false, error: 'Failed to create Hyper Space' }
+        }
+
+        console.log(`[IPC] Created Hyper Space ${space.id} with ${input.agents?.length || 0} agents`)
+
+        return { success: true, space }
+      }
+
+      // Fallback to regular space creation
       const space = createSpace({
         name: input.name,
         icon: input.icon,
@@ -40,28 +53,6 @@ export function registerHyperSpaceHandlers(): void {
         remotePath: input.remotePath,
         useSshTunnel: input.useSshTunnel
       })
-
-      // If this is a hyper space, create the agent team
-      if (input.spaceType === 'hyper' && input.agents && input.agents.length > 0) {
-        const team = agentOrchestrator.createTeam({
-          spaceId: space.id,
-          conversationId: '', // Will be set when conversation starts
-          agents: input.agents,
-          config: input.orchestration
-        })
-
-        console.log(`[IPC] Created Hyper Space ${space.id} with team ${team.id}`)
-
-        return {
-          success: true,
-          space: {
-            ...space,
-            spaceType: 'hyper',
-            agents: input.agents,
-            orchestration: input.orchestration
-          }
-        }
-      }
 
       return { success: true, space }
     } catch (error) {
@@ -87,6 +78,22 @@ export function registerHyperSpaceHandlers(): void {
       }
 
       return { success: true, status }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  /**
+   * Get worker session states for recovery after page refresh.
+   * Returns status info for all workers that have been started.
+   */
+  ipcMain.handle('hyper-space:get-worker-states', async (_event, spaceId: string) => {
+    try {
+      const workerStates = agentOrchestrator.getWorkerSessionStates(spaceId)
+      return { success: true, data: workerStates }
     } catch (error) {
       return {
         success: false,
@@ -287,6 +294,64 @@ export function registerHyperSpaceHandlers(): void {
       }
 
       return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // ============================================
+  // Agent Mention (for @ autocomplete)
+  // ============================================
+
+  /**
+   * Get HyperSpace members for @ mention autocomplete
+   */
+  ipcMain.handle('hyper-space:get-members', async (_event, spaceId: string) => {
+    try {
+      const team = agentOrchestrator.getTeamBySpace(spaceId)
+
+      if (!team) {
+        // Team not in runtime, try to get from space definition
+        const space = getSpace(spaceId)
+        if (space && space.agents) {
+          return {
+            success: true,
+            data: {
+              members: space.agents.map(a => ({
+                id: a.id,
+                name: a.name,
+                role: a.role,
+                type: a.type,
+                capabilities: a.capabilities
+              }))
+            }
+          }
+        }
+        return { success: false, error: 'Hyper Space team not found' }
+      }
+
+      // Build members list from team
+      const members = [
+        {
+          id: team.leader.id,
+          name: team.leader.config.name,
+          role: 'leader' as const,
+          type: team.leader.config.type,
+          capabilities: team.leader.config.capabilities
+        },
+        ...team.workers.map(w => ({
+          id: w.id,
+          name: w.config.name,
+          role: 'worker' as const,
+          type: w.config.type,
+          capabilities: w.config.capabilities
+        }))
+      ]
+
+      return { success: true, data: { members } }
     } catch (error) {
       return {
         success: false,

@@ -432,9 +432,9 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
     console.log('[IPC] remote-server:update-agent - Stopping agent...')
     await deployService.stopAgent(serverId)
 
-    // Deploy the latest agent code
-    console.log('[IPC] remote-server:update-agent - Deploying latest code...')
-    await deployService.deployAgentCode(serverId)
+    // Deploy the latest agent code (use fast incremental update)
+    console.log('[IPC] remote-server:update-agent - Deploying latest code (incremental)...')
+    await deployService.updateAgentCode(serverId)
 
     // Sync skills from local to remote
     console.log('[IPC] remote-server:update-agent - Syncing skills...')

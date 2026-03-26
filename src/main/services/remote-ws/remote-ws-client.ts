@@ -56,6 +56,8 @@ export class RemoteWsClient extends EventEmitter {
   private reconnectDelay = 3000
   private reconnectTimer: NodeJS.Timeout | null = null
   private pingTimer: NodeJS.Timeout | null = null
+  private lastPongTime: number | null = null
+  private readonly pongTimeoutMs = 90 * 1000  // 90 seconds — if no pong, consider server dead
   private authenticated = false
   // Track the sessionId this client was created for
   public readonly sessionId: string | null = null
@@ -139,6 +141,23 @@ export class RemoteWsClient extends EventEmitter {
         console.log(`[RemoteWsClient:${this.config.serverId}] Disconnect duration: ${duration}ms`)
         this.authenticated = false
         this.stopPing()
+
+        // CRITICAL: Reject all active stream sessions so callers don't hang forever.
+        // After reconnection, the caller should re-initiate the request.
+        if (this.activeStreamSessions.size > 0) {
+          console.warn(
+            `[RemoteWsClient:${this.config.serverId}] WebSocket closed with ${this.activeStreamSessions.size} ` +
+            `active stream(s). Rejecting all pending promises.`
+          )
+          for (const [sessionId, pending] of this.activeStreamSessions) {
+            pending.reject(new Error(
+              `WebSocket disconnected (code: ${event.code}) while stream ${sessionId} was active. ` +
+              `The remote process may still be running.`
+            ))
+          }
+          this.activeStreamSessions.clear()
+        }
+
         this.emit('disconnected', { code: event.code, reason })
         this.scheduleReconnect()
       })
@@ -278,7 +297,7 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         case 'pong':
-          // Ping received
+          this.lastPongTime = Date.now()
           break
 
         default:
@@ -332,42 +351,43 @@ export class RemoteWsClient extends EventEmitter {
       let tokenUsage: any = null
       let isComplete = false
 
-      // Timeout configuration - extended for long-running tasks
-      // Base timeout: 30 minutes, extended by activity (terminal output, thoughts, etc.)
-      const BASE_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes
-      const ACTIVITY_EXTENSION_MS = 15 * 60 * 1000  // Extend by 15 minutes per activity
+      // Timeout configuration - extended for long-running tasks (NPU training, etc.)
+      // Each activity (stream, thought, terminal output) resets the idle timer.
+      // After IDLE_TIMEOUT_MS of no activity, the session times out.
+      // options.timeoutMs allows callers to override (e.g., 2h for training tasks).
+      const IDLE_TIMEOUT_MS = options.timeoutMs || 30 * 60 * 1000  // 30 minutes default
+      const CHECK_INTERVAL_MS = 60 * 1000  // Check every minute
 
       let timeoutTimer: NodeJS.Timeout | null = null
       let lastActivityTime = Date.now()
 
-      // Reset timeout timer when activity is detected
+      // Reset timeout timer when activity is detected (heartbeat extension)
       const resetTimeout = () => {
         lastActivityTime = Date.now()
         if (timeoutTimer) {
           clearTimeout(timeoutTimer)
         }
-        // Check if we should extend the timeout
         const checkTimeout = () => {
           const elapsed = Date.now() - lastActivityTime
-          if (elapsed >= BASE_TIMEOUT_MS && !isComplete) {
-            // Timeout reached
+          if (elapsed >= IDLE_TIMEOUT_MS && !isComplete) {
             if (timeoutTimer) {
               clearTimeout(timeoutTimer)
               timeoutTimer = null
             }
             this.off('claude:stream', streamHandler)
+            this.off('claude:usage', usageHandler)
             this.off('claude:complete', completeHandler)
             this.off('claude:error', errorHandler)
             this.off('thought', activityHandler)
             this.off('thought:delta', activityHandler)
             this.off('terminal:output', activityHandler)
-            reject(new Error('Chat timeout - no activity for 30 minutes'))
+            this.activeStreamSessions.delete(sessionId)
+            reject(new Error(`Chat timeout - no activity for ${Math.round(IDLE_TIMEOUT_MS / 60000)} minutes`))
           } else if (!isComplete) {
-            // Schedule next check
-            timeoutTimer = setTimeout(checkTimeout, Math.min(BASE_TIMEOUT_MS / 10, 60000))
+            timeoutTimer = setTimeout(checkTimeout, CHECK_INTERVAL_MS)
           }
         }
-        timeoutTimer = setTimeout(checkTimeout, BASE_TIMEOUT_MS)
+        timeoutTimer = setTimeout(checkTimeout, CHECK_INTERVAL_MS)
       }
 
       // Handle streaming responses
@@ -543,12 +563,17 @@ export class RemoteWsClient extends EventEmitter {
 
   /**
    * Approve a tool call execution
+   * @param result - Optional tool result string (for hyper-space proxy tools)
    */
-  approveToolCall(sessionId: string, toolId: string): boolean {
+  approveToolCall(sessionId: string, toolId: string, result?: string): boolean {
+    const payload: any = { toolId }
+    if (result !== undefined) {
+      payload.result = result
+    }
     return this.send({
       type: 'tool:approve',
       sessionId,
-      payload: { toolId }
+      payload
     })
   }
 
@@ -595,11 +620,23 @@ export class RemoteWsClient extends EventEmitter {
   }
 
   /**
-   * Start periodic ping to keep connection alive
+   * Start periodic ping to keep connection alive and detect silent server hangs.
+   * If a pong is not received within PONG_TIMEOUT_MS, the connection is considered dead.
    */
   private startPing(): void {
     this.stopPing()
+    this.lastPongTime = Date.now()
     this.pingTimer = setInterval(() => {
+      if (this.lastPongTime && Date.now() - this.lastPongTime > this.pongTimeoutMs) {
+        console.warn(
+          `[RemoteWsClient:${this.config.serverId}] Pong timeout (${this.pongTimeoutMs / 1000}s) — ` +
+          `server is not responding. Closing connection.`
+        )
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.close(4001, 'Pong timeout — server unresponsive')
+        }
+        return
+      }
       this.send({ type: 'ping' })
     }, 30000) // Ping every 30 seconds
   }
@@ -773,6 +810,15 @@ export function registerActiveClient(sessionId: string, client: RemoteWsClient):
  */
 export function getRemoteWsClient(sessionId: string): RemoteWsClient | undefined {
   return activeClients.get(sessionId)
+}
+
+/**
+ * Unregister an active RemoteWsClient by sessionId without disconnecting.
+ * Used for cleanup when the client is managed externally (e.g., orchestrator finally block).
+ */
+export function unregisterActiveClient(sessionId: string): void {
+  activeClients.delete(sessionId)
+  console.log(`[RemoteWsClient] Unregistered client for session: ${sessionId}`)
 }
 
 /**

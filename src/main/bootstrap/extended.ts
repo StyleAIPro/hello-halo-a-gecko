@@ -51,6 +51,7 @@ import { registerAppHandlers } from '../ipc/app'
 import { registerNotificationChannelHandlers } from '../ipc/notification-channels'
 import { registerStoreHandlers } from '../ipc/store'
 import { registerSkillHandlers } from '../ipc/skill'
+import { registerHyperSpaceHandlers } from '../ipc/hyper-space'
 import { initRegistryService, shutdownRegistryService } from '../store'
 import * as watcherHost from '../services/watcher-host.service'
 import { getExpressApp } from '../http/server'
@@ -220,6 +221,9 @@ export function initializeExtendedServices(): void {
 
   // Store: IPC handlers for App Store registry operations
   registerStoreHandlers()
+
+  // Hyper Space: Multi-agent collaboration IPC handlers
+  registerHyperSpaceHandlers()
 
   // Skill: IPC handlers for Skill management
   // Requires only ConversationService
