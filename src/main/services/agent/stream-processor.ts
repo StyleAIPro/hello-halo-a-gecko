@@ -766,6 +766,12 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
         // Handle specific thought types
         if (thought.type === 'text') {
+          // When hasStreamEvent=true, text content was already handled by
+          // content_block_delta/stop events (accumulated into lastTextContent
+          // at line ~600 and streamed via agent:message). Skip here to avoid
+          // doubling lastTextContent and emitting redundant agent:message.
+          if (hasStreamEvent) continue
+
           // Accumulate ALL text blocks for final message (append with newline separator)
           lastTextContent = lastTextContent
             ? lastTextContent + '\n\n' + thought.content
