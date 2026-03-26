@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ChevronDown, Settings2 } from 'lucide-react'
+import { ChevronDown, Settings2, Cloud, Folder, Blocks } from 'lucide-react'
 import { useAppStore } from '../../stores/app.store'
 import { useSpaceStore } from '../../stores/space.store'
 import { SpaceIcon } from '../icons/ToolIcons'
@@ -150,8 +150,16 @@ export function SpaceSelector() {
         <SpaceIcon iconId={displayIcon} size={18} className="flex-shrink-0" />
         <div className="flex items-center gap-1 min-w-0">
           <span className="font-medium truncate hidden sm:inline">{displayName}</span>
+          {/* Space type indicator - icon only */}
+          {currentSpace && 'spaceType' in currentSpace && currentSpace.spaceType === 'hyper' ? (
+            <Blocks className="w-3 h-3 text-purple-500 flex-shrink-0 hidden md:inline" />
+          ) : currentSpace?.claudeSource === 'remote' ? (
+            <Cloud className="w-3 h-3 text-blue-500 flex-shrink-0 hidden md:inline" />
+          ) : currentSpace ? (
+            <Folder className="w-3 h-3 text-green-600 flex-shrink-0 hidden md:inline" />
+          ) : null}
           {currentRemoteServerName && (
-            <span className="text-xs text-muted-foreground truncate hidden md:inline">@ {currentRemoteServerName}</span>
+            <span className="text-xs text-muted-foreground truncate hidden lg:inline">@ {currentRemoteServerName}</span>
           )}
         </div>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -179,17 +187,18 @@ export function SpaceSelector() {
               >
                 <SpaceIcon iconId={space.icon || (space.isTemp ? 'sparkles' : 'folder')} size={16} className="flex-shrink-0" />
                 <span className="truncate">{name}</span>
-                {space.claudeSource === 'remote' && (
-                  <>
-                    <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
-                      {t('Remote')}
-                    </span>
-                    {remoteServerName && (
-                      <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={remoteServerName}>
-                        @ {remoteServerName}
-                      </span>
-                    )}
-                  </>
+                {/* Space type icon badge */}
+                {'spaceType' in space && space.spaceType === 'hyper' ? (
+                  <Blocks className="ml-1 w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                ) : space.claudeSource === 'remote' ? (
+                  <Cloud className="ml-1 w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                ) : (
+                  <Folder className="ml-1 w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                )}
+                {space.claudeSource === 'remote' && remoteServerName && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={remoteServerName}>
+                    @ {remoteServerName}
+                  </span>
                 )}
                 {isActive && (
                   <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />

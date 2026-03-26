@@ -4,7 +4,7 @@
  */
 
 import React from 'react'
-import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit } from 'lucide-react'
+import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit, ListChecks } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 
@@ -50,6 +50,10 @@ export function RemoteServersSection() {
   })
   // Track servers that user manually disconnected - don't auto-reconnect these
   const [manuallyDisconnected, setManuallyDisconnected] = React.useState<Set<string>>(new Set())
+  // Batch operation state
+  const [batchChecking, setBatchChecking] = React.useState(false)
+  const [batchUpdating, setBatchUpdating] = React.useState(false)
+  const [batchProgress, setBatchProgress] = React.useState<{ current: number; total: number } | null>(null)
 
   // Save terminal entries to localStorage whenever they change
   React.useEffect(() => {
@@ -421,8 +425,8 @@ export function RemoteServersSection() {
     }
   }
   // Update agent code to latest version
-  const handleUpdateAgent = async (serverId: string) => {
-    if (!confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
+  const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean) => {
+    if (!skipConfirm && !confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
     setUpdatingAgent(serverId)
     expandServer(serverId)
     // Clear terminal only when starting a new update (as requested by user)
@@ -441,25 +445,90 @@ export function RemoteServersSection() {
           addTerminalEntry(serverId, 'output', `Local version: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? ` (Built: ${versionInfo.localBuildTime})` : ''}`)
           addTerminalEntry(serverId, 'output', `Remote version: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? ` (Built: ${versionInfo.remoteBuildTime})` : ''}`)
 
-          // Also show in alert
-          let alertMessage = `${t('Agent updated successfully')}\n\n${t('Local version')}: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? `\n${t('Local build time')}: ${versionInfo.localBuildTime}` : ''}\n\n${t('Remote version')}: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? `\n${t('Remote build time')}: ${versionInfo.remoteBuildTime}` : ''}`
-          alert(alertMessage)
+          // Only show alert for single (non-batch) updates
+          if (!skipConfirm) {
+            let alertMessage = `${t('Agent updated successfully')}\n\n${t('Local version')}: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? `\n${t('Local build time')}: ${versionInfo.localBuildTime}` : ''}\n\n${t('Remote version')}: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? `\n${t('Remote build time')}: ${versionInfo.remoteBuildTime}` : ''}`
+            alert(alertMessage)
+          }
         } else {
           addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
-          alert(t('Agent updated successfully'))
+          if (!skipConfirm) {
+            alert(t('Agent updated successfully'))
+          }
         }
         await loadServers()
       } else {
         addTerminalEntry(serverId, 'error', `Update failed: ${result.error}`)
-        alert(result.error || t('Failed to update agent'))
+        if (!skipConfirm) {
+          alert(result.error || t('Failed to update agent'))
+        }
       }
     } catch (error) {
       addTerminalEntry(serverId, 'error', `Error updating agent: ${error}`)
       console.error('[RemoteServersSection] Update agent error:', error)
-      alert(t('Failed to update agent'))
+      if (!skipConfirm) {
+        alert(t('Failed to update agent'))
+      }
     } finally {
       setUpdatingAgent(null)
     }
+  }
+
+  // Batch check all servers
+  const handleBatchCheck = async () => {
+    if (servers.length === 0) return
+    setBatchChecking(true)
+    // Expand all servers to show terminal output
+    setExpandedServers(prev => new Set([...prev, ...servers.map(s => s.id)]))
+    const total = servers.length
+    setBatchProgress({ current: 0, total })
+    let completed = 0
+
+    const results = await Promise.allSettled(
+      servers.map(server =>
+        handleCheckAgent(server.id).finally(() => {
+          completed++
+          setBatchProgress({ current: completed, total })
+        })
+      )
+    )
+
+    const failed = results.filter(r => r.status === 'rejected').length
+    setBatchProgress(null)
+    setBatchChecking(false)
+    if (failed > 0) {
+      addTerminalEntry('batch', 'error', `Batch check completed: ${total - failed}/${total} succeeded, ${failed} failed`)
+    }
+    await loadServers()
+  }
+
+  // Batch update all servers
+  const handleBatchUpdate = async () => {
+    if (servers.length === 0) return
+    if (!confirm(t('Batch update all servers to latest version? This will restart all agent services.'))) return
+    setBatchUpdating(true)
+    // Expand all servers to show terminal output
+    setExpandedServers(prev => new Set([...prev, ...servers.map(s => s.id)]))
+    const total = servers.length
+    setBatchProgress({ current: 0, total })
+    let completed = 0
+
+    const results = await Promise.allSettled(
+      servers.map(server =>
+        handleUpdateAgent(server.id, true).finally(() => {
+          completed++
+          setBatchProgress({ current: completed, total })
+        })
+      )
+    )
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length
+    const failed = results.filter(r => r.status === 'rejected').length
+    setBatchProgress(null)
+    setBatchUpdating(false)
+    // Show summary alert
+    alert(`Batch update completed: ${succeeded}/${total} succeeded${failed > 0 ? `, ${failed} failed` : ''}`)
+    await loadServers()
   }
 
   const getAgentStatusBadge = (server: any) => {
@@ -493,14 +562,50 @@ export function RemoteServersSection() {
         <div>
           <h2 className="text-2xl font-bold">{t('远程服务器管理')}</h2>
           <p className="text-sm text-muted-foreground">{t('Manage and connect to remote SSH servers')}</p>
+          {batchProgress && (
+            <p className="text-xs text-muted-foreground mt-1">
+              <Loader2 className="w-3 h-3 inline animate-spin mr-1" />
+              {batchUpdating
+                ? t('Updating agents... {{current}}/{{total}}', { current: batchProgress.current, total: batchProgress.total })
+                : t('Checking agents... {{current}}/{{total}}', { current: batchProgress.current, total: batchProgress.total })}
+            </p>
+          )}
         </div>
-        <button
-          onClick={() => setShowAddDialog(true)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          {t('Add Server')}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBatchCheck}
+            disabled={batchChecking || batchUpdating || servers.length === 0}
+            className="px-3 py-2 border border-border rounded-lg flex items-center gap-2 hover:bg-secondary transition-colors disabled:opacity-50 text-sm"
+            title={t('Batch Check All')}
+          >
+            {batchChecking ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ListChecks className="w-4 h-4" />
+            )}
+            {t('Batch Check')}
+          </button>
+          <button
+            onClick={handleBatchUpdate}
+            disabled={batchChecking || batchUpdating || servers.length === 0}
+            className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm"
+            title={t('Batch Update All')}
+          >
+            {batchUpdating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            {t('Batch Update')}
+          </button>
+          <button
+            onClick={() => setShowAddDialog(true)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            {t('Add Server')}
+          </button>
+        </div>
       </div>
 
       {/* Servers List */}
@@ -577,7 +682,7 @@ export function RemoteServersSection() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleCheckAgent(server.id)}
-                        disabled={checkingAgent === server.id || updatingAgent === server.id}
+                        disabled={checkingAgent === server.id || updatingAgent === server.id || batchChecking || batchUpdating}
                         className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors disabled:opacity-50"
                         title={t('Check Agent Status')}
                       >
@@ -589,7 +694,7 @@ export function RemoteServersSection() {
                       </button>
                       <button
                         onClick={() => handleUpdateAgent(server.id)}
-                        disabled={updatingAgent === server.id || checkingAgent === server.id}
+                        disabled={updatingAgent === server.id || checkingAgent === server.id || batchChecking || batchUpdating}
                         className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
                         title={t('Update Agent')}
                       >
