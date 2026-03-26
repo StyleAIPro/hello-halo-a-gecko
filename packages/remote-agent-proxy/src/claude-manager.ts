@@ -1,9 +1,12 @@
 import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
+  createSdkMcpServer,
+  tool,
   type SDKSessionOptions,
   type SDKSession
 } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
 import https from 'https'
 import http from 'http'
 import * as fs from 'fs'
@@ -22,6 +25,17 @@ export interface ChatMessage {
   content: string
 }
 
+/**
+ * Hyper Space tools configuration
+ */
+export interface HyperSpaceToolsConfig {
+  spaceId: string
+  conversationId: string
+  workerId: string
+  workerName: string
+  teamId: string
+}
+
 export interface ChatOptions {
   maxTokens?: number
   system?: string
@@ -30,6 +44,7 @@ export interface ChatOptions {
   baseUrl?: string
   maxThinkingTokens?: number
   workDir?: string  // Per-session working directory override
+  hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
 }
 
 /**
@@ -178,8 +193,6 @@ const DEFAULT_ALLOWED_TOOLS = [
   'Glob',
   'Bash',
   'Skill',
-  'WebSearch',
-  'WebFetch',
   'Task'
 ]
 
@@ -266,6 +279,12 @@ IMPORTANT: You must NEVER generate or guess URLs for the user unless you are con
 
 # Tools and Permissions
 You can use the following tools without requiring user approval: Read, Write, Edit, Grep, Glob, Bash, Skill
+
+## Network Access Tools Priority (CRITICAL)
+- **WebFetch and WebSearch are DISABLED** - Do not use these tools under any circumstances.
+- **For web content**: Always use \`ai-browser\` tools (browser_new_page, browser_snapshot, browser_click, etc.).
+- **For GitHub content**: Always use \`gh-search\` tools (gh_search_repos, gh_search_issues, gh_search_prs, gh_search_code, gh_repo_view, etc.).
+- If you think you need WebFetch or WebSearch, you MUST use ai-browser or gh-search instead.
 
 # Task Management
 - Use TodoWrite tools to track progress on complex tasks
@@ -462,6 +481,173 @@ export class ClaudeManager {
   }
 
   /**
+   * Create hyper-space MCP proxy server.
+   * Tools delegate execution to the Halo client via WebSocket (tool:call / tool:approve).
+   *
+   * The tool executor callback is provided by the WebSocket server layer.
+   * It sends a tool:call to Halo and waits for a tool:approve response with the result.
+   */
+  private createHyperSpaceMcpServer(
+    config: HyperSpaceToolsConfig,
+    toolExecutor: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>
+  ): any {
+    // Helper: create a standard text content response
+    const textResult = (text: string, isError = false) => ({
+      content: [{ type: 'text' as const, text }],
+      ...(isError ? { isError: true } : {})
+    })
+
+    // Generate unique tool call IDs
+    const generateToolId = () => `hs-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+
+    const mcpServer = createSdkMcpServer({
+      name: 'hyper-space',
+      version: '1.0.0',
+      tools: [
+        // report_to_leader: Send intermediate progress update to leader
+        tool(
+          'report_to_leader',
+          'Send an intermediate progress update or message to the team leader. ' +
+          'Use this to report progress, share findings, ask for guidance, or flag issues. ' +
+          'The leader will receive your message in real-time. Continue working after reporting.',
+          {
+            message: z.string().describe('The message to send to the leader'),
+            type: z.string().optional().describe('Report type: progress, finding, question, error, or info')
+          },
+          async (args: any) => {
+            try {
+              const toolId = generateToolId()
+              console.log(`[HyperSpace MCP] report_to_leader called: type=${args.type || 'progress'}`)
+              const result = await toolExecutor(toolId, 'report_to_leader', {
+                workerId: config.workerId,
+                workerName: config.workerName,
+                spaceId: config.spaceId,
+                conversationId: config.conversationId,
+                message: args.message,
+                reportType: args.type || 'progress'
+              })
+              return textResult(`Report sent to leader.\nType: ${args.type || 'progress'}\nContinue working on your task.`)
+            } catch (e) {
+              return textResult(`Error reporting to leader: ${(e as Error).message}`, true)
+            }
+          }
+        ),
+
+        // announce_completion: Signal task completion to leader
+        tool(
+          'announce_completion',
+          'Signal task completion to the team leader. ' +
+          'Use this when you have finished your assigned task and want to report results. ' +
+          'This triggers the announcement system and marks the task as complete.',
+          {
+            taskId: z.string().describe('Your assigned task ID'),
+            status: z.string().describe('Task completion status: completed or failed'),
+            result: z.string().describe('Task result or output'),
+            summary: z.string().describe('Brief summary (max 200 chars)')
+          },
+          async (args: any) => {
+            try {
+              const toolId = generateToolId()
+              console.log(`[HyperSpace MCP] announce_completion called: taskId=${args.taskId}, status=${args.status}`)
+              const result = await toolExecutor(toolId, 'announce_completion', {
+                workerId: config.workerId,
+                workerName: config.workerName,
+                spaceId: config.spaceId,
+                conversationId: config.conversationId,
+                taskId: args.taskId,
+                status: args.status,
+                result: args.result,
+                summary: args.summary
+              })
+              return textResult(`Task ${args.taskId} marked as ${args.status}.\nAnnouncement sent to leader.`)
+            } catch (e) {
+              return textResult(`Error announcing completion: ${(e as Error).message}`, true)
+            }
+          }
+        ),
+
+        // ask_question: Ask the leader or user a question
+        tool(
+          'ask_question',
+          'Ask the leader or user a question when you need more information. ' +
+          'The question will be shown in the chat UI. Continue working on what you can.',
+          {
+            question: z.string().describe('Your question'),
+            target: z.string().optional().describe('Who to ask: leader or user')
+          },
+          async (args: any) => {
+            try {
+              const toolId = generateToolId()
+              console.log(`[HyperSpace MCP] ask_question called: target=${args.target || 'leader'}`)
+              const result = await toolExecutor(toolId, 'ask_question', {
+                workerId: config.workerId,
+                workerName: config.workerName,
+                spaceId: config.spaceId,
+                conversationId: config.conversationId,
+                question: args.question,
+                target: args.target || 'leader'
+              })
+              return textResult(`Question sent to ${args.target || 'leader'}.\nContinue working on other parts of your task.`)
+            } catch (e) {
+              return textResult(`Error sending question: ${(e as Error).message}`, true)
+            }
+          }
+        ),
+
+        // send_message: Send a message to a specific teammate
+        tool(
+          'send_message',
+          'Send a message to another agent in the team.',
+          {
+            recipient: z.string().describe('Agent ID to send message to'),
+            content: z.string().describe('Message content')
+          },
+          async (args: any) => {
+            try {
+              const toolId = generateToolId()
+              console.log(`[HyperSpace MCP] send_message called: recipient=${args.recipient}`)
+              const result = await toolExecutor(toolId, 'send_message', {
+                workerId: config.workerId,
+                workerName: config.workerName,
+                spaceId: config.spaceId,
+                conversationId: config.conversationId,
+                recipient: args.recipient,
+                content: args.content
+              })
+              return textResult(`Message sent to ${args.recipient}.`)
+            } catch (e) {
+              return textResult(`Error sending message: ${(e as Error).message}`, true)
+            }
+          }
+        ),
+
+        // list_team_members: List all agents in the team
+        tool(
+          'list_team_members',
+          'List all agents in the Hyper Space team.',
+          {},
+          async () => {
+            try {
+              const toolId = generateToolId()
+              const result = await toolExecutor(toolId, 'list_team_members', {
+                workerId: config.workerId,
+                workerName: config.workerName,
+                spaceId: config.spaceId,
+                conversationId: config.conversationId
+              })
+              return textResult(result)
+            } catch (e) {
+              return textResult(`Error listing team: ${(e as Error).message}`, true)
+            }
+          }
+        )
+      ]
+    })
+
+    return mcpServer
+  }
+
+  /**
    * Build SDK options for session creation
    * @param workDir - Optional override for working directory (per-session)
    */
@@ -476,6 +662,8 @@ export class ClaudeManager {
         'dangerously-skip-permissions': null
       },
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+      // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
+      disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 50,
 
@@ -613,7 +801,8 @@ export class ClaudeManager {
     conversationId: string,
     workDir?: string,
     resumeSessionId?: string,
-    maxThinkingTokens?: number
+    maxThinkingTokens?: number,
+    hyperSpaceMcpServer?: any
   ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
@@ -667,6 +856,12 @@ export class ClaudeManager {
     // Create new session
     console.log(`[ClaudeManager][${conversationId}] Creating new V2 session with workDir=${effectiveWorkDir}...`)
     const options = this.buildSdkOptions(effectiveWorkDir)
+
+    // Add hyper-space MCP proxy server if provided
+    if (hyperSpaceMcpServer) {
+      options.mcpServers = { 'hyper-space': hyperSpaceMcpServer }
+      console.log(`[ClaudeManager][${conversationId}] Injecting hyper-space MCP proxy server`)
+    }
 
     // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
     // Native SDK V2 Session doesn't support these parameters
@@ -816,12 +1011,21 @@ export class ClaudeManager {
     onThought?: (thought: ThoughtEvent) => void,
     onThoughtDelta?: (delta: ThoughtDeltaEvent) => void,
     onMcpStatus?: (data: McpStatusEvent) => void,
-    onCompact?: (data: CompactBoundaryEvent) => void
+    onCompact?: (data: CompactBoundaryEvent) => void,
+    hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens)
+
+    // Create hyper-space MCP proxy server if configured and executor is provided
+    let hyperSpaceMcpServer: any = undefined
+    if (options.hyperSpaceTools && hyperSpaceToolExecutor) {
+      console.log(`[ClaudeManager] Creating hyper-space MCP proxy server for worker ${options.hyperSpaceTools.workerName}`)
+      hyperSpaceMcpServer = this.createHyperSpaceMcpServer(options.hyperSpaceTools, hyperSpaceToolExecutor)
+    }
+
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation

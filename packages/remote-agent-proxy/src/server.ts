@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData } from './types.js'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 
 export class RemoteAgentServer {
@@ -14,6 +14,14 @@ export class RemoteAgentServer {
     sdkSessionId?: string  // SDK's real session ID for resumption
   }> = new Map()
   private claudeManager: ClaudeManager
+
+  // Pending hyper-space tool approvals: toolId -> { resolve, reject }
+  // When the remote Claude calls a hyper-space MCP tool, the MCP handler
+  // sends tool:call to the Halo client and waits here for tool:approve response.
+  private pendingHyperSpaceTools = new Map<string, {
+    resolve: (result: string) => void
+    reject: (error: Error) => void
+  }>()
 
   constructor(config: RemoteServerConfig) {
     this.config = config
@@ -238,8 +246,28 @@ export class RemoteAgentServer {
     } else if (message.type === 'ping') {
       this.sendMessage(ws, { type: 'pong', sessionId })
     } else if (message.type === 'tool:approve' || message.type === 'tool:reject') {
-      // Tool approval/rejection - for future implementation
-      console.log(`[${message.type}] for tool:`, message.payload?.toolId)
+      // Tool approval/rejection — used by Hyper Space MCP proxy tools.
+      // When remote Claude calls a hyper-space tool (e.g., report_to_leader),
+      // the proxy sends tool:call to Halo, Halo executes it, then sends
+      // tool:approve back with the result. The pending promise is resolved here.
+      const toolId = message.payload?.toolId
+      if (!toolId) {
+        console.log(`[${message.type}] Missing toolId in payload`)
+        return
+      }
+      const pending = this.pendingHyperSpaceTools.get(toolId)
+      if (pending) {
+        this.pendingHyperSpaceTools.delete(toolId)
+        if (message.type === 'tool:approve') {
+          console.log(`[tool:approve] Resolving hyper-space tool ${toolId}`)
+          pending.resolve(message.payload?.result || 'OK')
+        } else {
+          console.log(`[tool:reject] Rejecting hyper-space tool ${toolId}: ${message.payload?.reason}`)
+          pending.reject(new Error(message.payload?.reason || 'Tool rejected by client'))
+        }
+      } else {
+        console.log(`[${message.type}] No pending tool found for ID: ${toolId}`)
+      }
     } else {
       this.sendError(ws, 'Unknown message type', sessionId)
     }
@@ -414,6 +442,14 @@ export class RemoteAgentServer {
 
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
         let wasInterrupted = false
+
+        // Hyper Space tool execution callback — if hyperSpaceTools config is present,
+        // create a callback that proxy tool handlers can use to delegate to Halo
+        const hyperSpaceToolExecutor = options.hyperSpaceTools
+          ? (toolId: string, toolName: string, toolInput: Record<string, unknown>) =>
+              this.executeHyperSpaceTool(ws, sessionId, toolId, toolName, toolInput)
+          : undefined
+
         try {
           // Use sdkSessionId from client request for session resumption
           // This enables multi-turn conversations by resuming the SDK session
@@ -429,7 +465,8 @@ export class RemoteAgentServer {
             onThought,
             onThoughtDelta,
             onMcpStatus,
-            onCompact
+            onCompact,
+            hyperSpaceToolExecutor
           )) {
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
@@ -575,6 +612,60 @@ export class RemoteAgentServer {
       type: 'claude:error',
       sessionId,
       data: { error: message }
+    })
+  }
+
+  /**
+   * Send a hyper-space tool invocation request to the Halo client and wait for the response.
+   * Used by the MCP proxy tool handlers in ClaudeManager.
+   *
+   * Flow:
+   * 1. MCP handler calls this with tool name + input
+   * 2. This sends a tool:call event to the Halo client via WebSocket
+   * 3. Registers a pending promise keyed by toolId
+   * 4. Waits for Halo to respond via tool:approve (with result) or tool:reject
+   * 5. Returns the result to the MCP handler, which returns it to Claude SDK
+   */
+  async executeHyperSpaceTool(
+    ws: WebSocket,
+    sessionId: string,
+    toolId: string,
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): Promise<string> {
+    const timeoutMs = 30000 // 30s timeout for client response
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingHyperSpaceTools.delete(toolId)
+        reject(new Error(`Hyper-space tool ${toolName} timed out waiting for client response`))
+      }, timeoutMs)
+
+      this.pendingHyperSpaceTools.set(toolId, {
+        resolve: (result: string) => {
+          clearTimeout(timer)
+          resolve(result)
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer)
+          reject(error)
+        }
+      })
+
+      // Send tool:call to Halo client — same format as regular tool events
+      this.sendMessage(ws, {
+        type: 'tool:call',
+        sessionId,
+        data: {
+          id: toolId,
+          name: toolName,
+          input: toolInput,
+          status: 'running',
+          isHyperSpace: true  // Flag: this is a hyper-space proxy tool, not a local CLI tool
+        }
+      })
+
+      console.log(`[HyperSpace] Sent tool invocation to client: ${toolName} (${toolId})`)
     })
   }
 

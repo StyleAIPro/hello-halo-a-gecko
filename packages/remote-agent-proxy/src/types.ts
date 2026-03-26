@@ -10,7 +10,8 @@ export interface RemoteServerConfig {
 }
 
 export interface ClientMessage {
-  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session'
+  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
+        'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list'  // Hyper Space agent management
   sessionId?: string
   payload?: {
     messages?: any[]
@@ -21,6 +22,12 @@ export interface ClientMessage {
     token?: string
     toolId?: string
     reason?: string
+    result?: string   // Tool execution result (for tool:approve with hyper-space tools)
+    // Agent management payloads
+    task?: string
+    capabilities?: string[]
+    agentId?: string
+    instruction?: string
   }
 }
 
@@ -35,6 +42,20 @@ export interface ChatOptions {
   baseUrl?: string
   maxThinkingTokens?: number
   workDir?: string  // Dynamic working directory from client
+  hyperSpaceTools?: HyperSpaceToolsConfig  // Enable Hyper Space MCP tools for remote workers
+}
+
+/**
+ * Hyper Space tools configuration for remote workers.
+ * When present, the proxy creates an MCP server with proxy tools
+ * that delegate execution to the Halo client via WebSocket.
+ */
+export interface HyperSpaceToolsConfig {
+  spaceId: string
+  conversationId: string        // Parent (leader's) conversation ID
+  workerId: string
+  workerName: string
+  teamId: string
 }
 
 export interface ServerMessage {
@@ -46,9 +67,67 @@ export interface ServerMessage {
          'thought' | 'thought:delta' |  // Thinking process events
          'mcp:status' |  // MCP server status
          'compact:boundary' |  // Context compression notification
-         'text:block-start'  // Text block start signal
+         'text:block-start' |  // Text block start signal
+         'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error'  // Hyper Space agent management
   sessionId?: string
   data?: any
+}
+
+// ============================================
+// Hyper Space Agent Types
+// ============================================
+
+/**
+ * Agent spawn request payload
+ */
+export interface AgentSpawnPayload {
+  task: string
+  capabilities?: string[]
+  agentType?: 'leader' | 'worker'
+  systemPrompt?: string
+}
+
+/**
+ * Agent spawned response data
+ */
+export interface AgentSpawnedData {
+  agentId: string
+  taskId: string
+  role: 'leader' | 'worker'
+  status: 'starting' | 'running' | 'idle'
+}
+
+/**
+ * Agent status response data
+ */
+export interface AgentStatusData {
+  agentId: string
+  status: 'idle' | 'running' | 'completed' | 'error'
+  currentTaskId?: string
+  lastHeartbeat?: number
+  progress?: number  // 0-100
+}
+
+/**
+ * Agent list response data
+ */
+export interface AgentListData {
+  agents: Array<{
+    id: string
+    role: 'leader' | 'worker'
+    status: string
+    currentTaskId?: string
+    lastHeartbeat?: number
+  }>
+}
+
+/**
+ * Agent error response data
+ */
+export interface AgentErrorData {
+  agentId?: string
+  error: string
+  code?: string
 }
 
 export interface FileInfo {
