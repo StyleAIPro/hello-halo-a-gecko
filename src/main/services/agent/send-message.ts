@@ -183,9 +183,12 @@ export async function sendMessage(
   // === Remote routing end ===
 
   // === Hyper Space execution routing ===
-  // Hyper Space routes tasks to multiple agents (local + remote) via orchestrator
+  // Hyper Space routes messages to specific agents based on agentId
+  // - With @mention: agentId is specified, route to that agent
+  // - Without @mention: default to leader agent
   if (space?.spaceType === 'hyper' && space.agents && space.agents.length > 0) {
-    console.log(`[Agent] *** ROUTING TO HYPER SPACE EXECUTION *** spaceId=${spaceId}, agents=${space.agents.length}`)
+    const targetAgentId = request.agentId || 'leader'  // Default to leader if not specified
+    console.log(`[Agent] *** ROUTING TO HYPER SPACE *** spaceId=${spaceId}, targetAgentId=${targetAgentId}`)
 
     try {
       // Ensure team exists for this space
@@ -201,6 +204,14 @@ export async function sendMessage(
         console.log(`[Agent] Created new team ${team.id} for Hyper Space ${spaceId}`)
       }
 
+      // Find the target agent (leader or specific worker)
+      let targetAgent = agentOrchestrator.findAgentInTeam(team, targetAgentId)
+      if (!targetAgent) {
+        throw new Error(`Agent ${targetAgentId} not found in team ${team.id}`)
+      }
+
+      console.log(`[Agent] Routing message to agent: ${targetAgent.config.name} (${targetAgent.id})`)
+
       // Build user message content (with images if provided)
       const userContent = await buildMessageContent(message, images)
 
@@ -211,61 +222,44 @@ export async function sendMessage(
         images: images
       })
 
-      // Add placeholder for assistant response (aggregated results)
+      // Add placeholder for assistant response
       addMessage(spaceId, conversationId, {
         role: 'assistant',
         content: '',
-        toolCalls: []
+        toolCalls: [],
+        agentId: targetAgentId,
+        agentName: targetAgent.config.name,
+        agentRole: targetAgent.config.role
       })
 
-      // Set up progress listener for streaming updates
-      const progressHandler = (data: { taskId: string; agentId: string; delta: string; total: string }) => {
-        // Send progress updates to renderer
-        sendToRenderer('agent:hyper-progress', spaceId, conversationId, {
-          taskId: data.taskId,
-          agentId: data.agentId,
-          delta: data.delta,
-          timestamp: Date.now()
-        })
+      // Determine if this is a @mention direct selection or default routing to leader
+      // - With @mention: agentId is explicitly specified, agent should answer directly
+      // - Without @mention (agentId defaults to 'leader'): Leader can delegate to workers
+      const isDirectMention = request.agentId && request.agentId !== 'leader'
+
+      // Build appropriate system prompt based on routing type
+      let routingPrompt = ''
+      if (isDirectMention) {
+        // @mention: Agent should answer directly without delegating
+        routingPrompt = `[IMPORTANT: You have been directly selected by the user via @${targetAgent.config.name || targetAgent.id}. The user wants YOU to answer their question directly. Do NOT use spawn_subagent or delegate to other agents. Answer their question directly and helpfully.]\n\n`
       }
-      agentOrchestrator.on('subagent:progress', progressHandler)
+      // For Leader default routing: NO prompt restriction - Leader is free to delegate!
 
-      // Dispatch and execute task
-      console.log(`[Agent] Dispatching task to Hyper Space team...`)
-      const tasks = await agentOrchestrator.dispatchAndExecute({
-        spaceId,
+      // Get team context for the agent (includes delegation instructions for leaders)
+      const teamContext = await agentOrchestrator.getTeamContextForPrompt(spaceId, targetAgent.id)
+
+      const combinedSystemPrompt = targetAgent.config.systemPromptAddition
+        ? `${routingPrompt}${teamContext}\n\n${targetAgent.config.systemPromptAddition}`
+        : `${routingPrompt}${teamContext}`
+
+      // Execute on the target agent's session
+      await agentOrchestrator.executeOnSingleAgent({
+        team,
+        agent: targetAgent,
         task: message,
-        conversationId
-      })
-
-      console.log(`[Agent] Hyper Space task completed, ${tasks.length} subtasks finished`)
-
-      // Wait for all tasks to complete (in case they're still running)
-      const completedTasks = await agentOrchestrator.waitForCompletion({
         conversationId,
-        timeout: space.orchestration?.announce?.timeout || 300000
+        systemPrompt: combinedSystemPrompt
       })
-
-      // Aggregate results
-      const aggregationStrategy = space.orchestration?.aggregation?.strategy || 'summarize'
-      const aggregatedResult = agentOrchestrator.aggregateResults(completedTasks, aggregationStrategy)
-
-      console.log(`[Agent] Aggregated result length: ${aggregatedResult.length}`)
-
-      // Update the assistant message with aggregated result
-      updateLastMessage(spaceId, conversationId, {
-        content: aggregatedResult
-      })
-
-      // Notify renderer of completion
-      sendToRenderer('agent:complete', spaceId, conversationId, {
-        result: aggregatedResult,
-        tasksCompleted: completedTasks.length,
-        tasksTotal: tasks.length
-      })
-
-      // Clean up progress listener
-      agentOrchestrator.off('subagent:progress', progressHandler)
 
       // Notify task complete
       notifyTaskComplete(space.name || 'Hyper Space')
@@ -432,6 +426,7 @@ export async function sendMessage(
     console.log(`[Agent][${conversationId}] ⏱️ V2 session ready: ${Date.now() - t0}ms`)
 
     // Prepare message content (canvas context prefix + multi-modal images)
+    let finalImages = images
     if (images && images.length > 0) {
       console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s)`)
 
@@ -442,7 +437,7 @@ export async function sendMessage(
         const uploadedImages = await uploadImagesForMcp(images, spaceId)
         console.log(`[Agent][${conversationId}] Images uploaded: ${uploadedImages.length} images with URLs`)
         // Replace images with uploaded versions that have URLs
-        images = uploadedImages
+        finalImages = uploadedImages
       } catch (error) {
         console.error(`[Agent][${conversationId}] Image upload failed:`, error)
         // Continue with original images (base64) - will work for multimodal models
@@ -450,7 +445,7 @@ export async function sendMessage(
     }
     const canvasPrefix = formatCanvasContext(canvasContext)
     const messageWithContext = canvasPrefix + message
-    const messageContent = buildMessageContent(messageWithContext, images)
+    const messageContent = buildMessageContent(messageWithContext, finalImages)
 
     // Mark session request start for health tracking
     markSessionRequestStart(conversationId)
@@ -464,6 +459,8 @@ export async function sendMessage(
       // Store initial message content for the first iteration
       let currentMessageContent = messageContent
       let isFirstIteration = true
+      const maxInjectionCycles = 20  // Safety limit to prevent infinite loops from worker reports
+      let injectionCycles = 0
 
       // Loop to handle turn-level message injection
       while (true) {
@@ -540,7 +537,12 @@ export async function sendMessage(
         if (result.hasPendingInjection) {
           const injection = getAndClearInjection(conversationId)
           if (injection) {
-            console.log(`[Agent][${conversationId}] Continuing with injected message: ${injection.content.slice(0, 50)}...`)
+            injectionCycles++
+            if (injectionCycles >= maxInjectionCycles) {
+              console.warn(`[Agent][${conversationId}] Max injection cycles (${maxInjectionCycles}) reached, stopping loop`)
+              break
+            }
+            console.log(`[Agent][${conversationId}] Continuing with injected message (cycle ${injectionCycles}): ${injection.content.slice(0, 50)}...`)
 
             // Build the injection message content
             const injectionContent = buildMessageContent(injection.content, injection.images)

@@ -88,6 +88,7 @@ export interface AgentRequest {
   thinkingEnabled?: boolean   // Enable extended thinking mode (maxThinkingTokens: 10240)
   model?: string              // Model to use (for future model switching)
   canvasContext?: CanvasContext  // Current canvas state for AI awareness
+  agentId?: string  // Target agent ID for Hyper Space ('leader' or specific agent ID)
 }
 
 // ============================================

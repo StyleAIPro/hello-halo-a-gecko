@@ -35,6 +35,10 @@ interface CanUseToolDeps {
   sendToRenderer: SendToRendererFn
   spaceId: string
   conversationId: string
+  /** Optional agent ID for Hyper Space worker routing */
+  agentId?: string
+  /** Optional agent name for Hyper Space worker routing */
+  agentName?: string
 }
 
 // ============================================
@@ -121,7 +125,7 @@ export function createCanUseTool(deps?: CanUseToolDeps): CanUseToolFn {
       return { behavior: 'allow' as const, updatedInput: { ...input, answers: {} } }
     }
 
-    const { sendToRenderer, spaceId, conversationId } = deps
+    const { sendToRenderer, spaceId, conversationId, agentId, agentName } = deps
     const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const questions = input.questions as Array<{
       question: string
@@ -153,10 +157,11 @@ export function createCanUseTool(deps?: CanUseToolDeps): CanUseToolFn {
     })
 
     // Send questions to renderer
-    sendToRenderer('agent:ask-question', spaceId, conversationId, {
-      id,
-      questions: questions || []
-    })
+    const eventData: Record<string, unknown> = { id, questions: questions || [] }
+    // Include agent metadata for Hyper Space worker routing
+    if (agentId) eventData.agentId = agentId
+    if (agentName) eventData.agentName = agentName
+    sendToRenderer('agent:ask-question', spaceId, conversationId, eventData)
 
     try {
       // Wait for user answer

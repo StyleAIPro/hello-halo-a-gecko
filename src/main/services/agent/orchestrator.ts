@@ -24,6 +24,9 @@ import type {
   AggregationStrategy
 } from '../../../shared/types/hyper-space'
 import { DEFAULT_ORCHESTRATION_CONFIG, createOrchestrationConfig } from '../../../shared/types/hyper-space'
+import { getConversation, getMessageThoughts, updateLastMessage } from '../conversation.service'
+import { extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes'
+import type { Thought } from './types'
 
 // ============================================
 // Types
@@ -52,6 +55,10 @@ export interface AgentTeam {
   config: OrchestrationConfig
   status: 'idle' | 'active' | 'waiting' | 'completed' | 'error'
   createdAt: number
+  /** Number of spawn injection cycles completed (prevents infinite loops) */
+  spawnCycleCount: number
+  /** Accumulated thoughts from worker agents during the current execution cycle */
+  turnThoughts: Thought[]
 }
 
 /**
@@ -63,7 +70,20 @@ export type OrchestratorEvent =
   | 'task:started'
   | 'task:completed'
   | 'task:failed'
+  | 'task:stalled'
   | 'announce'
+
+/**
+ * Stall detection configuration
+ */
+interface StallDetectionConfig {
+  /** Heartbeat timeout in milliseconds (default: 60000 = 1 minute) */
+  heartbeatTimeout: number
+  /** Maximum task duration in milliseconds (default: 600000 = 10 minutes) */
+  maxTaskDuration: number
+  /** Check interval in milliseconds (default: 30000 = 30 seconds) */
+  checkInterval: number
+}
 
 // ============================================
 // Orchestrator Service
@@ -112,14 +132,25 @@ class AgentOrchestrator extends EventEmitter {
   /** Pending announcements waiting to be processed */
   private pendingAnnouncements: Map<string, Set<string>> = new Map()
 
-  /** Maximum depth for nested subagents */
-  private readonly maxSpawnDepth = 5
+  /** Maximum depth for nested subagents (per spawn chain, not global counter) */
+  private readonly maxSpawnDepth = 50
 
   /** Maximum concurrent children per agent */
   private readonly maxChildrenPerAgent = 5
 
+  /** Stall detection timer */
+  private stallCheckInterval: NodeJS.Timeout | null = null
+
+  /** Stall detection configuration */
+  private stallConfig: StallDetectionConfig = {
+    heartbeatTimeout: 5 * 60 * 1000,    // 5 minutes (up from 1 min — NPU tasks need more time)
+    maxTaskDuration: 60 * 60 * 1000,   // 1 hour (up from 10 min — supports long training)
+    checkInterval: 30000               // 30 seconds
+  }
+
   private constructor() {
     super()
+    this.startStallDetection()
     console.log('[Orchestrator] Service initialized')
   }
 
@@ -170,7 +201,9 @@ class AgentOrchestrator extends EventEmitter {
       workers,
       config,
       status: 'idle',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      spawnCycleCount: 0,
+      turnThoughts: []
     }
 
     this.teams.set(teamId, team)
@@ -214,16 +247,743 @@ class AgentOrchestrator extends EventEmitter {
   }
 
   /**
-   * Destroy a team and clean up resources
+   * Get worker session states for frontend recovery after page refresh.
+   * Returns status info for all workers that have been started.
+   */
+  getWorkerSessionStates(spaceId: string): Array<{
+    agentId: string
+    agentName: string
+    status: 'running' | 'completed' | 'failed'
+    type: 'local' | 'remote'
+    serverName?: string
+    task?: string
+    childConversationId?: string
+  }> {
+    const team = this.getTeamBySpace(spaceId)
+    if (!team) return []
+
+    return team.workers
+      .filter(w => w.status === 'running' || w.status === 'idle' || w.status === 'error')
+      .map(w => {
+        const childConvId = `${team.conversationId}:agent-${w.id}`
+        return {
+          agentId: w.id,
+          agentName: w.config.name || w.id,
+          status: w.status === 'running' ? 'running' as const : w.status === 'error' ? 'failed' as const : 'completed' as const,
+          type: (w.config.type || 'local') as 'local' | 'remote',
+          serverName: w.config.serverName,
+          task: w.config.name ? undefined : undefined,
+          childConversationId: childConvId
+        }
+      })
+  }
+
+  /**
+   * Find an agent in a team by ID or role
+   * @param team - The team to search
+   * @param agentIdOrRole - Agent ID or 'leader' to find the leader
+   * @returns The agent instance or null if not found
+   */
+  findAgentInTeam(team: AgentTeam, agentIdOrRole: string): AgentInstance | null {
+    // Check if looking for leader
+    if (agentIdOrRole === 'leader') {
+      return team.leader
+    }
+
+    // Check workers
+    const worker = team.workers.find(w => w.id === agentIdOrRole)
+    if (worker) return worker
+
+    // Check if leader ID matches
+    if (team.leader.id === agentIdOrRole) return team.leader
+
+    return null
+  }
+
+  /**
+   * Execute a task on a single agent (not broadcast to all)
+   * This is used for direct 1-on-1 chat with a specific agent in Hyper Space
+   */
+  async executeOnSingleAgent(params: {
+    team: AgentTeam
+    agent: AgentInstance
+    task: string
+    conversationId: string
+    systemPrompt?: string
+  }): Promise<void> {
+    console.log(`[Orchestrator] Executing on single agent ${params.agent.id}`)
+
+    const { team, agent, task, conversationId, systemPrompt } = params
+
+    // Update agent status
+    agent.status = 'running'
+    agent.currentTaskId = conversationId
+    agent.lastHeartbeat = Date.now()
+
+    try {
+      if (agent.config.type === 'local') {
+        await this.executeAgentLocally(agent, task, conversationId, systemPrompt, team.spaceId)
+      } else {
+        await this.executeAgentRemotely(agent, task, conversationId, systemPrompt, team.spaceId)
+      }
+
+      // Update agent status
+      agent.status = 'idle'
+      agent.currentTaskId = undefined
+    } catch (error) {
+      agent.status = 'error'
+      agent.currentTaskId = undefined
+      throw error
+    }
+  }
+
+  /**
+   * Execute on a local agent
+   * Uses processStream for complete thought accumulation, event forwarding, and persistence
+   */
+  private async executeAgentLocally(
+    agent: AgentInstance,
+    task: string,
+    conversationId: string,
+    systemPrompt: string | undefined,
+    spaceId: string
+  ): Promise<void> {
+    console.log(`[Orchestrator] Executing locally on agent ${agent.id}`)
+
+    const { getOrCreateV2Session, createSessionState, registerActiveSession, unregisterActiveSession } = await import('./session-manager')
+    const { getConfig } = await import('../config.service')
+    const { getApiCredentials } = await import('./helpers')
+    const { resolveCredentialsForSdk, buildBaseSdkOptions } = await import('./sdk-config')
+    const { getWorkingDir, getHeadlessElectronPath, sendToRenderer } = await import('./helpers')
+    const { processStream, getAndClearInjection, hasPendingInjection } = await import('./stream-processor')
+    const { saveSessionId, updateLastMessage } = await import('../conversation.service')
+    const { extractFileChangesSummaryFromThoughts } = await import('../../../shared/file-changes')
+    const { FileChangesSummary } = await import('../../../shared/file-changes')
+
+    // Get config and credentials
+    const config = getConfig()
+    const credentials = await getApiCredentials(config)
+    const resolvedCredentials = await resolveCredentialsForSdk(credentials)
+
+    // Get working directory and electron path
+    const workDir = getWorkingDir(spaceId)
+    const electronPath = getHeadlessElectronPath()
+
+    // Use a FIXED child conversation ID to maintain session continuity for multi-turn conversations
+    const childConversationId = `${conversationId}:agent-${agent.id}`
+    console.log(`[Orchestrator][${conversationId}] Using child conversation ID: ${childConversationId}`)
+
+    // Create Hyper Space MCP server with appropriate role
+    // IMPORTANT: Pass the parent conversationId (not childConversationId) to MCP tools.
+    // MCP tools like spawn_subagent need the parent conversationId so that:
+    //   - pendingAnnouncements is keyed correctly for the leader's while loop
+    //   - queueInjection targets the correct conversation for processStream detection
+    //   - createSubtask stores the correct parentConversationId
+    const { createHyperSpaceMcpServer } = await import('./hyper-space-mcp')
+    const agentRole = agent.config.role || 'worker'
+    const hyperSpaceMcp = createHyperSpaceMcpServer(spaceId, conversationId, agentRole, agent.id, agent.config.name)
+
+    const abortController = new AbortController()
+
+    // Build SDK options
+    const sdkOptions = buildBaseSdkOptions({
+      credentials: resolvedCredentials,
+      workDir,
+      electronPath,
+      spaceId,
+      conversationId: childConversationId,
+      abortController,
+      stderrHandler: (data: string) => {
+        console.error(`[Agent][${childConversationId}] stderr:`, data)
+      },
+      mcpServers: { 'hyper-space': hyperSpaceMcp },
+      contextWindow: resolvedCredentials.contextWindow
+    })
+
+    // Apply custom system prompt if provided
+    if (systemPrompt) {
+      sdkOptions.systemPrompt = systemPrompt
+    }
+
+    // Get or create session
+    const session = await getOrCreateV2Session(
+      spaceId,
+      childConversationId,
+      sdkOptions,
+      undefined,
+      undefined,
+      workDir
+    )
+
+    if (!session) {
+      throw new Error('Failed to create session for agent')
+    }
+
+    // Create session state for thought accumulation
+    const sessionState = createSessionState(spaceId, conversationId, abortController)
+    registerActiveSession(conversationId, sessionState)
+
+    console.log(`[Orchestrator][${childConversationId}] Session obtained, processing stream...`)
+
+    try {
+      // Use processStream in a while(true) loop to handle worker announcement injection.
+      // When a worker completes, queueInjection() stores the announcement.
+      // processStream returns hasPendingInjection=true at stream end if an injection is queued.
+      // We pick it up and continue the loop so the Leader LLM processes the result.
+      let currentMessageContent = task
+      const maxInjectionCycles = 20  // Safety limit to prevent infinite loops
+      let injectionCycles = 0
+
+      while (true) {
+        const streamResult = await processStream({
+          v2Session: session,
+          sessionState,
+          spaceId,
+          conversationId,
+          rendererConversationId: conversationId,  // Forward events to parent conversation
+          messageContent: currentMessageContent,
+          displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-20250514',
+          abortController,
+          t0: Date.now(),
+          callbacks: {
+            onComplete: (result) => {
+              // Use the result parameter directly - NOT streamResult, because
+              // onComplete is called synchronously inside processStream before
+              // the const assignment completes (TDZ error).
+              const r = result
+
+              // Save session ID
+              if (r.capturedSessionId) {
+                saveSessionId(spaceId, conversationId, r.capturedSessionId)
+              }
+
+              // Extract file changes summary from thoughts
+              let metadata: { fileChanges?: FileChangesSummary } | undefined
+              if (r.thoughts.length > 0) {
+                try {
+                  const fileChangesSummary = extractFileChangesSummaryFromThoughts(r.thoughts)
+                  if (fileChangesSummary) {
+                    metadata = { fileChanges: fileChangesSummary }
+                  }
+                } catch (e) {
+                  console.error(`[Orchestrator] Failed to extract file changes:`, e)
+                }
+              }
+
+              // Persist content, thoughts, tokenUsage, metadata, error
+              updateLastMessage(spaceId, conversationId, {
+                content: r.finalContent,
+                thoughts: r.thoughts.length > 0 ? [...r.thoughts] : undefined,
+                tokenUsage: r.tokenUsage || undefined,
+                metadata,
+                error: r.errorThought?.content
+              })
+
+              // Only unregister when NOT continuing with injection
+              if (!r.hasPendingInjection) {
+                unregisterActiveSession(conversationId)
+              }
+            }
+          }
+        })
+
+        // Check for worker announcement injection (worker completion notification)
+        if (streamResult.hasPendingInjection) {
+          const injection = getAndClearInjection(conversationId)
+          if (injection) {
+            injectionCycles++
+            if (injectionCycles >= maxInjectionCycles) {
+              console.warn(`[Orchestrator] Max injection cycles (${maxInjectionCycles}) reached, stopping`)
+              unregisterActiveSession(conversationId)
+              break
+            }
+            console.log(`[Orchestrator][${conversationId}] Processing injected worker announcement (cycle ${injectionCycles})`)
+
+            // Use injection content as next message for the Leader
+            currentMessageContent = injection.content
+
+            // Reset session state for next iteration
+            sessionState.streamingContent = ''
+            sessionState.isThinking = true
+
+            // Notify frontend that we're continuing with injected message
+            sendToRenderer('agent:injection-start', spaceId, conversationId, {
+              content: injection.content
+            })
+
+            continue
+          }
+        }
+
+        // No pending injection. Check if there are still pending workers that
+        // haven't completed yet. This handles the case where the Leader's
+        // processStream ended (e.g., LLM stopped without calling wait_for_team)
+        // but workers are still running. We programmatically wait for them.
+        //
+        // Re-check for pending injections first — a worker may have queued one
+        // during the brief window between the hasPendingInjection check above
+        // and reaching this point (BUG 3 fix).
+        if (hasPendingInjection(conversationId)) {
+          const injection = getAndClearInjection(conversationId)
+          if (injection) {
+            injectionCycles++
+            if (injectionCycles >= maxInjectionCycles) {
+              console.warn(`[Orchestrator] Max injection cycles (${maxInjectionCycles}) reached, stopping`)
+              unregisterActiveSession(conversationId)
+              break
+            }
+            console.log(`[Orchestrator][${conversationId}] Processing late injection (race fix, cycle ${injectionCycles})`)
+            currentMessageContent = injection.content
+            sessionState.streamingContent = ''
+            sessionState.isThinking = true
+            const { sendToRenderer } = await import('./helpers')
+            sendToRenderer('agent:injection-start', spaceId, conversationId, { content: injection.content })
+            continue
+          }
+        }
+
+        const pending = this.pendingAnnouncements.get(conversationId)
+        if (pending && pending.size > 0) {
+          console.log(
+            `[Orchestrator][${conversationId}] No injection but ${pending.size} worker(s) still pending. ` +
+            `Programmatically waiting for completion...`
+          )
+
+          // Notify frontend that we're waiting for workers
+          const { sendToRenderer } = await import('./helpers')
+          sendToRenderer('agent:waiting', spaceId, conversationId, {
+            pendingCount: pending.size
+          })
+
+          // Wait for all pending workers to complete (up to 30 minutes, extended by worker heartbeats)
+          try {
+            const completedTasks = await this.waitForCompletion({
+              conversationId,
+              timeout: 30 * 60 * 1000  // 30 minutes base
+            })
+
+            // Aggregate completed results and inject as a single message
+            const completedAnnouncements = completedTasks.filter(t => t.status === 'completed' && t.result)
+            const failedTasks = completedTasks.filter(t => t.status === 'failed')
+
+            if (completedAnnouncements.length > 0 || failedTasks.length > 0) {
+              let aggregatedMessage = `[Auto-collected Worker Results]\n\n`
+
+              if (completedAnnouncements.length > 0) {
+                aggregatedMessage += `**${completedAnnouncements.length} task(s) completed:**\n\n`
+                for (const task of completedAnnouncements) {
+                  const worker = this.getWorkerById(task.agentId)
+                  const name = worker?.config.name || task.agentId
+                  aggregatedMessage += `### Worker "${name}"\n${task.result}\n\n`
+                }
+              }
+
+              if (failedTasks.length > 0) {
+                aggregatedMessage += `**${failedTasks.length} task(s) failed:**\n\n`
+                for (const task of failedTasks) {
+                  const worker = this.getWorkerById(task.agentId)
+                  const name = worker?.config.name || task.agentId
+                  aggregatedMessage += `### Worker "${name}"\nError: ${task.error || 'Unknown error'}\n\n`
+                }
+              }
+
+              // Deduplicate: if worker already injected via MCP tool path
+              // (handleHyperSpaceToolCall queued an injection), clear the injection
+              // queue so only the auto-collected result is processed.
+              // This prevents the Leader from receiving the same result twice.
+              const { hasPendingInjection: checkPending, getAndClearInjection: drainInjection } = await import('./stream-processor')
+              if (checkPending(conversationId)) {
+                const drained = drainInjection(conversationId)
+                console.log(
+                  `[Orchestrator][${conversationId}] Cleared ${drained ? 1 : 0} duplicate injection(s) ` +
+                  `from MCP tool path (auto-collect takes priority)`
+                )
+              }
+
+              // Inject the aggregated results and continue the loop
+              // so the Leader LLM can process them
+              currentMessageContent = aggregatedMessage
+              sessionState.streamingContent = ''
+              sessionState.isThinking = true
+
+              sendToRenderer('agent:injection-start', spaceId, conversationId, {
+                content: aggregatedMessage
+              })
+
+              console.log(
+                `[Orchestrator][${conversationId}] Injected auto-collected results from ` +
+                `${completedAnnouncements.length} completed, ${failedTasks.length} failed workers`
+              )
+
+              continue
+            }
+          } catch (waitError) {
+            console.error(`[Orchestrator] Error waiting for workers:`, waitError)
+            // Don't break — let the leader know about the timeout
+            currentMessageContent = `[Worker Timeout] Some workers did not complete within the timeout. Check their status individually.`
+            sessionState.streamingContent = ''
+            sessionState.isThinking = true
+            continue
+          }
+        }
+
+        // No pending injection AND no pending workers — execution truly complete
+        break
+      }
+
+      console.log(`[Orchestrator] Agent ${agent.id} completed, injectionCycles: ${injectionCycles}`)
+    } catch (error) {
+      unregisterActiveSession(conversationId)
+      throw error
+    }
+  }
+
+  /**
+   * Execute on a remote agent
+   * Follows the same pattern as executeRemoteMessage in send-message.ts
+   */
+  private async executeAgentRemotely(
+    agent: AgentInstance,
+    task: string,
+    conversationId: string,
+    systemPrompt: string | undefined,
+    spaceId: string
+  ): Promise<void> {
+    console.log(`[Orchestrator] Executing remotely on agent ${agent.id}`)
+
+    const { RemoteWsClient, registerActiveClient, unregisterActiveClient } = await import('../remote-ws/remote-ws-client')
+    const { getRemoteDeployService } = await import('../../ipc/remote-server')
+    const { sendToRenderer } = await import('./helpers')
+    const { saveSessionId, updateLastMessage, getConversation } = await import('../conversation.service')
+    const { getConfig } = await import('../config.service')
+    const { decryptString } = await import('../secure-storage.service')
+    const sshTunnelService = (await import('../remote-ssh/ssh-tunnel.service')).default
+    const { extractFileChangesSummaryFromThoughts } = await import('../../../shared/file-changes')
+
+    const remoteServerId = agent.config.remoteServerId
+    if (!remoteServerId) {
+      throw new Error(`Remote agent ${agent.id} has no remoteServerId configured`)
+    }
+
+    // Get remote server info
+    const deployService = getRemoteDeployService()
+    const serverInfo = deployService.getServer(remoteServerId)
+
+    if (!serverInfo) {
+      throw new Error(`Remote server ${remoteServerId} not found`)
+    }
+
+    // Get API configuration (same as local remote execution)
+    const config = getConfig()
+    const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
+    const apiKey = currentSource?.apiKey || config.api?.apiKey
+    const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+
+    console.log(`[Orchestrator] Using model: ${model}, hasApiKey: ${!!apiKey}`)
+
+    // Use a FIXED child conversation ID to maintain session continuity for multi-turn conversations
+    // Format: {mainConversationId}:agent-{agentId} (NO timestamp - same session for same agent)
+    const childConversationId = `${conversationId}:agent-${agent.id}`
+    console.log(`[Orchestrator][${conversationId}] Using child conversation ID for remote: ${childConversationId}`)
+
+    // Get conversation for session resumption
+    const conversation = getConversation(spaceId, conversationId)
+    const sessionId = conversation?.sessionId
+
+    // Determine if SSH tunnel should be used (default: true for security)
+    const useSshTunnel = agent.config.useSshTunnel ?? true
+    let localTunnelPort = serverInfo.wsPort || 8080
+
+    // Establish SSH tunnel if required (same as executeRemoteMessage)
+    if (useSshTunnel) {
+      console.log(`[Orchestrator] Establishing SSH tunnel to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+
+      const decryptedPassword = decryptString(serverInfo.password || '')
+
+      try {
+        localTunnelPort = await sshTunnelService.establishTunnel({
+          spaceId,
+          serverId: remoteServerId,
+          host: serverInfo.host,
+          port: serverInfo.sshPort || 22,
+          username: serverInfo.username,
+          password: decryptedPassword,
+          localPort: serverInfo.wsPort || 8080,
+          remotePort: serverInfo.wsPort || 8080
+        })
+        console.log(`[Orchestrator] SSH tunnel established on local port ${localTunnelPort}`)
+      } catch (tunnelError) {
+        console.error('[Orchestrator] Failed to establish SSH tunnel:', tunnelError)
+        throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
+      }
+    }
+
+    // Create WebSocket client with proper configuration
+    // Use localhost and tunnel port when SSH tunnel is enabled
+    let client: InstanceType<typeof RemoteWsClient> | null = null
+    let tunnelEstablished = useSshTunnel
+
+    try {
+      client = new RemoteWsClient({
+        serverId: remoteServerId,
+        host: useSshTunnel ? 'localhost' : serverInfo.host,
+        port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
+        authToken: serverInfo.authToken || '',
+        useSshTunnel
+      }, childConversationId)
+
+      // Register this client for interrupt support
+      registerActiveClient(conversationId, client)
+
+      // Variables to track streaming content and thoughts
+      let streamingContent = ''
+      const thoughts: any[] = []
+
+      // =====================================================
+      // Set up ALL event handlers BEFORE calling sendChatWithStream
+      // This matches the pattern in executeRemoteMessage
+      // =====================================================
+
+      // SDK session ID event - for session resumption
+      client.on('claude:session', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const receivedSdkSessionId = data.data?.sdkSessionId
+          if (receivedSdkSessionId) {
+            console.log(`[Orchestrator] Captured SDK session_id: ${receivedSdkSessionId}`)
+          }
+        }
+      })
+
+      // Streaming text events
+      client.on('claude:stream', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const text = data.data?.text || data.data?.content || ''
+          streamingContent += text
+          // Forward to renderer using MAIN conversation ID (not child)
+          sendToRenderer('agent:message', spaceId, conversationId, {
+            type: 'message',
+            delta: text,
+            isComplete: false,
+            isStreaming: true
+          })
+        }
+      })
+
+      // Thought events - for thinking process display
+      client.on('thought', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const thoughtData = data.data
+          thoughts.push(thoughtData)  // Accumulate for persistence
+          console.log(`[Orchestrator] Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
+          // Forward to renderer
+          sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData })
+        }
+      })
+
+      // Thought delta events - for streaming updates
+      client.on('thought:delta', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const deltaData = data.data
+          // Update accumulated thought state
+          const thought = thoughts.find((t: any) => t.id === deltaData.thoughtId)
+          if (thought) {
+            if (deltaData.content) thought.content = deltaData.content
+            if (deltaData.toolResult) thought.toolResult = deltaData.toolResult
+            if (deltaData.toolInput) thought.toolInput = deltaData.toolInput
+            if (deltaData.isComplete !== undefined) thought.isStreaming = !deltaData.isComplete
+            if (deltaData.isReady !== undefined) thought.isReady = deltaData.isReady
+          }
+          // Forward to renderer
+          sendToRenderer('agent:thought-delta', spaceId, conversationId, deltaData)
+        }
+      })
+
+      // Tool call events
+      client.on('tool:call', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const toolData = data.data
+          console.log(`[Orchestrator] Tool call received:`, {
+            name: toolData.name,
+            status: toolData.status,
+            id: toolData.id
+          })
+          sendToRenderer('agent:tool-call', spaceId, conversationId, {
+            id: toolData.id,
+            name: toolData.name,
+            status: toolData.status || 'running',
+            input: toolData.input || {},
+            requiresApproval: false
+          })
+        }
+      })
+
+      // Tool result events
+      client.on('tool:result', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const toolData = data.data
+          console.log(`[Orchestrator] Tool result received, name=${toolData.name}`)
+          sendToRenderer('agent:tool-result', spaceId, conversationId, {
+            toolId: toolData.id,
+            result: toolData.output || '',
+            isError: false
+          })
+        }
+      })
+
+      // Tool error events
+      client.on('tool:error', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const toolData = data.data
+          console.error(`[Orchestrator] Tool error:`, toolData)
+          sendToRenderer('agent:tool-result', spaceId, conversationId, {
+            toolId: toolData.id,
+            result: toolData.error || 'Tool execution failed',
+            isError: true
+          })
+        }
+      })
+
+      // Terminal output events
+      client.on('terminal:output', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          const output = data.data
+          console.log(`[Orchestrator] terminal:output received: content.length=${output.content?.length || 0}`)
+          sendToRenderer('agent:terminal', spaceId, conversationId, output)
+        }
+      })
+
+      // Text block start signal
+      client.on('text:block-start', (data: any) => {
+        if (data.sessionId === childConversationId) {
+          sendToRenderer('agent:message', spaceId, conversationId, {
+            type: 'message',
+            content: '',
+            isComplete: false,
+            isStreaming: false,
+            isNewTextBlock: true
+          })
+        }
+      })
+
+      // Connect to remote server
+      console.log(`[Orchestrator] Connecting to remote server...`)
+      await client.connect()
+      tunnelEstablished = false // After connect(), tunnel cleanup is client's responsibility
+      console.log(`[Orchestrator] Connected to remote server`)
+
+      // Send chat request via WebSocket with streaming
+      console.log(`[Orchestrator] Sending chat request to remote Claude...`)
+      const response = await client.sendChatWithStream(
+        childConversationId,
+        [{ role: 'user', content: task }],
+        {
+          apiKey,
+          baseUrl: currentSource?.apiUrl || undefined,
+          model,
+          maxTokens: config.agent?.maxTokens || 8192,
+          system: systemPrompt,
+          workDir: agent.config.remotePath || '/home'
+        }
+      )
+
+      console.log(`[Orchestrator] Received response from remote Claude: ${(response.content || '').substring(0, 100)}...`)
+
+      // Use accumulated streaming content or response content
+      const result = streamingContent || response.content || ''
+
+      // Send final message content
+      sendToRenderer('agent:message', spaceId, conversationId, {
+        content: result,
+        isComplete: true,
+        isStreaming: false
+      })
+
+      // Save session and update message (using MAIN conversation ID)
+      saveSessionId(spaceId, conversationId, 'remote-session')
+
+      // Extract file changes summary from accumulated thoughts
+      let metadata: { fileChanges?: any } | undefined
+      if (thoughts.length > 0) {
+        try {
+          const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
+          if (fileChangesSummary) {
+            metadata = { fileChanges: fileChangesSummary }
+          }
+        } catch (e) {
+          console.error(`[Orchestrator] Failed to extract file changes from remote thoughts:`, e)
+        }
+      }
+
+      updateLastMessage(spaceId, conversationId, {
+        content: result,
+        thoughts: thoughts.length > 0 ? thoughts : undefined,
+        metadata,
+        tokenUsage: response.tokenUsage
+      })
+
+      // Send completion event
+      sendToRenderer('agent:complete', spaceId, conversationId, {
+        result,
+        timestamp: Date.now()
+      })
+
+      console.log(`[Orchestrator] Remote agent ${agent.id} completed, result length: ${result.length}`)
+    } finally {
+      // CRITICAL: Always clean up resources — WebSocket, SSH tunnel, active client registration
+      if (client) {
+        try { client.disconnect() } catch (_) { /* best effort */ }
+        try { unregisterActiveClient(conversationId) } catch (_) { /* best effort */ }
+      }
+      // Tear down SSH tunnel if it was established in this method and not yet cleaned up
+      if (tunnelEstablished && useSshTunnel) {
+        try {
+          await sshTunnelService.closeTunnel(spaceId, remoteServerId)
+          console.log(`[Orchestrator] SSH tunnel closed for ${remoteServerId}`)
+        } catch (_) {
+          console.warn(`[Orchestrator] Failed to close SSH tunnel for ${remoteServerId}`)
+        }
+      }
+    }
+  }
+
+  /**
+   * Destroy a team and clean up all resources.
+   * Cascading cleanup: stop workers, remove tasks, clear injections.
    */
   destroyTeam(teamId: string): boolean {
     const team = this.teams.get(teamId)
     if (!team) return false
 
-    // Clean up pending announcements
+    console.log(`[Orchestrator] Destroying team ${teamId} — cleaning up all resources...`)
+
+    // 1. Mark all running workers as idle (abort signals are handled by callers)
+    for (const worker of team.workers) {
+      if (worker.status === 'running') {
+        console.log(`[Orchestrator] Marking worker ${worker.id} as idle during team destroy`)
+        worker.status = 'idle'
+        worker.currentTaskId = undefined
+      }
+    }
+
+    // 2. Fail all running tasks for this team's conversation
+    for (const [taskId, task] of this.tasks) {
+      if (task.parentConversationId === team.conversationId && task.status === 'running') {
+        this.updateTaskStatus(taskId, 'failed', undefined, 'Team destroyed')
+      }
+    }
+
+    // 3. Clean up pending announcements for this conversation
     this.pendingAnnouncements.delete(team.conversationId)
 
-    // Remove from maps
+    // 4. Clean up injection queues for this conversation
+    try {
+      const { clearInjectionsForConversation } = require('./stream-processor')
+      clearInjectionsForConversation(team.conversationId)
+    } catch (_) {
+      // stream-processor may not export clearInjectionsForConversation yet
+    }
+
+    // 5. Remove from maps
     this.teams.delete(teamId)
     this.teamsBySpace.delete(team.spaceId)
 
@@ -280,11 +1040,13 @@ class AgentOrchestrator extends EventEmitter {
 
   /**
    * Dispatch a task to appropriate agents based on routing strategy
+   * If targetAgentId is specified, dispatch directly to that agent (bypass routing strategy)
    */
   async dispatchTask(params: {
     teamId: string
     task: string
     conversationId: string
+    targetAgentId?: string
   }): Promise<SubagentTask[]> {
     const team = this.teams.get(params.teamId)
     if (!team) {
@@ -293,27 +1055,53 @@ class AgentOrchestrator extends EventEmitter {
 
     team.status = 'active'
 
-    const strategy = team.config.routing.strategy
-
     let tasks: SubagentTask[] = []
+    let strategy: string
 
-    switch (strategy) {
-      case 'capability':
-        tasks = await this.dispatchByCapability(team, params)
-        break
-      case 'round-robin':
-        tasks = this.dispatchRoundRobin(team, params)
-        break
-      case 'manual':
-        tasks = this.dispatchToManual(team, params)
-        break
-      default:
-        tasks = this.dispatchToAll(team, params)
+    // If a specific target agent is specified, dispatch directly to that agent
+    if (params.targetAgentId) {
+      const targetAgent = team.workers.find(
+        w => w.id === params.targetAgentId || w.config.name === params.targetAgentId
+      )
+      if (!targetAgent) {
+        throw new Error(
+          `[Orchestrator] Target agent "${params.targetAgentId}" not found in team. ` +
+          `Available agents: ${team.workers.map(w => w.id).join(', ')}`
+        )
+      }
+      tasks = [this.createSubtask({ team, agent: targetAgent, task: params.task, conversationId: params.conversationId })]
+      strategy = 'direct-target'
+      console.log(`[Orchestrator] Dispatched task directly to agent: ${params.targetAgentId}`)
+    } else {
+      // Use routing strategy to find appropriate agent(s)
+      strategy = team.config.routing.strategy
+
+      switch (strategy) {
+        case 'capability':
+          tasks = await this.dispatchByCapability(team, params)
+          break
+        case 'round-robin':
+          tasks = this.dispatchRoundRobin(team, params)
+          break
+        case 'manual':
+          tasks = this.dispatchToManual(team, params)
+          break
+        default:
+          tasks = this.dispatchToAll(team, params)
+      }
     }
 
-    // Register pending announcements
-    const pending = new Set(tasks.map(t => t.id))
-    this.pendingAnnouncements.set(params.conversationId, pending)
+    // Register pending announcements (merge with existing set if any)
+    const newPending = new Set(tasks.map(t => t.id))
+    console.log(`[Orchestrator] dispatchTask: conversationId=${params.conversationId}${params.conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
+    const existing = this.pendingAnnouncements.get(params.conversationId)
+    if (existing) {
+      for (const id of newPending) {
+        existing.add(id)
+      }
+    } else {
+      this.pendingAnnouncements.set(params.conversationId, newPending)
+    }
 
     console.log(
       `[Orchestrator] Dispatched task to ${tasks.length} agent(s) ` +
@@ -549,20 +1337,35 @@ Respond with a JSON array of agent IDs that should handle this task.`
 
   /**
    * Send completion announcement
+   * Inspired by OpenClaw: announcement is injected as a user message into the parent session
+   * so the leader agent receives it naturally without polling
    */
-  sendAnnouncement(announcement: SubagentAnnouncement): void {
+  async sendAnnouncement(announcement: SubagentAnnouncement): Promise<void> {
     console.log(
       `[Orchestrator] Announcement received: task=${announcement.taskId} ` +
       `agent=${announcement.agentId} status=${announcement.status}`
     )
 
-    // Emit for listeners
+    // Guard against duplicate announcements (task already completed/failed)
+    const existingTask = this.tasks.get(announcement.taskId)
+    if (existingTask && (existingTask.status === 'completed' || existingTask.status === 'failed')) {
+      console.warn(
+        `[Orchestrator] Ignoring duplicate announcement for task ${announcement.taskId}, ` +
+        `already ${existingTask.status}`
+      )
+      return
+    }
+
+    // Emit for listeners (UI updates etc.)
     this.emit('announce', announcement)
 
     // Remove from pending
-    const pending = this.pendingAnnouncements.get(announcement.taskId)
-    if (pending) {
-      pending.delete(announcement.taskId)
+    const task = this.tasks.get(announcement.taskId)
+    if (task) {
+      const pending = this.pendingAnnouncements.get(task.parentConversationId)
+      if (pending) {
+        pending.delete(announcement.taskId)
+      }
     }
 
     // Update task status
@@ -575,6 +1378,9 @@ Respond with a JSON array of agent IDs that should handle this task.`
 
     // Update agent status
     this.updateAgentStatus(announcement.agentId, 'idle')
+
+    // Inject announcement into leader's session (key OpenClaw pattern)
+    await this.injectAnnouncementToLeader(announcement)
   }
 
   /**
@@ -595,33 +1401,93 @@ Respond with a JSON array of agent IDs that should handle this task.`
   }
 
   /**
-   * Wait for all pending tasks to complete
+   * Get a worker agent instance by ID across all teams
+   */
+  private getWorkerById(agentId: string): AgentInstance | undefined {
+    for (const team of this.teams.values()) {
+      const worker = team.workers.find(w => w.id === agentId)
+      if (worker) return worker
+    }
+    return undefined
+  }
+
+  /**
+   * Wait for all pending tasks to complete.
+   * Supports heartbeat extension: if any pending worker updates its heartbeat,
+   * the timeout is extended, preventing premature timeout on long-running tasks.
+   * Supports cancellation via AbortSignal.
    */
   async waitForCompletion(params: {
     conversationId: string
     timeout?: number
+    heartbeatTimeout?: number
+    signal?: AbortSignal
   }): Promise<SubagentTask[]> {
-    const timeout = params.timeout || 300000 // 5 minutes default
+    const timeout = params.timeout || 30 * 60 * 1000 // 30 minutes default (up from 5 min)
+    const heartbeatTimeout = params.heartbeatTimeout || 5 * 60 * 1000 // 5 min per-heartbeat extension
     const startTime = Date.now()
+    let lastProgressTime = startTime // Tracks last time any worker showed activity
+    let cancelled = false
+
+    if (params.signal) {
+      params.signal.addEventListener('abort', () => {
+        cancelled = true
+      })
+    }
 
     return new Promise((resolve, reject) => {
+      let timer: NodeJS.Timeout | null = null
+
       const check = () => {
+        if (cancelled) {
+          reject(new Error('[Orchestrator] waitForCompletion cancelled'))
+          return
+        }
+
         const pending = this.pendingAnnouncements.get(params.conversationId)
 
         if (!pending || pending.size === 0) {
-          // All tasks completed
           const tasks = this.getTasksForConversation(params.conversationId)
           resolve(tasks)
           return
         }
 
-        if (Date.now() - startTime > timeout) {
-          reject(new Error('[Orchestrator] Timeout waiting for subagent completion'))
+        // Check heartbeats of pending workers — update lastProgressTime if any is alive
+        const now = Date.now()
+        for (const taskId of pending) {
+          const task = this.tasks.get(taskId)
+          if (task?.agentId) {
+            const worker = this.getWorkerById(task.agentId)
+            if (worker?.lastHeartbeat && worker.lastHeartbeat > lastProgressTime) {
+              lastProgressTime = worker.lastHeartbeat
+              console.log(
+                `[Orchestrator] waitForCompletion: heartbeat from worker ${task.agentId}, ` +
+                `extended deadline by ${heartbeatTimeout / 1000}s`
+              )
+            }
+          }
+        }
+
+        // Timeout: absolute OR since last heartbeat activity
+        const timeSinceStart = now - startTime
+        const timeSinceProgress = now - lastProgressTime
+
+        if (timeSinceStart > timeout) {
+          reject(new Error(
+            `[Orchestrator] Absolute timeout (${timeout / 1000}s) waiting for ${pending.size} subagent(s)`
+          ))
           return
         }
 
-        // Continue waiting
-        setTimeout(check, 1000)
+        if (timeSinceProgress > heartbeatTimeout) {
+          reject(new Error(
+            `[Orchestrator] Heartbeat timeout (${heartbeatTimeout / 1000}s since last worker activity) ` +
+            `waiting for ${pending.size} subagent(s). Workers may be stuck.`
+          ))
+          return
+        }
+
+        timer = setTimeout(check, 1000)
       }
 
       check()
@@ -684,7 +1550,7 @@ Respond with a JSON array of agent IDs that should handle this task.`
    */
   buildSubagentPrompt(subtask: SubagentTask, agentConfig: AgentConfig): string {
     return `[Subagent Context]
-You are running as a subagent in a multi-agent collaboration.
+You are running as a subagent (worker) in a multi-agent collaboration.
 
 Task ID: ${subtask.id}
 Task: ${subtask.task}
@@ -692,7 +1558,15 @@ Task: ${subtask.task}
 ${agentConfig.systemPromptAddition || ''}
 
 Complete this task and provide a clear, concise summary of your findings.
-When done, your results will be automatically announced to the parent agent.`
+When done, your results will be automatically announced to the parent agent.
+
+If you have access to the \`hyper-space\` MCP tools, you can:
+- Use \`report_to_leader\` to send intermediate progress updates to the leader
+- Use \`announce_completion\` to report your final result
+- Use \`ask_question\` to ask the leader for clarification
+
+If you do NOT have MCP tools (e.g., running on a remote server without them),
+just complete the task normally — the orchestrator will collect your results automatically.`
   }
 
   /**
@@ -754,7 +1628,7 @@ When done, your results will be automatically announced to the parent agent.`
 
       // Update status and send announcement
       this.updateTaskStatus(subtask.id, 'failed', undefined, errorMessage)
-      this.sendAnnouncement({
+      await this.sendAnnouncement({
         type: 'agent:announce',
         taskId: subtask.id,
         agentId: agent.id,
@@ -771,6 +1645,8 @@ When done, your results will be automatically announced to the parent agent.`
 
   /**
    * Execute a subtask on the local agent
+   * Uses processStream with suppressComplete and rendererConversationId
+   * for real-time thought forwarding to the parent conversation
    */
   private async executeLocally(
     subtask: SubagentTask,
@@ -779,58 +1655,54 @@ When done, your results will be automatically announced to the parent agent.`
   ): Promise<void> {
     console.log(`[Orchestrator] Executing locally on agent ${agent.id}`)
 
-    // Import the local execution module
-    const { getOrCreateV2Session } = await import('./session-manager')
+    const { getOrCreateV2Session, createSessionState } = await import('./session-manager')
     const { getConfig } = await import('../config.service')
     const { getApiCredentials } = await import('./helpers')
     const { resolveCredentialsForSdk, buildBaseSdkOptions } = await import('./sdk-config')
     const { getWorkingDir, getHeadlessElectronPath } = await import('./helpers')
+    const { processStream } = await import('./stream-processor')
 
     try {
-      // Build subagent-specific system prompt
       const systemPrompt = this.buildSubagentPrompt(subtask, agent.config)
+      // Use stable per-agent child conversation ID for context persistence across tasks
+      const childConversationId = `${subtask.parentConversationId}:agent-${agent.id}`
 
-      // Create a child conversation ID
-      const childConversationId = `${subtask.parentConversationId}:${subtask.id}`
-
-      // Get config and credentials for local execution
       const config = getConfig()
       const credentials = await getApiCredentials(config)
       const resolvedCredentials = await resolveCredentialsForSdk(credentials)
-
-      // Get working directory and electron path
       const workDir = getWorkingDir(team.spaceId)
       const electronPath = getHeadlessElectronPath()
+      const abortController = new AbortController()
 
-      // Create Hyper Space MCP server for subagent tools
       const { createHyperSpaceMcpServer } = await import('./hyper-space-mcp')
-      const hyperSpaceMcp = createHyperSpaceMcpServer(team.spaceId, childConversationId)
+      // Pass parentConversationId (not childConversationId) to MCP tools so that
+      // report_to_leader and announce_completion inject into the correct leader session
+      const hyperSpaceMcp = createHyperSpaceMcpServer(team.spaceId, subtask.parentConversationId, 'worker', agent.id, agent.config.name)
 
-      // Build SDK options for the subagent
       const sdkOptions = buildBaseSdkOptions({
         credentials: resolvedCredentials,
         workDir,
         electronPath,
         spaceId: team.spaceId,
         conversationId: childConversationId,
-        abortController: new AbortController(),
+        abortController,
         stderrHandler: (data: string) => {
           console.error(`[Subagent][${childConversationId}] stderr:`, data)
         },
         mcpServers: { 'hyper-space': hyperSpaceMcp },
-        contextWindow: resolvedCredentials.contextWindow
+        contextWindow: resolvedCredentials.contextWindow,
+        agentId: agent.id,
+        agentName: agent.config.name || agent.id
       })
 
-      // Apply subagent-specific system prompt
       sdkOptions.systemPrompt = systemPrompt
 
-      // Get or create a V2 session for the subagent
       const session = await getOrCreateV2Session(
         team.spaceId,
         childConversationId,
         sdkOptions,
-        undefined, // sessionId
-        undefined, // config
+        undefined,
+        undefined,
         workDir
       )
 
@@ -838,139 +1710,347 @@ When done, your results will be automatically announced to the parent agent.`
         throw new Error('Failed to create session for local subagent')
       }
 
-      // Send the task to the local agent using send() + stream() pattern
-      session.send({
-        role: 'user',
-        content: subtask.task
+      const sessionState = createSessionState(team.spaceId, childConversationId, abortController)
+
+      // Notify frontend that a worker has started
+      const { sendToRenderer } = await import('./helpers')
+      sendToRenderer('worker:started', team.spaceId, subtask.parentConversationId, {
+        agentId: agent.id,
+        agentName: agent.config.name || agent.id,
+        taskId: subtask.id,
+        task: subtask.task,
+        type: 'local'
       })
 
-      // Extract the response content
-      let result = ''
-      for await (const event of session.stream()) {
-        if (event.type === 'content_block_delta') {
-          const delta = event.delta as any
-          if (delta?.text) {
-            result += delta.text
+      // Process stream with events forwarded to parent conversation
+      const streamResult = await processStream({
+        v2Session: session,
+        sessionState,
+        spaceId: team.spaceId,
+        conversationId: childConversationId,
+        rendererConversationId: subtask.parentConversationId,  // Forward to parent UI
+        suppressComplete: true,  // Don't signal parent conversation as complete
+        workerInfo: { agentId: agent.id, agentName: agent.config.name || agent.id },  // Tag events for worker panel
+        messageContent: subtask.task,
+        displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-20250514',
+        abortController,
+        t0: Date.now(),
+        callbacks: {
+          onComplete: (result) => {
+            // Accumulate worker thoughts into team for batch persistence
+            if (result.thoughts.length > 0) {
+              team.turnThoughts.push(...result.thoughts)
+            }
           }
         }
-      }
-
-      // Mark as completed
-      this.updateTaskStatus(subtask.id, 'completed', result)
-      this.sendAnnouncement({
-        type: 'agent:announce',
-        taskId: subtask.id,
-        agentId: agent.id,
-        status: 'completed',
-        result,
-        summary: this.summarizeResult(result),
-        timestamp: Date.now()
       })
+
+      const result = streamResult.finalContent
+
+      // Notify frontend that worker has completed
+      sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
+        agentId: agent.id,
+        agentName: agent.config.name || agent.id,
+        taskId: subtask.id,
+        result,
+        status: 'completed'
+      })
+
+      // Announce completion — skip if worker already called announce_completion MCP tool
+      const localTask = this.tasks.get(subtask.id)
+      if (!localTask || (localTask.status !== 'completed' && localTask.status !== 'failed')) {
+        await this.sendAnnouncement({
+          type: 'agent:announce',
+          taskId: subtask.id,
+          agentId: agent.id,
+          status: 'completed',
+          result,
+          summary: this.summarizeResult(result),
+          timestamp: Date.now()
+        })
+      } else {
+        console.log(`[Orchestrator] Local task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
+      }
 
       agent.status = 'idle'
       console.log(`[Orchestrator] Local subtask ${subtask.id} completed`)
 
     } catch (error) {
+      // Notify frontend that worker has failed
+      const { sendToRenderer } = await import('./helpers')
+      sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
+        agentId: agent.id,
+        agentName: agent.config.name || agent.id,
+        taskId: subtask.id,
+        result: '',
+        error: error instanceof Error ? error.message : String(error),
+        status: 'failed'
+      })
       throw error
     }
   }
 
   /**
    * Execute a subtask on a remote agent
+   * Aligned with executeAgentRemotely for SSH tunnel, credentials, and event handling
    */
   private async executeRemotely(
     subtask: SubagentTask,
     agent: AgentInstance,
     team: AgentTeam
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing remotely on agent ${agent.id}`)
+    console.log(`[Orchestrator] Executing subtask ${subtask.id} remotely on agent ${agent.id}`)
 
-    // Import the remote client
     const { RemoteWsClient } = await import('../remote-ws/remote-ws-client')
     const { getRemoteDeployService } = await import('../../ipc/remote-server')
+    const { sendToRenderer } = await import('./helpers')
+    const { getConfig } = await import('../config.service')
+    const { decryptString } = await import('../secure-storage.service')
+    const sshTunnelService = (await import('../remote-ssh/ssh-tunnel.service')).default
 
     const remoteServerId = agent.config.remoteServerId
     if (!remoteServerId) {
       throw new Error(`Remote agent ${agent.id} has no remoteServerId configured`)
     }
 
-    try {
-      // Get remote server info
-      const deployService = getRemoteDeployService()
-      const serverInfo = await deployService.getServer(remoteServerId)
+    // Get remote server info
+    const deployService = getRemoteDeployService()
+    const serverInfo = deployService.getServer(remoteServerId)
+    if (!serverInfo) {
+      throw new Error(`Remote server ${remoteServerId} not found`)
+    }
 
-      if (!serverInfo) {
-        throw new Error(`Remote server ${remoteServerId} not found`)
+    // Resolve API credentials (same as executeAgentRemotely)
+    const config = getConfig()
+    const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
+    const apiKey = currentSource?.apiKey || config.api?.apiKey
+    const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+
+    console.log(`[Orchestrator] Remote subtask using model: ${model}, hasApiKey: ${!!apiKey}`)
+
+    // Build subagent-specific system prompt (includes worker role context)
+    const systemPrompt = this.buildSubagentPrompt(subtask, agent.config)
+
+    // Use stable per-agent child conversation ID for context persistence across tasks
+    const childConversationId = `${subtask.parentConversationId}:agent-${agent.id}`
+
+    // Determine if SSH tunnel should be used (default: true for security)
+    const useSshTunnel = agent.config.useSshTunnel ?? true
+    let localTunnelPort = serverInfo.wsPort || 8080
+
+    // Establish SSH tunnel if required
+    if (useSshTunnel) {
+      console.log(`[Orchestrator] Establishing SSH tunnel for subtask to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+
+      const decryptedPassword = decryptString(serverInfo.password || '')
+
+      try {
+        localTunnelPort = await sshTunnelService.establishTunnel({
+          spaceId: team.spaceId,
+          serverId: remoteServerId,
+          host: serverInfo.host,
+          port: serverInfo.sshPort || 22,
+          username: serverInfo.username,
+          password: decryptedPassword,
+          localPort: serverInfo.wsPort || 8080,
+          remotePort: serverInfo.wsPort || 8080
+        })
+        console.log(`[Orchestrator] SSH tunnel established for subtask on local port ${localTunnelPort}`)
+      } catch (tunnelError) {
+        console.error('[Orchestrator] Failed to establish SSH tunnel for subtask:', tunnelError)
+        throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
       }
+    }
 
-      // Build subagent-specific system prompt
-      const systemPrompt = this.buildSubagentPrompt(subtask, agent.config)
+    // Create WebSocket client with proper configuration
+    const client = new RemoteWsClient({
+      serverId: remoteServerId,
+      host: useSshTunnel ? 'localhost' : serverInfo.host,
+      port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
+      authToken: serverInfo.authToken || '',
+      useSshTunnel
+    }, childConversationId)
 
-      // Create a child conversation ID
-      const childConversationId = `${subtask.parentConversationId}:${subtask.id}`
+    // Set up event handlers for streaming (forward to parent conversation for UI display)
+    let streamingContent = ''
+    const thoughts: any[] = []  // Accumulate thoughts for persistence
+    const workerTag = { agentId: agent.id, agentName: agent.config.name || agent.id }
 
-      // Create WebSocket client
-      const client = new RemoteWsClient({
-        serverId: remoteServerId,
-        host: serverInfo.host,
-        port: serverInfo.wsPort,
-        authToken: serverInfo.authToken,
-        useSshTunnel: agent.config.useSshTunnel ?? true
-      }, childConversationId)
+    // Notify frontend that a worker has started
+    sendToRenderer('worker:started', team.spaceId, subtask.parentConversationId, {
+      ...workerTag,
+      taskId: subtask.id,
+      task: subtask.task,
+      type: 'remote',
+      serverName: serverInfo.name || undefined
+    })
 
-      // Connect to remote server
-      await client.connect()
+    client.on('claude:stream', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        const text = data.data?.text || data.data?.content || ''
+        streamingContent += text
 
-      // Set up event handlers for streaming
-      let result = ''
+        // Update worker heartbeat to prevent false-positive stall detection
+        agent.lastHeartbeat = Date.now()
 
-      client.on('claude:stream', (data: any) => {
-        if (data.sessionId === childConversationId) {
-          const text = data.data?.text || data.data?.content || ''
-          result += text
+        // Emit progress event and forward to UI
+        this.emit('subagent:progress', {
+          taskId: subtask.id,
+          agentId: agent.id,
+          delta: text,
+          total: streamingContent
+        })
 
-          // Emit progress event
-          this.emit('subagent:progress', {
-            taskId: subtask.id,
-            agentId: agent.id,
-            delta: text,
-            total: result
-          })
+        // Forward streaming text to renderer (parent conversation) with worker tag
+        sendToRenderer('agent:message', team.spaceId, subtask.parentConversationId, {
+          type: 'message',
+          delta: text,
+          isComplete: false,
+          isStreaming: true,
+          ...workerTag
+        })
+      }
+    })
+
+    client.on('thought', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        const thoughtData = data.data
+        thoughts.push(thoughtData)  // Accumulate for persistence
+        agent.lastHeartbeat = Date.now()  // Keep heartbeat alive during thinking
+        sendToRenderer('agent:thought', team.spaceId, subtask.parentConversationId, {
+          thought: thoughtData,
+          ...workerTag
+        })
+      }
+    })
+
+    client.on('thought:delta', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        const deltaData = data.data
+        // Update accumulated thought state
+        const thought = thoughts.find((t: any) => t.id === deltaData.thoughtId)
+        if (thought) {
+          if (deltaData.content) thought.content = deltaData.content
+          if (deltaData.toolResult) thought.toolResult = deltaData.toolResult
+          if (deltaData.toolInput) thought.toolInput = deltaData.toolInput
+          if (deltaData.isComplete !== undefined) thought.isStreaming = !deltaData.isComplete
+          if (deltaData.isReady !== undefined) thought.isReady = deltaData.isReady
         }
-      })
+        sendToRenderer('agent:thought-delta', team.spaceId, subtask.parentConversationId, { ...deltaData, ...workerTag })
+      }
+    })
 
-      // Send the task
-      const fullResult = await client.sendChatWithStream(
+    client.on('tool:call', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        const toolData = data.data
+
+        // Check if this is a hyper-space proxy tool call from remote worker
+        // Hyper-space tools have isHyperSpace=true flag set by the proxy
+        if (toolData?.isHyperSpace) {
+          this.handleHyperSpaceToolCall(team, agent, subtask.parentConversationId, toolData, client)
+          return
+        }
+
+        // Regular tool call — just forward to UI
+        sendToRenderer('agent:tool-call', team.spaceId, subtask.parentConversationId, {
+          id: toolData?.id,
+          name: toolData?.name,
+          status: toolData?.status || 'running',
+          input: toolData?.input || {},
+          requiresApproval: false,
+          ...workerTag
+        })
+      }
+    })
+
+    client.on('tool:result', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        sendToRenderer('agent:tool-result', team.spaceId, subtask.parentConversationId, {
+          toolId: data.data?.id,
+          result: data.data?.output || '',
+          isError: false,
+          ...workerTag
+        })
+      }
+    })
+
+    try {
+      // Connect to remote server
+      console.log(`[Orchestrator] Connecting to remote server for subtask...`)
+      await client.connect()
+      console.log(`[Orchestrator] Connected, sending subtask to remote agent...`)
+
+      // Send the task with full configuration (API key, model, maxTokens, system prompt)
+      // Include hyperSpaceTools config so the remote proxy creates MCP proxy tools
+      const response = await client.sendChatWithStream(
         childConversationId,
         [{ role: 'user', content: subtask.task }],
         {
-          systemPrompt,
-          workDir: agent.config.remotePath || '/home'
+          apiKey,
+          baseUrl: currentSource?.apiUrl || undefined,
+          model,
+          maxTokens: config.agent?.maxTokens || 8192,
+          system: systemPrompt,
+          workDir: agent.config.remotePath || '/home',
+          hyperSpaceTools: {
+            spaceId: team.spaceId,
+            conversationId: subtask.parentConversationId,
+            workerId: agent.id,
+            workerName: agent.config.name || agent.id,
+            teamId: team.id
+          }
         }
       )
 
-      // Use the accumulated result or the full result
-      result = result || fullResult
+      // Use the accumulated streaming content or response content
+      const result = streamingContent || response.content || ''
 
       // Disconnect
       client.disconnect()
 
-      // Mark as completed
-      this.updateTaskStatus(subtask.id, 'completed', result)
-      this.sendAnnouncement({
-        type: 'agent:announce',
+      // Notify frontend that worker has completed
+      sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
+        ...workerTag,
         taskId: subtask.id,
-        agentId: agent.id,
-        status: 'completed',
         result,
-        summary: this.summarizeResult(result),
-        timestamp: Date.now()
+        status: 'completed'
       })
 
+      // Announce completion — but skip if remote worker already called announce_completion
+      // via MCP tool (handleHyperSpaceToolCall already processed it, preventing double injection)
+      const currentTask = this.tasks.get(subtask.id)
+      if (!currentTask || (currentTask.status !== 'completed' && currentTask.status !== 'failed')) {
+        await this.sendAnnouncement({
+          type: 'agent:announce',
+          taskId: subtask.id,
+          agentId: agent.id,
+          status: 'completed',
+          result,
+          summary: this.summarizeResult(result),
+          timestamp: Date.now()
+        })
+      } else {
+        console.log(`[Orchestrator] Task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
+      }
+
+      // Accumulate worker thoughts into team for batch persistence
+      if (thoughts.length > 0) {
+        team.turnThoughts.push(...thoughts)
+      }
+
       agent.status = 'idle'
-      console.log(`[Orchestrator] Remote subtask ${subtask.id} completed`)
+      console.log(`[Orchestrator] Remote subtask ${subtask.id} completed, result length: ${result.length}`)
 
     } catch (error) {
+      client.disconnect()
+      // Notify frontend that worker has failed
+      sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
+        ...workerTag,
+        taskId: subtask.id,
+        result: '',
+        error: error instanceof Error ? error.message : String(error),
+        status: 'failed'
+      })
       throw error
     }
   }
@@ -982,6 +2062,53 @@ When done, your results will be automatically announced to the parent agent.`
     const maxLen = 200
     if (result.length <= maxLen) return result
     return result.substring(0, maxLen) + '...'
+  }
+
+  /**
+   * Persist accumulated worker thoughts to the parent conversation.
+   * Called after all workers complete in executeAllTasks.
+   * Merges worker thoughts with existing leader thoughts in the conversation.
+   */
+  private persistWorkerThoughts(team: AgentTeam): void {
+    if (!team.conversationId || team.turnThoughts.length === 0) return
+
+    try {
+      const conversation = getConversation(team.spaceId, team.conversationId)
+      const lastMsg = conversation?.messages?.[conversation.messages.length - 1]
+      if (!lastMsg) {
+        console.warn(`[Orchestrator] No last message found for thought persistence`)
+        return
+      }
+
+      // Read existing thoughts (from leader's processStream)
+      const existingThoughts = getMessageThoughts(team.spaceId, team.conversationId, lastMsg.id)
+
+      // Merge: leader thoughts + worker thoughts
+      const allThoughts = [...existingThoughts, ...team.turnThoughts]
+
+      // Extract file changes from all thoughts
+      let metadata: { fileChanges?: any } | undefined
+      try {
+        const fileChangesSummary = extractFileChangesSummaryFromThoughts(allThoughts)
+        if (fileChangesSummary) {
+          metadata = { fileChanges: fileChangesSummary }
+        }
+      } catch (e) {
+        console.error(`[Orchestrator] Failed to extract file changes for merged thoughts:`, e)
+      }
+
+      updateLastMessage(team.spaceId, team.conversationId, {
+        thoughts: allThoughts,
+        metadata
+      })
+
+      console.log(
+        `[Orchestrator] Persisted ${team.turnThoughts.length} worker thoughts ` +
+        `(merged with ${existingThoughts.length} existing thoughts) to conversation ${team.conversationId}`
+      )
+    } catch (e) {
+      console.error(`[Orchestrator] Failed to persist worker thoughts:`, e)
+    }
   }
 
   /**
@@ -1000,6 +2127,9 @@ When done, your results will be automatically announced to the parent agent.`
       .filter(t => t.status === 'pending')
 
     console.log(`[Orchestrator] Executing ${pendingTasks.length} pending tasks for team ${teamId}`)
+
+    // Reset worker thoughts accumulator for this execution cycle
+    team.turnThoughts = []
 
     // Execute tasks in parallel based on execution mode
     if (team.config.mode === 'sequential') {
@@ -1020,6 +2150,9 @@ When done, your results will be automatically announced to the parent agent.`
         })
       )
     }
+
+    // Persist accumulated worker thoughts to parent conversation
+    this.persistWorkerThoughts(team)
   }
 
   /**
@@ -1072,12 +2205,921 @@ When done, your results will be automatically announced to the parent agent.`
    * Clean up all resources
    */
   destroy(): void {
+    this.stopStallDetection()
     this.teams.clear()
     this.teamsBySpace.clear()
     this.tasks.clear()
     this.pendingAnnouncements.clear()
     this.removeAllListeners()
+    // Clean up all injection queues
+    try {
+      const { clearAllInjections } = require('./stream-processor')
+      clearAllInjections()
+    } catch (_) { /* ignore */ }
     console.log('[Orchestrator] Service destroyed')
+  }
+
+  // ============================================
+  // Stall Detection
+  // ============================================
+
+  /**
+   * Start periodic stall detection
+   */
+  private startStallDetection(): void {
+    if (this.stallCheckInterval) return
+
+    this.stallCheckInterval = setInterval(() => {
+      this.checkForStalledTasks()
+    }, this.stallConfig.checkInterval)
+
+    console.log('[Orchestrator] Stall detection started')
+  }
+
+  /**
+   * Stop stall detection
+   */
+  private stopStallDetection(): void {
+    if (this.stallCheckInterval) {
+      clearInterval(this.stallCheckInterval)
+      this.stallCheckInterval = null
+      console.log('[Orchestrator] Stall detection stopped')
+    }
+  }
+
+  /**
+   * Check for stalled tasks
+   */
+  private checkForStalledTasks(): void {
+    const now = Date.now()
+
+    for (const [taskId, task] of this.tasks) {
+      if (task.status !== 'running') continue
+
+      // Find the agent for this task
+      const team = this.getTeamByConversation(task.parentConversationId)
+      if (!team) continue
+
+      const agent = this.findAgentForTask(team, task)
+      if (!agent) continue
+
+      let isStalled = false
+
+      // Check for heartbeat timeout
+      if (agent.lastHeartbeat) {
+        const timeSinceHeartbeat = now - agent.lastHeartbeat
+        if (timeSinceHeartbeat > this.stallConfig.heartbeatTimeout) {
+          isStalled = true
+          console.warn(
+            `[Orchestrator] Task ${taskId} stalled — no heartbeat for ${Math.round(timeSinceHeartbeat / 1000)}s`
+          )
+          this.emit('task:stalled', {
+            taskId,
+            agentId: agent.id,
+            reason: 'heartbeat_timeout',
+            elapsed: timeSinceHeartbeat
+          })
+        }
+      }
+
+      // Check for max task duration
+      if (!isStalled && task.startedAt) {
+        const duration = now - task.startedAt
+        if (duration > this.stallConfig.maxTaskDuration) {
+          isStalled = true
+          console.warn(
+            `[Orchestrator] Task ${taskId} exceeded max duration (${Math.round(duration / 1000)}s)`
+          )
+          this.emit('task:stalled', {
+            taskId,
+            agentId: agent.id,
+            reason: 'max_duration',
+            elapsed: duration
+          })
+        }
+      }
+
+      // When stalled: clean up pending announcements so waitForCompletion won't hang
+      if (isStalled) {
+        const pending = this.pendingAnnouncements.get(task.parentConversationId)
+        if (pending && pending.has(taskId)) {
+          pending.delete(taskId)
+          console.log(`[Orchestrator] Removed stalled task ${taskId} from pendingAnnouncements`)
+        }
+        this.updateTaskStatus(taskId, 'failed', undefined, 'Task stalled: no heartbeat or exceeded max duration')
+        agent.status = 'error'
+      }
+    }
+  }
+
+  /**
+   * Get team by conversation ID
+   */
+  private getTeamByConversation(conversationId: string): AgentTeam | undefined {
+    for (const team of this.teams.values()) {
+      if (team.conversationId === conversationId) {
+        return team
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Update stall detection configuration
+   */
+  setStallConfig(config: Partial<StallDetectionConfig>): void {
+    this.stallConfig = { ...this.stallConfig, ...config }
+
+    // Restart stall detection with new interval if changed
+    if (config.checkInterval !== undefined) {
+      this.stopStallDetection()
+      this.startStallDetection()
+    }
+  }
+
+  // ============================================
+  // Inter-Agent Messaging
+  // ============================================
+
+  /**
+   * Send a message from one agent to another
+   * The message will be visible in the chat UI
+   * For remote recipients, the message is dispatched as a subtask
+   */
+  async sendAgentMessage(params: {
+    teamId: string
+    spaceId: string
+    conversationId: string
+    recipientId: string
+    recipientName: string
+    content: string
+    summary?: string
+    senderId?: string
+    senderName?: string
+  }): Promise<string> {
+    const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(7)}`
+
+    console.log(`[Orchestrator] Sending agent message: ${messageId} to ${params.recipientId}`)
+
+    // Import sendToRenderer dynamically to avoid circular dependencies
+    const { sendToRenderer } = await import('./helpers')
+
+    // Emit agent message event to show in chat UI
+    sendToRenderer('agent:team-message', params.spaceId, params.conversationId, {
+      id: messageId,
+      type: 'agent_message',
+      senderId: params.senderId,
+      senderName: params.senderName,
+      recipientId: params.recipientId,
+      recipientName: params.recipientName,
+      content: params.content,
+      summary: params.summary || params.content.substring(0, 100),
+      timestamp: Date.now()
+    })
+
+    // If the recipient is a remote agent, dispatch the message as a subtask
+    // so it gets executed on the remote server
+    const team = this.teams.get(params.teamId)
+    if (team) {
+      const recipient = team.workers.find(w => w.id === params.recipientId) ||
+                       (team.leader.id === params.recipientId ? team.leader : null)
+
+      if (recipient && recipient.config.type === 'remote') {
+        console.log(`[Orchestrator] Dispatching message to remote agent: ${params.recipientId}`)
+
+        // Format the message as a task for the remote agent
+        const taskContent = `[Message from ${params.recipientName === recipient.config.name ? 'team leader' : params.recipientName}]\n\n${params.content}`
+
+        // Create and execute a subtask for the remote agent (fire-and-forget)
+        const subtask = this.createSubtask({
+          team,
+          agent: recipient,
+          task: taskContent,
+          conversationId: params.conversationId
+        })
+
+        // Execute asynchronously without blocking the sender
+        this.executeSubtask(subtask, recipient, team).catch(err => {
+          console.error(`[Orchestrator] Failed to deliver message to remote agent ${params.recipientId}:`, err)
+        })
+      }
+
+      // If the recipient is the leader, inject the message into the leader's session
+      // so the leader's LLM can actually process it (not just show in UI)
+      // Skip UI notification since sendAgentMessage already sent one above
+      if (recipient && recipient.id === team.leader.id) {
+        await this.injectMessageToSession(
+          params.spaceId,
+          params.conversationId,
+          params.content,
+          true // skip UI notification — already sent by sendAgentMessage
+        )
+      }
+    }
+
+    return messageId
+  }
+
+  /**
+   * Broadcast a message to all agents in the team
+   */
+  async broadcastAgentMessage(params: {
+    teamId: string
+    spaceId: string
+    conversationId: string
+    content: string
+    summary?: string
+  }): Promise<string[]> {
+    const team = this.teams.get(params.teamId)
+    if (!team) {
+      console.warn(`[Orchestrator] Team ${params.teamId} not found for broadcast`)
+      return []
+    }
+
+    console.log(`[Orchestrator] Broadcasting message to team ${params.teamId}`)
+
+    const messageIds: string[] = []
+
+    // Send to leader
+    messageIds.push(await this.sendAgentMessage({
+      teamId: params.teamId,
+      spaceId: params.spaceId,
+      conversationId: params.conversationId,
+      recipientId: team.leader.id,
+      recipientName: team.leader.config.name || team.leader.id,
+      content: params.content,
+      summary: params.summary
+    }))
+
+    // Send to all workers
+    for (const worker of team.workers) {
+      messageIds.push(await this.sendAgentMessage({
+        teamId: params.teamId,
+        spaceId: params.spaceId,
+        conversationId: params.conversationId,
+        recipientId: worker.id,
+        recipientName: worker.config.name || worker.id,
+        content: params.content,
+        summary: params.summary
+      }))
+    }
+
+    return messageIds
+  }
+
+  /**
+   * Get team context string for system prompts
+   * This provides agents with information about their teammates and how to collaborate
+   */
+  async getTeamContextForPrompt(spaceId: string, currentAgentId: string): Promise<string> {
+    const team = this.getTeamBySpace(spaceId)
+    if (!team) {
+      return ''
+    }
+
+    const isLeader = team.leader.id === currentAgentId
+
+    if (isLeader) {
+      return await this.buildLeaderSystemPrompt(team)
+    } else {
+      return this.buildWorkerSystemPrompt(team, currentAgentId)
+    }
+  }
+
+  /**
+   * Build system prompt for the LEADER agent
+   * This is the key prompt that enables automatic task distribution
+   */
+  private async buildLeaderSystemPrompt(team: AgentTeam): Promise<string> {
+    let context = '\n\n' + '='.repeat(60) + '\n'
+    context += '## HYPER SPACE: YOU ARE THE TEAM LEADER\n'
+    context += '='.repeat(60) + '\n\n'
+
+    context += `You are the **LEADER** of a multi-agent team. You have ${team.workers.length} worker agent(s) available to execute tasks.\n\n`
+
+    // Resolve remote server details for all remote workers
+    let deployService: any = null
+    for (const worker of team.workers) {
+      if (worker.config.type === 'remote' && worker.config.remoteServerId && !deployService) {
+        try {
+          const mod = await import('../../ipc/remote-server')
+          deployService = mod.getRemoteDeployService()
+        } catch {
+          // Remote deploy service not available
+        }
+      }
+    }
+    const { decryptString } = await import('../secure-storage.service')
+
+    // Collect unique remote server info for cross-server file transfer guidance
+    const remoteServersMap = new Map<string, { name: string; host: string; sshPort: number; username: string; password: string }>()
+
+    // List available workers with details
+    if (team.workers.length > 0) {
+      context += '### Your Available Workers:\n\n'
+      for (const worker of team.workers) {
+        const capabilities = worker.config.capabilities?.length
+          ? worker.config.capabilities.join(', ')
+          : 'general purpose'
+
+        context += `#### ${worker.config.name || worker.id}\n`
+        context += `- **ID**: \`${worker.id}\`\n`
+
+        if (worker.config.type === 'remote' && worker.config.remoteServerId) {
+          const serverInfo = deployService?.getServer(worker.config.remoteServerId)
+          const serverName = serverInfo?.name || worker.config.remoteServerId
+          context += `- **Location**: Remote server "${serverName}"\n`
+          if (serverInfo) {
+            const decryptedPassword = decryptString(serverInfo.password || '')
+            context += `- **Server IP**: ${serverInfo.host}\n`
+            context += `- **SSH Port**: ${serverInfo.sshPort}\n`
+            context += `- **Username**: ${serverInfo.username}\n`
+            context += `- **Password**: ${decryptedPassword}\n`
+            context += `- **Working Dir**: ${serverInfo.workDir || '/root'}\n`
+            remoteServersMap.set(worker.config.remoteServerId, {
+              name: serverName,
+              host: serverInfo.host,
+              sshPort: serverInfo.sshPort,
+              username: serverInfo.username,
+              password: decryptedPassword
+            })
+          }
+        } else {
+          context += `- **Location**: Local machine\n`
+        }
+
+        context += `- **Capabilities**: ${capabilities}\n`
+        context += `- **Status**: ${worker.status}\n\n`
+      }
+    }
+
+    // Cross-server file transfer guidance (only if there are 2+ remote servers)
+    if (remoteServersMap.size >= 2) {
+      context += '### Cross-Server File Transfer:\n\n'
+      context += 'You have workers on multiple remote servers. When coordinating file transfers between servers (e.g., model weights, Docker images, config files), provide workers with explicit `scp` commands.\n\n'
+      context += '**Example** — copy a file from Server A to Server B:\n'
+      context += '```\n'
+      context += 'sshpass -p \'<password_B>\' scp -P <port_B> -o StrictHostKeyChecking=no /path/to/file <username_B>@<host_B>:/target/path\n'
+      context += '```\n\n'
+      context += '**Available servers for transfer:**\n'
+      for (const [serverId, info] of remoteServersMap) {
+        context += `- **${info.name}**: ${info.username}@${info.host} (SSH port: ${info.sshPort}, password: ${info.password}, workDir: ${deployService?.getServer(serverId)?.workDir || '/root'})\n`
+      }
+      context += '\nUse `sshpass -p` to automate password input in non-interactive commands.\n\n'
+    } else if (remoteServersMap.size === 1) {
+      const [serverId, info] = remoteServersMap.entries().next().value!
+      const workDir = deployService?.getServer(serverId)?.workDir || '/root'
+      context += '### Remote Server Access:\n\n'
+      context += `Your remote worker runs on server **${info.name}**. When instructing it to transfer files to/from the local machine, provide explicit commands.\n\n`
+      context += `**Server**: ${info.name} (${info.host})\n`
+      context += `**SSH**: ${info.username}@${info.host} -p ${info.sshPort} (password: ${info.password})\n`
+      context += `**Work Dir**: ${workDir}\n\n`
+      context += '**Example** — copy from local to remote:\n'
+      context += '```\n'
+      context += `sshpass -p '${info.password}' scp -P ${info.sshPort} -o StrictHostKeyChecking=no /local/path/file ${info.username}@${info.host}:${workDir}/\n`
+      context += '```\n\n'
+    }
+
+    // ====================================================================
+    // TASK PLANNING — the most critical section
+    // ====================================================================
+    context += '### Task Planning Workflow (MUST FOLLOW):\n\n'
+    context += 'When you receive a user request, follow this EXACT workflow:\n\n'
+    context += '**Step 1: Analyze & Plan**\n'
+    context += '- First, analyze the user\'s request carefully\n'
+    context += '- Break it down into a step-by-step plan in your thinking\n'
+    context += '- Present the plan to the user as a numbered todolist with clear descriptions\n'
+    context += '- Do NOT dispatch any tasks until the plan is shown\n\n'
+
+    context += '**Step 2: Plan Granularity Guidelines**\n'
+    context += '- Each subtask should be a **single, well-defined action** that one worker can complete independently\n'
+    context += '- A good subtask can be described in 1-2 sentences and has a clear success criterion\n'
+    context += '- Avoid overly broad tasks like "set up the server" — break into "install Docker", "configure network", "start the service"\n'
+    context += '- Avoid overly tiny tasks like "create file X" if it\'s part of a logical unit — group related file operations\n'
+    context += '- A typical subtask takes one worker one execution turn to complete\n'
+    context += '- If a task requires more than 3-4 steps internally, split it further\n\n'
+
+    context += '**Step 3: Incremental Execution**\n'
+    context += '- Dispatch subtasks **incrementally**: assign the first step, wait for the worker to report back, review the result, then assign the next step\n'
+    context += '- This allows you to catch errors early and adjust the plan based on actual results\n'
+    context += '- Only use parallel dispatch (`spawn_subagent` multiple times) when subtasks are truly independent (no data dependencies)\n'
+    context += '- Update the user on progress as each step completes\n\n'
+
+    context += '**Step 4: Result Aggregation**\n'
+    context += '- As workers report back, verify the output matches expectations\n'
+    context += '- If a worker\'s result is incomplete or incorrect, adjust the task description and retry\n'
+    context += '- Once all steps are done, provide a final summary to the user\n\n'
+
+    // How to delegate
+    context += '### How to Delegate Tasks to Workers:\n\n'
+    context += 'Use the `spawn_subagent` tool to assign tasks to workers.\n\n'
+    context += '**Recommended**: Always specify `targetAgentId` to send tasks to a specific worker:\n\n'
+    context += '```json\n'
+    context += '{\n'
+    context += '  "task": "Check NPU device status on this server",\n'
+    context += '  "targetAgentId": "' + (team.workers[0]?.id || 'worker-1') + '"\n'
+    context += '}\n'
+    context += '```\n\n'
+    context += 'If you omit `targetAgentId`, the task will be routed automatically based on the routing strategy.\n\n'
+
+    context += '**Task description best practices:**\n'
+    context += '- Include clear context: what, where, and any specific requirements\n'
+    context += '- Reference previous results if this step depends on earlier work\n'
+    context += '- Specify the expected output format if relevant\n\n'
+
+    // Parallel execution guidance
+    context += '### Parallel Execution:\n\n'
+    context += '- Only dispatch tasks in parallel when they are **truly independent** (no shared files, no data dependencies)\n'
+    context += '- Each worker will execute independently and report back\n'
+    context += '- Match task requirements to worker capabilities for best results\n'
+    context += '- Use `wait_for_team` after dispatching tasks to wait for all workers to complete and collect results\n\n'
+
+    // Important rules
+    context += '### Important Rules:\n\n'
+    context += '1. **Plan first, then execute** — Always show the user your plan before dispatching any tasks\n'
+    context += '2. **DO NOT poll** - Do NOT use sessions_list, sessions_history, or sleep to check status\n'
+    context += '3. **Automatic result collection** - Workers will automatically announce completion to you. You do NOT need to call `wait_for_team` — worker results will be delivered to you automatically even if you stop generating.\n'
+    context += '4. **Incremental delegation** - Dispatch one step at a time unless tasks are truly parallel\n'
+    context += '5. **Verify results** - Check worker output quality before proceeding to the next step\n'
+    context += '6. **Adapt the plan** - If a step fails or produces unexpected results, adjust the plan\n'
+    context += '7. **Handle failures** - If a worker fails, you can retry or report the issue\n'
+    context += '8. **Use `wait_for_team` optionally** - If you want to collect all results at once before processing, use `wait_for_team`. But it is not required — results will be delivered to you automatically.\n'
+    context += '9. **Workers can report proactively** - Workers may send intermediate progress updates via `report_to_leader`. These will be delivered to you as messages.\n\n'
+
+    // Communication tools
+    context += '### Communication Tools:\n\n'
+    context += '- `spawn_subagent` - Assign a task to a worker\n'
+    context += '- `check_subagent_status` - Check task progress (use sparingly)\n'
+    context += '- `list_team_members` - Get detailed team info\n'
+    context += '- `send_message` - Send a message to a specific worker\n'
+    context += '- `broadcast_message` - Send a message to all workers\n'
+    context += '- `wait_for_team` - Wait for all pending tasks to complete (optional)\n\n'
+
+    context += '='.repeat(60) + '\n\n'
+
+    return context
+  }
+
+  /**
+   * Build system prompt for WORKER agents
+   */
+  private buildWorkerSystemPrompt(team: AgentTeam, currentAgentId: string): string {
+    let context = '\n\n' + '='.repeat(60) + '\n'
+    context += '## HYPER SPACE: YOU ARE A WORKER AGENT\n'
+    context += '='.repeat(60) + '\n\n'
+
+    const currentWorker = team.workers.find(w => w.id === currentAgentId)
+    const workerName = currentWorker?.config.name || currentAgentId
+    const capabilities = currentWorker?.config.capabilities?.length
+      ? currentWorker.config.capabilities.join(', ')
+      : 'general purpose'
+
+    context += `You are **${workerName}**, a worker agent in a Hyper Space team.\n\n`
+    context += `Your capabilities: ${capabilities}\n\n`
+
+    // Leader info
+    context += '### Your Team Leader:\n\n'
+    context += `- **Name**: ${team.leader.config.name || team.leader.id}\n`
+    context += `- **ID**: \`${team.leader.id}\`\n\n`
+
+    // Worker responsibilities
+    context += '### Your Responsibilities:\n\n'
+    context += '1. Execute tasks assigned by the leader\n'
+    context += '2. Report completion using `announce_completion` when done\n'
+    context += '3. Proactively report progress, findings, or questions to the leader using `report_to_leader`\n'
+    context += '4. Communicate progress or issues to the leader\n\n'
+
+    // Communication tools
+    context += '### Communication Tools:\n\n'
+    context += '- `announce_completion` - Report task completion to leader (ends your task)\n'
+    context += '- `report_to_leader` - Send intermediate progress updates to the leader (you continue working)\n'
+    context += '- `ask_question` - Ask the leader or user a question when needing clarification\n'
+    context += '- `send_message` - Send a message to a specific teammate\n'
+    context += '- `broadcast_message` - Send a message to all teammates\n\n'
+
+    context += '**Important**: Use `report_to_leader` during task execution to keep the leader informed. ' +
+                'For example, report when you make progress, discover important findings, encounter obstacles, ' +
+                'or need guidance. The leader will see your reports in real-time.\n\n'
+
+    context += '='.repeat(60) + '\n\n'
+
+    return context
+  }
+
+  // ============================================
+  // Announcement Injection (OpenClaw Pattern)
+  // ============================================
+
+  /**
+   * Inject a worker's completion announcement into the leader's session.
+   *
+   * This is the KEY mechanism that enables push-based multi-agent collaboration:
+   * Instead of the leader polling for results, the worker's completion is
+   * queued via the existing turn-level injection system (queueInjection).
+   *
+   * This mirrors OpenClaw's "auto-announce" system where:
+   * 1. Worker completes task
+   * 2. Announcement is sent
+   * 3. Announcement is queued as a user message into the leader's stream
+   * 4. Leader's LLM naturally processes the result and continues
+   */
+  private async injectAnnouncementToLeader(announcement: SubagentAnnouncement): Promise<void> {
+    // Find the task to get the parent conversation ID
+    const task = this.tasks.get(announcement.taskId)
+    if (!task) {
+      console.warn(`[Orchestrator] Cannot inject announcement: task ${announcement.taskId} not found`)
+      return
+    }
+
+    const parentConversationId = task.parentConversationId
+
+    // Find the team for this conversation
+    const team = this.getTeamByConversation(parentConversationId)
+    if (!team) {
+      console.warn(`[Orchestrator] Cannot inject announcement: no team for conversation ${parentConversationId}`)
+      return
+    }
+
+    // Guard against infinite spawn loops: track injection cycles per team
+    team.spawnCycleCount++
+    if (team.spawnCycleCount > this.maxSpawnDepth) {
+      console.warn(
+        `[Orchestrator] Spawn cycle limit reached (${team.spawnCycleCount}/${this.maxSpawnDepth}). ` +
+        `Dropping announcement to prevent infinite loop.`
+      )
+      return
+    }
+
+    // Build the announcement message (formatted as a user message for the leader)
+    const announcementMessage = this.formatAnnouncementForLeader(announcement, team)
+
+    await this.injectMessageToSession(team.spaceId, parentConversationId, announcementMessage)
+
+    console.log(
+      `[Orchestrator] Injected announcement into leader session: ` +
+      `conversation=${parentConversationId}, task=${announcement.taskId}`
+    )
+  }
+
+  /**
+   * Format an announcement as a user message for the leader agent
+   */
+  private formatAnnouncementForLeader(
+    announcement: SubagentAnnouncement,
+    team: AgentTeam
+  ): string {
+    const worker = team.workers.find(w => w.id === announcement.agentId)
+    const workerName = worker?.config.name || announcement.agentId
+
+    let message = `[Subagent Announcement] Worker "${workerName}" reports:\n\n`
+
+    if (announcement.status === 'completed') {
+      message += `**Status**: Completed\n`
+
+      if (announcement.summary) {
+        message += `**Summary**: ${announcement.summary}\n`
+      }
+
+      if (announcement.result) {
+        message += `\n**Result**:\n${announcement.result}\n`
+      }
+    } else {
+      message += `**Status**: Failed\n`
+
+      if (announcement.result) {
+        message += `**Error**: ${announcement.result}\n`
+      }
+    }
+
+    message += `\nTask ID: ${announcement.taskId}`
+
+    return message
+  }
+
+  /**
+   * Inject a message into the leader's active session.
+   *
+   * Uses the existing turn-level injection system (queueInjection from stream-processor)
+   * instead of directly manipulating the session. This avoids:
+   * - Session conflicts (two concurrent stream() loops on the same session)
+   * - Race conditions with the leader's main stream loop
+   *
+   * The queued message will be picked up by processStream()'s turn-boundary
+   * detection and processed in the existing while(true) loop in send-message.ts.
+   */
+  private async injectMessageToSession(
+    spaceId: string,
+    conversationId: string,
+    message: string,
+    skipUiNotification = false
+  ): Promise<void> {
+    try {
+      console.log(`[Orchestrator] injectMessageToSession: conversationId=${conversationId}${conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
+      const { sendToRenderer } = await import('./helpers')
+
+      // Show the announcement in the chat UI immediately
+      // Skip if the caller already sent a UI notification (e.g., sendAgentMessage)
+      if (!skipUiNotification) {
+        sendToRenderer('agent:team-message', spaceId, conversationId, {
+          id: `announce-${Date.now()}`,
+          type: 'agent_announcement',
+          content: message,
+          summary: message.substring(0, 100),
+          timestamp: Date.now(),
+          senderId: 'system',
+          senderName: 'System'
+        })
+      }
+
+      // Use the existing turn-level injection system to queue the announcement
+      // This will be picked up by processStream's turn-boundary detection
+      const { queueInjection } = await import('./stream-processor')
+      queueInjection(conversationId, message)
+
+      // NOTE: We do NOT persist the worker announcement as a user message here.
+      // The injection is for the Leader's LLM to process internally.
+      // The Leader's own response (after processing the injection) is what
+      // gets persisted and shown to the user via processStream's onComplete.
+
+      console.log(`[Orchestrator] Announcement queued for injection: conversation=${conversationId}`)
+    } catch (error) {
+      console.error(`[Orchestrator] Error injecting message to leader session:`, error)
+    }
+  }
+
+  // ============================================
+  // Hyper Space Tool Call Handler (Remote Worker Proxy)
+  // ============================================
+
+  /**
+   * Handle a hyper-space tool call from a remote worker.
+   *
+   * When a remote Claude calls a hyper-space MCP tool (e.g., report_to_leader),
+   * the remote-agent-proxy sends a tool:call event to Halo via WebSocket.
+   * This method receives the event, executes the tool via the orchestrator,
+   * and sends the result back via tool:approve.
+   *
+   * This runs asynchronously — the remote Claude's MCP handler waits for the response.
+   */
+  private async handleHyperSpaceToolCall(
+    team: AgentTeam,
+    agent: AgentInstance,
+    parentConversationId: string,
+    toolData: any,
+    client: any
+  ): Promise<void> {
+    const toolName = toolData.name
+    const toolId = toolData.id
+    const toolInput = toolData.input || {}
+    const workerTag = { agentId: agent.id, agentName: agent.config.name || agent.id }
+
+    console.log(`[Orchestrator] Hyper-space tool call from remote worker: ${toolName}`)
+
+    // Forward the tool call to the UI so users can see what the worker is doing
+    sendToRenderer('agent:tool-call', team.spaceId, parentConversationId, {
+      id: toolId,
+      name: toolName,
+      status: 'running',
+      input: toolInput,
+      requiresApproval: false,
+      ...workerTag
+    })
+
+    try {
+      let result: string
+
+      switch (toolName) {
+        case 'report_to_leader': {
+          // Worker reports intermediate progress to leader
+          const typeLabels: Record<string, string> = {
+            progress: 'Progress Update',
+            finding: 'Finding',
+            question: 'Question',
+            error: 'Error Report',
+            info: 'Information'
+          }
+          const reportType = (toolInput.reportType as string) || 'progress'
+          const reportMessage = `[${typeLabels[reportType] || reportType}] Worker "${agent.config.name || agent.id}" reports:\n\n${toolInput.message}`
+
+          // Show in UI immediately
+          const { sendToRenderer } = await import('./helpers')
+          sendToRenderer('agent:team-message', team.spaceId, parentConversationId, {
+            id: `report-${Date.now()}`,
+            type: 'worker_report',
+            senderId: agent.id,
+            senderName: agent.config.name || agent.id,
+            workerId: agent.id,
+            workerName: agent.config.name || agent.id,
+            content: reportMessage,
+            reportType,
+            summary: (toolInput.message as string).substring(0, 100),
+            timestamp: Date.now()
+          })
+
+          // Inject into leader's session
+          const { queueInjection } = await import('./stream-processor')
+          queueInjection(parentConversationId, reportMessage)
+
+          result = `Report sent to leader. Type: ${reportType}`
+          break
+        }
+
+        case 'announce_completion': {
+          // Worker signals task completion
+          const taskId = toolInput.taskId as string
+          const status = toolInput.status as string
+          const taskResult = toolInput.result as string
+          const summary = toolInput.summary as string
+
+          // Update task status
+          if (taskId) {
+            this.updateTaskStatus(taskId, status === 'completed' ? 'completed' : 'failed', taskResult)
+          }
+
+          // Emit announce event for listeners (same as sendAnnouncement does)
+          // This was missing — without it, event listeners miss remote worker completions
+          this.emit('announce', {
+            type: 'agent:announce',
+            taskId,
+            agentId: agent.id,
+            status,
+            result: taskResult,
+            summary: summary || (taskResult ? taskResult.substring(0, 200) : undefined),
+            timestamp: Date.now()
+          })
+
+          // Inject into leader's session
+          const announcementMessage = `[Subagent Announcement] Worker "${agent.config.name || agent.id}" reports:\n\n**Status**: ${status}\n${taskResult ? `**Result**:\n${taskResult}\n` : ''}${summary ? `**Summary**: ${summary}\n` : ''}Task ID: ${taskId}`
+
+          const { queueInjection } = await import('./stream-processor')
+          queueInjection(parentConversationId, announcementMessage)
+
+          // Also emit for UI
+          const { sendToRenderer } = await import('./helpers')
+          sendToRenderer('agent:team-message', team.spaceId, parentConversationId, {
+            id: `announce-${Date.now()}`,
+            type: 'agent_announcement',
+            senderId: agent.id,
+            senderName: agent.config.name || agent.id,
+            content: announcementMessage,
+            summary: summary || announcementMessage.substring(0, 100),
+            timestamp: Date.now()
+          })
+
+          // Remove from pending announcements
+          const pending = this.pendingAnnouncements.get(parentConversationId)
+          if (pending && taskId) {
+            pending.delete(taskId)
+          }
+
+          // Update agent status
+          agent.status = status === 'completed' ? 'idle' : 'error'
+
+          result = `Task ${taskId} marked as ${status}. Announcement sent to leader.`
+          break
+        }
+
+        case 'ask_question': {
+          // Worker asks a question — forward to leader via injection
+          const questionMsg = `[Question from ${agent.config.name || agent.id}]\n${toolInput.question}`
+
+          const { queueInjection } = await import('./stream-processor')
+          queueInjection(parentConversationId, questionMsg)
+
+          result = `Question sent to ${toolInput.target || 'leader'}. Continue working on your task.`
+          break
+        }
+
+        case 'send_message': {
+          // Worker sends message to a teammate — forward via injection
+          const msgContent = `[Message from ${agent.config.name || agent.id} to ${toolInput.recipient}]\n${toolInput.content}`
+
+          const { queueInjection } = await import('./stream-processor')
+          queueInjection(parentConversationId, msgContent)
+
+          result = `Message sent to ${toolInput.recipient}.`
+          break
+        }
+
+        case 'list_team_members': {
+          // Return team info as a string
+          let info = `## Team Members\n\n`
+          info += `### Leader: ${team.leader.config.name || team.leader.id}\n`
+          info += `### Workers:\n`
+          for (const w of team.workers) {
+            info += `- ${w.config.name || w.id} (${w.config.type}, ${w.status})\n`
+          }
+          result = info
+          break
+        }
+
+        default:
+          result = `Unknown hyper-space tool: ${toolName}`
+      }
+
+      // Forward tool result to UI
+      sendToRenderer('agent:tool-result', team.spaceId, parentConversationId, {
+        toolId,
+        result,
+        isError: false,
+        ...workerTag
+      })
+
+      // Send result back to remote-agent-proxy via tool:approve
+      // This resolves the MCP handler's promise, allowing Claude to continue
+      client.approveToolCall(
+        parentConversationId,
+        toolId,
+        result
+      )
+
+      console.log(`[Orchestrator] Hyper-space tool ${toolName} completed, result sent back to remote worker`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Forward error to UI
+      sendToRenderer('agent:tool-result', team.spaceId, parentConversationId, {
+        toolId,
+        result: errorMessage,
+        isError: true,
+        ...workerTag
+      })
+
+      // Send error back to remote-agent-proxy via tool:reject
+      client.rejectToolCall(
+        parentConversationId,
+        toolId,
+        errorMessage
+      )
+
+      console.error(`[Orchestrator] Hyper-space tool ${toolName} failed:`, errorMessage)
+    }
+  }
+
+  // ============================================
+  // Worker Proactive Communication
+  // ============================================
+
+  /**
+   * Allow a worker to proactively report to the leader during task execution.
+   *
+   * This is the key mechanism for mid-task worker-initiated communication:
+   * - The worker calls `report_to_leader` MCP tool
+   * - The report is injected into the leader's session via queueInjection
+   * - The leader's while(true) injection loop picks it up and processes it
+   *
+   * Unlike announce_completion (which ends a task), this does NOT affect task status.
+   * The worker continues working after reporting.
+   */
+  async reportToLeader(params: {
+    spaceId: string
+    conversationId: string
+    workerId: string
+    workerName: string
+    content: string
+    reportType: string
+  }): Promise<void> {
+    console.log(
+      `[Orchestrator] Worker report: worker=${params.workerName} type=${params.reportType}`
+    )
+
+    // Find the team to get the parent conversation ID (leader's conversation)
+    const team = this.getTeamBySpace(params.spaceId)
+    if (!team) {
+      console.warn(`[Orchestrator] No team found for space ${params.spaceId}, cannot report to leader`)
+      return
+    }
+
+    const leaderConversationId = team.conversationId
+
+    // Show the report in the chat UI immediately
+    const { sendToRenderer } = await import('./helpers')
+    sendToRenderer('agent:team-message', params.spaceId, leaderConversationId, {
+      id: `report-${Date.now()}`,
+      type: 'worker_report',
+      senderId: params.workerId,
+      senderName: params.workerName,
+      workerId: params.workerId,
+      workerName: params.workerName,
+      content: params.content,
+      reportType: params.reportType,
+      summary: params.content.substring(0, 100),
+      timestamp: Date.now()
+    })
+
+    // Inject into the leader's session via queueInjection
+    // The leader's while(true) loop in executeAgentLocally will pick this up
+    const { queueInjection } = await import('./stream-processor')
+    queueInjection(leaderConversationId, params.content)
+
+    // NOTE: We do NOT persist the worker report as a user message here.
+    // The Leader's LLM processes the report internally via queueInjection.
+    // Only the Leader's own response (after processing) is shown to the user.
+
+    console.log(
+      `[Orchestrator] Worker report queued for leader injection: ` +
+      `conversation=${leaderConversationId}, worker=${params.workerName}`
+    )
   }
 }
 

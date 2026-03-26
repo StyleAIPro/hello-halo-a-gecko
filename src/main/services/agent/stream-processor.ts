@@ -52,12 +52,12 @@ interface PendingInjection {
   aiBrowserEnabled?: boolean
 }
 
-// Map: conversationId -> PendingInjection
-const pendingInjections = new Map<string, PendingInjection>()
+// Map: conversationId -> PendingInjection[] (queue to prevent message loss from concurrent workers)
+const pendingInjectionQueues = new Map<string, PendingInjection[]>()
 
 /**
  * Queue a message for turn-level injection.
- * Called when frontend receives turn-boundary event and has pending messages.
+ * Supports multiple pending injections per conversation (e.g., from concurrent workers).
  */
 export function queueInjection(
   conversationId: string,
@@ -66,24 +66,24 @@ export function queueInjection(
   thinkingEnabled?: boolean,
   aiBrowserEnabled?: boolean
 ): void {
-  console.log(`[Agent][${conversationId}] Queuing injection message: ${content.slice(0, 50)}...`)
-  pendingInjections.set(conversationId, {
-    content,
-    images,
-    thinkingEnabled,
-    aiBrowserEnabled
-  })
+  const queue = pendingInjectionQueues.get(conversationId) || []
+  queue.push({ content, images, thinkingEnabled, aiBrowserEnabled })
+  pendingInjectionQueues.set(conversationId, queue)
+  console.log(`[Agent][${conversationId}] Queued injection message (queue size: ${queue.length}): ${content.slice(0, 50)}...`)
 }
 
 /**
- * Get and clear pending injection for a conversation.
+ * Dequeue the next pending injection for a conversation.
+ * Returns the first item in the queue, or undefined if empty.
  */
 export function getAndClearInjection(conversationId: string): PendingInjection | undefined {
-  const injection = pendingInjections.get(conversationId)
-  if (injection) {
-    pendingInjections.delete(conversationId)
-    console.log(`[Agent][${conversationId}] Retrieved and cleared injection`)
+  const queue = pendingInjectionQueues.get(conversationId)
+  if (!queue || queue.length === 0) return undefined
+  const injection = queue.shift()!
+  if (queue.length === 0) {
+    pendingInjectionQueues.delete(conversationId)
   }
+  console.log(`[Agent][${conversationId}] Dequeued injection (remaining: ${queue.length})`)
   return injection
 }
 
@@ -91,7 +91,31 @@ export function getAndClearInjection(conversationId: string): PendingInjection |
  * Check if there's a pending injection for a conversation.
  */
 export function hasPendingInjection(conversationId: string): boolean {
-  return pendingInjections.has(conversationId)
+  const queue = pendingInjectionQueues.get(conversationId)
+  return queue !== undefined && queue.length > 0
+}
+
+/**
+ * Clear all pending injections for a conversation (e.g., on team destroy or error).
+ */
+export function clearInjectionsForConversation(conversationId: string): number {
+  const queue = pendingInjectionQueues.get(conversationId)
+  if (!queue) return 0
+  const count = queue.length
+  pendingInjectionQueues.delete(conversationId)
+  console.log(`[Agent][${conversationId}] Cleared ${count} pending injection(s)`)
+  return count
+}
+
+/**
+ * Clear all pending injections across all conversations (e.g., on orchestrator destroy).
+ */
+export function clearAllInjections(): void {
+  const total = Array.from(pendingInjectionQueues.values()).reduce((sum, q) => sum + q.length, 0)
+  pendingInjectionQueues.clear()
+  if (total > 0) {
+    console.log(`[Agent] Cleared all injections across all conversations (${total} total)`)
+  }
 }
 
 // ============================================
@@ -163,6 +187,12 @@ export interface ProcessStreamParams {
   t0: number
   /** Strategy callbacks for caller-specific behavior */
   callbacks: StreamCallbacks
+  /** Redirect renderer events to a different conversationId (for Hyper Space worker subtasks) */
+  rendererConversationId?: string
+  /** Suppress the agent:complete event and isComplete message at end of stream (for worker subtasks) */
+  suppressComplete?: boolean
+  /** Worker agent info — when set, all renderer events include agentId/agentName for worker panel routing */
+  workerInfo?: { agentId: string; agentName: string }
 }
 
 // ============================================
@@ -199,8 +229,27 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     callbacks
   } = params
 
-  // Only keep track of the LAST text block as the final reply
-  // Intermediate text blocks are shown in thought process, not accumulated into message bubble
+  // For worker subtasks, redirect renderer events to the parent conversation
+  const rendererConvId = params.rendererConversationId || conversationId
+
+  // For worker subtasks, tag all events with agent identification so frontend can route to worker panels
+  const workerTag = params.workerInfo
+    ? { agentId: params.workerInfo.agentId, agentName: params.workerInfo.agentName }
+    : undefined
+
+  /** Local sendToRenderer wrapper that injects worker tag when present */
+  const emit = (channel: string, data: Record<string, unknown>): void => {
+    if (workerTag) {
+      sendToRenderer(channel, spaceId, rendererConvId, { ...data, ...workerTag })
+    } else {
+      sendToRenderer(channel, spaceId, rendererConvId, data)
+    }
+  }
+
+  // Accumulate ALL text blocks as the final reply
+  // When Claude produces multiple text blocks (e.g. one before tool calls, one after),
+  // we concatenate them all so the final message contains the complete response.
+  // Intermediate text blocks are still added to thoughts for the thought process timeline.
   let lastTextContent = ''
   let capturedSessionId: string | undefined
 
@@ -307,7 +356,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
         // 🔑 Send precise signal for new text block (fixes truncation bug)
         // This is 100% reliable - comes directly from SDK's content_block_start event
-        sendToRenderer('agent:message', spaceId, conversationId, {
+        emit('agent:message', {
           type: 'message',
           content: '',
           isComplete: false,
@@ -343,7 +392,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         sessionState.thoughts.push(thought)
 
         // Send to renderer for immediate display
-        sendToRenderer('agent:thought', spaceId, conversationId, { thought })
+        emit('agent:thought', { thought })
       }
 
       // Thinking delta - append to thought content
@@ -356,7 +405,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           blockState.content += delta
 
           // Send delta to renderer for incremental update
-          sendToRenderer('agent:thought-delta', spaceId, conversationId, {
+          emit('agent:thought-delta', {
             thoughtId: blockState.thoughtId,
             delta,
             content: blockState.content  // Also send full content for fallback
@@ -373,7 +422,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         sessionState.streamingContent = currentStreamingText
 
         // Send delta immediately without throttling
-        sendToRenderer('agent:message', spaceId, conversationId, {
+        emit('agent:message', {
           type: 'message',
           delta,
           isComplete: false,
@@ -414,7 +463,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         sessionState.thoughts.push(thought)
 
         // Send to renderer for immediate display (shows tool name, "准备中...")
-        sendToRenderer('agent:thought', spaceId, conversationId, { thought })
+        emit('agent:thought', { thought })
       }
 
       // Tool use input JSON delta - accumulate partial JSON
@@ -427,7 +476,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           blockState.content += partialJson
 
           // Send delta to renderer (for progress indication, not for parsing)
-          sendToRenderer('agent:thought-delta', spaceId, conversationId, {
+          emit('agent:thought-delta', {
             thoughtId: blockState.thoughtId,
             delta: partialJson,
             isToolInput: true  // Flag: this is tool input JSON, not thinking text
@@ -444,7 +493,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         if (blockState) {
           if (blockState.type === 'thinking') {
             // Thinking block complete - send final state
-            sendToRenderer('agent:thought-delta', spaceId, conversationId, {
+            emit('agent:thought-delta', {
               thoughtId: blockState.thoughtId,
               content: blockState.content,
               isComplete: true  // Signal: thinking is complete
@@ -480,7 +529,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             }
 
             // Send complete signal with parsed input
-            sendToRenderer('agent:thought-delta', spaceId, conversationId, {
+            emit('agent:thought-delta', {
               thoughtId: blockState.thoughtId,
               toolInput,
               isComplete: true,  // Signal: tool params are complete
@@ -504,7 +553,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
               status: 'running',
               input: toolInput
             }
-            sendToRenderer('agent:tool-call', spaceId, conversationId, toolCall as unknown as Record<string, unknown>)
+            emit('agent:tool-call', toolCall as unknown as Record<string, unknown>)
 
             if (is.dev) {
               console.log(`[Agent][${conversationId}] Tool block complete [${blockState.toolName}], input: ${JSON.stringify(toolInput).substring(0, 100)}`)
@@ -546,18 +595,22 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         // Handle text block stop (existing logic)
         if (isStreamingTextBlock) {
           isStreamingTextBlock = false
-          // Send final content of this block
-          sendToRenderer('agent:message', spaceId, conversationId, {
+          // Accumulate this text block into the running total for final message
+          // (append with newline separator between blocks)
+          lastTextContent = lastTextContent
+            ? lastTextContent + '\n\n' + currentStreamingText
+            : currentStreamingText
+          // Send final content of THIS block to frontend (for streaming display)
+          // Note: streamingContent remains per-block; full concatenation happens at finalContent
+          emit('agent:message', {
             type: 'message',
             content: currentStreamingText,
             isComplete: false,
             isStreaming: false
           })
-          // Update lastTextContent for final result
-          lastTextContent = currentStreamingText
           // Update sessionState for recovery after page refresh
           sessionState.streamingContent = currentStreamingText
-          console.log(`[Agent][${conversationId}] Text block completed, length: ${currentStreamingText.length}`)
+          console.log(`[Agent][${conversationId}] Text block completed, total accumulated: ${lastTextContent.length} chars`)
         }
       }
 
@@ -642,14 +695,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           }
 
           // Send thought-delta to merge result into tool_use on frontend
-          sendToRenderer('agent:thought-delta', spaceId, conversationId, {
+          emit('agent:thought-delta', {
             thoughtId: toolUseThoughtId,
             toolResult,
             isToolResult: true  // Flag: this is a tool result merge
           })
 
           // Still send tool-result event for any listeners
-          sendToRenderer('agent:tool-result', spaceId, conversationId, {
+          emit('agent:tool-result', {
             type: 'tool_result',
             toolId: thought.id,
             result: thought.toolOutput || '',
@@ -658,7 +711,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
           // Send turn-boundary event for message injection opportunity
           // This allows frontend to inject pending user messages at natural boundaries
-          sendToRenderer('agent:turn-boundary', spaceId, conversationId, {
+          emit('agent:turn-boundary', {
             toolName: toolUseThought?.toolName,
             toolId: thought.id,
             timestamp: Date.now()
@@ -681,15 +734,15 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         } else {
           // No mapping found - fall back to separate thought (shouldn't happen normally)
           sessionState.thoughts.push(thought)
-          sendToRenderer('agent:thought', spaceId, conversationId, { thought })
-          sendToRenderer('agent:tool-result', spaceId, conversationId, {
+          emit('agent:thought', { thought })
+          emit('agent:tool-result', {
             type: 'tool_result',
             toolId: thought.id,
             result: thought.toolOutput || '',
             isError: thought.isError || false
           })
           // Also send turn-boundary for consistency
-          sendToRenderer('agent:turn-boundary', spaceId, conversationId, {
+          emit('agent:turn-boundary', {
             toolId: thought.id,
             timestamp: Date.now()
           })
@@ -709,19 +762,19 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
         // Send ALL thoughts to renderer for real-time display in thought process area
         // This includes text blocks - they appear in the timeline during generation
-        sendToRenderer('agent:thought', spaceId, conversationId, { thought })
+        emit('agent:thought', { thought })
 
         // Handle specific thought types
         if (thought.type === 'text') {
-          // Keep only the latest text block (overwritten by each new text block)
-          // This becomes the final reply when generation completes
-          // Intermediate texts stay in the thought process area only
-          lastTextContent = thought.content
+          // Accumulate ALL text blocks for final message (append with newline separator)
+          lastTextContent = lastTextContent
+            ? lastTextContent + '\n\n' + thought.content
+            : thought.content
 
           // Send streaming update - frontend shows this during generation
-          sendToRenderer('agent:message', spaceId, conversationId, {
+          emit('agent:message', {
             type: 'message',
-            content: lastTextContent,
+            content: thought.content,
             isComplete: false
           })
         } else if (thought.type === 'tool_use') {
@@ -732,24 +785,26 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             status: 'running',
             input: thought.toolInput || {}
           }
-          sendToRenderer('agent:tool-call', spaceId, conversationId, toolCall as unknown as Record<string, unknown>)
+          emit('agent:tool-call', toolCall as unknown as Record<string, unknown>)
         } else if (thought.type === 'error') {
           // SDK reported an error (rate_limit, authentication_failed, etc.)
           // Send error to frontend - user should see the actual error from provider
           console.log(`[Agent][${conversationId}] Error thought received: ${thought.content}`)
-          sendToRenderer('agent:error', spaceId, conversationId, {
+          emit('agent:error', {
             type: 'error',
             error: thought.content,
             errorCode: thought.errorCode  // Preserve error code for debugging
           })
         } else if (thought.type === 'result') {
-          // Final result - use the last text block as the final reply
+          // Final result - use accumulated text blocks as the final reply
           const finalContent = lastTextContent || thought.content
-          sendToRenderer('agent:message', spaceId, conversationId, {
-            type: 'message',
-            content: finalContent,
-            isComplete: true
-          })
+          if (!params.suppressComplete) {
+            emit('agent:message', {
+              type: 'message',
+              content: finalContent,
+              isComplete: true
+            })
+          }
           // Fallback: if no text block was received, use result content for persistence
           if (!lastTextContent && thought.content) {
             lastTextContent = thought.content
@@ -777,7 +832,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         if (compactMetadata) {
           console.log(`[Agent][${conversationId}] Context compressed: trigger=${compactMetadata.trigger}, pre_tokens=${compactMetadata.pre_tokens}`)
           // Send compact notification to renderer
-          sendToRenderer('agent:compact', spaceId, conversationId, {
+          emit('agent:compact', {
             type: 'compact',
             trigger: compactMetadata.trigger,
             preTokens: compactMetadata.pre_tokens
@@ -848,7 +903,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // | 6    | no         | -             | -               | yes        | -               | no               |
   // | 7    | no         | no            | no              | no         | yes             | max turns notice |
 
-  // Merge content: prefer lastTextContent (confirmed), fallback to currentStreamingText (accumulated)
+  // Merge content: prefer lastTextContent (all accumulated text blocks), fallback to currentStreamingText
   const finalContent = lastTextContent || currentStreamingText || ''
   const wasAborted = abortController.signal.aborted
   const hasErrorThought = sessionState.thoughts.some((t: Thought) => t.type === 'error')
@@ -900,11 +955,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   }
 
   // Always send complete event to unblock frontend
-  sendToRenderer('agent:complete', spaceId, conversationId, {
-    type: 'complete',
-    duration: 0,
-    tokenUsage
-  })
+  // (unless suppressed for worker subtasks in Hyper Space)
+  if (!params.suppressComplete) {
+    emit('agent:complete', {
+      type: 'complete',
+      duration: 0,
+      tokenUsage
+    })
+  }
 
   // Determine if interrupted error should be sent
   const getInterruptedErrorMessage = (): string | null => {
@@ -931,7 +989,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         ? (hadErrorDuringExecution ? 'error_during_execution' : 'stream interrupted')
         : 'empty response'
     console.log(`[Agent][${conversationId}] Sending interrupted error (${reason}, content: ${finalContent ? 'yes' : 'no'})`)
-    sendToRenderer('agent:error', spaceId, conversationId, {
+    emit('agent:error', {
       type: 'error',
       errorType: 'interrupted',
       error: errorMessage

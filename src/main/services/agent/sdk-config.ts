@@ -83,6 +83,10 @@ export interface BaseSdkOptionsParams {
   maxTurns?: number
   /** Context window size in tokens (for compression threshold calculation) */
   contextWindow?: number
+  /** Optional agent ID for Hyper Space worker routing */
+  agentId?: string
+  /** Optional agent name for Hyper Space worker routing */
+  agentName?: string
 }
 
 // ============================================
@@ -389,7 +393,9 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     abortController,
     stderrHandler,
     mcpServers,
-    contextWindow
+    contextWindow,
+    agentId,
+    agentName
   } = params
 
   console.log(`[SDK Config] buildBaseSdkOptions: workDir="${workDir}", spaceId="${spaceId}", contextWindow=${contextWindow || 'default'}`)
@@ -416,6 +422,8 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     systemPrompt: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+    // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
+    disallowedTools: ['WebFetch', 'WebSearch'],
     // Enable Skills loading from $CLAUDE_CONFIG_DIR/skills/ ONLY (no project-level skills)
     // All skills are managed globally in ~/.agents/skills/ via symlink
     settingSources: ['user'],
@@ -423,7 +431,9 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     canUseTool: createCanUseTool({
       sendToRenderer,
       spaceId,
-      conversationId
+      conversationId,
+      agentId,
+      agentName
     }),
     // Requires SDK patch: enable token-level streaming (stream_event)
     includePartialMessages: true,
