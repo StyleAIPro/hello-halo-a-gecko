@@ -1,0 +1,83 @@
+diff --git a/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
+index 7184a43..0000000 100755
+--- a/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
++++ b/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
+@@ -13505,6 +13505,11 @@ class Query {
+   hookCallbacks = new Map;
+   sdkMcpTransports = new Map;
+   sdkMcpServerInstances = new Map;
+   pendingMcpResponses = new Map;
++  // [PATCHED] Turn-level message injection for Claude CLI-like behavior
++  _continueAfterResult = false;
++  _pendingUserMessages = [];
+   firstResultReceivedResolve;
+   firstResultReceived = false;
+   hasBidirectionalNeeds() {
+@@ -13608,6 +13613,15 @@ class Query {
+           }
+         }
+         this.inputStream.enqueue(message);
++        // [PATCHED] Inject pending user messages after result for turn-level continuation
++        if (message.type === "result" && this._continueAfterResult && this._pendingUserMessages.length > 0) {
++          const nextMsg = this._pendingUserMessages.shift();
++          logForDebugging(`[Query.readMessages] Injecting pending user message after result`);
++          this.inputStream.enqueue(nextMsg);
++          // Continue if more messages pending
++          this._continueAfterResult = this._pendingUserMessages.length > 0;
++        }
+       }
+       if (this.firstResultReceivedResolve) {
+         this.firstResultReceivedResolve();
+@@ -14054,6 +14068,22 @@ class SessionImpl {
+     this.query.streamInput(this.inputStream);
+   }
+   async send(message) {
++    // [PATCHED] Turn-level message injection - queue messages received after result
++    if (this.query?.firstResultReceived && !this.closed) {
++      if (!this.query._continueAfterResult && !this.query._pendingUserMessages?.length) {
++        // First message after result - enable continuation
++        this.query._pendingUserMessages.push(message);
++        this.query._continueAfterResult = true;
++        logForDebugging(`[SessionImpl.send] Queued message for turn-level injection`);
++        return;
++      } else if (this.query._pendingUserMessages) {
++        // Additional messages
++        this.query._pendingUserMessages.push(message);
++        logForDebugging(`[SessionImpl.send] Queued additional message for injection`);
++        return;
++      }
++    }
+     if (this.closed) {
+       throw new Error("Cannot send to closed session");
+     }
+@@ -14080,6 +14110,25 @@ class SessionImpl {
+       if (value.type === "result") {
+         return;
+       }
++    }
++  }
++  // [PATCHED] Enable turn-level message injection
++  enableContinueConversation() {
++    if (this.query) {
++      this.query._continueAfterResult = true;
++      logForDebugging(`[SessionImpl] Enabled continue conversation`);
++    }
++  }
++  hasPendingMessages() {
++    return this.query?._pendingUserMessages?.length > 0 || false;
++  }
++  getPendingMessageCount() {
++    return this.query?._pendingUserMessages?.length || 0;
++  }
++  // [PATCHED] Continue stream after result for turn-level injection
++  async* continueStream() {
++    if (!this.queryIterator) return;
++    while (true) {
++      const { value, done } = await this.queryIterator.next();
++      if (done) return;
++      yield value;
++      if (value.type === "result" && !(this.query?._continueAfterResult || this.query?._pendingUserMessages?.length > 0)) {
++        return;
+       }
+     }
+   }
