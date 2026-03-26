@@ -369,6 +369,10 @@ export interface Message {
   isStreaming?: boolean;
   images?: ImageAttachment[];  // Attached images
   tokenUsage?: TokenUsage;  // Token usage for this assistant message
+  // Hyper Space: Agent identification
+  agentId?: string;        // The agent who sent this message
+  agentName?: string;      // Display name of the agent
+  agentRole?: 'leader' | 'worker';  // Agent role in Hyper Space
   metadata?: {
     fileChanges?: FileChangesSummary;  // Lightweight file changes for immediate display
     /** 技能生成器：选中的会话信息（用于折叠卡片显示） */

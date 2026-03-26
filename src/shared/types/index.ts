@@ -130,6 +130,39 @@ export interface Space {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+
+  // Hyper Space support
+  spaceType?: 'local' | 'remote' | 'hyper'
+  agents?: Array<{
+    id: string
+    name: string
+    type: 'local' | 'remote'
+    role: 'leader' | 'worker'
+    remoteServerId?: string
+    remotePath?: string
+    useSshTunnel?: boolean
+    capabilities?: string[]
+    workingDir?: string
+    model?: string
+    thinkingEnabled?: boolean
+    systemPromptAddition?: string
+  }>
+  orchestration?: {
+    mode: 'parallel' | 'sequential' | 'adaptive'
+    routing: {
+      strategy: string
+      defaultAgentId?: string
+    }
+    aggregation: {
+      strategy: string
+      summarizerAgentId?: string
+    }
+    announce: {
+      enabled: boolean
+      timeout?: number
+      retries?: number
+    }
+  }
 }
 
 export interface CreateSpaceInput {
