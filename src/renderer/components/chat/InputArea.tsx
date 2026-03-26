@@ -19,8 +19,8 @@
  * - Bottom toolbar for future extensibility
  */
 
-import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
-import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes, Clock, X } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
+import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes, Clock, X, Crown, Wrench, Cloud, Monitor } from 'lucide-react'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { useSpaceStore } from '../../stores/space.store'
@@ -31,8 +31,16 @@ import type { ImageAttachment } from '../../types'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 
+interface AgentMember {
+  id: string
+  name: string
+  role: 'leader' | 'worker'
+  type: 'local' | 'remote'
+  capabilities?: string[]
+}
+
 interface InputAreaProps {
-  onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabled?: boolean) => void
+  onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabled?: boolean, agentId?: string) => void
   onStop: () => void
   onClearPending?: () => void  // Clear pending messages
   isGenerating: boolean
@@ -73,22 +81,34 @@ function InputAreaInternal(
   const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
   const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
   const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
+  const [targetAgentId, setTargetAgentId] = useState<string | undefined>(undefined)  // Target agent for Hyper Space
+
+  // @ Mention state
+  const [agentMembers, setAgentMembers] = useState<AgentMember[]>([])
+  const [showMentionPopup, setShowMentionPopup] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [mentionPosition, setMentionPosition] = useState<{ start: number; end: number } | null>(null)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
+  const mentionPopupRef = useRef<HTMLDivElement>(null)
 
   // AI Browser state
   const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore()
 
-  // Space state - to determine if this is a local or remote space
+  // Space state - to determine if this is a local, remote, or hyper space
   const currentSpaceId = useSpaceStore(state => state.currentSpace?.id)
   const currentSpaceType = useSpaceStore(state => {
     if (!state.currentSpace) return null
     return {
       isTemp: state.currentSpace.isTemp,
-      claudeSource: state.currentSpace.claudeSource
+      claudeSource: state.currentSpace.claudeSource,
+      spaceType: state.currentSpace.spaceType  // 'local', 'remote', or 'hyper'
     }
   })
+  const isHyperSpace = currentSpaceType?.spaceType === 'hyper'
 
   // Initialize AI Browser based on space type
   // Local space (isTemp or claudeSource === 'local'): enable AI Browser by default
@@ -124,6 +144,47 @@ function InputAreaInternal(
       }, 50)
     }
   }), [])
+
+  // Load agent members for Hyper Space only
+  useEffect(() => {
+    // Only load members in Hyper Space
+    if (!spaceId || !isHyperSpace) {
+      setAgentMembers([])  // Clear members when not in Hyper Space
+      return
+    }
+
+    api.getHyperSpaceMembers(spaceId).then(result => {
+      // API returns { success: true, data: { members: [...] } }
+      if (result.success && result.data?.members) {
+        setAgentMembers(result.data.members)
+        console.log('[InputArea] Loaded Hyper Space members:', result.data.members.length)
+      }
+    }).catch(console.error)
+  }, [spaceId, isHyperSpace])
+
+  // Filter members based on query
+  const filteredMembers = agentMembers.filter(member =>
+    member.name.toLowerCase().includes(mentionQuery.toLowerCase())
+  )
+
+  // Close mention popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mentionPopupRef.current && !mentionPopupRef.current.contains(event.target as Node)) {
+        setShowMentionPopup(false)
+      }
+    }
+
+    if (showMentionPopup) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showMentionPopup])
+
+  // Reset selection when query changes
+  useEffect(() => {
+    setSelectedMentionIndex(0)
+  }, [mentionQuery])
 
   // Auto-clear error after 3 seconds
   useEffect(() => {
@@ -306,11 +367,12 @@ function InputAreaInternal(
 
     // Only check isProcessingImages, not isGenerating (queuing is handled in store)
     if (hasContent && !isProcessingImages) {
-      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled)
+      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled, targetAgentId)
 
       if (!isOnboardingSendStep) {
         setContent('')
         setImages([])  // Clear images after send
+        setTargetAgentId(undefined)  // Clear target agent
         // Don't reset thinkingEnabled - user might want to keep it on
         // Reset height
         if (textareaRef.current) {
@@ -325,11 +387,112 @@ function InputAreaInternal(
     return 'ontouchstart' in window && window.innerWidth < 768
   }
 
-  // Handle key press
+  // Parse @ mention position in text
+  const parseMentionPosition = useCallback((text: string, cursorPosition: number) => {
+    const atIndex = text.lastIndexOf('@', cursorPosition - 1)
+    if (atIndex === -1) return null
+
+    const betweenAtAndCursor = text.substring(atIndex + 1, cursorPosition)
+    if (/\s/.test(betweenAtAndCursor)) return null
+
+    return {
+      start: atIndex,
+      end: cursorPosition,
+      query: betweenAtAndCursor
+    }
+  }, [])
+
+  // Handle text change - check for @ mention
+  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value
+    const cursorPosition = e.target.selectionStart
+
+    setContent(newValue)
+
+    // Check for @ mention - only in Hyper Space
+    if (isHyperSpace && agentMembers.length > 0) {
+      const mentionInfo = parseMentionPosition(newValue, cursorPosition)
+
+      if (mentionInfo) {
+        setMentionQuery(mentionInfo.query)
+        setMentionPosition({ start: mentionInfo.start, end: mentionInfo.end })
+        setShowMentionPopup(true)
+      } else {
+        setShowMentionPopup(false)
+        setMentionQuery('')
+        setMentionPosition(null)
+      }
+    }
+  }, [parseMentionPosition, agentMembers.length, isHyperSpace])
+
+  // Select agent from mention popup
+  const selectAgent = useCallback((agent: AgentMember) => {
+    if (!mentionPosition || !textareaRef.current) return
+
+    const textarea = textareaRef.current
+    const beforeText = content.substring(0, mentionPosition.start)
+    const afterText = content.substring(mentionPosition.end)
+
+    const mentionText = `@${agent.name} `
+    const newValue = beforeText + mentionText + afterText
+
+    setContent(newValue)
+
+    // Set target agent for sending
+    setTargetAgentId(agent.id)
+
+    // Update cursor position after the mention
+    const newCursorPos = mentionPosition.start + mentionText.length
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(newCursorPos, newCursorPos)
+    }, 0)
+
+    // Close popup
+    setShowMentionPopup(false)
+    setMentionQuery('')
+    setMentionPosition(null)
+  }, [mentionPosition, content])
+
+  // Handle key press - include mention popup navigation
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Ignore key events during IME composition (Chinese/Japanese/Korean input)
-    // This prevents Enter from sending the message while confirming IME candidates
+    // Ignore key events during IME composition
     if (e.nativeEvent.isComposing) return
+
+    // Handle mention popup navigation
+    if (showMentionPopup) {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault()
+          setSelectedMentionIndex(prev =>
+            prev < filteredMembers.length - 1 ? prev + 1 : 0
+          )
+          return
+
+        case 'ArrowUp':
+          e.preventDefault()
+          setSelectedMentionIndex(prev =>
+            prev > 0 ? prev - 1 : filteredMembers.length - 1
+          )
+          return
+
+        case 'Enter':
+        case 'Tab':
+          if (filteredMembers.length > 0 && mentionPosition) {
+            e.preventDefault()
+            selectAgent(filteredMembers[selectedMentionIndex])
+            return
+          }
+          break
+
+        case 'Escape':
+          e.preventDefault()
+          setShowMentionPopup(false)
+          setMentionQuery('')
+          setMentionPosition(null)
+          return
+      }
+    }
 
     // Mobile: Enter for newline, send via button only
     // PC: Enter to send, Shift+Enter for newline
@@ -439,11 +602,11 @@ function InputAreaInternal(
           )}
 
           {/* Textarea area */}
-          <div className="px-3 pt-3 pb-1">
+          <div className="px-3 pt-3 pb-1 relative">
             <textarea
               ref={textareaRef}
               value={displayContent}
-              onChange={(e) => !isOnboardingSendStep && setContent(e.target.value)}
+              onChange={handleTextChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onFocus={() => setIsFocused(true)}
@@ -458,6 +621,62 @@ function InputAreaInternal(
                 ${isOnboardingSendStep ? 'cursor-default' : ''}`}
               style={{ maxHeight: '200px' }}
             />
+
+            {/* @ Mention Popup */}
+            {showMentionPopup && (
+              <div
+                ref={mentionPopupRef}
+                className="absolute bottom-full left-0 mb-2 py-1 bg-popover border border-border
+                  rounded-lg shadow-lg min-w-[200px] max-h-[250px] overflow-y-auto z-50"
+              >
+                {agentMembers.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {t('No agents available')}
+                  </div>
+                ) : filteredMembers.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {mentionQuery ? t('No matching agents') : t('No agents available')}
+                  </div>
+                ) : (
+                  filteredMembers.map((member, index) => (
+                    <button
+                      key={member.id}
+                      onClick={() => selectAgent(member)}
+                      className={`w-full px-3 py-2 flex items-center gap-2 text-sm
+                        transition-colors ${
+                          index === selectedMentionIndex
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-foreground hover:bg-secondary'
+                        }`}
+                    >
+                      {/* Role Icon */}
+                      {member.role === 'leader' ? (
+                        <Crown className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                      ) : (
+                        <Wrench className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                      )}
+
+                      {/* Type Icon */}
+                      {member.type === 'remote' ? (
+                        <Cloud className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                      ) : (
+                        <Monitor className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      )}
+
+                      {/* Name */}
+                      <span className="flex-1 text-left">{member.name}</span>
+
+                      {/* Capabilities */}
+                      {member.capabilities && member.capabilities.length > 0 && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                          {member.capabilities.slice(0, 2).join(', ')}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Bottom toolbar - always visible, industry standard layout */}

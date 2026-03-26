@@ -9,15 +9,17 @@
  * - Compact mode (isCompact=true): Sidebar-style when Canvas is open
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useSpaceStore } from '../../stores/space.store'
 import { useChatStore } from '../../stores/chat.store'
+import type { WorkerSessionState } from '../../stores/chat.store'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { MessageList } from './MessageList'
 import type { MessageListHandle } from './MessageList'
 import { InputArea, type InputAreaRef } from './InputArea'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
+import { WorkerTabBar, WorkerView, type WorkerTab } from './WorkerTabBar'
 import { Sparkles } from '../icons/ToolIcons'
 import {
   ONBOARDING_ARTIFACT_NAME,
@@ -43,6 +45,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     stopGeneration,
     continueAfterInterrupt,
     answerQuestion,
+    answerWorkerQuestion,
     clearPendingMessages
   } = useChatStore()
 
@@ -199,6 +202,77 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const { isGenerating, isStopping, streamingContent, isStreaming, thoughts, isThinking, compactInfo, error, errorType, textBlockVersion, pendingQuestion, pendingMessages } = session
   const pendingCount = pendingMessages?.length || 0
 
+  // ===== Hyper Space Worker Tab System =====
+  // Active tab: 'main' (group chat view) or a worker agentId
+  const [activeTabId, setActiveTabId] = useState<string>('main')
+
+  // Track which workers had unread results while user was on another tab
+  const [unreadWorkers, setUnreadWorkers] = useState<Set<string>>(new Set())
+
+  // Read workerSessions from store (Map keyed by agentId)
+  const workerSessions = useChatStore((s) => {
+    const convId = s.getCurrentSpaceState().currentConversationId
+    return convId ? s.sessions.get(convId)?.workerSessions : undefined
+  })
+
+  // Get space name for main tab display
+  const spaceName = currentSpace?.name || 'Chat'
+
+  // Build tabs: always main group chat + one per active worker
+  const tabs: WorkerTab[] = useMemo(() => {
+    const result: WorkerTab[] = [
+      { id: 'main', name: spaceName, role: 'leader', status: isGenerating ? 'running' : 'idle' }
+    ]
+    if (workerSessions && workerSessions.size > 0) {
+      for (const [agentId, ws] of workerSessions) {
+        result.push({
+          id: agentId,
+          name: ws.agentName,
+          role: 'worker',
+          type: ws.type,
+          status: ws.status,
+          workerSession: ws
+        })
+      }
+    }
+    return result
+  }, [workerSessions, isGenerating, spaceName])
+
+  // When a worker completes while user is viewing a different tab, mark it unread
+  useEffect(() => {
+    if (!workerSessions) return
+    for (const [agentId, ws] of workerSessions) {
+      if (ws.status === 'completed' && !ws.isRunning && activeTabId !== agentId) {
+        setUnreadWorkers(prev => {
+          if (prev.has(agentId)) return prev
+          const next = new Set(prev)
+          next.add(agentId)
+          return next
+        })
+      }
+    }
+  }, [workerSessions, activeTabId])
+
+  // Clear unread when user clicks on a worker tab
+  const handleTabChange = useCallback((tabId: string) => {
+    setActiveTabId(tabId)
+    if (tabId !== 'main') {
+      setUnreadWorkers(prev => {
+        const next = new Set(prev)
+        next.delete(tabId)
+        return next
+      })
+    }
+  }, [])
+
+  // Get the currently active worker session (if viewing a worker)
+  const activeWorkerSession = useMemo(() => {
+    if (activeTabId === 'main') return null
+    return workerSessions?.get(activeTabId) || null
+  }, [activeTabId, workerSessions])
+
+  const isViewingWorker = activeTabId !== 'main' && activeWorkerSession !== null
+
   const onboardingPrompt = getOnboardingPrompt(t)
   const onboardingResponse = getOnboardingAiResponse(t)
   const onboardingHtml = getOnboardingHtmlArtifact(t)
@@ -254,8 +328,8 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   // AI Browser state
   const { enabled: aiBrowserEnabled } = useAIBrowserStore()
 
-  // Handle send (with optional images for multi-modal messages, optional thinking mode)
-  const handleSend = async (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabledFromInput?: boolean) => {
+  // Handle send (with optional images for multi-modal messages, optional thinking mode, optional agentId)
+  const handleSend = async (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabledFromInput?: boolean, agentId?: string) => {
     // In onboarding mode, intercept and play mock response
     if (isOnboarding && currentStep === 'send-message') {
       handleOnboardingSend()
@@ -269,7 +343,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     // Use aiBrowserEnabled from parameter if provided, otherwise use store value
     const useAiBrowser = aiBrowserEnabledFromInput ?? aiBrowserEnabled
     // Pass both AI Browser and thinking state to sendMessage
-    await sendMessage(content, images, useAiBrowser, thinkingEnabled)
+    await sendMessage(content, images, useAiBrowser, thinkingEnabled, agentId)
   }
 
   // Handle stop - stops the current conversation's generation
@@ -333,7 +407,22 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
             ${isCompact ? 'px-3' : 'px-4'}
           `}
         >
-          {isLoadingConversation ? (
+          {isViewingWorker && activeWorkerSession ? (
+            // Worker independent conversation view
+            <WorkerView
+              worker={activeWorkerSession}
+              spaceId={currentSpace?.id}
+              isCompact={isCompact}
+              onAnswerQuestion={
+                activeWorkerSession.pendingQuestion?.status === 'active'
+                  ? (answers) => {
+                      const convId = currentConversation?.id
+                      if (convId) answerWorkerQuestion(convId, activeTabId, answers)
+                    }
+                  : undefined
+              }
+            />
+          ) : isLoadingConversation ? (
             <LoadingState />
           ) : !hasMessages ? (
             <EmptyState isTemp={currentSpace?.isTemp || false} isCompact={isCompact} />
@@ -361,10 +450,13 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
         {/* Scroll to bottom button - positioned outside scroll container */}
         <ScrollToBottomButton
-          visible={showScrollButton && hasMessages}
+          visible={showScrollButton && hasMessages && !isViewingWorker}
           onClick={() => messageListRef.current?.scrollToBottom('auto')}
         />
       </div>
+
+      {/* Worker Tab Bar — shown between messages and input when workers are active */}
+      <WorkerTabBar tabs={tabs} activeTabId={activeTabId} onTabChange={handleTabChange} unreadWorkers={unreadWorkers} />
 
       {/* Input area */}
       <InputArea

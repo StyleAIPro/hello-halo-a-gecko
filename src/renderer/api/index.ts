@@ -226,6 +226,28 @@ export const api = {
     return httpRequest('DELETE', `/api/spaces/${spaceId}`)
   },
 
+  // ===== Hyper Space =====
+  createHyperSpace: async (input: {
+    name: string
+    icon: string
+    customPath?: string
+    spaceType?: 'hyper'
+    agents?: any[]
+    orchestration?: any
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.createHyperSpace(input)
+    }
+    return httpRequest('POST', '/api/spaces/hyper', input)
+  },
+
+  getHyperSpaceStatus: async (spaceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.getHyperSpaceStatus(spaceId)
+    }
+    return httpRequest('GET', `/api/spaces/${spaceId}/hyper-status`)
+  },
+
   getSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.halo.getSpace(spaceId)
@@ -473,6 +495,7 @@ export const api = {
         isActive: boolean
       }>
     }
+    agentId?: string  // Target agent ID for Hyper Space ('leader' or specific agent ID)
   }): Promise<ApiResponse> => {
     // Subscribe to conversation events before sending
     if (!isElectron()) {
@@ -531,6 +554,14 @@ export const api = {
       return window.halo.getSessionState(conversationId)
     }
     return httpRequest('GET', `/api/agent/session/${conversationId}`)
+  },
+
+  // Get Hyper Space worker session states for recovery after page refresh
+  getHyperSpaceWorkerStates: async (spaceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.getHyperSpaceWorkerStates(spaceId)
+    }
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/worker-states`)
   },
 
   // Warm up V2 session - call when switching conversations to prepare for faster message sending
@@ -906,6 +937,12 @@ export const api = {
     onEvent('agent:turn-boundary', callback),
   onAgentInjectionStart: (callback: (data: unknown) => void) =>
     onEvent('agent:injection-start', callback),
+  onAgentTeamMessage: (callback: (data: unknown) => void) =>
+    onEvent('agent:team-message', callback),
+  onWorkerStarted: (callback: (data: unknown) => void) =>
+    onEvent('worker:started', callback),
+  onWorkerCompleted: (callback: (data: unknown) => void) =>
+    onEvent('worker:completed', callback),
   onRemoteStatusChange: (callback: (data: unknown) => void) =>
     onEvent('remote:status-change', callback),
 
@@ -2361,6 +2398,24 @@ export const api = {
       return window.halo.getHyperSpaceTasks(conversationId)
     }
     return httpRequest('GET', `/api/hyper-space/tasks/${conversationId}`)
+  },
+
+  /**
+   * Get HyperSpace members for @ mention autocomplete
+   */
+  getHyperSpaceMembers: async (spaceId: string): Promise<ApiResponse<{
+    members: Array<{
+      id: string
+      name: string
+      role: 'leader' | 'worker'
+      type: 'local' | 'remote'
+      capabilities?: string[]
+    }>
+  }>> => {
+    if (isElectron()) {
+      return window.halo.getHyperSpaceMembers(spaceId)
+    }
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/members`)
   },
 
   /**

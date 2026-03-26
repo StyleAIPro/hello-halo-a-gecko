@@ -17,6 +17,7 @@ import { api } from '../../api'
 import { TaskStatusDot } from '../pulse/TaskStatusDot'
 import { PulseSidebarSection } from '../pulse/PulseSidebarSection'
 import { AutomationBadge } from '../apps/AutomationBadge'
+import { HyperSpaceMembers } from '../space/HyperSpaceMembers'
 import type { ConversationMeta } from '../../types'
 
 // Width constraints (in pixels)
@@ -300,6 +301,9 @@ export const ConversationList = memo(function ConversationList({
           </button>
         )}
       </div>
+
+      {/* Hyper Space Members - shows when in a Hyper Space */}
+      <HyperSpaceMembers visible={visible} />
 
       {/* Automation apps status badge — quick jump to AppsPage */}
       <AutomationBadge />

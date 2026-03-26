@@ -192,10 +192,13 @@ export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false }: C
     return parseTodoInput(latest.toolInput!)
   }, [thoughts])
 
-  // Filter thoughts for display (exclude TodoWrite and its results)
+  // Filter thoughts for display (exclude TodoWrite, result, and text)
+  // text blocks are accumulated into the final message content, so they
+  // don't need to appear in the thought process timeline
   const displayThoughts = useMemo(() => {
     return thoughts.filter(t => {
       if (t.type === 'result') return false
+      if (t.type === 'text') return false  // Accumulated into final message content
       if (t.toolName === 'TodoWrite') return false
       return true
     })

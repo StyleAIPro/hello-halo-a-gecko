@@ -21,6 +21,7 @@ import {
   Copy,
   Check,
   Loader2,
+  Crown,
 } from 'lucide-react'
 import { getToolIcon } from '../icons/ToolIcons'
 import { BrowserTaskCard, isBrowserTool } from '../tool/BrowserTaskCard'
@@ -310,6 +311,25 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
         <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/30 working-indicator-fade">
           <Sparkles size={12} className="text-primary/60 animate-pulse-gentle" />
           <span className="text-xs text-muted-foreground/70">{t('Halo is working')}</span>
+        </div>
+      )}
+
+      {/* Agent badge - for Hyper Space messages */}
+      {!isUser && (message.agentId || message.agentRole) && (
+        <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/30">
+          {message.agentRole === 'leader' ? (
+            <Crown size={12} className="text-purple-500" />
+          ) : (
+            <Wrench size={12} className="text-blue-500" />
+          )}
+          <span className="text-xs text-muted-foreground/70">
+            {message.agentName || message.agentId || 'Agent'}
+            {message.agentRole && (
+              <span className="ml-1 opacity-60">
+                ({message.agentRole === 'leader' ? t('leader') : t('worker')})
+              </span>
+            )}
+          </span>
         </div>
       )}
 

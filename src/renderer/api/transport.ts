@@ -227,7 +227,9 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       // Terminal agent command events
       'terminal:agent-command-start': 'onTerminalAgentCommandStart',
       'terminal:agent-command-output': 'onTerminalAgentCommandOutput',
-      'terminal:agent-command-complete': 'onTerminalAgentCommandComplete'
+      'terminal:agent-command-complete': 'onTerminalAgentCommandComplete',
+      'worker:started': 'onWorkerStarted',
+      'worker:completed': 'onWorkerCompleted'
     }
 
     const method = methodMap[channel]

@@ -93,6 +93,9 @@ export default function App() {
     handleAgentCompact,
     handleAskQuestion,
     handleHyperSpaceProgress,
+    handleAgentTeamMessage,
+    handleWorkerStarted,
+    handleWorkerCompleted,
     currentSpaceId,
     setCurrentSpace: setChatCurrentSpace,
     loadConversations,
@@ -263,7 +266,7 @@ export default function App() {
     // AskUserQuestion - AI needs user input to continue
     const unsubAskQuestion = api.onAgentAskQuestion((data) => {
       console.log('[App] Received agent:ask-question event:', data)
-      handleAskQuestion(data as AgentEventBase & { id: string; questions: Question[] })
+      handleAskQuestion(data as AgentEventBase & { id: string; questions: Question[]; agentId?: string; agentName?: string })
     })
 
     // MCP status updates (global - not per-conversation)
@@ -281,6 +284,20 @@ export default function App() {
       // Handle Hyper Space progress - subagent is making progress
       // This can be used to show real-time feedback in the UI
       handleHyperSpaceProgress(data)
+    })
+
+    // Agent team messages (inter-agent communication)
+    const unsubTeamMessage = api.onAgentTeamMessage((data) => {
+      console.log('[App] Received agent:team-message event:', data)
+      handleAgentTeamMessage(data as AgentEventBase & {
+        id: string
+        type: 'agent_message'
+        recipientId: string
+        recipientName: string
+        content: string
+        summary: string
+        timestamp: number
+      })
     })
 
     // Turn boundary - check for pending messages and inject if any
@@ -317,6 +334,17 @@ export default function App() {
       }
     })
 
+    // Worker lifecycle events (Hyper Space)
+    const unsubWorkerStarted = api.onWorkerStarted((data) => {
+      console.log('[App] Received worker:started event:', data)
+      handleWorkerStarted(data as any)
+    })
+
+    const unsubWorkerCompleted = api.onWorkerCompleted((data) => {
+      console.log('[App] Received worker:completed event:', data)
+      handleWorkerCompleted(data as any)
+    })
+
     return () => {
       unsubThought()
       unsubThoughtDelta()
@@ -329,7 +357,10 @@ export default function App() {
       unsubAskQuestion()
       unsubMcpStatus()
       unsubHyperProgress()
+      unsubTeamMessage()
       unsubTurnBoundary()
+      unsubWorkerStarted()
+      unsubWorkerCompleted()
     }
   }, [
     handleAgentMessage,
@@ -341,6 +372,10 @@ export default function App() {
     handleAgentThoughtDelta,
     handleAgentCompact,
     handleAskQuestion,
+    handleHyperSpaceProgress,
+    handleAgentTeamMessage,
+    handleWorkerStarted,
+    handleWorkerCompleted,
     setMcpStatus
   ])
 

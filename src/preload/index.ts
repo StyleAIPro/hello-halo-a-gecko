@@ -124,6 +124,7 @@ export interface HaloAPI {
         isActive: boolean
       }>
     }
+    agentId?: string  // Target agent for Hyper Space
   }) => Promise<IpcResponse>
   stopGeneration: (conversationId?: string) => Promise<IpcResponse>
   injectMessage: (request: {
@@ -140,6 +141,7 @@ export interface HaloAPI {
   approveTool: (conversationId: string) => Promise<IpcResponse>
   rejectTool: (conversationId: string) => Promise<IpcResponse>
   getSessionState: (conversationId: string) => Promise<IpcResponse>
+  getHyperSpaceWorkerStates: (spaceId: string) => Promise<IpcResponse>
   ensureSessionWarm: (spaceId: string, conversationId: string) => Promise<IpcResponse>
   testMcpConnections: () => Promise<{ success: boolean; servers: unknown[]; error?: string }>
   answerQuestion: (data: { conversationId: string; id: string; answers: Record<string, string> }) => Promise<IpcResponse>
@@ -160,6 +162,9 @@ export interface HaloAPI {
   onAgentTerminal: (callback: (data: unknown) => void) => () => void
   onAgentTurnBoundary: (callback: (data: unknown) => void) => () => void
   onAgentInjectionStart: (callback: (data: unknown) => void) => () => void
+  onAgentTeamMessage: (callback: (data: unknown) => void) => () => void
+  onWorkerStarted: (callback: (data: unknown) => void) => () => void
+  onWorkerCompleted: (callback: (data: unknown) => void) => () => void
 
   // Artifact
   listArtifacts: (spaceId: string) => Promise<IpcResponse>
@@ -581,6 +586,10 @@ const api: HaloAPI = {
   selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
   updateSpacePreferences: (spaceId, preferences) =>
     ipcRenderer.invoke('space:update-preferences', spaceId, preferences),
+
+  // Hyper Space
+  createHyperSpace: (input) => ipcRenderer.invoke('hyper-space:create', input),
+  getHyperSpaceStatus: (spaceId) => ipcRenderer.invoke('hyper-space:get-status', spaceId),
   getSpacePreferences: (spaceId) => ipcRenderer.invoke('space:get-preferences', spaceId),
   getSkillSpace: () => ipcRenderer.invoke('space:get-skill-space'),
   getSkillSpaceId: () => ipcRenderer.invoke('space:get-skill-space-id'),
@@ -613,6 +622,7 @@ const api: HaloAPI = {
   approveTool: (conversationId) => ipcRenderer.invoke('agent:approve-tool', conversationId),
   rejectTool: (conversationId) => ipcRenderer.invoke('agent:reject-tool', conversationId),
   getSessionState: (conversationId) => ipcRenderer.invoke('agent:get-session-state', conversationId),
+  getHyperSpaceWorkerStates: (spaceId) => ipcRenderer.invoke('hyper-space:get-worker-states', spaceId),
   ensureSessionWarm: (spaceId, conversationId) => ipcRenderer.invoke('agent:ensure-session-warm', spaceId, conversationId),
   testMcpConnections: () => ipcRenderer.invoke('agent:test-mcp'),
   answerQuestion: (data) => ipcRenderer.invoke('agent:answer-question', data),
@@ -633,6 +643,9 @@ const api: HaloAPI = {
   onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),
   onAgentTurnBoundary: (callback) => createEventListener('agent:turn-boundary', callback),
   onAgentInjectionStart: (callback) => createEventListener('agent:injection-start', callback),
+  onAgentTeamMessage: (callback) => createEventListener('agent:team-message', callback),
+  onWorkerStarted: (callback) => createEventListener('worker:started', callback),
+  onWorkerCompleted: (callback) => createEventListener('worker:completed', callback),
 
   // Artifact
   listArtifacts: (spaceId) => ipcRenderer.invoke('artifact:list', spaceId),
@@ -944,6 +957,7 @@ const api: HaloAPI = {
   removeAgentFromHyperSpace: (spaceId, agentId) => ipcRenderer.invoke('hyper-space:remove-agent', { spaceId, agentId }),
   updateHyperSpaceConfig: (spaceId, config) => ipcRenderer.invoke('hyper-space:update-config', { spaceId, config }),
   getHyperSpaceTasks: (conversationId) => ipcRenderer.invoke('hyper-space:get-tasks', conversationId),
+  getHyperSpaceMembers: (spaceId) => ipcRenderer.invoke('hyper-space:get-members', spaceId),
 }
 
 contextBridge.exposeInMainWorld('halo', api)

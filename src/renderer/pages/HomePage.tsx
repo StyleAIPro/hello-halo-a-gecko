@@ -19,6 +19,7 @@ import {
 } from '../components/icons/ToolIcons'
 import { Header } from '../components/layout/Header'
 import { SpaceGuide } from '../components/space/SpaceGuide'
+import { HyperSpaceCreationDialog } from '../components/space/HyperSpaceCreationDialog'
 import { Monitor, Blocks, ArrowRight, AlertCircle, Cloud, Folder } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
@@ -42,6 +43,7 @@ export function HomePage() {
 
   // Dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showHyperSpaceDialog, setShowHyperSpaceDialog] = useState(false)
   const [newSpaceName, setNewSpaceName] = useState('')
   const [newSpaceIcon, setNewSpaceIcon] = useState<SpaceIconId>(DEFAULT_SPACE_ICON)
 
@@ -288,6 +290,17 @@ export function HomePage() {
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-primary" />
                   <h2 className="text-sm font-semibold">{t('Halo')}</h2>
+                  {haloSpace.claudeSource === 'remote' ? (
+                    <span className="flex items-center gap-1 text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full">
+                      <Cloud className="w-3 h-3" />
+                      {t('Remote')}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full">
+                      <Folder className="w-3 h-3" />
+                      {t('Local')}
+                    </span>
+                  )}
                 </div>
                 {haloSpace.claudeSource === 'remote' && haloSpace.remoteServerId && (
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -361,13 +374,22 @@ export function HomePage() {
         {/* Spaces Section */}
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-medium text-muted-foreground">{t('Dedicated Spaces')}</h3>
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="flex items-center gap-1 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            {t('New')}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowHyperSpaceDialog(true)}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-purple-500 hover:bg-purple-500/10 rounded-lg transition-colors"
+            >
+              <Blocks className="w-4 h-4" />
+              {t('Hyper')}
+            </button>
+            <button
+              onClick={() => setShowCreateDialog(true)}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              {t('New')}
+            </button>
+          </div>
         </div>
 
         {/* Space Guide - always visible */}
@@ -391,16 +413,20 @@ export function HomePage() {
                   <div className="flex items-center gap-2 min-w-0">
                     <SpaceIcon iconId={space.icon} size={20} />
                     <span className="font-medium truncate">{space.name}</span>
-                    {space.claudeSource === 'remote' && (
+                    {space.spaceType === 'hyper' ? (
+                      <span className="flex items-center gap-1 text-xs bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full flex-shrink-0">
+                        <Blocks className="w-3 h-3" />
+                        Hyper
+                      </span>
+                    ) : space.claudeSource === 'remote' ? (
                       <span className="flex items-center gap-1 text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full flex-shrink-0">
                         <Cloud className="w-3 h-3" />
-                        {t('Remote')}
+                        远程
                       </span>
-                    )}
-                    {space.spaceType === 'hyper' && (
-                      <span className="flex items-center gap-1 text-xs bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full flex-shrink-0 ml-1">
-                        <Blocks className="w-3 h-3" />
-                        {t('Hyper')}
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded-full flex-shrink-0">
+                        <Folder className="w-3 h-3" />
+                        本地
                       </span>
                     )}
                   </div>
@@ -747,6 +773,27 @@ export function HomePage() {
           </div>
         </div>
       )}
+
+      {/* Hyper Space Creation Dialog */}
+      <HyperSpaceCreationDialog
+        isOpen={showHyperSpaceDialog}
+        onClose={() => setShowHyperSpaceDialog(false)}
+        onSuccess={(spaceId) => {
+          loadSpaces()
+          // Need to wait for spaces to load, then find and set the new space
+          setTimeout(() => {
+            api.listSpaces().then(result => {
+              if (result.success && result.data) {
+                const space = (result.data as Space[]).find(s => s.id === spaceId)
+                if (space) {
+                  setCurrentSpace(space)
+                  setView('space')
+                }
+              }
+            })
+          }, 100)
+        }}
+      />
     </div>
   )
 }

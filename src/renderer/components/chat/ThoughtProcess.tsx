@@ -408,12 +408,15 @@ export function ThoughtProcess({ thoughts, isThinking }: ThoughtProcessProps) {
     return parseTodoInput(latest.toolInput!)
   }, [thoughts])
 
-  // Filter thoughts for display (exclude TodoWrite, tool_result, and result)
+  // Filter thoughts for display (exclude TodoWrite, tool_result, result, and text)
   // tool_result is now merged into tool_use, no need to show separately
+  // text blocks are accumulated into the final message content, so they
+  // don't need to appear in the thought process timeline
   const displayThoughts = useMemo(() => {
     return thoughts.filter(t => {
       if (t.type === 'result') return false
       if (t.type === 'tool_result') return false  // Merged into tool_use
+      if (t.type === 'text') return false  // Accumulated into final message content
       // Exclude TodoWrite tool_use (shown separately at bottom)
       if (t.toolName === 'TodoWrite') return false
       return true
