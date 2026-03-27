@@ -37,4 +37,7 @@ website/
 # OS files
 .DS_Store
 RELEASE_NOTES.md
+# Remote deployment artifacts (contains path chars invalid on Windows)
+root@*/
+
 # temp
