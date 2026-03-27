@@ -15,6 +15,7 @@ import { Readable, Writable } from 'stream'
 import { getSpace } from '../space.service'
 import { spawn, ChildProcess } from 'child_process'
 import { remoteDeployService } from '../remote-deploy/remote-deploy.service'
+import os from 'os'
 
 // ==================== Types ====================
 
@@ -116,14 +117,15 @@ export class SharedTerminalSession extends EventEmitter {
    */
   private async startLocal(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const shell = process.env.SHELL || '/bin/zsh'
-      const cwd = this.state.config.workDir || process.env.HOME || process.cwd()
+      const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh')
+      const args = process.platform === 'win32' ? [] : ['--login']
+      const cwd = this.state.config.workDir || process.env.HOME || process.env.USERPROFILE || process.cwd()
 
       console.log(`[SharedTerminal] Attempting to spawn PTY: shell=${shell}, cwd=${cwd}`)
 
       // Try node-pty first for full terminal support
       try {
-        this.state.userPty = pty.spawn(shell, [], {
+        this.state.userPty = pty.spawn(shell, args, {
           name: 'xterm-256color',
           cols: 120,
           rows: 40,
@@ -158,7 +160,8 @@ export class SharedTerminalSession extends EventEmitter {
       try {
         console.log(`[SharedTerminal] Starting fallback terminal with child_process`)
 
-        this.state.userProcess = spawn(shell, ['-i'], {
+        const fallbackArgs = process.platform === 'win32' ? [] : ['-i']
+        this.state.userProcess = spawn(shell, fallbackArgs, {
           cwd,
           env: {
             ...process.env,
@@ -533,7 +536,7 @@ export class SharedTerminalService extends EventEmitter {
           spaceId,
           conversationId,
           type: 'local',
-          workDir: space?.remotePath || process.env.HOME
+          workDir: space?.remotePath || process.env.HOME || os.homedir()
         }
       }
     } else {
@@ -542,7 +545,7 @@ export class SharedTerminalService extends EventEmitter {
         spaceId,
         conversationId,
         type: 'local',
-        workDir: process.env.HOME
+        workDir: process.env.HOME || os.homedir()
       }
     }
 

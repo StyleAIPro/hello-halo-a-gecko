@@ -13,8 +13,11 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import https from 'node:https'
+import http from 'node:http'
 import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import zlib from 'node:zlib'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -124,7 +127,7 @@ function checkWatcher(platform) {
 /**
  * Download cloudflared for platform
  */
-function downloadCloudflared(platform) {
+async function downloadCloudflared(platform) {
   const url = CLOUDFLARED_URLS[platform]
   const outputPath = path.join(PROJECT_ROOT, CLOUDFLARED_PATHS[platform])
   const outputDir = path.dirname(outputPath)
@@ -144,8 +147,8 @@ function downloadCloudflared(platform) {
   if (url.endsWith('.tgz')) {
     // Mac: download and extract tgz
     const tgzPath = outputPath + '.tgz'
-    curlDownload(url, tgzPath)
-    execSync(`tar -xzf "${tgzPath}" -C "${outputDir}"`, { stdio: 'pipe' })
+    await httpsDownload(url, tgzPath)
+    extractTgz(tgzPath, outputDir)
 
     // Rename extracted file if needed (for mac-x64)
     const extractedPath = path.join(outputDir, 'cloudflared')
@@ -157,10 +160,10 @@ function downloadCloudflared(platform) {
     fs.chmodSync(outputPath, 0o755)
   } else if (url.endsWith('.exe')) {
     // Windows: direct download
-    curlDownload(url, outputPath)
+    await httpsDownload(url, outputPath)
   } else {
     // Linux: direct download
-    curlDownload(url, outputPath)
+    await httpsDownload(url, outputPath)
     fs.chmodSync(outputPath, 0o755)
   }
 
@@ -176,15 +179,112 @@ function getWatcherVersion() {
 }
 
 /**
- * Download a file with curl, retrying without proxy on failure
+ * Download a file using Node.js native https/http (cross-platform, no curl dependency)
  */
-function curlDownload(url, dest) {
-  try {
-    execSync(`curl -fsSL -o "${dest}" "${url}"`, { stdio: 'pipe' })
-  } catch {
-    log.warn('Download failed, retrying without proxy...')
-    execSync(`curl -fsSL --noproxy '*' -o "${dest}" "${url}"`, { stdio: 'pipe' })
+function httpsDownload(url, dest) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http
+    const destStream = fs.createWriteStream(dest)
+
+    const request = (retryNoProxy = false) => {
+      const req = protocol.get(url, retryNoProxy ? { rejectUnauthorized: false } : {}, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          // Follow redirect
+          destStream.close()
+          fs.unlinkSync(dest)
+          httpsDownload(res.headers.location, dest).then(resolve, reject)
+          return
+        }
+        if (res.statusCode !== 200) {
+          destStream.close()
+          fs.unlinkSync(dest)
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+          return
+        }
+        res.pipe(destStream)
+        destStream.on('finish', () => {
+          destStream.close()
+          resolve()
+        })
+      })
+
+      req.on('error', (err) => {
+        destStream.close()
+        if (fs.existsSync(dest)) fs.unlinkSync(dest)
+        if (!retryNoProxy && err.message.includes('ENOTFOUND')) {
+          log.warn('Download failed, retrying without proxy...')
+          request(true)
+        } else {
+          reject(err)
+        }
+      })
+    }
+
+    request()
+  })
+}
+
+/**
+ * Extract a .tar.gz file using Node.js native zlib
+ * Supports extracting specific files from the tarball
+ */
+function extractTgz(tgzPath, outputDir, stripComponents = 0) {
+  const data = fs.readFileSync(tgzPath)
+  const decompressed = zlib.gunzipSync(data)
+  const entries = parseTar(decompressed)
+
+  for (const entry of entries) {
+    let name = entry.name
+    // Strip leading directory components
+    if (stripComponents > 0) {
+      const parts = name.split('/').filter(Boolean)
+      name = parts.slice(stripComponents).join('/')
+    }
+    if (!name) continue
+
+    const fullPath = path.join(outputDir, name)
+
+    if (entry.type === 'directory') {
+      fs.mkdirSync(fullPath, { recursive: true })
+    } else if (entry.type === 'file') {
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true })
+      fs.writeFileSync(fullPath, entry.content)
+    }
   }
+}
+
+/**
+ * Parse tar archive buffer and return entries
+ */
+function parseTar(buffer) {
+  const entries = []
+  let offset = 0
+
+  while (offset < buffer.length - 512) {
+    const header = buffer.slice(offset, offset + 512)
+    // Empty block = end of archive
+    if (header.every(b => b === 0)) break
+
+    const name = header.slice(0, 100).toString('ascii').replace(/\0.*$/, '').trim()
+    const typeFlag = String.fromCharCode(header[156])
+    const sizeStr = header.slice(124, 136).toString('ascii').replace(/\0/g, '').trim()
+    const size = parseInt(sizeStr, 8) || 0
+
+    offset += 512
+
+    if (typeFlag === '0' || typeFlag === '') {
+      // Regular file
+      const content = buffer.slice(offset, offset + size)
+      entries.push({ name, type: 'file', content })
+    } else if (typeFlag === '5') {
+      entries.push({ name, type: 'directory', content: null })
+    }
+
+    // Move to next entry (512-byte aligned blocks)
+    offset += Math.ceil(size / 512) * 512
+  }
+
+  return entries
 }
 
 /**
@@ -235,7 +335,7 @@ function checkBetterSqlite3(platform) {
  * The tarball contains: build/Release/better_sqlite3.node
  * We extract it to: node_modules/better-sqlite3/prebuilds/{platform}-{arch}/
  */
-function downloadBetterSqlite3(platform) {
+async function downloadBetterSqlite3(platform) {
   const { platform: targetPlatform, arch: targetArch } = BETTER_SQLITE3_PLATFORMS[platform]
   const { version, abi } = getBetterSqlite3Info()
   const prebuildDir = path.join(PROJECT_ROOT, BETTER_SQLITE3_PREBUILDS_DIR, `${targetPlatform}-${targetArch}`)
@@ -250,13 +350,13 @@ function downloadBetterSqlite3(platform) {
   fs.mkdirSync(prebuildDir, { recursive: true })
 
   try {
-    curlDownload(url, tmpTgz)
+    await httpsDownload(url, tmpTgz)
 
     // Extract .node file from tarball (contains build/Release/better_sqlite3.node)
     const tmpExtract = path.join(PROJECT_ROOT, `node_modules/.better-sqlite3-extract-${targetPlatform}-${targetArch}`)
     if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true })
     fs.mkdirSync(tmpExtract, { recursive: true })
-    execSync(`tar -xzf "${tmpTgz}" -C "${tmpExtract}"`, { stdio: 'pipe' })
+    extractTgz(tmpTgz, tmpExtract)
 
     const extractedNode = path.join(tmpExtract, 'build', 'Release', 'better_sqlite3.node')
     if (!fs.existsSync(extractedNode)) {
@@ -284,7 +384,7 @@ function downloadBetterSqlite3(platform) {
  * Install @parcel/watcher for platform
  * Downloads tarball directly from npm registry to bypass platform compatibility checks
  */
-function installWatcher(platform) {
+async function installWatcher(platform) {
   const pkg = WATCHER_PACKAGES[platform]
   const pkgName = pkg.replace('@parcel/', '')
   const version = getWatcherVersion()
@@ -303,8 +403,8 @@ function installWatcher(platform) {
     fs.mkdirSync(destDir, { recursive: true })
 
     // Download tarball and extract (--strip-components=1 removes the "package/" prefix)
-    curlDownload(tarballUrl, tmpTgz)
-    execSync(`tar -xzf "${tmpTgz}" -C "${destDir}" --strip-components=1`, { stdio: 'pipe' })
+    await httpsDownload(tarballUrl, tmpTgz)
+    extractTgz(tmpTgz, destDir, 1)
     fs.unlinkSync(tmpTgz)
 
     // Verify .node file exists
@@ -325,7 +425,7 @@ function installWatcher(platform) {
 /**
  * Prepare all binaries for a platform
  */
-function preparePlatform(platform) {
+async function preparePlatform(platform) {
   console.log(`\n=== Preparing binaries for ${platform} ===\n`)
 
   // Check and download cloudflared
@@ -399,7 +499,7 @@ async function main() {
   }
 
   for (const platform of platforms) {
-    preparePlatform(platform)
+    await preparePlatform(platform)
   }
 
   console.log('\n' + colors.green + '✅ All binaries prepared successfully!' + colors.reset)

@@ -50,19 +50,31 @@ function isClientConnected(client: Client): boolean {
 }
 
 /**
- * Synchronous port check using lsof command (more reliable)
+ * Cross-platform synchronous port availability check.
+ * Uses netstat on Windows, lsof on macOS/Linux.
  */
 function isPortAvailableSync(port: number): boolean {
   try {
-    // Use a simple socket connection test
-    const result = execSync(`lsof -i :${port} -t 2>/dev/null || echo ""`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 1000
-    })
-    return result.trim() === ''
+    if (process.platform === 'win32') {
+      // Windows: use netstat to check if port is in LISTENING state
+      const result = execSync(`netstat -ano | findstr ":${port} " | findstr "LISTENING"`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000
+      })
+      return result.trim() === ''
+    } else {
+      // macOS/Linux: use lsof
+      const result = execSync(`lsof -i :${port} -t 2>/dev/null || echo ""`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 1000
+      })
+      return result.trim() === ''
+    }
   } catch {
-    return true  // If lsof fails, assume port is available
+    // Command error → assume port is available
+    return true
   }
 }
 
@@ -84,16 +96,42 @@ function findAvailablePort(startPort: number): number {
 function killPort(port: number): void {
   try {
     console.log(`[SshTunnel] Checking and killing process(es) using port ${port}...`)
-    // On macOS/Linux, use lsof to find and kill the process
-    const result = execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore']
-    })
-    if (result) {
-      console.log(`[SshTunnel] Killed process(es) using port ${port}: ${result.trim()}`)
+    if (process.platform === 'win32') {
+      // Windows: use netstat to find PID, then taskkill
+      const result = execSync(`netstat -ano | findstr ":${port} " | findstr "LISTENING"`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
+      const pids = new Set<string>()
+      for (const line of result.trim().split('\n')) {
+        const parts = line.trim().split(/\s+/)
+        const pid = parts[parts.length - 1]
+        if (pid && /^\d+$/.test(pid)) {
+          pids.add(pid)
+        }
+      }
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /F /PID ${pid}`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore']
+          })
+          console.log(`[SshTunnel] Killed process ${pid} using port ${port}`)
+        } catch {
+          // PID may have already exited
+        }
+      }
     } else {
-      console.log(`[SshTunnel] Port ${port} is already free`)
+      // macOS/Linux: use lsof to find and kill the process
+      const result = execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
+      if (result) {
+        console.log(`[SshTunnel] Killed process(es) using port ${port}: ${result.trim()}`)
+      }
     }
+    console.log(`[SshTunnel] Port cleanup completed (port ${port})`)
   } catch (error) {
     // Ignore errors - port might be free already
     console.log(`[SshTunnel] Port cleanup completed (port ${port})`)

@@ -55,7 +55,7 @@ export function HomePage() {
   // Path selection state
   const [useCustomPath, setUseCustomPath] = useState(false)
   const [customPath, setCustomPath] = useState<string | null>(null)
-  const [defaultPath, setDefaultPath] = useState<string>('~/.halo/spaces')
+  const [defaultPath, setDefaultPath] = useState<string>(window.platform.isWindows ? '%USERPROFILE%\\.halo\\spaces' : '~/.halo/spaces')
 
   // Remote Claude configuration state
   const [claudeSource, setClaudeSource] = useState<'local' | 'remote'>('local')

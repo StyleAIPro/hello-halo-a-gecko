@@ -11,6 +11,7 @@ import pty, { IPty } from 'node-pty'
 import { SSHManager } from '../remote-ssh/ssh-manager'
 import { EventEmitter } from 'events'
 import { Readable, Writable } from 'stream'
+import os from 'os'
 
 export interface TerminalSessionConfig {
   type: 'local' | 'remote'
@@ -75,7 +76,7 @@ export class TerminalSession extends EventEmitter {
           name: 'xterm-256color',
           cols: 80,
           rows: 24,
-          cwd: this.config.workDir || process.env.HOME || process.cwd(),
+          cwd: this.config.workDir || process.env.HOME || os.homedir() || process.cwd(),
           env: process.env as { [key: string]: string }
         })
 

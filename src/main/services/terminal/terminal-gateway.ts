@@ -444,7 +444,7 @@ export class TerminalGateway extends EventEmitter {
             spaceId,
             conversationId,
             type: 'local',
-            workDir: space?.remotePath || space?.workingDir || process.env.HOME
+            workDir: space?.remotePath || space?.workingDir || process.env.HOME || os.homedir()
           }
         }
       } else {
@@ -454,7 +454,7 @@ export class TerminalGateway extends EventEmitter {
           type: 'local',
           spaceId,
           conversationId,
-          workDir: space?.workingDir || process.env.HOME
+          workDir: space?.workingDir || process.env.HOME || os.homedir()
         }
       }
 
