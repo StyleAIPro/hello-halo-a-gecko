@@ -333,6 +333,15 @@ function registerProcessExitListener(session: V2SDKSession, conversationId: stri
     // SDK provides onExit(callback) method for process exit notification
     if (typeof transport.onExit === 'function') {
       const unsubscribe = transport.onExit((error: Error | undefined) => {
+        // Guard: only cleanup if this session is still the active one for this conversationId.
+        // Race condition: when a session is rebuilt (e.g., config change), the old session's
+        // process may exit AFTER the new session is stored in v2Sessions under the same key.
+        // Without this check, the old process exit would accidentally close the new session.
+        const currentInfo = v2Sessions.get(conversationId)
+        if (currentInfo?.session !== session) {
+          console.log(`[Agent][${conversationId}] Process exited but session was replaced, skipping cleanup`)
+          return
+        }
         const errorMsg = error ? `: ${error.message}` : ''
         cleanupSession(conversationId, `process exited${errorMsg}`)
         console.log(`[Agent][${conversationId}] Remaining sessions: ${v2Sessions.size}`)
