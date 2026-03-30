@@ -342,8 +342,10 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
     // Use aiBrowserEnabled from parameter if provided, otherwise use store value
     const useAiBrowser = aiBrowserEnabledFromInput ?? aiBrowserEnabled
+    // If no explicit agentId from @mention, use the activeAgentId from AgentPanel
+    const effectiveAgentId = agentId ?? useChatStore.getState().activeAgentId ?? undefined
     // Pass both AI Browser and thinking state to sendMessage
-    await sendMessage(content, images, useAiBrowser, thinkingEnabled, agentId)
+    await sendMessage(content, images, useAiBrowser, thinkingEnabled, effectiveAgentId)
   }
 
   // Handle stop - stops the current conversation's generation

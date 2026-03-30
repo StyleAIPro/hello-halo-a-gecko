@@ -1,7 +1,10 @@
 /**
  * HyperSpaceCreationDialog Component
  *
- * Multi-agent workspace creation dialog
+ * Multi-agent workspace creation dialog (v2)
+ * - Leader: forced local, default capabilities for management
+ * - Worker: local (user-defined capabilities) or remote (default AI/GPU capabilities)
+ * - Environment credentials for remote workers (auto-filled from server config)
  */
 
 import React, { useState, useEffect } from 'react'
@@ -9,9 +12,8 @@ import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 import { SPACE_ICONS, DEFAULT_SPACE_ICON } from '../../types'
 import type { SpaceIconId } from '../../types'
-import type { AgentConfig, OrchestrationConfig } from '../../../shared/types/hyper-space'
-import { DEFAULT_ORCHESTRATION_CONFIG } from '../../../shared/types/hyper-space'
-import { Blocks, Plus, Trash2, Users, Cloud, FolderOpen } from 'lucide-react'
+import type { AgentConfig } from '../../../shared/types/hyper-space'
+import { Blocks, Plus, Trash2, Users, Cloud, FolderOpen, Monitor, X } from 'lucide-react'
 import { SpaceIcon } from '../icons/ToolIcons'
 import type { RemoteServer } from '../../../shared/types'
 
@@ -20,6 +22,9 @@ interface HyperSpaceCreationDialogProps {
   onClose: () => void
   onSuccess: (spaceId: string) => void
 }
+
+const DEFAULT_LEADER_CAPABILITIES = ['组织', '管理', '任务规划', '项目管理']
+const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化']
 
 export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSpaceCreationDialogProps) {
   const { t } = useTranslation()
@@ -31,13 +36,14 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
 
   // Agents configuration
   const [agents, setAgents] = useState<AgentConfig[]>([
-    { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: ['orchestration'] }
+    { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: [...DEFAULT_LEADER_CAPABILITIES] }
   ])
 
-  // Orchestration config
-  const [orchestration, setOrchestration] = useState<OrchestrationConfig>(
-    DEFAULT_ORCHESTRATION_CONFIG
-  )
+  // Show inline add-worker form
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newWorkerName, setNewWorkerName] = useState('')
+  const [newWorkerType, setNewWorkerType] = useState<'local' | 'remote'>('local')
+  const [newWorkerServerId, setNewWorkerServerId] = useState('')
 
   // Remote servers for agent selection
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
@@ -60,37 +66,102 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
       setIcon(DEFAULT_SPACE_ICON)
       setCustomPath('')
       setAgents([
-        { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: ['orchestration'] }
+        { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: [...DEFAULT_LEADER_CAPABILITIES] }
       ])
-      setOrchestration(DEFAULT_ORCHESTRATION_CONFIG)
+      setShowAddForm(false)
+      setNewWorkerName('')
+      setNewWorkerType('local')
+      setNewWorkerServerId('')
     }
   }, [isOpen])
 
-  // Add agent handler
-  const handleAddAgent = () => {
+  // Add worker handler
+  const handleAddWorker = () => {
+    const capabilities = newWorkerType === 'remote' ? [...DEFAULT_REMOTE_CAPABILITIES] : []
     const newAgent: AgentConfig = {
       id: `worker-${Date.now()}`,
-      name: `Worker ${agents.length}`,
-      type: 'local',
+      name: newWorkerName.trim() || `Worker ${agents.filter(a => a.role === 'worker').length + 1}`,
+      type: newWorkerType,
       role: 'worker',
-      capabilities: []
+      capabilities,
+      ...(newWorkerType === 'remote' && newWorkerServerId ? { remoteServerId: newWorkerServerId } : {})
     }
+
+    // Auto-fill environment from server config for remote workers
+    if (newWorkerType === 'remote' && newWorkerServerId) {
+      const server = remoteServers.find(s => s.id === newWorkerServerId)
+      if (server) {
+        newAgent.environment = {
+          ip: server.host,
+          username: server.username,
+          password: server.password || '',
+          port: server.sshPort || 22
+        }
+      }
+    }
+
     setAgents([...agents, newAgent])
+    setShowAddForm(false)
+    setNewWorkerName('')
+    setNewWorkerType('local')
+    setNewWorkerServerId('')
   }
 
-  // Remove agent handler
+  // Remove agent handler (cannot remove leader)
   const handleRemoveAgent = (agentId: string) => {
     const agent = agents.find(a => a.id === agentId)
-    // Cannot remove the only leader
-    if (agent?.role === 'leader' && agents.filter(a => a.role === 'leader').length === 1) {
-      return
-    }
+    if (agent?.role === 'leader') return
     setAgents(agents.filter(a => a.id !== agentId))
   }
 
-  // Update agent handler
-  const handleUpdateAgent = (agentId: string, updates: Partial<AgentConfig>) => {
-    setAgents(agents.map(a => a.id === agentId ? { ...a, ...updates } : a))
+  // Update agent type with auto-capability management
+  const handleUpdateAgentType = (agentId: string, newType: 'local' | 'remote') => {
+    setAgents(agents.map(a => {
+      if (a.id !== agentId) return a
+      const updated = { ...a, type: newType }
+      if (newType === 'remote') {
+        // Auto-fill remote capabilities if currently empty
+        if (!updated.capabilities || updated.capabilities.length === 0) {
+          updated.capabilities = [...DEFAULT_REMOTE_CAPABILITIES]
+        }
+        if (!updated.remoteServerId) {
+          // Auto-select first remote server if available
+          if (remoteServers.length > 0) {
+            updated.remoteServerId = remoteServers[0].id
+            const server = remoteServers[0]
+            updated.environment = {
+              ip: server.host,
+              username: server.username,
+              password: server.password || '',
+              port: server.sshPort || 22
+            }
+          }
+        }
+      } else {
+        // Switching to local: clear environment
+        updated.remoteServerId = undefined
+        updated.environment = undefined
+      }
+      return updated
+    }))
+  }
+
+  // Update agent remote server (auto-fill environment)
+  const handleUpdateAgentServer = (agentId: string, serverId: string) => {
+    setAgents(agents.map(a => {
+      if (a.id !== agentId) return a
+      const server = remoteServers.find(s => s.id === serverId)
+      return {
+        ...a,
+        remoteServerId: serverId,
+        environment: server ? {
+          ip: server.host,
+          username: server.username,
+          password: server.password || '',
+          port: server.sshPort || 22
+        } : undefined
+      }
+    }))
   }
 
   // Handle folder selection
@@ -98,7 +169,6 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
     const res = await api.selectFolder()
     if (res.success && res.data) {
       setCustomPath(res.data as string)
-      // Extract directory name as suggested space name
       const dirName = (res.data as string).split(/[/\\]/).pop() || ''
       if (dirName && !name.trim()) {
         setName(dirName)
@@ -116,14 +186,12 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
         icon,
         customPath: customPath || undefined,
         spaceType: 'hyper',
-        agents,
-        orchestration
+        agents
       })
 
       console.log('[HyperSpaceDialog] Create result:', result)
 
       if (result.success) {
-        // IPC returns { success: true, space: {...} }
         const spaceData = (result as any).space || (result as any).data
         const spaceId = spaceData?.id
         if (spaceId) {
@@ -154,14 +222,14 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
               <span>{t('Create Hyper Space')}</span>
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {t('Multi-agent workspace for parallel task execution')}
+              {t('Multi-agent workspace with independent agent conversations')}
             </p>
           </div>
           <button
             onClick={onClose}
             className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg"
           >
-            <Plus className="w-4 h-4 rotate-45" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -236,14 +304,105 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                 <Users className="w-3.5 h-3.5" />
                 {t('Agents')}
               </h3>
-              <button
-                onClick={handleAddAgent}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:bg-primary/10 rounded-md transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                {t('Add Agent')}
-              </button>
+              {!showAddForm && (
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-primary hover:bg-primary/10 rounded-md transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {t('Add Worker')}
+                </button>
+              )}
             </div>
+
+            {/* Add Worker Inline Form */}
+            {showAddForm && (
+              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-blue-500/20 text-blue-500">
+                    {t('worker')}
+                  </span>
+                  <input
+                    type="text"
+                    value={newWorkerName}
+                    onChange={(e) => setNewWorkerName(e.target.value)}
+                    placeholder={t('Worker Name')}
+                    autoFocus
+                    className="flex-1 px-2 py-1 text-sm bg-transparent border-b border-border focus:outline-none focus:border-primary"
+                  />
+                </div>
+
+                {/* Type selection */}
+                <div className="flex gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="radio"
+                      name="new-worker-type"
+                      checked={newWorkerType === 'local'}
+                      onChange={() => setNewWorkerType('local')}
+                    />
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>{t('Local')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="radio"
+                      name="new-worker-type"
+                      checked={newWorkerType === 'remote'}
+                      onChange={() => setNewWorkerType('remote')}
+                    />
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>{t('Remote')}</span>
+                  </label>
+                </div>
+
+                {/* Remote server selection */}
+                {newWorkerType === 'remote' && (
+                  <div className="space-y-1.5">
+                    {remoteServers.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t('No remote servers available. Add a remote server first.')}
+                      </p>
+                    ) : (
+                      <select
+                        value={newWorkerServerId}
+                        onChange={(e) => setNewWorkerServerId(e.target.value)}
+                        className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
+                      >
+                        <option value="">{t('Select server...')}</option>
+                        {remoteServers.map((server) => (
+                          <option key={server.id} value={server.id}>
+                            {server.name} ({server.host})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => {
+                      setShowAddForm(false)
+                      setNewWorkerName('')
+                      setNewWorkerType('local')
+                      setNewWorkerServerId('')
+                    }}
+                    className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {t('Cancel')}
+                  </button>
+                  <button
+                    onClick={handleAddWorker}
+                    disabled={newWorkerType === 'remote' && !newWorkerServerId && remoteServers.length > 0}
+                    className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {t('Add')}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Agent Cards */}
             <div className="space-y-3">
@@ -261,12 +420,12 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                       <input
                         type="text"
                         value={agent.name}
-                        onChange={(e) => handleUpdateAgent(agent.id, { name: e.target.value })}
+                        onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? { ...a, name: e.target.value } : a))}
                         className="text-sm font-medium bg-transparent border-none focus:outline-none"
                         placeholder={t('Agent Name')}
                       />
                     </div>
-                    {!(agents.filter(a => a.role === 'leader').length === 1 && agent.role === 'leader') && (
+                    {agent.role !== 'leader' && (
                       <button
                         onClick={() => handleRemoveAgent(agent.id)}
                         className="p-1 hover:bg-destructive/20 rounded transition-colors"
@@ -276,32 +435,42 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                     )}
                   </div>
 
-                  {/* Agent Type */}
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input
-                        type="radio"
-                        name={`type-${agent.id}`}
-                        checked={agent.type === 'local'}
-                        onChange={() => handleUpdateAgent(agent.id, { type: 'local', remoteServerId: undefined })}
-                      />
-                      <span>{t('Local')}</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input
-                        type="radio"
-                        name={`type-${agent.id}`}
-                        checked={agent.type === 'remote'}
-                        onChange={() => handleUpdateAgent(agent.id, { type: 'remote' })}
-                      />
-                      <Cloud className="w-3.5 h-3.5" />
-                      <span>{t('Remote')}</span>
-                    </label>
+                  {/* Agent Type - Hidden for Leader (forced local) */}
+                  <div className="flex items-center gap-2">
+                    {agent.role === 'leader' ? (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Monitor className="w-3.5 h-3.5" />
+                        <span>{t('Local (Leader)')}</span>
+                      </div>
+                    ) : (
+                      <div className="flex gap-3">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm">
+                          <input
+                            type="radio"
+                            name={`type-${agent.id}`}
+                            checked={agent.type === 'local'}
+                            onChange={() => handleUpdateAgentType(agent.id, 'local')}
+                          />
+                          <Monitor className="w-3.5 h-3.5" />
+                          <span>{t('Local')}</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer text-sm">
+                          <input
+                            type="radio"
+                            name={`type-${agent.id}`}
+                            checked={agent.type === 'remote'}
+                            onChange={() => handleUpdateAgentType(agent.id, 'remote')}
+                          />
+                          <Cloud className="w-3.5 h-3.5" />
+                          <span>{t('Remote')}</span>
+                        </label>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Remote Server (if remote) */}
-                  {agent.type === 'remote' && (
-                    <div className="space-y-1.5">
+                  {/* Remote Server (if remote worker) */}
+                  {agent.role === 'worker' && agent.type === 'remote' && (
+                    <div className="space-y-2">
                       {remoteServers.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
                           {t('No remote servers available. Add a remote server first.')}
@@ -309,16 +478,25 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                       ) : (
                         <select
                           value={agent.remoteServerId || ''}
-                          onChange={(e) => handleUpdateAgent(agent.id, { remoteServerId: e.target.value })}
+                          onChange={(e) => handleUpdateAgentServer(agent.id, e.target.value)}
                           className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
                         >
                           <option value="">{t('Select server...')}</option>
                           {remoteServers.map((server) => (
                             <option key={server.id} value={server.id}>
-                              {server.name} ({server.status})
+                              {server.name} ({server.host})
                             </option>
                           ))}
                         </select>
+                      )}
+
+                      {/* Environment Info (read-only) */}
+                      {agent.environment && (
+                        <div className="px-3 py-2 bg-secondary rounded-md text-xs text-muted-foreground space-y-0.5">
+                          <div>{t('Server')}: {agent.environment.ip}{agent.environment.port && agent.environment.port !== 22 ? `:${agent.environment.port}` : ''}</div>
+                          <div>{t('User')}: {agent.environment.username}</div>
+                          <div>{t('Password')}: {'*'.repeat(Math.min((agent.environment.password || '').length, 8))}</div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -331,88 +509,18 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                     <input
                       type="text"
                       value={agent.capabilities?.join(', ') || ''}
-                      onChange={(e) => handleUpdateAgent(agent.id, {
+                      onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? {
+                        ...a,
                         capabilities: e.target.value.split(',').map(c => c.trim()).filter(Boolean)
-                      })}
-                      placeholder={t('code, testing, documentation')}
+                      } : a))}
+                      placeholder={agent.role === 'leader'
+                        ? '组织, 管理, 任务规划, 项目管理'
+                        : 'code, testing, documentation'}
                       className="w-full px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg"
                     />
                   </div>
                 </div>
               ))}
-            </div>
-          </section>
-
-          {/* Orchestration Section */}
-          <section className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-              {t('Orchestration')}
-            </h3>
-
-            {/* Execution Mode */}
-            <div className="space-y-2">
-              <label className="text-sm text-foreground">{t('Execution Mode')}</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(['parallel', 'sequential', 'adaptive'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setOrchestration({ ...orchestration, mode })}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                      orchestration.mode === mode
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80'
-                    }`}
-                  >
-                    {t(mode)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Routing Strategy */}
-            <div className="space-y-2">
-              <label className="text-sm text-foreground">{t('Routing Strategy')}</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(['capability', 'round-robin', 'manual'] as const).map((strategy) => (
-                  <button
-                    key={strategy}
-                    onClick={() => setOrchestration({
-                      ...orchestration,
-                      routing: { ...orchestration.routing!, strategy }
-                    })}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                      orchestration.routing?.strategy === strategy
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80'
-                    }`}
-                  >
-                    {t(strategy)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Aggregation Strategy */}
-            <div className="space-y-2">
-              <label className="text-sm text-foreground">{t('Result Aggregation')}</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(['concat', 'summarize', 'vote'] as const).map((strategy) => (
-                  <button
-                    key={strategy}
-                    onClick={() => setOrchestration({
-                      ...orchestration,
-                      aggregation: { ...orchestration.aggregation!, strategy }
-                    })}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                      orchestration.aggregation?.strategy === strategy
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80'
-                    }`}
-                  >
-                    {t(strategy)}
-                  </button>
-                ))}
-              </div>
             </div>
           </section>
         </div>

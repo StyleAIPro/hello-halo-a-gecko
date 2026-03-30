@@ -357,6 +357,15 @@ interface ChatState {
   _pulseItems: PulseItem[]
   _pulseCount: number
 
+  // Hyper Space Agent Panel
+  activeAgentId: string | null           // Currently selected agent (null = Leader)
+  activatedAgentIds: Set<string>          // Agents highlighted by leader activation
+  agentConversations: Map<string, string> // agentId -> conversationId mapping
+
+  setActiveAgentId: (agentId: string | null) => void
+  activateAgent: (agentId: string) => void
+  deactivateAgent: (agentId: string) => void
+
   // Cleanup
   reset: () => void
   resetSpace: (spaceId: string) => void
@@ -380,6 +389,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingConversation: false,
   _pulseItems: [],
   _pulseCount: 0,
+
+  // Hyper Space Agent Panel state
+  activeAgentId: null,
+  activatedAgentIds: new Set<string>(),
+  agentConversations: new Map<string, string>(),
 
   // Get current space state
   getCurrentSpaceState: () => {
@@ -2156,6 +2170,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
       return { sessions: newSessions }
     })
+
+    // Highlight agent in AgentPanel sidebar (foreman pattern)
+    get().activateAgent(agentId)
   },
 
   // Handle worker completed — marks worker session as done
@@ -2188,6 +2205,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
       return { sessions: newSessions }
     })
+
+    // Remove activation highlight in AgentPanel sidebar
+    if (agentId) get().deactivateAgent(agentId)
   },
 
   handleAgentTeamMessage: (data) => {
@@ -2343,6 +2363,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const newSpaceStates = new Map(state.spaceStates)
       newSpaceStates.delete(spaceId)
       return { spaceStates: newSpaceStates }
+    })
+  },
+
+  // ===== Hyper Space Agent Panel Actions =====
+
+  setActiveAgentId: (agentId: string | null) => {
+    const { currentSpaceId, spaceStates, agentConversations } = get()
+    if (!currentSpaceId) return
+
+    set({ activeAgentId: agentId })
+
+    // For leader (null), use the current conversation
+    if (!agentId) {
+      const spaceState = spaceStates.get(currentSpaceId)
+      if (spaceState?.currentConversationId) {
+        get().selectConversation(spaceState.currentConversationId)
+      }
+      return
+    }
+
+    // For worker: get or create their independent conversation
+    let convId = agentConversations.get(agentId)
+    if (convId) {
+      get().selectConversation(convId)
+      return
+    }
+
+    // Create a new conversation for this agent
+    get().createConversation(currentSpaceId).then(conv => {
+      if (conv) {
+        set((state) => {
+          const newAgentConvs = new Map(state.agentConversations)
+          newAgentConvs.set(agentId, conv.id)
+          return { agentConversations: newAgentConvs }
+        })
+        get().selectConversation(conv.id)
+      }
+    })
+  },
+
+  activateAgent: (agentId: string) => {
+    set((state) => {
+      const newActivated = new Set(state.activatedAgentIds)
+      newActivated.add(agentId)
+      return { activatedAgentIds: newActivated }
+    })
+  },
+
+  deactivateAgent: (agentId: string) => {
+    set((state) => {
+      const newActivated = new Set(state.activatedAgentIds)
+      newActivated.delete(agentId)
+      return { activatedAgentIds: newActivated }
     })
   }
 }))

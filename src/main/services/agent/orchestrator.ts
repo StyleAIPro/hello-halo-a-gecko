@@ -2482,7 +2482,7 @@ just complete the task normally — the orchestrator will collect your results a
     if (isLeader) {
       return await this.buildLeaderSystemPrompt(team)
     } else {
-      return this.buildWorkerSystemPrompt(team, currentAgentId)
+      return await this.buildWorkerSystemPrompt(team, currentAgentId)
     }
   }
 
@@ -2491,94 +2491,15 @@ just complete the task normally — the orchestrator will collect your results a
    * This is the key prompt that enables automatic task distribution
    */
   private async buildLeaderSystemPrompt(team: AgentTeam): Promise<string> {
+    // Build shared team context (visible to all agents)
+    const sharedContext = await this.buildSharedTeamContext(team)
+
+    // Leader-specific instructions
     let context = '\n\n' + '='.repeat(60) + '\n'
-    context += '## HYPER SPACE: YOU ARE THE TEAM LEADER\n'
+    context += '## YOU ARE THE TEAM LEADER\n'
     context += '='.repeat(60) + '\n\n'
 
     context += `You are the **LEADER** of a multi-agent team. You have ${team.workers.length} worker agent(s) available to execute tasks.\n\n`
-
-    // Resolve remote server details for all remote workers
-    let deployService: any = null
-    for (const worker of team.workers) {
-      if (worker.config.type === 'remote' && worker.config.remoteServerId && !deployService) {
-        try {
-          const mod = await import('../../ipc/remote-server')
-          deployService = mod.getRemoteDeployService()
-        } catch {
-          // Remote deploy service not available
-        }
-      }
-    }
-    const { decryptString } = await import('../secure-storage.service')
-
-    // Collect unique remote server info for cross-server file transfer guidance
-    const remoteServersMap = new Map<string, { name: string; host: string; sshPort: number; username: string; password: string }>()
-
-    // List available workers with details
-    if (team.workers.length > 0) {
-      context += '### Your Available Workers:\n\n'
-      for (const worker of team.workers) {
-        const capabilities = worker.config.capabilities?.length
-          ? worker.config.capabilities.join(', ')
-          : 'general purpose'
-
-        context += `#### ${worker.config.name || worker.id}\n`
-        context += `- **ID**: \`${worker.id}\`\n`
-
-        if (worker.config.type === 'remote' && worker.config.remoteServerId) {
-          const serverInfo = deployService?.getServer(worker.config.remoteServerId)
-          const serverName = serverInfo?.name || worker.config.remoteServerId
-          context += `- **Location**: Remote server "${serverName}"\n`
-          if (serverInfo) {
-            const decryptedPassword = decryptString(serverInfo.password || '')
-            context += `- **Server IP**: ${serverInfo.host}\n`
-            context += `- **SSH Port**: ${serverInfo.sshPort}\n`
-            context += `- **Username**: ${serverInfo.username}\n`
-            context += `- **Password**: ${decryptedPassword}\n`
-            context += `- **Working Dir**: ${serverInfo.workDir || '/root'}\n`
-            remoteServersMap.set(worker.config.remoteServerId, {
-              name: serverName,
-              host: serverInfo.host,
-              sshPort: serverInfo.sshPort,
-              username: serverInfo.username,
-              password: decryptedPassword
-            })
-          }
-        } else {
-          context += `- **Location**: Local machine\n`
-        }
-
-        context += `- **Capabilities**: ${capabilities}\n`
-        context += `- **Status**: ${worker.status}\n\n`
-      }
-    }
-
-    // Cross-server file transfer guidance (only if there are 2+ remote servers)
-    if (remoteServersMap.size >= 2) {
-      context += '### Cross-Server File Transfer:\n\n'
-      context += 'You have workers on multiple remote servers. When coordinating file transfers between servers (e.g., model weights, Docker images, config files), provide workers with explicit `scp` commands.\n\n'
-      context += '**Example** — copy a file from Server A to Server B:\n'
-      context += '```\n'
-      context += 'sshpass -p \'<password_B>\' scp -P <port_B> -o StrictHostKeyChecking=no /path/to/file <username_B>@<host_B>:/target/path\n'
-      context += '```\n\n'
-      context += '**Available servers for transfer:**\n'
-      for (const [serverId, info] of remoteServersMap) {
-        context += `- **${info.name}**: ${info.username}@${info.host} (SSH port: ${info.sshPort}, password: ${info.password}, workDir: ${deployService?.getServer(serverId)?.workDir || '/root'})\n`
-      }
-      context += '\nUse `sshpass -p` to automate password input in non-interactive commands.\n\n'
-    } else if (remoteServersMap.size === 1) {
-      const [serverId, info] = remoteServersMap.entries().next().value!
-      const workDir = deployService?.getServer(serverId)?.workDir || '/root'
-      context += '### Remote Server Access:\n\n'
-      context += `Your remote worker runs on server **${info.name}**. When instructing it to transfer files to/from the local machine, provide explicit commands.\n\n`
-      context += `**Server**: ${info.name} (${info.host})\n`
-      context += `**SSH**: ${info.username}@${info.host} -p ${info.sshPort} (password: ${info.password})\n`
-      context += `**Work Dir**: ${workDir}\n\n`
-      context += '**Example** — copy from local to remote:\n'
-      context += '```\n'
-      context += `sshpass -p '${info.password}' scp -P ${info.sshPort} -o StrictHostKeyChecking=no /local/path/file ${info.username}@${info.host}:${workDir}/\n`
-      context += '```\n\n'
-    }
 
     // ====================================================================
     // TASK PLANNING — the most critical section
@@ -2657,30 +2578,133 @@ just complete the task normally — the orchestrator will collect your results a
 
     context += '='.repeat(60) + '\n\n'
 
+    return sharedContext + context
+  }
+
+  /**
+   * Build shared team context — visible to ALL agents (leader and workers)
+   * Includes all agent identities, capabilities, and environment credentials
+   */
+  private async buildSharedTeamContext(team: AgentTeam): Promise<string> {
+    let context = '\n\n' + '='.repeat(60) + '\n'
+    context += '## HYPER SPACE: TEAM CONTEXT\n'
+    context += '='.repeat(60) + '\n\n'
+
+    context += '### Team Members:\n\n'
+
+    // Leader info
+    const leaderCaps = team.leader.config.capabilities?.length
+      ? team.leader.config.capabilities.join(', ')
+      : 'general purpose'
+    context += `**${team.leader.config.name || team.leader.id}** (Leader, Local)\n`
+    context += `- ID: \`${team.leader.id}\`\n`
+    context += `- Capabilities: ${leaderCaps}\n\n`
+
+    // Workers info
+    let deployService: any = null
+    for (const worker of team.workers) {
+      if (worker.config.type === 'remote' && worker.config.remoteServerId && !deployService) {
+        try {
+          const mod = await import('../../ipc/remote-server')
+          deployService = mod.getRemoteDeployService()
+        } catch {
+          // Remote deploy service not available
+        }
+      }
+    }
+    const { decryptString } = await import('../secure-storage.service')
+
+    const remoteServersMap = new Map<string, { name: string; host: string; sshPort: number; username: string; password: string; workDir: string }>()
+
+    if (team.workers.length > 0) {
+      for (const worker of team.workers) {
+        const capabilities = worker.config.capabilities?.length
+          ? worker.config.capabilities.join(', ')
+          : 'general purpose'
+        const agentType = worker.config.type === 'remote' ? 'Remote' : 'Local'
+
+        context += `**${worker.config.name || worker.id}** (Worker, ${agentType})\n`
+        context += `- ID: \`${worker.id}\`\n`
+        context += `- Capabilities: ${capabilities}\n`
+
+        // Include environment credentials
+        if (worker.config.type === 'remote') {
+          // Prefer pre-configured environment from AgentConfig
+          if (worker.config.environment) {
+            const env = worker.config.environment
+            context += `- Server: ${env.ip}${env.port && env.port !== 22 ? `:${env.port}` : ''}\n`
+            context += `- Username: ${env.username}\n`
+            context += `- Password: ${env.password}\n`
+          } else if (worker.config.remoteServerId && deployService) {
+            // Fallback: resolve from remote server config
+            const serverInfo = deployService.getServer(worker.config.remoteServerId)
+            if (serverInfo) {
+              const decryptedPassword = decryptString(serverInfo.password || '')
+              context += `- Server: ${serverInfo.host}\n`
+              context += `- SSH Port: ${serverInfo.sshPort}\n`
+              context += `- Username: ${serverInfo.username}\n`
+              context += `- Password: ${decryptedPassword}\n`
+              context += `- Working Dir: ${serverInfo.workDir || '/root'}\n`
+              remoteServersMap.set(worker.config.remoteServerId, {
+                name: serverInfo.name,
+                host: serverInfo.host,
+                sshPort: serverInfo.sshPort,
+                username: serverInfo.username,
+                password: decryptedPassword,
+                workDir: serverInfo.workDir || '/root'
+              })
+            }
+          }
+        }
+        context += '\n'
+      }
+    }
+
+    // Cross-server file transfer guidance
+    if (remoteServersMap.size >= 2) {
+      context += '### Cross-Server File Transfer:\n\n'
+      context += 'You have workers on multiple remote servers. When coordinating file transfers between servers (e.g., model weights, Docker images, config files), provide workers with explicit `scp` commands.\n\n'
+      context += '**Example** — copy a file from Server A to Server B:\n'
+      context += '```\n'
+      context += 'sshpass -p \'<password_B>\' scp -P <port_B> -o StrictHostKeyChecking=no /path/to/file <username_B>@<host_B>:/target/path\n'
+      context += '```\n\n'
+      context += '**Available servers for transfer:**\n'
+      for (const [serverId, info] of remoteServersMap) {
+        context += `- **${info.name}**: ${info.username}@${info.host} (SSH port: ${info.sshPort}, password: ${info.password}, workDir: ${info.workDir})\n`
+      }
+      context += '\nUse `sshpass -p` to automate password input in non-interactive commands.\n\n'
+    } else if (remoteServersMap.size === 1) {
+      const [serverId, info] = remoteServersMap.entries().next().value!
+      context += '### Remote Server Access:\n\n'
+      context += `Remote worker runs on server **${info.name}**. When instructing it to transfer files to/from the local machine, provide explicit commands.\n\n`
+      context += `**Server**: ${info.name} (${info.host})\n`
+      context += `**SSH**: ${info.username}@${info.host} -p ${info.sshPort} (password: ${info.password})\n`
+      context += `**Work Dir**: ${info.workDir}\n\n`
+      context += '**Example** — copy from local to remote:\n'
+      context += '```\n'
+      context += `sshpass -p '${info.password}' scp -P ${info.sshPort} -o StrictHostKeyChecking=no /local/path/file ${info.username}@${info.host}:${info.workDir}/\n`
+      context += '```\n\n'
+    }
+
+    context += '='.repeat(60) + '\n\n'
+
     return context
   }
 
   /**
    * Build system prompt for WORKER agents
    */
-  private buildWorkerSystemPrompt(team: AgentTeam, currentAgentId: string): string {
-    let context = '\n\n' + '='.repeat(60) + '\n'
-    context += '## HYPER SPACE: YOU ARE A WORKER AGENT\n'
-    context += '='.repeat(60) + '\n\n'
+  private async buildWorkerSystemPrompt(team: AgentTeam, currentAgentId: string): Promise<string> {
+    // Build shared team context (same context visible to all agents)
+    const sharedContext = await this.buildSharedTeamContext(team)
 
+    // Worker-specific instructions
     const currentWorker = team.workers.find(w => w.id === currentAgentId)
     const workerName = currentWorker?.config.name || currentAgentId
-    const capabilities = currentWorker?.config.capabilities?.length
-      ? currentWorker.config.capabilities.join(', ')
-      : 'general purpose'
 
-    context += `You are **${workerName}**, a worker agent in a Hyper Space team.\n\n`
-    context += `Your capabilities: ${capabilities}\n\n`
-
-    // Leader info
-    context += '### Your Team Leader:\n\n'
-    context += `- **Name**: ${team.leader.config.name || team.leader.id}\n`
-    context += `- **ID**: \`${team.leader.id}\`\n\n`
+    let context = '\n\n' + '='.repeat(60) + '\n'
+    context += `## YOU ARE A WORKER AGENT: ${workerName}\n`
+    context += '='.repeat(60) + '\n\n'
 
     // Worker responsibilities
     context += '### Your Responsibilities:\n\n'
@@ -2703,7 +2727,7 @@ just complete the task normally — the orchestrator will collect your results a
 
     context += '='.repeat(60) + '\n\n'
 
-    return context
+    return sharedContext + context
   }
 
   // ============================================

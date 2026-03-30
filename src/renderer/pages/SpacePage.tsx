@@ -30,6 +30,7 @@ import { SpaceSelector } from '../components/layout/SpaceSelector'
 import { ModelSelector } from '../components/layout/ModelSelector'
 import { ContentCanvas } from '../components/canvas'
 import { GitBashWarningBanner } from '../components/setup/GitBashWarningBanner'
+import { AgentPanel } from '../components/space/AgentPanel'
 import { api } from '../api'
 import { useLayoutPreferences } from '../hooks/useLayoutPreferences'
 import { useWindowMaximize } from '../components/canvas/viewers/useWindowMaximize'
@@ -415,6 +416,11 @@ export function SpacePage() {
               visible={showConversationList && !isCanvasMaximized}
             />
           </div>
+        )}
+
+        {/* Agent Panel - only for Hyper Space, between ConversationList and ChatView */}
+        {!isMobile && currentSpace?.spaceType === 'hyper' && !isCanvasMaximized && (
+          <AgentPanel />
         )}
 
         {/* Desktop Layout */}

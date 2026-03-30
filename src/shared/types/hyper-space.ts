@@ -55,6 +55,18 @@ export interface AgentConfig {
 
   /** Custom system prompt addition */
   systemPromptAddition?: string
+
+  // Hyper Space v2 fields
+  /** Independent conversation ID for this agent's own chat view */
+  conversationId?: string
+
+  /** Environment credentials for remote agents (included in shared system prompt) */
+  environment?: {
+    ip?: string
+    username?: string
+    password?: string
+    port?: number
+  }
 }
 
 // ============================================
