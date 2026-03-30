@@ -181,6 +181,7 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('My Hyper Space')}
+                autoFocus
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>

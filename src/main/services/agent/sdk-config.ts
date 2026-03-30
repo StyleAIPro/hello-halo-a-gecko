@@ -49,6 +49,8 @@ export interface ResolvedSdkCredentials {
   sdkModel: string
   /** User's actual configured model name (for display) */
   displayModel: string
+  /** Context window size in tokens (for compression threshold calculation) */
+  contextWindow?: number
 }
 
 /**
@@ -151,7 +153,8 @@ export async function resolveCredentialsForSdk(
     anthropicBaseUrl,
     anthropicApiKey,
     sdkModel,
-    displayModel
+    displayModel,
+    contextWindow: credentials.contextWindow
   }
 }
 
@@ -184,7 +187,8 @@ async function resolveAnthropicPassthrough(
     anthropicBaseUrl: router.baseUrl,
     anthropicApiKey,
     sdkModel: credentials.model || 'claude-opus-4-5-20251101',
-    displayModel: credentials.displayModel || credentials.model
+    displayModel: credentials.displayModel || credentials.model,
+    contextWindow: credentials.contextWindow
   }
 }
 
@@ -457,6 +461,19 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
 
   // Add MCP servers if provided
   if (mcpServers && Object.keys(mcpServers).length > 0) {
+    // createSdkMcpServer() returns objects with a live McpServer instance that
+    // contains circular references. The SDK internally JSON.stringify's the
+    // options during initialization. Add a toJSON method to each config so
+    // serialization skips the non-serializable instance.
+    for (const config of Object.values(mcpServers)) {
+      const obj = config as any
+      if (obj.instance != null && typeof obj.toJSON !== 'function') {
+        obj.toJSON = () => {
+          const { instance, ...rest } = obj
+          return rest
+        }
+      }
+    }
     sdkOptions.mcpServers = mcpServers
   }
 

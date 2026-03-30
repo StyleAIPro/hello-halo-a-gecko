@@ -444,6 +444,8 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
               pendingQuestion={pendingQuestion}
               onAnswerQuestion={currentConversation ? (answers) => answerQuestion(currentConversation.id, answers) : undefined}
               onAtBottomStateChange={handleAtBottomStateChange}
+              workerSessions={workerSessions}
+              onAnswerWorkerQuestion={(agentId, answers) => answerWorkerQuestion(currentConversation?.id || '', agentId, answers)}
             />
           )}
         </div>

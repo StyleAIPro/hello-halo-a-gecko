@@ -6,7 +6,7 @@
  * to keep it always visible and avoid duplicate renders
  */
 
-import { useState, useRef, useEffect, useMemo, memo, type RefObject } from 'react'
+import { useState, useRef, useEffect, useMemo, memo, useCallback, type RefObject } from 'react'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -14,6 +14,9 @@ import {
   ChevronUp,
   Loader2,
   Braces,
+  Copy,
+  Check,
+  Wrench,
 } from 'lucide-react'
 import { TodoCard, parseTodoInput } from '../tool/TodoCard'
 import { ToolResultViewer } from './tool-result'
@@ -27,11 +30,14 @@ import {
 import { useSmartScroll } from '../../hooks/useSmartScroll'
 import { useLazyVisible } from '../../hooks/useLazyVisible'
 import type { Thought } from '../../types'
+import type { WorkerSessionState } from '../../stores/chat.store'
 import { useTranslation } from '../../i18n'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface ThoughtProcessProps {
   thoughts: Thought[]
   isThinking: boolean
+  workerSessions?: Map<string, WorkerSessionState>
 }
 
 // i18n static keys for extraction (DO NOT REMOVE)
@@ -41,7 +47,7 @@ void function _i18nActionKeys(t: (k: string) => string) {
   t('Editing {{file}}...'); t('Searching {{pattern}}...'); t('Matching {{pattern}}...');
   t('Executing {{command}}...'); t('Fetching {{url}}...'); t('Searching {{query}}...');
   t('Updating tasks...'); t('Executing {{task}}...'); t('Waiting for user response...');
-  t('Processing...'); t('Thinking...');
+  t('Processing...'); t('Thinking...'); t('steps');
 }
 
 // Get human-friendly action summary for collapsed header (isThinking=true only)
@@ -66,7 +72,8 @@ function getActionSummaryData(thoughts: Thought[]): { key: string; params?: Reco
         case 'WebFetch': return { key: 'Fetching {{url}}...', params: { url: extractUrl(input?.url) } }
         case 'WebSearch': return { key: 'Searching {{query}}...', params: { query: extractSearchTerm(input?.query) } }
         case 'TodoWrite': return { key: 'Updating tasks...' }
-        case 'Task': return { key: 'Executing {{task}}...', params: { task: extractSearchTerm(input?.description) } }
+        case 'Agent':
+        case 'Task': return { key: 'Executing {{task}}...', params: { task: extractSearchTerm(input?.description || input?.prompt) } }
         case 'NotebookEdit': return { key: 'Editing {{file}}...', params: { file: extractFileName(input?.notebook_path) } }
         case 'AskUserQuestion': return { key: 'Waiting for user response...' }
         default: return { key: 'Processing...' }
@@ -146,11 +153,188 @@ function TimerDisplay({ startTime, isThinking }: { startTime: number | null; isT
   return <span>{elapsedTime.toFixed(1)}s</span>
 }
 
+// Nested worker thought timeline — renders inside a Task tool_use entry
+function NestedWorkerTimeline({ worker }: { worker: WorkerSessionState }) {
+  const { t } = useTranslation()
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  // Filter worker thoughts for display (same logic as parent ThoughtProcess)
+  const displayThoughts = useMemo(() => {
+    return worker.thoughts.filter(th => {
+      if (th.type === 'result') return false
+      if (th.type === 'tool_result') return false
+      if (th.toolName === 'TodoWrite') return false
+      return true
+    })
+  }, [worker.thoughts])
+
+  // Calculate duration from first thought to completedAt (or now if still running)
+  const duration = useMemo(() => {
+    if (worker.thoughts.length === 0) return null
+    const start = new Date(worker.thoughts[0].timestamp).getTime()
+    const end = worker.completedAt || Date.now()
+    return ((end - start) / 1000).toFixed(1)
+  }, [worker.thoughts, worker.completedAt])
+
+  if (displayThoughts.length === 0 && !worker.isThinking && !worker.streamingContent) return null
+
+  return (
+    <div className="border-t border-border/20">
+      {/* Sub-agent header */}
+      <button
+        className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-white/5 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <Wrench size={11} className="text-blue-400" />
+        <span className="text-[11px] font-medium text-blue-400">{worker.agentName}</span>
+        {worker.isThinking && <Loader2 size={10} className="text-blue-400 animate-spin" />}
+        {worker.status === 'completed' && <CheckCircle2 size={10} className="text-green-400" />}
+        {worker.status === 'failed' && <AlertTriangle size={10} className="text-amber-500" />}
+        <span className="text-[10px] text-muted-foreground/50 flex-1 truncate">
+          {worker.task.length > 60 ? worker.task.substring(0, 60) + '...' : worker.task}
+        </span>
+        <ChevronDown size={10} className={`text-muted-foreground/40 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Collapsed: summary line */}
+      {!isExpanded && (
+        <div className="flex items-center gap-2 px-3 pb-1.5 text-[10px] text-muted-foreground/50">
+          {displayThoughts.length > 0 && (
+            <span>{displayThoughts.length} {t('steps')}</span>
+          )}
+          {duration && (
+            <span>{duration}s</span>
+          )}
+          {worker.status === 'completed' && <CheckCircle2 size={9} className="text-green-400/60" />}
+          {worker.status === 'failed' && <AlertTriangle size={9} className="text-amber-500/60" />}
+          {worker.isThinking && <Loader2 size={9} className="text-blue-400/60 animate-spin" />}
+        </div>
+      )}
+
+      {isExpanded && (
+        <div className="max-h-[250px] overflow-auto scrollbar-overlay">
+          {/* Worker thought items — simplified timeline */}
+          {displayThoughts.map((th, idx) => {
+            const thColor = getThoughtColor(th.type, th.isError)
+            const thIcon = getThoughtIcon(th.type, th.toolName)
+            const hasResult = th.type === 'tool_use' && th.toolResult
+            const thContent = th.type === 'tool_use'
+              ? getToolFriendlyFormat(th.toolName || '', th.toolInput)
+              : th.type === 'tool_result'
+                ? th.toolOutput || ''
+                : th.content
+
+            return (
+              <div key={th.id || idx} className="flex gap-2 px-3 py-1">
+                <div className="flex flex-col items-center mt-0.5">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center bg-primary/5 ${thColor}`}>
+                    {hasResult ? (
+                      th.toolResult!.isError ? <AlertTriangle size={10} /> : <CheckCircle2 size={10} />
+                    ) : (
+                      <thIcon size={10} />
+                    )}
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-medium ${thColor}`}>
+                      {(() => { const l = getThoughtLabelKey(th.type); return l === 'AI' ? l : t(l) })()}
+                      {th.toolName && ` - ${th.toolName}`}
+                    </span>
+                  </div>
+                  {thContent && (
+                    <div className="text-[10px] text-muted-foreground/60 whitespace-pre-wrap break-words mt-0.5 line-clamp-3">
+                      {thContent}
+                    </div>
+                  )}
+                  {hasResult && th.toolResult!.output && (
+                    <div className="mt-1">
+                      <ToolResultViewer
+                        toolName={th.toolName || ''}
+                        toolInput={th.toolInput}
+                        output={th.toolResult!.output}
+                        isError={th.toolResult!.isError}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Worker streaming content / final output */}
+      {worker.streamingContent && (
+        <div className="mx-3 my-1.5 rounded bg-background/50 px-2.5 py-1.5">
+          <div className="text-[11px] break-words leading-relaxed text-foreground/80">
+            <MarkdownRenderer content={worker.streamingContent} mode="streaming" />
+            {worker.isStreaming && (
+              <span className="inline-block w-0.5 h-3.5 ml-0.5 bg-primary streaming-cursor align-middle" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Worker error */}
+      {worker.error && (
+        <div className="mx-3 my-1.5 rounded bg-red-500/10 border border-red-500/20 px-2.5 py-1.5">
+          <p className="text-[10px] text-red-400">{worker.error}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Match Task tool_use thoughts to worker sessions by description
+function useWorkerMatching(
+  thoughts: Thought[],
+  workerSessions?: Map<string, WorkerSessionState>
+): Map<string, WorkerSessionState> {
+  return useMemo(() => {
+    const matchMap = new Map<string, WorkerSessionState>()
+    if (!workerSessions || workerSessions.size === 0) return matchMap
+
+    const workers = Array.from(workerSessions.values())
+    const matchedWorkers = new Set<string>()
+
+    // First pass: match by description (most reliable)
+    for (const thought of thoughts) {
+      if (thought.type !== 'tool_use' || (thought.toolName !== 'Task' && thought.toolName !== 'Agent')) continue
+      const desc = thought.toolInput?.description
+      if (!desc) continue
+
+      for (const worker of workers) {
+        if (matchedWorkers.has(worker.agentId)) continue
+        // Match if worker task contains the description or vice versa
+        if (worker.task && (worker.task === desc || worker.task.includes(desc) || desc.includes(worker.task))) {
+          matchMap.set(thought.id, worker)
+          matchedWorkers.add(worker.agentId)
+          break
+        }
+      }
+    }
+
+    // Second pass: match remaining Task tool_use by order
+    const unmatchedTasks = thoughts.filter(
+      th => th.type === 'tool_use' && (th.toolName === 'Task' || th.toolName === 'Agent') && !matchMap.has(th.id)
+    )
+    const unmatchedWorkers = workers.filter(w => !matchedWorkers.has(w.agentId))
+
+    for (let i = 0; i < Math.min(unmatchedTasks.length, unmatchedWorkers.length); i++) {
+      matchMap.set(unmatchedTasks[i].id, unmatchedWorkers[i])
+    }
+
+    return matchMap
+  }, [thoughts, workerSessions])
+}
+
 // Individual thought item (for non-special tools)
-const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Thought; isLast: boolean }) {
+const ThoughtItem = memo(function ThoughtItem({ thought, isLast, matchedWorker }: { thought: Thought; isLast: boolean; matchedWorker?: WorkerSessionState }) {
   const [showRawJson, setShowRawJson] = useState(false)
-  const [showResult, setShowResult] = useState(true)  // Tool result collapsed by default shows summary
-  const [isContentExpanded, setIsContentExpanded] = useState(false)  // For thinking content expand
+  const [isContentExpanded, setIsContentExpanded] = useState(false)  // For thinking/text content expand
+  const [isToolExpanded, setIsToolExpanded] = useState(true)  // For tool_use container expand
+  const [copied, setCopied] = useState(false)
   const { t } = useTranslation()
   const color = getThoughtColor(thought.type, thought.isError)
   const Icon = getThoughtIcon(thought.type, thought.toolName)
@@ -159,6 +343,7 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
   const isStreaming = thought.isStreaming ?? false
   const isToolReady = thought.isReady ?? true  // Default true for backward compatibility
   const hasToolResult = thought.type === 'tool_use' && thought.toolResult
+  const isToolRunning = thought.type === 'tool_use' && isToolReady && !hasToolResult  // Tool ready but no result yet
 
   // For tool_use: show friendly format when ready, "Generating..." when streaming
   // For thinking: show content directly with streaming placeholder
@@ -168,19 +353,16 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
 
   if (thought.type === 'tool_use') {
     if (!isToolReady) {
-      // Tool still streaming - status shown in header, content shows placeholder
       displayContent = '...'
     } else {
-      // Tool ready - show friendly format
       displayContent = getToolFriendlyFormat(thought.toolName || '', thought.toolInput)
     }
     needsTruncate = displayContent.length > maxPreviewLength
   } else if (thought.type === 'thinking') {
-    // Thinking content - show with placeholder if empty
     displayContent = thought.content || (isStreaming ? '...' : '')
     needsTruncate = displayContent.length > maxPreviewLength
   } else if (thought.type === 'tool_result') {
-    displayContent = (thought.toolOutput || '').substring(0, 200)
+    displayContent = thought.toolOutput || ''
     needsTruncate = displayContent.length > maxPreviewLength
   } else {
     displayContent = thought.content || ''
@@ -191,9 +373,6 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
   const truncatedContent = needsTruncate ? displayContent.substring(0, maxPreviewLength) : displayContent
 
   // Status indicator for tool_use - now includes execution status
-  // Tool errors use warning style (amber) instead of error style (red) because
-  // these are internal AI feedback (e.g. "read file first"), not user-facing errors.
-  // The AI will auto-recover from these, so a softer visual treatment avoids misleading users.
   const getToolStatus = () => {
     if (thought.type !== 'tool_use') return null
     if (!isToolReady) return { label: t('Generating'), color: 'text-amber-400', icon: 'loading' }
@@ -206,6 +385,30 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
   }
   const toolStatus = getToolStatus()
 
+  // Copy tool call + result combined content
+  const handleCopyTool = useCallback(async () => {
+    if (thought.type !== 'tool_use') return
+    const parts: string[] = []
+    const input = thought.toolInput ? getToolFriendlyFormat(thought.toolName || '', thought.toolInput) : ''
+    const rawInput = thought.toolInput ? JSON.stringify(thought.toolInput, null, 2) : ''
+    if (input) parts.push(`[${thought.toolName}] ${input}`)
+    if (rawInput && rawInput !== '{}') parts.push(`Input:\n${rawInput}`)
+    if (thought.toolResult?.output) parts.push(`Output:\n${thought.toolResult.output}`)
+    if (parts.length > 0) {
+      try {
+        await navigator.clipboard.writeText(parts.join('\n\n'))
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch (err) {
+        console.error('Failed to copy:', err)
+      }
+    }
+  }, [thought.type, thought.toolName, thought.toolInput, thought.toolResult])
+
+  // Auto-expand tool container when result arrives
+  useEffect(() => {
+    if (hasToolResult) setIsToolExpanded(true)
+  }, [hasToolResult])
 
   return (
     <div className="flex gap-3 group animate-fade-in">
@@ -257,79 +460,147 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast }: { thought: Th
           )}
         </div>
 
-        {/* Content area with actions on the right */}
-        <div className="flex items-end gap-3">
-          {/* Content - takes available space */}
-          <div className="flex-1 min-w-0">
-            {displayContent && (
-              <div
-                className={`text-sm ${
-                  thought.type === 'thinking' ? 'text-muted-foreground/70 italic' : 'text-foreground/80'
-                } whitespace-pre-wrap break-words`}
-              >
-                {isContentExpanded || !needsTruncate ? displayContent : truncatedContent + '...'}
-                {(thought.type === 'thinking' || thought.type === 'text') && needsTruncate && (
+        {/* ---- tool_use: unified container for input + result ---- */}
+        {thought.type === 'tool_use' && isToolReady && (
+          <div className={`mt-1 rounded-lg border overflow-hidden transition-colors ${
+            hasToolResult
+              ? thought.toolResult!.isError
+                ? 'border-amber-500/30 bg-amber-500/5'
+                : 'border-border/30 bg-muted/20'
+              : 'border-border/30 bg-muted/20'
+          }`}>
+            {/* Toolbar */}
+            <div className={`flex items-center justify-between px-2.5 py-[3px] border-b text-[10px] ${
+              hasToolResult
+                ? thought.toolResult!.isError
+                  ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+                  : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+                : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+            }`}>
+              <span className="flex items-center gap-1.5">
+                {isToolRunning && <Loader2 size={10} className="animate-spin" />}
+                {isToolRunning ? t('Executing...') : hasToolResult ? t('Completed') : t('Tool call')}
+              </span>
+              <div className="flex items-center gap-0.5">
+                {/* Copy button */}
+                {thought.toolInput && Object.keys(thought.toolInput).length > 0 && (
                   <button
-                    onClick={() => setIsContentExpanded(!isContentExpanded)}
-                    className="ml-1 text-primary/60 hover:text-primary not-italic"
+                    onClick={handleCopyTool}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/10 hover:text-foreground transition-colors"
+                    title={t('Copy')}
                   >
-                    {isContentExpanded ? t('Collapse') : t('Expand')}
+                    {copied ? (
+                      <><Check size={10} className="text-green-400" /><span className="hidden sm:inline text-green-400">{t('Copied')}</span></>
+                    ) : (
+                      <><Copy size={10} /><span className="hidden sm:inline">{t('Copy')}</span></>
+                    )}
                   </button>
+                )}
+                {/* Raw JSON toggle */}
+                {thought.toolInput && Object.keys(thought.toolInput).length > 0 && (
+                  <button
+                    onClick={() => setShowRawJson(!showRawJson)}
+                    className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded transition-colors ${
+                      showRawJson ? 'bg-primary/20 text-primary' : 'hover:bg-white/10 hover:text-foreground'
+                    }`}
+                    title={showRawJson ? t('Hide raw JSON') : t('Show raw JSON')}
+                  >
+                    <Braces size={10} />
+                  </button>
+                )}
+                {/* Expand/Collapse container */}
+                <button
+                  onClick={() => setIsToolExpanded(!isToolExpanded)}
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-white/10 hover:text-foreground transition-colors"
+                >
+                  {isToolExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Content (collapsible) */}
+            {isToolExpanded && (
+              <div>
+                {/* Tool input - friendly format */}
+                {displayContent && (
+                  <div className="px-3 py-2 text-[11px] text-foreground/80 whitespace-pre-wrap break-words">
+                    {isContentExpanded || !needsTruncate ? displayContent : truncatedContent + '...'}
+                    {needsTruncate && (
+                      <button
+                        onClick={() => setIsContentExpanded(!isContentExpanded)}
+                        className="ml-1 text-primary/60 hover:text-primary"
+                      >
+                        {isContentExpanded ? t('Collapse') : t('Expand')}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Raw JSON display */}
+                {showRawJson && thought.toolInput && (
+                  <pre className="mx-3 mb-2 p-2 rounded bg-background/50 text-[10px] text-muted-foreground overflow-x-auto">
+                    {JSON.stringify(thought.toolInput, null, 2)}
+                  </pre>
+                )}
+
+                {/* Divider + Tool result */}
+                {hasToolResult && thought.toolResult!.output && (
+                  <div className="border-t border-border/20">
+                    <ToolResultViewer
+                      toolName={thought.toolName || ''}
+                      toolInput={thought.toolInput}
+                      output={thought.toolResult!.output}
+                      isError={thought.toolResult!.isError}
+                    />
+                  </div>
+                )}
+
+                {/* Running indicator (no result yet) */}
+                {isToolRunning && !matchedWorker && (
+                  <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                    <Loader2 size={10} className="animate-spin" />
+                    <span>{t('Waiting for result...')}</span>
+                  </div>
                 )}
               </div>
             )}
+
+            {/* Nested worker thoughts for Task tool_use */}
+            {matchedWorker && (
+              <NestedWorkerTimeline worker={matchedWorker} />
+            )}
           </div>
-
-          {/* Actions - right aligned, compact buttons */}
-          {((thought.type === 'tool_use' && isToolReady && thought.toolInput && Object.keys(thought.toolInput).length > 0) || hasToolResult) && (
-            <div className="flex items-center gap-0.5 shrink-0 text-[9px]">
-              {/* Raw JSON button */}
-              {thought.type === 'tool_use' && isToolReady && thought.toolInput && Object.keys(thought.toolInput).length > 0 && (
-                <button
-                  onClick={() => setShowRawJson(!showRawJson)}
-                  className={`
-                    flex items-center gap-0.5 px-1 py-px rounded transition-colors
-                    ${showRawJson
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
-                    }
-                  `}
-                  title={showRawJson ? t('Hide raw JSON') : t('Show raw JSON')}
-                >
-                  <Braces size={10} />
-                </button>
-              )}
-
-              {/* Show/Hide result button */}
-              {hasToolResult && thought.toolResult!.output && (
-                <button
-                  onClick={() => setShowResult(!showResult)}
-                  className="flex items-center gap-0.5 px-1 py-px rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
-                  title={showResult ? t('Hide tool result') : t('Show tool result')}
-                >
-                  {showResult ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                  {showResult ? 'Hide' : 'Result'}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Raw JSON display (for tool_use) */}
-        {thought.type === 'tool_use' && showRawJson && thought.toolInput && (
-          <pre className="mt-2 p-2 rounded bg-muted/30 text-xs text-muted-foreground overflow-x-auto">
-            {JSON.stringify(thought.toolInput, null, 2)}
-          </pre>
         )}
 
-        {/* Tool result display (merged under tool_use) - Smart rendering */}
-        {hasToolResult && showResult && thought.toolResult!.output && (
-          <ToolResultViewer
-            toolName={thought.toolName || ''}
-            toolInput={thought.toolInput}
-            output={thought.toolResult!.output}
-            isError={thought.toolResult!.isError}
-          />
+        {/* ---- non-tool_use: original content display (thinking, text, tool_result, etc.) ---- */}
+        {thought.type !== 'tool_use' && (
+          <div className="flex items-end gap-3">
+            {/* Content - takes available space */}
+            <div className="flex-1 min-w-0">
+              {displayContent && (
+                <div
+                  className={`text-sm ${
+                    thought.type === 'thinking' ? 'text-muted-foreground/70 italic' : 'text-foreground/80'
+                  } whitespace-pre-wrap break-words`}
+                >
+                  {isContentExpanded || !needsTruncate ? displayContent : truncatedContent + '...'}
+                  {needsTruncate && (
+                    <button
+                      onClick={() => setIsContentExpanded(!isContentExpanded)}
+                      className="ml-1 text-primary/60 hover:text-primary not-italic"
+                    >
+                      {isContentExpanded ? t('Collapse') : t('Expand')}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* tool_use streaming (not ready yet) - minimal display */}
+        {thought.type === 'tool_use' && !isToolReady && (
+          <div className="text-sm text-muted-foreground/50">...</div>
         )}
       </div>
     </div>
@@ -346,16 +617,18 @@ function LazyThoughtItem({
   isLast,
   scrollContainerRef,
   eager = false,
+  matchedWorker,
 }: {
   thought: Thought
   isLast: boolean
   scrollContainerRef: RefObject<HTMLDivElement | null>
   eager?: boolean
+  matchedWorker?: WorkerSessionState
 }) {
   const [ref, isVisible] = useLazyVisible('200px', scrollContainerRef, eager)
 
   if (isVisible) {
-    return <ThoughtItem thought={thought} isLast={isLast} />
+    return <ThoughtItem thought={thought} isLast={isLast} matchedWorker={matchedWorker} />
   }
 
   return (
@@ -363,7 +636,7 @@ function LazyThoughtItem({
   )
 }
 
-export function ThoughtProcess({ thoughts, isThinking }: ThoughtProcessProps) {
+export function ThoughtProcess({ thoughts, isThinking, workerSessions }: ThoughtProcessProps) {
   // Start collapsed, but auto-expand when streaming starts
   const [isExpanded, setIsExpanded] = useState(false)
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
@@ -408,20 +681,22 @@ export function ThoughtProcess({ thoughts, isThinking }: ThoughtProcessProps) {
     return parseTodoInput(latest.toolInput!)
   }, [thoughts])
 
-  // Filter thoughts for display (exclude TodoWrite, tool_result, result, and text)
+  // Filter thoughts for display (exclude TodoWrite, tool_result, result)
   // tool_result is now merged into tool_use, no need to show separately
-  // text blocks are accumulated into the final message content, so they
-  // don't need to appear in the thought process timeline
+  // text blocks are now shown in the timeline so users can see AI output
+  // interleaved with tool calls and thinking blocks
   const displayThoughts = useMemo(() => {
     return thoughts.filter(t => {
       if (t.type === 'result') return false
       if (t.type === 'tool_result') return false  // Merged into tool_use
-      if (t.type === 'text') return false  // Accumulated into final message content
       // Exclude TodoWrite tool_use (shown separately at bottom)
       if (t.toolName === 'TodoWrite') return false
       return true
     })
   }, [thoughts])
+
+  // Match Task tool_use thoughts to worker sessions
+  const workerMatchMap = useWorkerMatching(thoughts, workerSessions)
 
   // Smart auto-scroll: only scrolls when user is at bottom
   // Stops auto-scroll when user scrolls up to read history
@@ -514,6 +789,7 @@ export function ThoughtProcess({ thoughts, isThinking }: ThoughtProcessProps) {
                   // unmount/remount when an item shifts from "recent" to "old"
                   // as new thoughts arrive — which previously caused 1-2 frame flicker.
                   const isRecentItem = index >= displayThoughts.length - 3
+                  const matchedWorker = workerMatchMap.get(thought.id)
                   return (
                     <LazyThoughtItem
                       key={thought.id}
@@ -521,6 +797,7 @@ export function ThoughtProcess({ thoughts, isThinking }: ThoughtProcessProps) {
                       isLast={isLast}
                       scrollContainerRef={contentRef}
                       eager={isRecentItem}
+                      matchedWorker={matchedWorker}
                     />
                   )
                 })}

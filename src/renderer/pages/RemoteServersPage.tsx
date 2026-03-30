@@ -26,6 +26,7 @@ export interface RemoteServer {
   claudeApiKey?: string
   claudeBaseUrl?: string
   claudeModel?: string
+  aiSourceId?: string
 }
 
 export function RemoteServersPage() {
@@ -55,10 +56,36 @@ export function RemoteServersPage() {
   const [keyPath, setKeyPath] = useState('')
   const [workDir, setWorkDir] = useState('')
 
-  // Load servers on mount
+  // AI Sources for API config selection
+  const [aiSources, setAiSources] = useState<Array<{ id: string; name: string; provider: string; apiUrl: string; apiKey?: string; model: string; authType: string; accessToken?: string }>>([])
+
+  // Load servers and AI sources on mount
   useEffect(() => {
     loadServers()
+    loadAiSources()
   }, [])
+
+  const loadAiSources = async () => {
+    try {
+      const result = await api.getConfig()
+      if (result.success && result.data) {
+        const config = result.data as any
+        const sources = config.aiSources?.sources || []
+        setAiSources(sources.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          provider: s.provider,
+          apiUrl: s.apiUrl,
+          apiKey: s.apiKey,
+          accessToken: s.accessToken,
+          model: s.model,
+          authType: s.authType,
+        })))
+      }
+    } catch (err) {
+      console.error('[RemoteServersPage] Failed to load AI sources:', err)
+    }
+  }
 
   // Reset form state
   const resetForm = () => {
@@ -133,6 +160,9 @@ export function RemoteServersPage() {
     // Prevent concurrent calls (multiple quick clicks)
     if (saving) return
 
+    // Close modal immediately to prevent double-submit
+    setShowAddModal(false)
+
     setSaving(true)
     setSaveStatus(t('Adding server...'))
     try {
@@ -143,6 +173,10 @@ export function RemoteServersPage() {
         username: serverUsername.trim() || undefined,
         authType,
         workDir: workDir.trim() || undefined,
+        claudeApiKey: (editingServer as any)?.claudeApiKey || undefined,
+        claudeBaseUrl: (editingServer as any)?.claudeBaseUrl || undefined,
+        claudeModel: (editingServer as any)?.claudeModel || undefined,
+        aiSourceId: (editingServer as any)?.aiSourceId || undefined,
       }
 
       setSaveStatus(t('Connecting to server...'))
@@ -150,11 +184,12 @@ export function RemoteServersPage() {
       if (result.success) {
         setSaveStatus(t('Verifying installation...'))
         await loadServers()
-        setShowAddModal(false)
         resetForm()
       }
     } catch (err) {
       console.error('[RemoteServersPage] Failed to add server:', err)
+      // Re-open modal on failure so user can retry
+      setShowAddModal(true)
     } finally {
       setSaving(false)
       setSaveStatus(null)
@@ -184,6 +219,7 @@ export function RemoteServersPage() {
         claudeApiKey: (editingServer as any).claudeApiKey,
         claudeBaseUrl: (editingServer as any).claudeBaseUrl,
         claudeModel: (editingServer as any).claudeModel,
+        aiSourceId: (editingServer as any).aiSourceId,
       }
 
       const result = await api.updateRemoteServer(updatedServer)
@@ -301,6 +337,7 @@ export function RemoteServersPage() {
 
   const openAddModal = () => {
     resetForm()
+    setEditingServer({ name: '', host: '', port: 22 } as RemoteServer)
     setShowAddModal(true)
   }
 
@@ -312,6 +349,15 @@ export function RemoteServersPage() {
     setServerUsername(server.username || '')
     setAuthType(server.authType)
     setWorkDir(server.workDir || '')
+    // If server has manual fields but no aiSourceId, backfill from current source for edit display
+    if (!server.aiSourceId && (server.claudeApiKey || server.claudeBaseUrl || server.claudeModel)) {
+      const matching = aiSources.find(s =>
+        s.apiKey === server.claudeApiKey && s.apiUrl === server.claudeBaseUrl && s.model === server.claudeModel
+      )
+      if (matching) {
+        setEditingServer(prev => prev ? { ...prev, aiSourceId: matching.id } : null)
+      }
+    }
   }
 
   const closeModal = () => {
@@ -345,7 +391,8 @@ export function RemoteServersPage() {
         right={
           <button
             onClick={openAddModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
+            disabled={!!(showAddModal || editingServer)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
             <Plus className="w-4 h-4" />
             {t('Add Server')}
@@ -375,7 +422,8 @@ export function RemoteServersPage() {
               </p>
               <button
                 onClick={openAddModal}
-                className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors"
+                disabled={!!(showAddModal || editingServer)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
                 <Plus className="w-4 h-4" />
                 {t('Add Your First Server')}
@@ -536,8 +584,8 @@ export function RemoteServersPage() {
 
       {/* Add/Edit Server Modal */}
       {(showAddModal || editingServer) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-xl w-full max-w-md animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeModal}>
+          <div className="bg-card border border-border rounded-xl w-full max-w-md animate-fade-in relative z-[51]" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-border">
               <h2 className="text-lg font-medium">
                 {editingServer ? t('Edit Server') : t('Add Remote Server')}
@@ -700,50 +748,51 @@ export function RemoteServersPage() {
 
               {/* Claude API Config */}
               <div className="pt-4 border-t border-border">
-                <h3 className="text-sm font-medium mb-3">Claude API 配置（可选）</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      API Key
-                    </label>
-                    <input
-                      type="password"
-                      value={(editingServer as any)?.claudeApiKey || ''}
-                      onChange={e => {
-                        setEditingServer(prev => prev ? { ...prev, claudeApiKey: e.target.value } : null)
-                      }}
-                      placeholder="sk-xxx"
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-input text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      API Base URL（可选）
-                    </label>
-                    <input
-                      type="text"
-                      value={(editingServer as any)?.claudeBaseUrl || ''}
-                      onChange={e => {
-                        setEditingServer(prev => prev ? { ...prev, claudeBaseUrl: e.target.value } : null)
-                      }}
-                      placeholder="https://api.anthropic.com"
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-input text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-colors font-mono text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-1.5">
-                      Model（可选）
-                    </label>
-                    <input
-                      type="text"
-                      value={(editingServer as any)?.claudeModel || ''}
-                      onChange={e => {
-                        setEditingServer(prev => prev ? { ...prev, claudeModel: e.target.value } : null)
-                      }}
-                      placeholder="claude-sonnet-4-20250514"
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-input text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-colors font-mono text-sm"
-                    />
-                  </div>
+                <h3 className="text-sm font-medium mb-3">{t('Claude API Config (optional)')}</h3>
+
+                <div>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
+                    {t('AI Model')}
+                  </label>
+                  <select
+                    value={(editingServer as any)?.aiSourceId || ''}
+                    onChange={e => {
+                      const sourceId = e.target.value
+                      if (sourceId) {
+                        const source = aiSources.find(s => s.id === sourceId)
+                        if (source) {
+                          setEditingServer(prev => prev ? {
+                            ...prev,
+                            aiSourceId: sourceId,
+                            claudeApiKey: source.authType === 'api-key' ? (source.apiKey || '') : (source.accessToken || ''),
+                            claudeBaseUrl: source.apiUrl,
+                            claudeModel: source.model,
+                          } : null)
+                        }
+                      } else {
+                        setEditingServer(prev => prev ? {
+                          ...prev,
+                          aiSourceId: '',
+                          claudeApiKey: '',
+                          claudeBaseUrl: '',
+                          claudeModel: '',
+                        } : null)
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-input text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-colors"
+                  >
+                    <option value="">{t('-- None --')}</option>
+                    {aiSources.map(source => (
+                      <option key={source.id} value={source.id}>
+                        {source.name} ({source.provider}) — {source.model}
+                      </option>
+                    ))}
+                  </select>
+                  {aiSources.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('No AI models configured. Go to Settings to add one.')}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

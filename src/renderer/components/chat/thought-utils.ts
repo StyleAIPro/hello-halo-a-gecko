@@ -187,8 +187,10 @@ export function getToolFriendlyFormat(
     case 'WebSearch':
       return typeof toolInput.query === 'string' ? `Search: ${toolInput.query}` : ''
 
+    case 'Agent':
     case 'Task':
-      return typeof toolInput.description === 'string' ? toolInput.description : ''
+      return typeof toolInput.description === 'string' ? toolInput.description
+        : typeof toolInput.prompt === 'string' ? toolInput.prompt : ''
 
     case 'NotebookEdit':
       return typeof toolInput.notebook_path === 'string' ? toolInput.notebook_path : ''

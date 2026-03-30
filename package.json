@@ -8,10 +8,11 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env HALO_DATA_DIR=~/.halo-dev electron-vite dev",
+    "dev:win": "cross-env HALO_DATA_DIR=~/.halo-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build": "npm run build:proxy && electron-vite build",
     "start": "electron-vite preview",
-    "postinstall": "patch-package && electron-builder install-app-deps && electron-rebuild -f -w better-sqlite3",
+    "postinstall": "patch-package",
     "build:mac": "npm run build && electron-builder --mac",
     "build:win": "npm run build && electron-builder --win",
     "build:win-x64": "npm run build && electron-builder --win --x64",
@@ -40,7 +41,7 @@
     "i18n": "npm run i18n:extract && npm run i18n:translate"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.87",
     "@anthropic-ai/sdk": "latest",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -124,7 +125,7 @@
     "autoprefixer": "^10.4.16",
     "cross-env": "^10.1.0",
     "dotenv": "^17.2.4",
-    "electron": "~29.4.6",
+    "electron": "^34.5.8",
     "electron-builder": "24.13.1",
     "electron-vite": "^2.0.0",
     "i18next-parser": "^9.3.0",

@@ -67,4 +67,12 @@ fs.writeFileSync(
   buildInfoModule
 )
 
+// Step 5: Patch SDK for remote agent usage (cwd, systemPrompt, etc.)
+console.log('\nPatching SDK...')
+try {
+  execSync('node ' + path.join(__dirname, 'patch-sdk.mjs'), { cwd: rootDir, stdio: 'inherit' })
+} catch (error) {
+  console.warn('SDK patch failed (non-fatal):', error.message)
+}
+
 console.log('\nBuild completed successfully!')

@@ -30,8 +30,11 @@ export function RemoteServersSection() {
     wsPort: 8080,
     claudeApiKey: '',
     claudeBaseUrl: '',
-    claudeModel: ''
+    claudeModel: '',
+    aiSourceId: ''
   })
+  const [aiSources, setAiSources] = React.useState<Array<{ id: string; name: string; provider: string; apiUrl: string; apiKey?: string; model: string; authType: string; accessToken?: string }>>([])
+  const [saving, setSaving] = React.useState(false)
   const [checkingAgent, setCheckingAgent] = React.useState<string | null>(null)
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
@@ -68,7 +71,30 @@ export function RemoteServersSection() {
   // Load servers on mount
   React.useEffect(() => {
     loadServers()
+    loadAiSources()
   }, [])
+
+  const loadAiSources = async () => {
+    try {
+      const result = await api.getConfig()
+      if (result.success && result.data) {
+        const config = result.data as any
+        const sources = config.aiSources?.sources || []
+        setAiSources(sources.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          provider: s.provider,
+          apiUrl: s.apiUrl,
+          apiKey: s.apiKey,
+          accessToken: s.accessToken,
+          model: s.model,
+          authType: s.authType,
+        })))
+      }
+    } catch (err) {
+      console.error('[RemoteServersSection] Failed to load AI sources:', err)
+    }
+  }
 
   // Listen for command output and status change events from main process
   React.useEffect(() => {
@@ -196,24 +222,30 @@ export function RemoteServersSection() {
   }
 
   const handleAddServer = async () => {
+    if (saving) return
+
     console.log('[RemoteServersSection] Add server clicked, formData:', formData)
 
-    // Transform flat form data to format expected by backend
-    const serverInput = {
-      name: formData.name,
-      ssh: {
-        host: formData.host,
-        port: formData.sshPort,
-        username: formData.username,
-        password: formData.password,
-      },
-      wsPort: formData.wsPort,
-      claudeApiKey: formData.claudeApiKey,
-      claudeBaseUrl: formData.claudeBaseUrl,
-      claudeModel: formData.claudeModel
-    }
-
+    setSaving(true)
     try {
+      // Transform flat form data to format expected by backend
+      // If aiSourceId is set, use the source's credentials; otherwise pass empty
+      const selectedSource = aiSources.find(s => s.id === formData.aiSourceId)
+      const serverInput = {
+        name: formData.name,
+        ssh: {
+          host: formData.host,
+          port: formData.sshPort,
+          username: formData.username,
+          password: formData.password,
+        },
+        wsPort: formData.wsPort,
+        aiSourceId: formData.aiSourceId || undefined,
+        claudeApiKey: selectedSource ? (selectedSource.authType === 'api-key' ? (selectedSource.apiKey || '') : (selectedSource.accessToken || '')) : undefined,
+        claudeBaseUrl: selectedSource?.apiUrl || undefined,
+        claudeModel: selectedSource?.model || undefined
+      }
+
       const result = await api.remoteServerAdd(serverInput)
       console.log('[RemoteServersSection] Add result:', result)
       if (result.success && result.data) {
@@ -227,7 +259,8 @@ export function RemoteServersSection() {
           wsPort: 8080,
           claudeApiKey: '',
           claudeBaseUrl: '',
-          claudeModel: ''
+          claudeModel: '',
+          aiSourceId: ''
         })
         await loadServers()
 
@@ -245,6 +278,8 @@ export function RemoteServersSection() {
     } catch (error) {
       console.error('[RemoteServersSection] Add error:', error)
       alert(t('Failed to add server'))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -260,32 +295,36 @@ export function RemoteServersSection() {
       wsPort: server.wsPort || 8080,
       claudeApiKey: server.claudeApiKey || '',
       claudeBaseUrl: server.claudeBaseUrl || '',
-      claudeModel: server.claudeModel || ''
+      claudeModel: server.claudeModel || '',
+      aiSourceId: server.aiSourceId || ''
     })
   }
 
   // Handle edit server
   const handleEditServer = async () => {
-    if (!editingServer) return
+    if (!editingServer || saving) return
 
     console.log('[RemoteServersSection] Edit server:', editingServer.id, 'formData:', formData)
 
-    const serverInput = {
-      id: editingServer.id,
-      name: formData.name,
-      ssh: {
-        host: formData.host,
-        port: formData.sshPort,
-        username: formData.username,
-        password: formData.password || undefined,  // Only update if provided
-      },
-      wsPort: formData.wsPort,
-      claudeApiKey: formData.claudeApiKey,
-      claudeBaseUrl: formData.claudeBaseUrl,
-      claudeModel: formData.claudeModel
-    }
-
+    setSaving(true)
     try {
+      const selectedSource = aiSources.find(s => s.id === formData.aiSourceId)
+      const serverInput = {
+        id: editingServer.id,
+        name: formData.name,
+        ssh: {
+          host: formData.host,
+          port: formData.sshPort,
+          username: formData.username,
+          password: formData.password || undefined,  // Only update if provided
+        },
+        wsPort: formData.wsPort,
+        aiSourceId: formData.aiSourceId || undefined,
+        claudeApiKey: selectedSource ? (selectedSource.authType === 'api-key' ? (selectedSource.apiKey || '') : (selectedSource.accessToken || '')) : undefined,
+        claudeBaseUrl: selectedSource?.apiUrl || undefined,
+        claudeModel: selectedSource?.model || undefined
+      }
+
       const result = await api.updateRemoteServer(serverInput as any)
       console.log('[RemoteServersSection] Edit result:', result)
       if (result.success) {
@@ -299,7 +338,8 @@ export function RemoteServersSection() {
           wsPort: 8080,
           claudeApiKey: '',
           claudeBaseUrl: '',
-          claudeModel: ''
+          claudeModel: '',
+          aiSourceId: ''
         })
         await loadServers()
       } else {
@@ -309,6 +349,8 @@ export function RemoteServersSection() {
     } catch (error) {
       console.error('[RemoteServersSection] Edit error:', error)
       alert(t('Failed to update server'))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -770,8 +812,8 @@ export function RemoteServersSection() {
 
       {/* Add/Edit Server Dialog */}
       {(showAddDialog || editingServer) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={() => { setShowAddDialog(false); setEditingServer(null) }}>
+          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md relative z-[101]" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">
               {editingServer ? t('Edit Server') : t('Add Remote Server')}
             </h3>
@@ -838,37 +880,47 @@ export function RemoteServersSection() {
               </div>
               <div className="pt-2 border-t border-border">
                 <h4 className="text-sm font-medium mb-3">Claude API 配置（可选）</h4>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">API Key</label>
-                    <input
-                      type="password"
-                      value={formData.claudeApiKey}
-                      onChange={(e) => setFormData({ ...formData, claudeApiKey: e.target.value })}
-                      className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                      placeholder="sk-xxx"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">API Base URL（可选）</label>
-                    <input
-                      type="text"
-                      value={formData.claudeBaseUrl}
-                      onChange={(e) => setFormData({ ...formData, claudeBaseUrl: e.target.value })}
-                      className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                      placeholder="https://api.anthropic.com"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Model（可选）</label>
-                    <input
-                      type="text"
-                      value={formData.claudeModel}
-                      onChange={(e) => setFormData({ ...formData, claudeModel: e.target.value })}
-                      className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                      placeholder="claude-sonnet-4-20250514"
-                    />
-                  </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">{t('AI Model')}</label>
+                  <select
+                    value={formData.aiSourceId}
+                    onChange={e => {
+                      const sourceId = e.target.value
+                      if (sourceId) {
+                        const source = aiSources.find(s => s.id === sourceId)
+                        if (source) {
+                          setFormData(prev => ({
+                            ...prev,
+                            aiSourceId: sourceId,
+                            claudeApiKey: source.authType === 'api-key' ? (source.apiKey || '') : (source.accessToken || ''),
+                            claudeBaseUrl: source.apiUrl,
+                            claudeModel: source.model,
+                          }))
+                        }
+                      } else {
+                        setFormData(prev => ({
+                          ...prev,
+                          aiSourceId: '',
+                          claudeApiKey: '',
+                          claudeBaseUrl: '',
+                          claudeModel: '',
+                        }))
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="">{t('-- None --')}</option>
+                    {aiSources.map(source => (
+                      <option key={source.id} value={source.id}>
+                        {source.name} ({source.provider}) — {source.model}
+                      </option>
+                    ))}
+                  </select>
+                  {aiSources.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('No AI models configured. Go to Settings to add one.')}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -886,7 +938,8 @@ export function RemoteServersSection() {
                     wsPort: 8080,
                     claudeApiKey: '',
                     claudeBaseUrl: '',
-                    claudeModel: ''
+                    claudeModel: '',
+                    aiSourceId: ''
                   })
                 }}
                 className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors"
@@ -895,9 +948,17 @@ export function RemoteServersSection() {
               </button>
               <button
                 onClick={editingServer ? handleEditServer : handleAddServer}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                disabled={saving || !formData.name.trim() || !formData.host.trim() || !formData.password.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground transition-colors"
               >
-                {editingServer ? t('Save') : t('Add Server')}
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {editingServer ? t('Saving...') : t('Adding...')}
+                  </>
+                ) : (
+                  editingServer ? t('Save') : t('Add Server')
+                )}
               </button>
             </div>
           </div>

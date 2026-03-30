@@ -825,7 +825,10 @@ async function executeRemoteMessage(
 
     // Additional variables for SDK session management
     let sdkSessionId: string | undefined
-    let effectiveSessionId = conversationId  // Will be updated below
+    // CRITICAL: effectiveSessionId always equals conversationId for consistent session
+    // lookup on remote server. sdkSessionId (SDK's internal session ID) is only used
+    // for the --resume parameter. This prevents session key mismatch across turns.
+    const effectiveSessionId = conversationId
 
     // Establish SSH tunnel if required (default: true for security)
     if (useSshTunnel) {
@@ -920,9 +923,8 @@ async function executeRemoteMessage(
     }
     console.log(`[Agent][Remote] Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
 
-    // Set effectiveSessionId now that we have sessionId
+    // sessionId is the SDK session ID for resumption (if available from a previous turn)
     const sessionId = resumeSessionId || conversation?.sessionId
-    effectiveSessionId = sessionId || conversationId
 
     const client = new RemoteWsClient(wsConfig, effectiveSessionId)
 
@@ -1220,6 +1222,21 @@ async function executeRemoteMessage(
       }
     })
 
+    // Subagent worker lifecycle events (from SDK Agent tool usage)
+    client.on('worker:started', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        console.log(`[Agent][Remote] Worker started: ${data.data.agentId} - ${data.data.agentName}`)
+        sendToRenderer('worker:started', spaceId, conversationId, data.data)
+      }
+    })
+
+    client.on('worker:completed', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        console.log(`[Agent][Remote] Worker completed: ${data.data.agentId}`)
+        sendToRenderer('worker:completed', spaceId, conversationId, data.data)
+      }
+    })
+
     // Text block start signal - for proper text block reset in frontend
     client.on('text:block-start', (data) => {
       if (data.sessionId === effectiveSessionId) {
@@ -1314,11 +1331,9 @@ async function executeRemoteMessage(
     // Send chat request via WebSocket with streaming
     // Pass sdkSessionId for session resumption (multi-turn conversation support)
     const sdkSessionIdForResume = sdkSessionId || sessionId
-    // CRITICAL: effectiveSessionId is used for event routing comparison
-    // Remote server returns this ID in events, so we must compare against it
-    // (already declared at function scope, just update it here)
-    effectiveSessionId = sessionId || conversationId
-    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${sessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
+    // CRITICAL: effectiveSessionId stays as conversationId throughout.
+    // The server uses this as the key for its sessions Map.
+    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${effectiveSessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
 
     const response = await client.sendChatWithStream(
       effectiveSessionId,  // Conversation ID for WebSocket routing

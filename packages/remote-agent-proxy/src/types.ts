@@ -68,6 +68,7 @@ export interface ServerMessage {
          'mcp:status' |  // MCP server status
          'compact:boundary' |  // Context compression notification
          'text:block-start' |  // Text block start signal
+         'worker:started' | 'worker:completed' |  // Subagent worker lifecycle
          'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error'  // Hyper Space agent management
   sessionId?: string
   data?: any

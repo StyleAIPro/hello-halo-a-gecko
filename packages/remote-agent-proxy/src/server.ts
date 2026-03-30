@@ -503,6 +503,20 @@ export class RemoteAgentServer {
                 sessionId,
                 data: chunk.data
               })
+            } else if (chunk.type === 'worker:started') {
+              // Forward subagent worker started event
+              this.sendMessage(ws, {
+                type: 'worker:started',
+                sessionId,
+                data: chunk.data
+              })
+            } else if (chunk.type === 'worker:completed') {
+              // Forward subagent worker completed event
+              this.sendMessage(ws, {
+                type: 'worker:completed',
+                sessionId,
+                data: chunk.data
+              })
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }

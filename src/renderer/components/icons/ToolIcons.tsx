@@ -82,7 +82,8 @@ export const toolIconMap: Record<string, LucideIcon> = {
   // Task management
   TodoWrite: ListTodo,
 
-  // Agent
+  // Agent / Sub-agent
+  Agent: Zap,
   Task: Zap,
 
   // Notebook

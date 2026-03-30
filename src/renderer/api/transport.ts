@@ -213,6 +213,7 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'agent:injection-start': 'onAgentInjectionStart',
       'remote:status-change': 'onRemoteStatusChange',
       'browser:state-change': 'onBrowserStateChange',
+      'browser:all-views-hidden': 'onBrowserAllViewsHidden',
       'browser:zoom-changed': 'onBrowserZoomChanged',
       'canvas:tab-action': 'onCanvasTabAction',
       'ai-browser:active-view-changed': 'onAIBrowserActiveViewChanged',

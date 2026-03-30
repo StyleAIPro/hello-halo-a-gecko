@@ -280,8 +280,9 @@ class OverlayManager {
     // BrowserView z-order is determined by add order - later added views appear on top
     if (this.isAttached) {
       try {
+        this.overlayView.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
         this.mainWindow.removeBrowserView(this.overlayView)
-      } catch (e) {
+      } catch (_e) {
         // Ignore
       }
     }
@@ -292,29 +293,65 @@ class OverlayManager {
     // Update bounds to cover the capsule area (left side)
     this.updateOverlayBounds()
 
+    // On Windows, force compositor flush after adding the BrowserView HWND
+    if (process.platform === 'win32') {
+      try {
+        this.mainWindow.webContents.invalidate()
+      } catch (_e) {
+        // Ignore
+      }
+    }
+
     // Send state to overlay
     this.sendStateToOverlay()
   }
 
   /**
    * Hide the chat capsule overlay
+   *
+   * On Windows, BrowserView is implemented as a native HWND child window.
+   * removeBrowserView can silently fail due to DWM compositor timing issues,
+   * leaving an invisible HWND that intercepts all mouse events (WM_NCHITTEST).
+   *
+   * Mitigation strategy:
+   * 1. Move bounds offscreen FIRST (so even if remove fails, it covers no area)
+   * 2. Then attempt removeBrowserView
+   * 3. On Windows, force a compositor invalidation after removal
    */
   hideChatCapsule(): void {
     if (!this.overlayView || !this.mainWindow) return
 
     this.currentState.showChatCapsule = false
 
-    // Hide by setting bounds to 0
-    this.overlayView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+    // Step 1: Move offscreen BEFORE removing — on Windows, setBounds({w:0,h:0})
+    // does NOT guarantee the HWND stops participating in hit-testing. Moving to
+    // a large negative coordinate is a more reliable way to get the HWND out of
+    // the clickable area.
+    try {
+      this.overlayView.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
+    } catch (_e) {
+      // Bounds update can fail if view is already detached
+    }
 
-    // Remove from window to ensure it doesn't block clicks
+    // Step 2: Remove from window
     if (this.isAttached) {
       try {
         this.mainWindow.removeBrowserView(this.overlayView)
-      } catch (e) {
-        // Already removed
+      } catch (_e) {
+        // Already removed — safe to ignore
       }
       this.isAttached = false
+    }
+
+    // Step 3: On Windows, force DWM to re-composite after removing the child HWND.
+    // Without this, the removed HWND may still intercept WM_NCHITTEST messages
+    // until the next compositor flush cycle.
+    if (process.platform === 'win32') {
+      try {
+        this.mainWindow.webContents.invalidate()
+      } catch (_e) {
+        // webContents may be destroyed during shutdown
+      }
     }
 
     // Send state to overlay
@@ -369,8 +406,9 @@ class OverlayManager {
 
     if (this.overlayView && this.mainWindow && this.isAttached) {
       try {
+        this.overlayView.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
         this.mainWindow.removeBrowserView(this.overlayView)
-      } catch (e) {
+      } catch (_e) {
         // Already removed
       }
     }

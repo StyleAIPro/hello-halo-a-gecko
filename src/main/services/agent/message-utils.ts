@@ -10,6 +10,27 @@
 import type { Thought, ImageAttachment, CanvasContext } from './types'
 
 // ============================================
+// Safe JSON Serialization
+// ============================================
+
+/**
+ * JSON.stringify with circular reference protection.
+ * Used when serializing SDK objects that may contain unserializable values.
+ */
+export function safeJsonStringify(obj: unknown, indent?: number): string {
+  try {
+    return JSON.stringify(obj, null, indent)
+  } catch {
+    return JSON.stringify(obj, (_, value) => {
+      if (typeof value === 'object' && value !== null) {
+        return '[Circular or unserializable]'
+      }
+      return value
+    }, indent)
+  }
+}
+
+// ============================================
 // Canvas Context Formatting
 // ============================================
 
@@ -206,14 +227,19 @@ export function parseSDKMessage(message: any, displayModel?: string, hasStreamEv
           continue
         }
         // Text blocks - send to timeline for AI intermediate responses display
-        // Note: Message bubble is handled separately by agent:message via stream_event
-        if (block.type === 'text' && block.text) {
-          thoughts.push({
-            id: generateThoughtId(),
-            type: 'text',
-            content: block.text,
-            timestamp
-          })
+        // Skip if stream_event was received (already handled via streaming, same as thinking/tool_use)
+        if (block.type === 'text') {
+          if (hasStreamEvent) {
+            continue  // Already handled via stream_event
+          }
+          if (block.text) {
+            thoughts.push({
+              id: generateThoughtId(),
+              type: 'text',
+              content: block.text,
+              timestamp
+            })
+          }
         }
       }
     }
@@ -246,7 +272,7 @@ export function parseSDKMessage(message: any, displayModel?: string, hasStreamEv
           const isError = block.is_error || false
           const resultContent = typeof block.content === 'string'
             ? block.content
-            : JSON.stringify(block.content)
+            : safeJsonStringify(block.content)
 
           thoughts.push({
             id: block.tool_use_id || generateThoughtId(),

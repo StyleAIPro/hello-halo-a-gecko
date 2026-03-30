@@ -26,6 +26,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { BrowserTaskCard, isBrowserTool } from '../tool/BrowserTaskCard'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { Message, Thought, CompactInfo, AgentErrorType, PendingQuestion } from '../../types'
+import type { WorkerSessionState } from '../../stores/chat.store'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chat.store'
 
@@ -45,6 +46,8 @@ export interface MessageListProps {
   pendingQuestion?: PendingQuestion | null  // Active question from AskUserQuestion tool
   onAnswerQuestion?: (answers: Record<string, string>) => void  // Callback when user answers
   onAtBottomStateChange?: (atBottom: boolean) => void  // Callback when at-bottom state changes
+  workerSessions?: Map<string, WorkerSessionState>  // Active SubAgent worker sessions
+  onAnswerWorkerQuestion?: (agentId: string, answers: Record<string, string>) => void  // Callback for worker questions
 }
 
 /** Handle exposed to parent for scroll control */
@@ -284,6 +287,8 @@ interface StreamingRevision {
   streamingBrowserToolCalls: { id: string; name: string; status: 'running' | 'success'; input: any }[]
   pendingQuestion: PendingQuestion | null
   onAnswerQuestion?: (answers: Record<string, string>) => void
+  workerSessions?: Map<string, WorkerSessionState>
+  onAnswerWorkerQuestion?: (agentId: string, answers: Record<string, string>) => void
 }
 
 function StreamingFooterContent({ revisionRef }: { revisionRef: React.RefObject<StreamingRevision> }) {
@@ -297,7 +302,7 @@ function StreamingFooterContent({ revisionRef }: { revisionRef: React.RefObject<
       <div className="w-[85%] relative">
         {/* Real-time thought process at top */}
         {(rev.thoughts.length > 0 || rev.isThinking) && (
-          <ThoughtProcess thoughts={rev.thoughts} isThinking={rev.isThinking} />
+          <ThoughtProcess thoughts={rev.thoughts} isThinking={rev.isThinking} workerSessions={rev.workerSessions} />
         )}
 
         {/* Real-time browser task card - shows AI browser operations as they happen */}
@@ -346,6 +351,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   pendingQuestion = null,
   onAnswerQuestion,
   onAtBottomStateChange,
+  workerSessions,
+  onAnswerWorkerQuestion,
 }, ref) {
   const { t } = useTranslation()
   const virtuosoRef = useRef<VirtuosoHandle>(null)
@@ -509,14 +516,19 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const onContinueRef = useRef(onContinue)
   onContinueRef.current = onContinue
 
+  // Ref for worker question callback
+  const onAnswerWorkerQuestionRef = useRef(onAnswerWorkerQuestion)
+  onAnswerWorkerQuestionRef.current = onAnswerWorkerQuestion
+
   // Streaming revision: combines all streaming state into a single object.
   // StreamingFooterContent reads this via ref (always fresh) and subscribes to
   // the store to trigger re-renders when streaming state changes.
   const streamingRevision = useMemo(() => {
     return { streamingContent, isStreaming, thoughts, isThinking, textBlockVersion,
-             streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion }
+             streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion,
+             workerSessions, onAnswerWorkerQuestion }
   }, [streamingContent, isStreaming, thoughts, isThinking, textBlockVersion,
-      streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion])
+      streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion, workerSessions, onAnswerWorkerQuestion])
   const streamingRevisionRef = useRef(streamingRevision)
   streamingRevisionRef.current = streamingRevision
 

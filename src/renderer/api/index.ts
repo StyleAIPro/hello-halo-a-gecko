@@ -1076,6 +1076,9 @@ export const api = {
   onBrowserStateChange: (callback: (data: unknown) => void) =>
     onEvent('browser:state-change', callback),
 
+  onBrowserAllViewsHidden: (callback: () => void) =>
+    onEvent('browser:all-views-hidden', callback as (data: unknown) => void),
+
   onBrowserZoomChanged: (callback: (data: { viewId: string; zoomLevel: number }) => void) =>
     onEvent('browser:zoom-changed', callback as (data: unknown) => void),
 

@@ -105,14 +105,30 @@ class BrowserViewManager {
       for (const [viewId, view] of this.views) {
         if (!this.offscreenViewIds.has(viewId)) {
           try {
+            // Move offscreen BEFORE removing — on Windows, removeBrowserView
+            // can silently fail, leaving a click-blocking HWND
+            view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
             this.mainWindow?.removeBrowserView(view)
-          } catch (e) {
+          } catch (_e) {
             // View might not be on window, ignore
           }
         }
       }
       // Clear active view since we hid everything
       this.activeViewId = null
+
+      // Notify renderer so it can update its state (e.g. stop showing stale canvas)
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        try {
+          this.mainWindow.webContents.send('browser:all-views-hidden')
+          // On Windows, force DWM to re-composite after bulk removeBrowserView
+          if (process.platform === 'win32') {
+            this.mainWindow.webContents.invalidate()
+          }
+        } catch (_e) {
+          // Ignore
+        }
+      }
     })
   }
 
@@ -332,17 +348,36 @@ class BrowserViewManager {
 
     this.activeViewId = viewId
     console.log(`[BrowserView] <<< show() success - activeViewId: ${this.activeViewId}`)
+
+    // On Windows, force compositor flush after adding the BrowserView HWND
+    if (process.platform === 'win32') {
+      try {
+        this.mainWindow.webContents.invalidate()
+      } catch (_e) {
+        // Ignore
+      }
+    }
+
     return true
   }
 
   /**
-   * Hide a BrowserView (remove from window but keep in memory)
+   * On Windows, removeBrowserView can silently fail, leaving a transparent
+   * HWND that blocks clicks. We mitigate this by moving the view offscreen
+   * BEFORE attempting removal, so even a failed remove won't block UI.
    */
   hide(viewId: string) {
     const view = this.views.get(viewId)
     if (!view) return false
 
-    // Remove from the correct host window
+    // Step 1: Move offscreen to eliminate click interception risk
+    try {
+      view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
+    } catch (_e) {
+      // Bounds update can fail if view is already detached
+    }
+
+    // Step 2: Remove from the correct host window
     const hostWindow = this.offscreenViewIds.has(viewId)
       ? this.offscreenWindow
       : this.mainWindow
@@ -350,8 +385,17 @@ class BrowserViewManager {
     if (hostWindow && !hostWindow.isDestroyed()) {
       try {
         hostWindow.removeBrowserView(view)
-      } catch (e) {
+      } catch (_e) {
         // View might already be removed
+      }
+    }
+
+    // Step 3: On Windows, force compositor flush after removing
+    if (process.platform === 'win32' && hostWindow && !hostWindow.isDestroyed()) {
+      try {
+        hostWindow.webContents.invalidate()
+      } catch (_e) {
+        // Ignore
       }
     }
 
@@ -560,8 +604,9 @@ class BrowserViewManager {
 
     if (hostWindow && !hostWindow.isDestroyed()) {
       try {
+        view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
         hostWindow.removeBrowserView(view)
-      } catch (e) {
+      } catch (_e) {
         // Already removed
       }
     }

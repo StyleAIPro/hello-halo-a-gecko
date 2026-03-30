@@ -217,10 +217,21 @@ export function detectContentType(
       return 'file-list'
 
     case 'WebFetch':
-    case 'Task':
     case 'WebSearch':
     case 'LSP':
       return 'json'
+
+    case 'Agent':
+    case 'Task':
+      // Agent/Task output varies: JSON (structured), markdown, or plain text.
+      // Detect based on actual content rather than assuming JSON.
+      if (looksLikeStructuredData(output)) {
+        return 'json'
+      }
+      if (looksLikeMarkdown(output)) {
+        return 'markdown'
+      }
+      return 'plaintext'
 
     default:
       // For unknown tools, try to detect content type

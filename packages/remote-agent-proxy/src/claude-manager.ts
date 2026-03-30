@@ -18,6 +18,21 @@ import os from 'os'
 // ============================================
 
 /**
+ * Internal subagent tracking state (used within streamChat)
+ */
+interface RemoteSubagentState {
+  taskId: string
+  toolUseId?: string
+  agentId: string
+  agentName: string
+  description: string
+  status: 'running' | 'completed' | 'failed'
+  isComplete: boolean
+  streamingBlocks: Map<number, { type: 'thinking' | 'text' | 'tool_use'; thoughtId: string; content: string; toolName?: string; toolId?: string }>
+  toolIdToThoughtId: Map<string, string>
+}
+
+/**
  * Simple interface for chat messages
  */
 export interface ChatMessage {
@@ -92,6 +107,8 @@ export interface ThoughtEvent {
   isStreaming?: boolean
   isReady?: boolean
   errorCode?: string
+  agentId?: string
+  agentName?: string
 }
 
 /**
@@ -111,6 +128,8 @@ export interface ThoughtDeltaEvent {
     timestamp: string
   }
   isToolResult?: boolean
+  agentId?: string
+  agentName?: string
 }
 
 /**
@@ -383,6 +402,63 @@ function registerProcessExitListener(
   } catch (e) {
     console.error(`[ClaudeManager][${conversationId}] Failed to register exit listener:`, e)
   }
+}
+
+/**
+ * Wait for an SDK session's underlying process to fully exit.
+ *
+ * Uses dual approach for reliability:
+ * 1. Event-driven via transport.onExit (immediate)
+ * 2. Polling via isSessionTransportReady (fallback every 200ms)
+ *
+ * @param session - The V2 SDK session
+ * @param timeoutMs - Maximum time to wait (default 10s)
+ */
+function waitForProcessExit(session: SDKSession, timeoutMs = 10000): Promise<void> {
+  return new Promise((resolve) => {
+    // If transport already not ready, process is already dead
+    if (!isSessionTransportReady(session)) {
+      resolve()
+      return
+    }
+
+    let settled = false
+    const transport = (session as any).query?.transport
+
+    // Event-driven: listen for onExit callback
+    if (transport && typeof transport.onExit === 'function') {
+      transport.onExit(() => {
+        if (!settled) {
+          settled = true
+          clearInterval(poll)
+          clearTimeout(timer)
+          resolve()
+        }
+      })
+    }
+
+    // Polling fallback: check transport readiness every 200ms
+    const poll = setInterval(() => {
+      if (!isSessionTransportReady(session)) {
+        if (!settled) {
+          settled = true
+          clearInterval(poll)
+          clearTimeout(timer)
+          resolve()
+        }
+      }
+    }, 200)
+
+    // Timeout: don't block forever, resolve anyway after timeout
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        clearInterval(poll)
+        console.warn('[ClaudeManager] waitForProcessExit timed out, proceeding anyway')
+        resolve()
+      }
+    }, timeoutMs)
+  })
 }
 
 /**
@@ -737,8 +813,12 @@ export class ClaudeManager {
 
     try {
       info.session.close()
-    } catch (e) {
-      // Ignore close errors
+    } catch (e: any) {
+      // Ignore EPIPE errors (common on Windows when process already exited)
+      // Aligned with local session-manager.ts
+      if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
+        console.log(`[ClaudeManager][${conversationId}] Session close: EPIPE (process already exited)`)
+      }
     }
 
     this.sessions.delete(conversationId)
@@ -807,18 +887,56 @@ export class ClaudeManager {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
 
+    // CRITICAL: If workDir doesn't match and a resumeSessionId is provided,
+    // skip resume — --resume inherits the original session's cwd, ignoring our cwd param.
+    // A fresh session (no --resume) is the only way to change the working directory.
+    const workDirChanged = existing && existing.config.workDir !== effectiveWorkDir
+    const effectiveResumeId = workDirChanged ? undefined : resumeSessionId
+
     if (existing) {
       // CRITICAL: Check if workDir changed - if so, need to recreate session
-      if (existing.config.workDir !== effectiveWorkDir) {
-        console.log(`[ClaudeManager][${conversationId}] WorkDir changed: ${existing.config.workDir} -> ${effectiveWorkDir}, recreating...`)
+      if (workDirChanged) {
+        console.log(`[ClaudeManager][${conversationId}] WorkDir changed: ${existing.config.workDir} -> ${effectiveWorkDir}, recreating (skipping resume)...`)
         this.cleanupSession(conversationId, 'workDir changed')
-        // Fall through to create new session
+        // Fall through to create new session (without resume)
       } else
       // CRITICAL: Check if process is still alive before reusing
       if (!isSessionTransportReady(existing.session)) {
         console.log(`[ClaudeManager][${conversationId}] Session transport not ready, recreating...`)
         this.cleanupSession(conversationId, 'process not ready')
         // Fall through to create new session
+      } else if (effectiveResumeId) {
+        // CRITICAL: When resuming, always create a fresh session.
+        // Reusing an existing session across turns causes SDK internal state corruption:
+        // the previous Query's streamInput() iterator still holds a reference to
+        // session.inputStream, and the new Query's streamInput() conflicts with it,
+        // leading to "Claude Code process aborted by user" errors.
+        //
+        // IMPORTANT: We must close the old session AND wait for its process to fully
+        // exit before creating the new one. Otherwise the old process's cleanup
+        // (session file deletion) races with the new --resume process's startup.
+        console.log(`[ClaudeManager][${conversationId}] Resume requested, closing old session before creating new one`)
+        const oldInfo = this.sessions.get(conversationId)
+        this.sessions.delete(conversationId)  // Remove from map immediately (new session will take its place)
+
+        if (oldInfo) {
+          // Close the old session to signal the process to shut down
+          try {
+            oldInfo.session.close()
+            console.log(`[ClaudeManager][${conversationId}] Old session close() called`)
+          } catch (e: any) {
+            if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
+              console.log(`[ClaudeManager][${conversationId}] Old session close: EPIPE (process already exited)`)
+            }
+          }
+
+          // Wait for the old process to fully exit before creating the new session
+          // This prevents race conditions between old process cleanup and new --resume startup
+          const exitStart = Date.now()
+          await waitForProcessExit(oldInfo.session)
+          console.log(`[ClaudeManager][${conversationId}] Old session process exited in ${Date.now() - exitStart}ms`)
+        }
+        // Fall through to create new session with --resume
       } else {
         // Check if config has changed
         const currentConfig = this.getCurrentConfig()
@@ -865,9 +983,11 @@ export class ClaudeManager {
 
     // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
     // Native SDK V2 Session doesn't support these parameters
-    if (resumeSessionId) {
-      options.resume = resumeSessionId
-      console.log(`[ClaudeManager][${conversationId}] Resuming session: ${resumeSessionId}`)
+    if (effectiveResumeId) {
+      options.resume = effectiveResumeId
+      console.log(`[ClaudeManager][${conversationId}] Resuming session: ${effectiveResumeId}`)
+    } else if (resumeSessionId) {
+      console.log(`[ClaudeManager][${conversationId}] Skipping resume due to workDir change (old: ${existing?.config.workDir}, new: ${effectiveWorkDir})`)
     }
     if (maxThinkingTokens) {
       options.maxThinkingTokens = maxThinkingTokens
@@ -883,7 +1003,7 @@ export class ClaudeManager {
       baseUrl: this.baseUrl,
       permissionMode: options.permissionMode,
       allowedTools: options.allowedTools?.length,
-      resume: !!resumeSessionId,
+      resume: !!effectiveResumeId,
       maxThinkingTokens: maxThinkingTokens
     })
 
@@ -892,7 +1012,12 @@ export class ClaudeManager {
     console.log(`[ClaudeManager][${conversationId}] V2 session created in ${Date.now() - startTime}ms, PID: ${pid ?? 'unavailable'}`)
 
     // Register process exit listener for immediate cleanup
+    // Staleness guard: skip if session was replaced by a newer one
     registerProcessExitListener(session, conversationId, (id) => {
+      if (this.sessions.get(id)?.session !== session) {
+        console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
+        return
+      }
       this.cleanupSession(id, 'process exited')
     })
 
@@ -922,6 +1047,10 @@ export class ClaudeManager {
       session = unstable_v2_createSession(options as any) as unknown as SDKSession
 
       registerProcessExitListener(session, sessionId, (id) => {
+        if (this.sessions.get(id)?.session !== session) {
+          console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
+          return
+        }
         this.cleanupSession(id, 'process exited')
       })
 
@@ -968,6 +1097,10 @@ export class ClaudeManager {
       const session = await unstable_v2_resumeSession(sessionId, options as any)
 
       registerProcessExitListener(session, sessionId, (id) => {
+        if (this.sessions.get(id)?.session !== session) {
+          console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
+          return
+        }
         this.cleanupSession(id, 'process exited')
       })
 
@@ -1066,6 +1199,12 @@ export class ClaudeManager {
     // Tool ID to Tool Name mapping - for including tool name in tool:result events
     const toolIdToToolName = new Map<string, string>()
 
+    // ========== SDK Subagent (Agent tool) tracking ==========
+    // Mirrors the pattern in local stream-processor.ts
+    const subagentStates = new Map<string, RemoteSubagentState>()
+    const toolUseIdToTaskId = new Map<string, string>()
+    const pendingSubagentEvents = new Map<string, Array<{ event: any; evt: any }>>()
+
     // Counter for generating unique thought IDs
     let counter = 0
 
@@ -1163,6 +1302,33 @@ export class ClaudeManager {
 
           // Mark that we received stream_event (for fallback handling below)
           hasStreamEvent = true
+
+          // ========== Route subagent stream events ==========
+          const parentToolUseId = evt.parent_tool_use_id as string | null
+          if (parentToolUseId) {
+            // Look up subagent state
+            let subState: RemoteSubagentState | undefined
+            const mappedTaskId = toolUseIdToTaskId.get(parentToolUseId)
+            if (mappedTaskId) {
+              subState = subagentStates.get(mappedTaskId)
+            } else {
+              subagentStates.forEach((s) => { if (s.toolUseId === parentToolUseId) subState = s })
+            }
+
+            if (subState && !subState.isComplete) {
+              // Process the stream event for this subagent
+              this.processSubagentStreamEventRemote(subState, streamEvent, onThought, onThoughtDelta)
+            } else {
+              // Buffer events that arrive before task_started
+              let buffer = pendingSubagentEvents.get(parentToolUseId)
+              if (!buffer) {
+                buffer = []
+                pendingSubagentEvents.set(parentToolUseId, buffer)
+              }
+              buffer.push({ event: streamEvent, evt })
+            }
+            continue
+          }
 
           // ========== Text block start signal ==========
           // Send signal when text block starts (aligned with local stream-processor.ts)
@@ -1359,9 +1525,144 @@ export class ClaudeManager {
 
         // ========== Handle non-stream events (assistant, result, etc.) ==========
 
+        // ========== Route subagent non-stream events ==========
+        const msgParentToolUseId = evt.parent_tool_use_id as string | null
+        if (msgParentToolUseId) {
+          let subState: RemoteSubagentState | undefined
+          const mappedTaskId = toolUseIdToTaskId.get(msgParentToolUseId)
+          if (mappedTaskId) {
+            subState = subagentStates.get(mappedTaskId)
+          } else {
+            subagentStates.forEach((s) => { if (s.toolUseId === msgParentToolUseId) subState = s })
+          }
+
+          if (subState && !subState.isComplete) {
+            // Handle user messages containing tool_result for subagent
+            if (evt.type === 'user') {
+              const content = evt.message?.content
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'tool_result') {
+                    const thoughtId = subState.toolIdToThoughtId.get(block.tool_use_id)
+                    if (thoughtId) {
+                      const resultContent = typeof block.content === 'string'
+                        ? block.content
+                        : JSON.stringify(block.content)
+                      onThoughtDelta?.({
+                        thoughtId,
+                        toolResult: { output: resultContent, isError: block.is_error || false, timestamp: new Date().toISOString() },
+                        isToolResult: true,
+                        agentId: subState.agentId,
+                        agentName: subState.agentName
+                      })
+                    }
+                  }
+                }
+              }
+            }
+            // Handle assistant messages (fallback for non-streaming)
+            if (evt.type === 'assistant' && !evt.error) {
+              const content = evt.message?.content
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'thinking' && block.thinking) {
+                    onThought?.({
+                      id: `thought-sub-fallback-${sessionId}-${counter++}`, type: 'thinking',
+                      content: block.thinking, timestamp: new Date().toISOString(),
+                      agentId: subState.agentId, agentName: subState.agentName
+                    })
+                  } else if (block.type === 'tool_use' && block.id) {
+                    const thoughtId = `thought-sub-fallback-tool-${sessionId}-${counter++}`
+                    subState.toolIdToThoughtId.set(block.id, thoughtId)
+                    onThought?.({
+                      id: thoughtId, type: 'tool_use', content: '',
+                      timestamp: new Date().toISOString(),
+                      toolName: block.name || 'Unknown', toolInput: block.input || {},
+                      isStreaming: false, isReady: true,
+                      agentId: subState.agentId, agentName: subState.agentName
+                    })
+                  } else if (block.type === 'text' && block.text) {
+                    onThought?.({
+                      id: `thought-sub-fallback-text-${sessionId}-${counter++}`, type: 'text',
+                      content: block.text, timestamp: new Date().toISOString(),
+                      agentId: subState.agentId, agentName: subState.agentName
+                    })
+                  }
+                }
+              }
+            }
+          }
+          continue
+        }
+
         // System events - MCP status, session_id, and compact boundary
         if (evt.type === 'system') {
           const subtype = evt.subtype as string | undefined
+
+          // ========== Subagent lifecycle events ==========
+          if (subtype === 'task_started') {
+            const taskId = evt.task_id as string
+            const toolUseId = evt.tool_use_id as string | undefined
+            const description = (evt.description as string) || 'Subagent task'
+            const agentId = `subagent-${taskId}`
+            const agentName = `Agent: ${description.length > 40 ? description.substring(0, 40) + '...' : description}`
+
+            const state: RemoteSubagentState = {
+              taskId, toolUseId, agentId, agentName, description,
+              status: 'running', isComplete: false,
+              streamingBlocks: new Map(), toolIdToThoughtId: new Map()
+            }
+            subagentStates.set(taskId, state)
+            if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId)
+
+            // Yield worker:started event for the frontend
+            yield { type: 'worker:started', data: { agentId, agentName, taskId, task: description, type: 'remote' } }
+
+            // Flush any buffered events that arrived before task_started
+            const buffered = pendingSubagentEvents.get(toolUseId || taskId)
+            if (buffered) {
+              pendingSubagentEvents.delete(toolUseId || taskId)
+              for (const { event: bufferedEvent } of buffered) {
+                if (!state.isComplete) {
+                  this.processSubagentStreamEventRemote(state, bufferedEvent, onThought, onThoughtDelta)
+                }
+              }
+            }
+
+            console.log(`[ClaudeManager] Subagent started: ${taskId} - ${description.substring(0, 80)}`)
+            continue
+          }
+
+          if (subtype === 'task_notification') {
+            const notifTaskId = evt.task_id as string
+            const subagentState = subagentStates.get(notifTaskId)
+            if (subagentState) {
+              subagentState.status = evt.status === 'completed' ? 'completed' : 'failed'
+              subagentState.isComplete = true
+              yield { type: 'worker:completed', data: {
+                agentId: subagentState.agentId, agentName: subagentState.agentName,
+                taskId: notifTaskId, result: evt.summary || '',
+                error: evt.status === 'failed' ? 'Subagent task failed' : undefined,
+                status: evt.status === 'completed' ? 'completed' : 'failed'
+              }}
+              console.log(`[ClaudeManager] Subagent completed: ${notifTaskId} status=${evt.status}`)
+            }
+            continue
+          }
+
+          if (subtype === 'task_progress') {
+            const progressTaskId = evt.task_id as string
+            const progressState = subagentStates.get(progressTaskId)
+            if (progressState && !progressState.isComplete) {
+              const summary = (evt.summary as string) || 'Working...'
+              onThought?.({
+                id: `thought-sub-progress-${progressTaskId}-${counter++}`, type: 'system',
+                content: summary, timestamp: new Date().toISOString(),
+                agentId: progressState.agentId, agentName: progressState.agentName
+              })
+            }
+            continue
+          }
 
           // Create system thought for connection status (aligned with local message-utils.ts)
           // Shows "Connected | Model: xxx" in the thinking process
@@ -1580,6 +1881,17 @@ export class ClaudeManager {
           break
         }
       }
+
+      // Clean up any active subagents that didn't complete (interrupted/aborted streams)
+      for (const [taskId, state] of subagentStates) {
+        if (!state.isComplete) {
+          yield { type: 'worker:completed', data: {
+            agentId: state.agentId, agentName: state.agentName, taskId,
+            result: '', error: 'Stream interrupted', status: 'failed'
+          }}
+          console.log(`[ClaudeManager] Subagent ${taskId} cleaned up (stream ended)`)
+        }
+      }
     } catch (error) {
       // Check if this is an expected abort/interrupt
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -1782,6 +2094,99 @@ export class ClaudeManager {
   }
 
   /**
+   * Process a stream_event for a subagent in remote sessions.
+   * Mirrors processSubagentStreamEvent in local stream-processor.ts.
+   */
+  private processSubagentStreamEventRemote(
+    state: RemoteSubagentState,
+    event: any,
+    onThought?: (thought: ThoughtEvent) => void,
+    onThoughtDelta?: (delta: ThoughtDeltaEvent) => void
+  ): void {
+    const { streamingBlocks, toolIdToThoughtId, agentId, agentName } = state
+    const blockIndex = event.index ?? 0
+
+    const tag = { agentId, agentName }
+
+    // Thinking block started
+    if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
+      const thoughtId = `thought-thinking-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+      streamingBlocks.set(blockIndex, { type: 'thinking', thoughtId, content: '' })
+      onThought?.({ id: thoughtId, type: 'thinking', content: '', timestamp: new Date().toISOString(), isStreaming: true, ...tag })
+      return
+    }
+
+    // Thinking delta
+    if (event.type === 'content_block_delta' && event.delta?.type === 'thinking_delta') {
+      const blockState = streamingBlocks.get(blockIndex)
+      if (blockState && blockState.type === 'thinking') {
+        const delta = event.delta.thinking || ''
+        blockState.content += delta
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, delta, content: blockState.content, ...tag })
+      }
+      return
+    }
+
+    // Tool use block started
+    if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+      const toolId = event.content_block.id || `sub-tool-${Date.now()}`
+      const toolName = event.content_block.name || 'Unknown'
+      const thoughtId = `thought-tool-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+      streamingBlocks.set(blockIndex, { type: 'tool_use', thoughtId, content: '', toolName, toolId })
+      onThought?.({ id: thoughtId, type: 'tool_use', content: '', timestamp: new Date().toISOString(), toolName, toolInput: {}, isStreaming: true, isReady: false, ...tag })
+      return
+    }
+
+    // Tool use input JSON delta
+    if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+      const blockState = streamingBlocks.get(blockIndex)
+      if (blockState && blockState.type === 'tool_use') {
+        blockState.content += event.delta.partial_json || ''
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, delta: event.delta.partial_json || '', isToolInput: true, ...tag })
+      }
+      return
+    }
+
+    // Block stop
+    if (event.type === 'content_block_stop') {
+      const blockState = streamingBlocks.get(blockIndex)
+      if (!blockState) return
+
+      if (blockState.type === 'thinking') {
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, content: blockState.content, isComplete: true, ...tag })
+      } else if (blockState.type === 'tool_use') {
+        let toolInput: Record<string, unknown> = {}
+        try { if (blockState.content) toolInput = JSON.parse(blockState.content) } catch (e) { /* ignore */ }
+        if (blockState.toolId) toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId)
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, toolInput, isComplete: true, isReady: true, isToolInput: true, ...tag })
+      } else if (blockState.type === 'text') {
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, content: blockState.content, isComplete: true, ...tag })
+      }
+      streamingBlocks.delete(blockIndex)
+      return
+    }
+
+    // Text block started
+    if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
+      const thoughtId = `thought-text-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+      streamingBlocks.set(blockIndex, { type: 'text', thoughtId, content: event.content_block.text || '' })
+      onThought?.({ id: thoughtId, type: 'text', content: event.content_block.text || '', timestamp: new Date().toISOString(), isStreaming: true, ...tag })
+      return
+    }
+
+    // Text delta
+    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+      const delta = event.delta.text || ''
+      const blockState = streamingBlocks.get(blockIndex)
+      if (blockState && blockState.type === 'text') {
+        blockState.content += delta
+        onThoughtDelta?.({ thoughtId: blockState.thoughtId, delta, content: blockState.content, ...tag })
+      }
+      return
+    }
+  }
+
+  /**
    * Wrap an async iterator with interrupt support
    * Periodically checks abort signal and interrupt flag to allow forceful exit
    */
@@ -1791,6 +2196,7 @@ export class ClaudeManager {
     abortController: AbortController
   ): AsyncGenerator<any> {
     const INTERRUPT_CHECK_INTERVAL_MS = 100  // Check every 100ms
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
 
     // Create a promise that rejects when abort is signaled
     const abortPromise = new Promise<never>((_, reject) => {
@@ -1807,7 +2213,7 @@ export class ClaudeManager {
           return
         }
         // Schedule next check
-        setTimeout(checkAbort, INTERRUPT_CHECK_INTERVAL_MS)
+        pollTimer = setTimeout(checkAbort, INTERRUPT_CHECK_INTERVAL_MS)
       }
       checkAbort()
     })
@@ -1839,6 +2245,7 @@ export class ClaudeManager {
       console.error(`[ClaudeManager][${sessionId}] Stream wrapper error:`, error)
       throw error
     } finally {
+      if (pollTimer) clearTimeout(pollTimer)
       console.log(`[ClaudeManager][${sessionId}] Stream wrapper cleanup complete`)
     }
   }

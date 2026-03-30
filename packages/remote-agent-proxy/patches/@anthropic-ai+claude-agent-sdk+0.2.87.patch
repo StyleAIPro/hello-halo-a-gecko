@@ -1,0 +1,24 @@
+Halo SDK Patch for @anthropic-ai/claude-agent-sdk 0.2.87
+=========================================================
+
+This file signals the deployment system to upload the locally patched SDK.
+
+The actual patching is done by scripts/patch-sdk.mjs, which:
+
+1. Forwards cwd to ProcessTransport (fixes remote working directory)
+   - Adds: cwd:$.cwd, stderr:$.stderr, sandbox:$.sandbox
+
+2. Forwards all SDK options instead of hardcoding them
+   - extraArgs, maxTurns, maxBudgetUsd, fallbackModel, etc.
+
+3. Passes systemPrompt via initConfig to Query
+   - Enables custom system prompt for remote sessions
+
+4. Adds session control methods to Tz class
+   - interrupt(), setModel(), setMaxThinkingTokens(), setPermissionMode()
+   - get pid (for process health tracking)
+
+5. Removes CLAUDE_CODE_ENTRYPOINT to appear as native CLI
+6. Removes CLAUDE_AGENT_SDK_VERSION to appear as native CLI
+
+Run: node scripts/patch-sdk.mjs

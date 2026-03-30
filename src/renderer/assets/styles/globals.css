@@ -735,6 +735,18 @@ body {
   border: 1px solid hsl(var(--border));
 }
 
+/* AI response paragraph separators — thin line between top-level paragraphs */
+.markdown-content > p {
+  padding-bottom: 0.625rem;
+  margin-bottom: 0.625rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.18);
+}
+.markdown-content > p:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
 /* Streaming message style */
 .streaming-message {
   position: relative;

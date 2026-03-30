@@ -89,6 +89,7 @@ export function ToolCard({ toolCall, conversationId }: ToolCardProps) {
         return t('Search the web')
       case 'TodoWrite':
         return t('Task list')
+      case 'Agent':
       case 'Task':
         return t('Subtask')
       case 'NotebookEdit':

@@ -46,7 +46,7 @@ const SCAN_TIMEOUT_MS = 30000
  * Production: out/worker/file-watcher/index.mjs (inside app.asar)
  */
 function getWorkerEntryPath(): string {
-  // electron-vite puts worker output under out/main/worker/file-watcher/index.mjs
+  // electron-vite puts worker output under out/main/worker/file-watcher/index.cjs
   // __dirname at runtime is out/main/, so the relative path is ./worker/...
   return join(__dirname, 'worker/file-watcher/index.mjs')
 }

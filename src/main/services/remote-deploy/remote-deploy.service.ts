@@ -775,7 +775,7 @@ WRAPPER
       this.emitCommandOutput(id, 'command', `$ npm install`)
 
       const installResult = await manager.executeCommandStreaming(
-        `cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`,
+        `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
         (type, data) => {
           // Send each line of output to terminal
           const lines = data.split('\n').filter(line => line.trim())
@@ -818,17 +818,23 @@ WRAPPER
       }
 
       // Upload local patched SDK to remote server
+      // Only upload sdk.mjs when a patch file exists — uploading an unpatched sdk.mjs
+      // from a different version would cause protocol mismatch with the remote CLI.
       this.emitDeployProgress(id, 'sdk', '正在上传本地 SDK 补丁...', 80)
       const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
       const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
       const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
 
-      // Check if local patched SDK exists
-      if (fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
+      const hasPatch = fs.existsSync(patchesDir) &&
+        fs.readdirSync(patchesDir).some((f: string) => f.endsWith('.patch'))
+
+      if (hasPatch && fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
         await manager.executeCommand(`mkdir -p ${remoteSdkPath}`)
         const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
         await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`)
         this.emitCommandOutput(id, 'success', '✓ SDK 补丁上传完成')
+      } else if (!hasPatch) {
+        this.emitCommandOutput(id, 'output', '无 SDK 补丁，使用远程 npm 安装版本')
       } else {
         this.emitCommandOutput(id, 'output', '! 本地 SDK 补丁未找到，跳过上传')
       }
@@ -981,7 +987,7 @@ WRAPPER
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 40)
 
       const installResult = await manager.executeCommandStreaming(
-        `cd ${DEPLOY_AGENT_PATH} && npm install 2>&1`,
+        `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
         (type, data) => {
           const lines = data.split('\n').filter(line => line.trim())
           for (const line of lines) {
@@ -996,7 +1002,30 @@ WRAPPER
       }
       this.emitCommandOutput(id, 'success', '✓ 依赖安装完成')
     } else {
-      this.emitCommandOutput(id, 'output', 'package.json 未变更，跳过 npm install')
+      // package.json unchanged — verify node_modules integrity before skipping npm install
+      const depsMissing = await this.checkRemoteDependencies(id, manager, packageJsonPath)
+      if (depsMissing) {
+        this.emitCommandOutput(id, 'output', `检测到缺失依赖: ${depsMissing}，执行 npm install...`)
+        this.emitDeployProgress(id, 'install', '正在修复依赖 (npm install)...', 40)
+
+        const repairResult = await manager.executeCommandStreaming(
+          `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+          (type, data) => {
+            const lines = data.split('\n').filter(line => line.trim())
+            for (const line of lines) {
+              this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+            }
+          }
+        )
+
+        if (repairResult.exitCode !== 0) {
+          this.emitCommandOutput(id, 'error', `npm install 失败: ${repairResult.stderr || repairResult.stdout}`)
+          throw new Error(`npm install failed: ${repairResult.stderr || repairResult.stdout}`)
+        }
+        this.emitCommandOutput(id, 'success', '✓ 依赖修复完成')
+      } else {
+        this.emitCommandOutput(id, 'output', 'package.json 未变更，依赖完整，跳过 npm install')
+      }
     }
 
     // 3. Check if global SDK needs updating
@@ -1025,13 +1054,18 @@ WRAPPER
     }
 
     // 4. Upload local patched SDK (if changed)
+    // Only upload sdk.mjs when a patch file exists — uploading an unpatched sdk.mjs
+    // from a different version would cause protocol mismatch with the remote CLI.
     this.emitDeployProgress(id, 'sdk', '正在检查 SDK 补丁...', 65)
     const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
     const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
     const localSdkFile = path.join(localSdkPath, 'sdk.mjs')
 
-    if (fs.existsSync(localSdkFile)) {
+    const hasPatch = fs.existsSync(patchesDir) &&
+      fs.readdirSync(patchesDir).some((f: string) => f.endsWith('.patch'))
+
+    if (hasPatch && fs.existsSync(localSdkFile)) {
       const localSdkMd5 = this.computeMd5(localSdkFile)
       const remoteSdkMd5Result = await manager.executeCommandFull(`md5sum ${remoteSdkPath}/sdk.mjs 2>/dev/null | awk '{print $1}' || echo ""`)
       if (localSdkMd5 !== remoteSdkMd5Result.stdout.trim()) {
@@ -1041,6 +1075,8 @@ WRAPPER
       } else {
         this.emitCommandOutput(id, 'output', 'SDK 补丁未变更，跳过上传')
       }
+    } else if (!hasPatch) {
+      this.emitCommandOutput(id, 'output', '无 SDK 补丁，使用远程 npm 安装版本')
     }
 
     // 5. Upload patches (if changed)
@@ -1078,6 +1114,43 @@ WRAPPER
    */
   private computeMd5(filePath: string): string {
     return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex')
+  }
+
+  /**
+   * Check if all dependencies listed in local package.json are resolvable on the remote server.
+   * Returns comma-separated list of missing package names, or null if all present.
+   */
+  private async checkRemoteDependencies(
+    id: string,
+    manager: any,
+    localPackageJsonPath: string
+  ): Promise<string | null> {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(localPackageJsonPath, 'utf-8'))
+      const deps = Object.keys(pkg.dependencies || {})
+      if (deps.length === 0) return null
+
+      // Build a shell one-liner that probes each dependency via node -e "require.resolve()"
+      const checks = deps.map(
+        (name: string) => `node -e "require.resolve('${name}')" 2>/dev/null || echo "MISSING:${name}"`
+      ).join(' && ')
+
+      const result = await manager.executeCommandFull(
+        `cd ${DEPLOY_AGENT_PATH} && (${checks}) 2>/dev/null`
+      )
+
+      const missing = (result.stdout || '').match(/MISSING:(\S+)/g)
+      if (missing && missing.length > 0) {
+        const names = missing.map((m: string) => m.replace('MISSING:', ''))
+        console.log(`[RemoteDeployService] Missing dependencies on remote: ${names.join(', ')}`)
+        return names.join(', ')
+      }
+      return null
+    } catch (e) {
+      // If check itself fails (e.g., SSH error), be conservative and trigger npm install
+      console.warn('[RemoteDeployService] Dependency check failed, will run npm install:', e)
+      return 'check-error'
+    }
   }
 
   /**
@@ -1138,7 +1211,7 @@ WRAPPER
     const envVars = [
       `REMOTE_AGENT_PORT=${server.wsPort || 8080}`,
       `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(server.authToken)}`,
-      `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir || '/root')}`,
+      server.workDir ? `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir)}` : null,
       `IS_SANDBOX=1`,  // Required for bypass-permissions mode in root environment
       server.claudeApiKey ? `ANTHROPIC_API_KEY=${escapeEnvValue(server.claudeApiKey)}` : null,
       server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${escapeEnvValue(server.claudeBaseUrl)}` : null,
@@ -1147,7 +1220,7 @@ WRAPPER
 
     const indexPath = `${DEPLOY_AGENT_PATH}/dist/index.js`
 
-    console.log(`[RemoteDeployService] Starting agent with env: PORT=${server.wsPort || 8080}, WORK_DIR=${server.workDir || '/root'}`)
+    console.log(`[RemoteDeployService] Starting agent with env: PORT=${server.wsPort || 8080}, WORK_DIR=${server.workDir || '(not set, will use per-session workDir)'}`)
 
     const startCommand = `nohup env ${envVars} node ${indexPath} > ${DEPLOY_AGENT_PATH}/logs/output.log 2>&1 &`
     await manager.executeCommand(startCommand)
@@ -1176,6 +1249,55 @@ WRAPPER
       // Also check if node process is running at all
       const processCheck = await manager.executeCommandFull(`ps aux | grep -E "node.*${DEPLOY_AGENT_PATH}" | grep -v grep || echo "NO_PROCESS"`)
       console.log('[RemoteDeployService] Process check:', processCheck.stdout)
+
+      // Self-repair: if logs indicate missing dependencies, run npm install and retry once
+      const missingDepPattern = /ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package/
+      if (missingDepPattern.test(logOutput)) {
+        console.log('[RemoteDeployService] Startup failed due to missing dependencies, attempting self-repair...')
+        this.emitCommandOutput(id, 'output', '检测到依赖缺失，自动修复中...')
+
+        // Stop any leftover process
+        await manager.executeCommand(`pkill -f "node.*${DEPLOY_AGENT_PATH}" || true`)
+
+        // Run npm install
+        this.emitCommandOutput(id, 'output', '执行 npm install...')
+        const repairResult = await manager.executeCommandStreaming(
+          `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+          (type, data) => {
+            const lines = data.split('\n').filter(line => line.trim())
+            for (const line of lines) {
+              this.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line)
+            }
+          }
+        )
+
+        if (repairResult.exitCode !== 0) {
+          throw new Error(`Failed to start agent - dependency repair failed. Logs: ${logOutput.slice(0, 500)}`)
+        }
+
+        this.emitCommandOutput(id, 'success', '✓ 依赖修复完成，重新启动 agent...')
+
+        // Retry start
+        await manager.executeCommand(startCommand)
+        await new Promise(resolve => setTimeout(resolve, 5000))
+
+        const retryResult = await manager.executeCommandFull(
+          `(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${port}" || echo "NOT_RUNNING"`
+        )
+
+        if (retryResult.stdout.includes('NOT_RUNNING')) {
+          let retryLog = ''
+          try {
+            const retryLogResult = await manager.executeCommandFull(`tail -30 ${DEPLOY_AGENT_PATH}/logs/output.log 2>&1 || echo ""`)
+            retryLog = retryLogResult.stdout || ''
+          } catch {}
+
+          throw new Error(`Failed to start agent after dependency repair. Logs: ${retryLog.slice(0, 500)}`)
+        }
+
+        console.log(`[RemoteDeployService] Agent started after self-repair on: ${server.name}, port ${port}`)
+        return
+      }
 
       throw new Error(`Failed to start agent process - port ${port} not listening. Logs: ${logOutput.slice(0, 500)}`)
     }

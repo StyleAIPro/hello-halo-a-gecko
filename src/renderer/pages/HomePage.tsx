@@ -100,21 +100,46 @@ export function HomePage() {
 
   // Load default path when dialog opens
   useEffect(() => {
-    if (showCreateDialog) {
-      api.getDefaultSpacePath().then((res) => {
-        if (res.success && res.data) {
-          setDefaultPath(res.data as string)
-        }
-      })
-      // Focus the space name input when dialog opens
-      setTimeout(() => {
+    if (!showCreateDialog) return
+
+    let focusTimer: ReturnType<typeof setTimeout>
+    let fallbackTimer: ReturnType<typeof setTimeout>
+
+    // Focus after IPC resolves + short delay for re-render to complete
+    api.getDefaultSpacePath().then((res) => {
+      if (res.success && res.data) {
+        setDefaultPath(res.data as string)
+      }
+      focusTimer = setTimeout(() => {
         spaceNameInputRef.current?.focus()
-      }, 100)
+      }, 50)
+    })
+
+    // Fallback focus in case IPC is slow — must wait for animate-fade-in (300ms) to finish
+    fallbackTimer = setTimeout(() => {
+      if (document.activeElement !== spaceNameInputRef.current) {
+        spaceNameInputRef.current?.focus()
+      }
+    }, 400)
+
+    return () => {
+      clearTimeout(focusTimer)
+      clearTimeout(fallbackTimer)
     }
   }, [showCreateDialog])
 
-  // Ref for space name input
+  // Focus edit space name input when edit dialog opens
+  useEffect(() => {
+    if (!editingSpace) return
+    const timer = setTimeout(() => {
+      editSpaceNameInputRef.current?.focus()
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [editingSpace])
+
+  // Refs for space name inputs
   const spaceNameInputRef = useRef<HTMLInputElement>(null)
+  const editSpaceNameInputRef = useRef<HTMLInputElement>(null)
 
   // Handle folder selection
   const handleSelectFolder = async () => {
@@ -180,9 +205,16 @@ export function HomePage() {
   }
 
   // Shorten path for display
-  const shortenPath = (path: string) => {
-    const home = path.includes('/Users/') ? path.replace(/\/Users\/[^/]+/, '~') : path
-    return home
+  const shortenPath = (p: string) => {
+    // macOS: /Users/xxx -> ~/...
+    if (p.includes('/Users/')) {
+      return p.replace(/\/Users\/[^/]+/, '~')
+    }
+    // Windows: C:\Users\xxx -> ~\...
+    if (/^[A-Z]:\\Users\\/.test(p)) {
+      return p.replace(/^[A-Z]:\\Users\\[^\\]+/, '~')
+    }
+    return p
   }
 
   // Handle delete space
@@ -198,7 +230,7 @@ export function HomePage() {
     // - Legacy custom spaces: path doesn't end with /spaces/{uuid}
     //   (centralized paths are always {haloDir}/spaces/{uuid-v4}, uuid is 36 chars)
     const lastSegment = space.path.split(/[/\\]/).pop() ?? ''
-    const isCentralizedSpace = space.path.includes('/spaces/') && lastSegment.length === 36
+    const isCentralizedSpace = (space.path.includes('/spaces/') || space.path.includes('\\spaces\\')) && lastSegment.length === 36
     const isProjectSpace = !!space.workingDir || !isCentralizedSpace
 
     const message = isProjectSpace
@@ -451,7 +483,7 @@ export function HomePage() {
                 <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
                   <Folder className="w-3 h-3 flex-shrink-0" />
                   <span className="truncate">
-                    {space.claudeSource === 'remote' ? space.remotePath || '/home' : space.path}
+                    {space.claudeSource === 'remote' ? space.remotePath || '/home' : (space.workingDir || space.path)}
                   </span>
                 </div>
                 {/* Remote server info */}
@@ -472,8 +504,10 @@ export function HomePage() {
 
       {/* Create Space Dialog */}
       {showCreateDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200]" onClick={resetDialog}>
+          {/* Animation wrapper — separated from scroll container to avoid Chromium hit-testing issues */}
+          <div className="animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-medium mb-4">{t('Create Dedicated Space')}</h2>
 
             {/* Icon select */}
@@ -711,26 +745,28 @@ export function HomePage() {
                 {t('Create')}
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* Edit Space Dialog */}
       {editingSpace && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200]">
+          <div className="animate-fade-in">
+            <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
             <h2 className="text-lg font-medium mb-4">{t('Edit Space')}</h2>
 
             {/* Space name */}
             <div className="mb-4">
               <label className="block text-sm text-muted-foreground mb-2">{t('Space Name')}</label>
               <input
+                ref={editSpaceNameInputRef}
                 type="text"
                 value={editSpaceName}
                 onChange={(e) => setEditSpaceName(e.target.value)}
                 placeholder={t('My Project')}
                 className="w-full px-4 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
-                autoFocus
               />
             </div>
 
@@ -769,6 +805,7 @@ export function HomePage() {
               >
                 {t('Save')}
               </button>
+            </div>
             </div>
           </div>
         </div>

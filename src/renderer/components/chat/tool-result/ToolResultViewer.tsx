@@ -25,6 +25,7 @@ import { FileListViewer } from './FileListViewer'
 import { MarkdownResultViewer } from './MarkdownResultViewer'
 import { JsonResultViewer } from './JsonResultViewer'
 import { PlainTextViewer } from './PlainTextViewer'
+import { DiffResultViewer } from './DiffResultViewer'
 import { useTranslation } from '../../../i18n'
 
 export const ToolResultViewer = memo(function ToolResultViewer({
@@ -44,6 +45,11 @@ export const ToolResultViewer = memo(function ToolResultViewer({
         </span>
       </div>
     )
+  }
+
+  // Edit/Write tools: show inline diff from toolInput instead of raw output
+  if ((toolName === 'Edit' || toolName === 'Write') && toolInput) {
+    return <DiffResultViewer toolInput={toolInput} output={output} isError={isError} />
   }
 
   // Detect content type

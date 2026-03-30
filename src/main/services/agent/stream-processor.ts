@@ -26,7 +26,8 @@ import { sendToRenderer } from './helpers'
 import {
   parseSDKMessage,
   extractSingleUsage,
-  extractResultUsage
+  extractResultUsage,
+  safeJsonStringify
 } from './message-utils'
 import { broadcastMcpStatus } from './mcp-manager'
 import { markSessionActivity } from './session-manager'
@@ -199,6 +200,27 @@ export interface ProcessStreamParams {
 // Stream Processor
 // ============================================
 
+// ========== SDK Subagent (Agent tool) tracking types ==========
+interface SubagentState {
+  taskId: string
+  toolUseId?: string
+  agentId: string
+  agentName: string
+  description: string
+  status: 'running' | 'completed' | 'failed'
+  isComplete: boolean
+  // Per-subagent streaming block state (isolated from parent's streamingBlocks)
+  streamingBlocks: Map<number, {
+    type: 'thinking' | 'text' | 'tool_use'
+    thoughtId: string
+    content: string
+    toolName?: string
+    toolId?: string
+  }>
+  // Per-subagent tool ID to thought ID mapping (isolated from parent's)
+  toolIdToThoughtId: Map<string, string>
+}
+
 /**
  * Process the message stream from a V2 SDK session.
  *
@@ -216,6 +238,165 @@ export interface ProcessStreamParams {
  * @param params - All parameters needed for stream processing
  * @returns StreamResult with final content, thoughts, token usage, and status flags
  */
+// ============================================
+// Subagent Stream Event Processing
+// ============================================
+
+/**
+ * Look up a SubagentState by parentToolUseId (the Agent tool's tool_use block ID).
+ * Checks both the toolUseIdToTaskId map and direct scan of subagentStates.
+ */
+function findSubagentByToolUseId(
+  toolUseId: string,
+  states: Map<string, SubagentState>,
+  mapping: Map<string, string>
+): SubagentState | undefined {
+  // Fast path: use the mapping
+  const taskId = mapping.get(toolUseId)
+  if (taskId) return states.get(taskId)
+  // Slow path: scan all states (for events that arrived before task_started)
+  let found: SubagentState | undefined
+  states.forEach((s) => {
+    if (s.toolUseId === toolUseId) found = s
+  })
+  if (found) return found
+  return undefined
+}
+
+/**
+ * Process a single stream_event for a subagent (called from handleSubagentStreamEvent
+ * or when flushing buffered events). Handles thinking, text, and tool_use blocks
+ * with their deltas and stops, emitting thoughts/deltas to the frontend.
+ */
+function processSubagentStreamEvent(
+  state: SubagentState,
+  event: any,
+  _sdkMessage: any,
+  spaceId: string,
+  rendererConvId: string
+): void {
+  const { streamingBlocks, toolIdToThoughtId, agentId, agentName } = state
+  const blockIndex = event.index ?? 0
+
+  const workerEmit = (channel: string, data: Record<string, unknown>): void => {
+    sendToRenderer(channel, spaceId, rendererConvId, { ...data, agentId, agentName })
+  }
+
+  // Thinking block started
+  if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
+    const thoughtId = `thought-thinking-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+    streamingBlocks.set(blockIndex, { type: 'thinking', thoughtId, content: '' })
+    const thought: Thought = {
+      id: thoughtId, type: 'thinking', content: '',
+      timestamp: new Date().toISOString(), isStreaming: true
+    }
+    workerEmit('agent:thought', { thought })
+    return
+  }
+
+  // Thinking delta
+  if (event.type === 'content_block_delta' && event.delta?.type === 'thinking_delta') {
+    const blockState = streamingBlocks.get(blockIndex)
+    if (blockState && blockState.type === 'thinking') {
+      const delta = event.delta.thinking || ''
+      blockState.content += delta
+      workerEmit('agent:thought-delta', {
+        thoughtId: blockState.thoughtId, delta, content: blockState.content
+      })
+    }
+    return
+  }
+
+  // Tool use block started
+  if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+    const toolId = event.content_block.id || `sub-tool-${Date.now()}`
+    const toolName = event.content_block.name || 'Unknown'
+    const thoughtId = `thought-tool-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+    streamingBlocks.set(blockIndex, { type: 'tool_use', thoughtId, content: '', toolName, toolId })
+    const thought: Thought = {
+      id: thoughtId, type: 'tool_use', content: '',
+      timestamp: new Date().toISOString(), toolName,
+      toolInput: {}, isStreaming: true, isReady: false
+    }
+    workerEmit('agent:thought', { thought })
+    return
+  }
+
+  // Tool use input JSON delta
+  if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+    const blockState = streamingBlocks.get(blockIndex)
+    if (blockState && blockState.type === 'tool_use') {
+      blockState.content += event.delta.partial_json || ''
+      workerEmit('agent:thought-delta', {
+        thoughtId: blockState.thoughtId, delta: event.delta.partial_json || '',
+        isToolInput: true
+      })
+    }
+    return
+  }
+
+  // Block stop
+  if (event.type === 'content_block_stop') {
+    const blockState = streamingBlocks.get(blockIndex)
+    if (!blockState) return
+
+    if (blockState.type === 'thinking') {
+      workerEmit('agent:thought-delta', {
+        thoughtId: blockState.thoughtId, content: blockState.content, isComplete: true
+      })
+    } else if (blockState.type === 'tool_use') {
+      let toolInput: Record<string, unknown> = {}
+      try {
+        if (blockState.content) toolInput = JSON.parse(blockState.content)
+      } catch (e) {
+        console.error(`[Subagent] Failed to parse tool input JSON:`, e)
+      }
+      if (blockState.toolId) {
+        toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId)
+      }
+      workerEmit('agent:thought-delta', {
+        thoughtId: blockState.thoughtId, toolInput,
+        isComplete: true, isReady: true, isToolInput: true
+      })
+    }
+
+    streamingBlocks.delete(blockIndex)
+    return
+  }
+
+  // Text block started
+  if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
+    const thoughtId = `thought-text-sub-${state.taskId}-${blockIndex}-${Date.now()}`
+    streamingBlocks.set(blockIndex, { type: 'text', thoughtId, content: event.content_block.text || '' })
+    const thought: Thought = {
+      id: thoughtId, type: 'text',
+      content: event.content_block.text || '',
+      timestamp: new Date().toISOString(), isStreaming: true
+    }
+    workerEmit('agent:thought', { thought })
+    workerEmit('agent:message', {
+      type: 'message', content: '', isComplete: false, isStreaming: false, isNewTextBlock: true
+    })
+    return
+  }
+
+  // Text delta
+  if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+    const delta = event.delta.text || ''
+    const blockState = streamingBlocks.get(blockIndex)
+    if (blockState && blockState.type === 'text') {
+      blockState.content += delta
+      workerEmit('agent:thought-delta', {
+        thoughtId: blockState.thoughtId, delta, content: blockState.content
+      })
+      workerEmit('agent:message', {
+        type: 'message', delta, isComplete: false, isStreaming: true
+      })
+    }
+    return
+  }
+}
+
 export async function processStream(params: ProcessStreamParams): Promise<StreamResult> {
   const {
     v2Session,
@@ -243,6 +424,100 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       sendToRenderer(channel, spaceId, rendererConvId, { ...data, ...workerTag })
     } else {
       sendToRenderer(channel, spaceId, rendererConvId, data)
+    }
+  }
+
+  // ========== Subagent event handlers (local functions) ==========
+  /**
+   * Handle a stream_event that belongs to a subagent (has parent_tool_use_id).
+   * Looks up the SubagentState, or buffers the event if it arrived before task_started.
+   */
+  const handleSubagentStreamEvent = (parentToolUseId: string, event: any, sdkMessage: any): void => {
+    const state = findSubagentByToolUseId(parentToolUseId, subagentStates, toolUseIdToTaskId)
+    if (state) {
+      if (!state.isComplete) {
+        processSubagentStreamEvent(state, event, sdkMessage, spaceId, rendererConvId)
+      }
+    } else {
+      // Subagent stream events may arrive before task_started — buffer them
+      let buffer = pendingSubagentEvents.get(parentToolUseId)
+      if (!buffer) {
+        buffer = []
+        pendingSubagentEvents.set(parentToolUseId, buffer)
+      }
+      buffer.push({ event, sdkMessage })
+    }
+  }
+
+  /**
+   * Handle a non-stream message (user/assistant) that belongs to a subagent.
+   * Processes tool_result from user messages to merge into subagent tool_use thoughts.
+   */
+  const handleSubagentNonStreamEvent = (parentToolUseId: string, sdkMessage: any): void => {
+    const state = findSubagentByToolUseId(parentToolUseId, subagentStates, toolUseIdToTaskId)
+    if (!state || state.isComplete) return
+
+    const { toolIdToThoughtId, agentId, agentName } = state
+    const workerEmit = (channel: string, data: Record<string, unknown>): void => {
+      sendToRenderer(channel, spaceId, rendererConvId, { ...data, agentId, agentName })
+    }
+
+    // Handle user messages containing tool_result blocks
+    if (sdkMessage.type === 'user') {
+      const content = sdkMessage.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_result') {
+            const toolUseId = block.tool_use_id
+            const toolUseThoughtId = toolIdToThoughtId.get(toolUseId)
+            if (toolUseThoughtId) {
+              const resultContent = typeof block.content === 'string'
+                ? block.content
+                : safeJsonStringify(block.content)
+              workerEmit('agent:thought-delta', {
+                thoughtId: toolUseThoughtId,
+                toolResult: { output: resultContent, isError: block.is_error || false, timestamp: new Date().toISOString() },
+                isToolResult: true
+              })
+            }
+          }
+        }
+      }
+    }
+
+    // Handle assistant messages (fallback for non-streaming mode)
+    if (sdkMessage.type === 'assistant' && !sdkMessage.error) {
+      const content = sdkMessage.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'thinking' && block.thinking) {
+            const thought: Thought = {
+              id: `thought-sub-fallback-${Date.now()}`,
+              type: 'thinking', content: block.thinking,
+              timestamp: new Date().toISOString()
+            }
+            workerEmit('agent:thought', { thought })
+          } else if (block.type === 'tool_use' && block.id) {
+            const thoughtId = `thought-sub-fallback-tool-${Date.now()}`
+            toolIdToThoughtId.set(block.id, thoughtId)
+            const thought: Thought = {
+              id: thoughtId, type: 'tool_use', content: '',
+              timestamp: new Date().toISOString(),
+              toolName: block.name || 'Unknown',
+              toolInput: block.input || {},
+              isStreaming: false, isReady: true
+            }
+            workerEmit('agent:thought', { thought })
+          } else if (block.type === 'text' && block.text) {
+            const thought: Thought = {
+              id: `thought-sub-fallback-text-${Date.now()}`,
+              type: 'text', content: block.text,
+              timestamp: new Date().toISOString()
+            }
+            workerEmit('agent:thought', { thought })
+          }
+        }
+      }
     }
   }
 
@@ -277,9 +552,9 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Streaming block state - track active blocks by index for delta/stop correlation
   // Key: block index, Value: { type, thoughtId, content/partialJson }
   const streamingBlocks = new Map<number, {
-    type: 'thinking' | 'tool_use'
+    type: 'thinking' | 'text' | 'tool_use'
     thoughtId: string
-    content: string  // For thinking: accumulated thinking text, for tool_use: accumulated partial JSON
+    content: string  // For thinking: accumulated thinking text, for text: accumulated text, for tool_use: accumulated partial JSON
     toolName?: string
     toolId?: string
   }>()
@@ -289,6 +564,17 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
   // Tool ID to Terminal Command ID mapping - for updating terminal output
   const toolIdToCommandId = new Map<string, string>()
+
+  // ========== SDK Subagent (Agent tool) tracking ==========
+  // When Claude spawns a subagent via the Agent tool, the SDK emits events with
+  // parent_tool_use_id set to the Agent tool_use block's ID. We detect these
+  // and route them into the existing WorkerSessionState pipeline (worker:started,
+  // worker:completed, agent:thought with agentId), which already has full
+  // frontend support (NestedWorkerTimeline in ThoughtProcess.tsx).
+  const subagentStates = new Map<string, SubagentState>()
+  const toolUseIdToTaskId = new Map<string, string>()
+  // Buffer for subagent events that arrive before task_started (timing issue)
+  const pendingSubagentEvents = new Map<string, Array<{ event: any; sdkMessage: any }>>()
 
   const t1 = Date.now()
   console.log(`[Agent][${conversationId}] Sending message to V2 session...`)
@@ -333,6 +619,15 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       // Mark that we received stream_event (for fallback handling in parseSDKMessage)
       hasStreamEvent = true
 
+      // ========== Route subagent stream events ==========
+      // SDK sets parent_tool_use_id on events from spawned subagents (Agent tool).
+      // Route them to the subagent's isolated state instead of the parent's.
+      const parentToolUseId = (sdkMessage as any).parent_tool_use_id as string | null
+      if (parentToolUseId) {
+        handleSubagentStreamEvent(parentToolUseId, event, sdkMessage as any)
+        continue
+      }
+
       // DEBUG: Log all stream events with timestamp (ms since send)
       const elapsed = Date.now() - t1
       // For message_start, log the full event to see if it contains content structure hints
@@ -353,6 +648,26 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
         isStreamingTextBlock = true
         currentStreamingText = event.content_block.text || ''
+        const blockIndex = event.index ?? 0
+
+        // Track text block for delta correlation (same pattern as thinking/tool_use)
+        const thoughtId = `thought-text-${Date.now()}-${blockIndex}`
+        streamingBlocks.set(blockIndex, {
+          type: 'text',
+          thoughtId,
+          content: currentStreamingText
+        })
+
+        // Create text thought for ThoughtProcess timeline display
+        const textThought: Thought = {
+          id: thoughtId,
+          type: 'text',
+          content: currentStreamingText,
+          timestamp: new Date().toISOString(),
+          isStreaming: true
+        }
+        sessionState.thoughts.push(textThought)
+        emit('agent:thought', { thought: textThought })
 
         // 🔑 Send precise signal for new text block (fixes truncation bug)
         // This is 100% reliable - comes directly from SDK's content_block_start event
@@ -388,6 +703,10 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           isStreaming: true
         }
 
+        // Reset accumulated text — only text AFTER the last thinking block
+        // should become the final message content
+        lastTextContent = ''
+
         // Add to session state
         sessionState.thoughts.push(thought)
 
@@ -420,6 +739,18 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
         // Also update sessionState for recovery after page refresh
         sessionState.streamingContent = currentStreamingText
+
+        // Send delta to ThoughtProcess timeline (same pattern as thinking_delta)
+        const blockIndex = event.index ?? 0
+        const textBlockState = streamingBlocks.get(blockIndex)
+        if (textBlockState && textBlockState.type === 'text') {
+          textBlockState.content += delta
+          emit('agent:thought-delta', {
+            thoughtId: textBlockState.thoughtId,
+            delta,
+            content: textBlockState.content  // Full accumulated content for fallback
+          })
+        }
 
         // Send delta immediately without throttling
         emit('agent:message', {
@@ -592,6 +923,25 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           streamingBlocks.delete(blockIndex)
         }
 
+        // Handle text block finalization in streamingBlocks
+        if (blockState && blockState.type === 'text') {
+          // Send completion signal to ThoughtProcess timeline
+          emit('agent:thought-delta', {
+            thoughtId: blockState.thoughtId,
+            content: blockState.content,
+            isComplete: true  // Signal: text block is complete
+          })
+
+          // Update session state thought
+          const textThought = sessionState.thoughts.find((t: Thought) => t.id === blockState.thoughtId)
+          if (textThought) {
+            textThought.content = blockState.content
+            textThought.isStreaming = false
+          }
+
+          console.log(`[Agent][${conversationId}] Text block complete (streaming), length: ${blockState.content.length}`)
+        }
+
         // Handle text block stop (existing logic)
         if (isStreamingTextBlock) {
           isStreamingTextBlock = false
@@ -617,10 +967,19 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       continue  // stream_event handled, skip normal processing
     }
 
+    // ========== Route subagent non-stream events ==========
+    // Subagent user messages (tool_results) and assistant messages also carry
+    // parent_tool_use_id. Route them to the subagent's isolated state.
+    const msgParentToolUseId = (sdkMessage as any).parent_tool_use_id as string | null
+    if (msgParentToolUseId) {
+      handleSubagentNonStreamEvent(msgParentToolUseId, sdkMessage)
+      continue
+    }
+
     // DEBUG: Log all SDK messages with timestamp
     const elapsed = Date.now() - t1
     console.log(`[Agent] SDK messages [${conversationId}] 🔵 +${elapsed}ms ${sdkMessage.type}:`,
-      JSON.stringify(sdkMessage, null, 2)
+      safeJsonStringify(sdkMessage, 2)
     )
 
     // Extract single API call usage from assistant message (represents current context size)
@@ -783,7 +1142,19 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             content: thought.content,
             isComplete: false
           })
+        } else if (thought.type === 'thinking') {
+          // Reset accumulated text on thinking block (non-streaming fallback)
+          // Only text AFTER the last thinking block should be the final message content
+          lastTextContent = ''
         } else if (thought.type === 'tool_use') {
+          // Populate toolIdToThoughtId for non-streaming fallback path
+          // (streaming path populates this in content_block_stop handler)
+          // Without this, subsequent tool_result thoughts can't merge into tool_use
+          if (!hasStreamEvent && thought.toolInput) {
+            toolIdToThoughtId.set(thought.id, thought.id)
+            toolIdToCommandId.set(thought.id, `agent-fallback-${Date.now()}`)
+          }
+
           // Send tool call event
           const toolCall: ToolCall = {
             id: thought.id,
@@ -826,6 +1197,98 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     const msg = sdkMessage as Record<string, unknown>
     if (sdkMessage.type === 'system') {
       const subtype = msg.subtype as string | undefined
+
+      // ========== Subagent lifecycle events ==========
+      // task_started: SDK spawned a subagent (Agent tool). Create a virtual worker session.
+      if (subtype === 'task_started') {
+        const taskId = msg.task_id as string
+        const toolUseId = msg.tool_use_id as string | undefined
+        const description = (msg.description as string) || 'Subagent task'
+        const agentId = `subagent-${taskId}`
+        const agentName = `Agent: ${description.length > 40 ? description.substring(0, 40) + '...' : description}`
+
+        const state: SubagentState = {
+          taskId,
+          toolUseId,
+          agentId,
+          agentName,
+          description,
+          status: 'running',
+          isComplete: false,
+          streamingBlocks: new Map(),
+          toolIdToThoughtId: new Map()
+        }
+        subagentStates.set(taskId, state)
+        if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId)
+
+        sendToRenderer('worker:started', spaceId, rendererConvId, {
+          agentId,
+          agentName,
+          taskId,
+          task: description,
+          type: 'local'
+        })
+        console.log(`[Agent][${conversationId}] Subagent started: ${taskId} - ${description.substring(0, 80)}`)
+
+        // Flush any buffered events that arrived before task_started
+        const buffered = pendingSubagentEvents.get(toolUseId || taskId)
+        if (buffered) {
+          pendingSubagentEvents.delete(toolUseId || taskId)
+          for (const { event: bufferedEvent, sdkMessage: bufferedMsg } of buffered) {
+            if (!state.isComplete) {
+              processSubagentStreamEvent(state, bufferedEvent, bufferedMsg, spaceId, rendererConvId)
+            }
+          }
+        }
+
+        continue
+      }
+
+      // task_notification: Subagent completed or failed.
+      if (subtype === 'task_notification') {
+        const notifTaskId = msg.task_id as string
+        const notifStatus = msg.status as string
+        const subagentState = subagentStates.get(notifTaskId)
+
+        if (subagentState) {
+          subagentState.status = notifStatus === 'completed' ? 'completed' : 'failed'
+          subagentState.isComplete = true
+
+          sendToRenderer('worker:completed', spaceId, rendererConvId, {
+            agentId: subagentState.agentId,
+            agentName: subagentState.agentName,
+            taskId: notifTaskId,
+            result: (msg.summary as string) || '',
+            error: notifStatus === 'failed' ? 'Subagent task failed' : undefined,
+            status: notifStatus === 'completed' ? 'completed' as const : 'failed' as const
+          })
+          console.log(`[Agent][${conversationId}] Subagent ${notifTaskId} ${notifStatus}`)
+        }
+        continue
+      }
+
+      // task_progress: Periodic progress summary (optional, informational only)
+      if (subtype === 'task_progress') {
+        const progressState = subagentStates.get(msg.task_id as string)
+        if (progressState && !progressState.isComplete) {
+          const summary = (msg.summary as string) || ''
+          if (summary) {
+            // Emit as a system thought to show progress in the sub-timeline
+            const thought: Thought = {
+              id: `thought-subagent-progress-${Date.now()}`,
+              type: 'system',
+              content: summary,
+              timestamp: new Date().toISOString()
+            }
+            const workerEmit = (channel: string, data: Record<string, unknown>): void => {
+              sendToRenderer(channel, spaceId, rendererConvId, { ...data, agentId: progressState.agentId, agentName: progressState.agentName })
+            }
+            workerEmit('agent:thought', { thought })
+          }
+        }
+        continue
+      }
+
       const sessionIdFromMsg = msg.session_id || (msg.message as Record<string, unknown>)?.session_id
       if (sessionIdFromMsg) {
         capturedSessionId = sessionIdFromMsg as string
@@ -896,6 +1359,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   }
 
   // ========== Stream End Handling ==========
+
   //
   // Error conditions (truth table):
   // | Case | hasContent | isInterrupted | hasErrorThought | wasAborted | reachedMaxTurns | Send error?      |
@@ -912,6 +1376,22 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Merge content: prefer lastTextContent (all accumulated text blocks), fallback to currentStreamingText
   const finalContent = lastTextContent || currentStreamingText || ''
   const wasAborted = abortController.signal.aborted
+
+  // Clean up any active subagents that didn't complete (interrupted/aborted streams)
+  subagentStates.forEach((state, taskId) => {
+    if (!state.isComplete) {
+      sendToRenderer('worker:completed', spaceId, rendererConvId, {
+        agentId: state.agentId,
+        agentName: state.agentName,
+        taskId,
+        result: '',
+        error: wasAborted ? 'Stopped by user' : 'Stream interrupted',
+        status: 'failed'
+      })
+      console.log(`[Agent][${conversationId}] Subagent ${taskId} cleaned up (stream ended)`)
+    }
+  })
+
   const hasErrorThought = sessionState.thoughts.some((t: Thought) => t.type === 'error')
   // Two independent interrupt reasons: SDK reported error_during_execution, or stream ended unexpectedly
   const isInterrupted = !receivedResult || hadErrorDuringExecution

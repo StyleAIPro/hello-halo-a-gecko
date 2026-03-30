@@ -1421,8 +1421,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Handle error for a specific conversation
   handleAgentError: (data) => {
-    const { conversationId, error, errorType } = data
-    console.log(`[ChatStore] handleAgentError [${conversationId}]:`, error, errorType ? `(type: ${errorType})` : '')
+    const { conversationId, agentId, error, errorType } = data
+    console.log(`[ChatStore] handleAgentError [${conversationId}]${agentId ? ` agent=${agentId}` : ''}:`, error, errorType ? `(type: ${errorType})` : '')
 
     // Add error thought to session (only for non-interrupted errors)
     // Interrupted errors get special UI treatment, not shown as error thought
@@ -1437,6 +1437,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const newSessions = new Map(state.sessions)
       const session = newSessions.get(conversationId) || createEmptySessionState()
+
+      // Route error to worker session if agentId is present
+      if (agentId && session.workerSessions.has(agentId)) {
+        const newWorkerSessions = new Map(session.workerSessions)
+        const ws = newWorkerSessions.get(agentId)
+        if (ws) {
+          newWorkerSessions.set(agentId, {
+            ...ws,
+            error,
+            status: 'failed' as const,
+            isRunning: false,
+            isThinking: false,
+            isStreaming: false,
+            completedAt: Date.now(),
+            thoughts: [...ws.thoughts, errorThought]
+          })
+          newSessions.set(conversationId, { ...session, workerSessions: newWorkerSessions })
+        }
+        return { sessions: newSessions }
+      }
 
       // Cancel pending questions on worker sessions too
       let updatedWorkerSessions = session.workerSessions
@@ -1740,8 +1760,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!session) return state
 
         const newWorkerSessions = new Map(session.workerSessions)
-        const ws = newWorkerSessions.get(agentId)
-        if (!ws) return state
+        let ws = newWorkerSessions.get(agentId)
+
+        // Auto-create temporary worker session if not found yet
+        // (worker:started may arrive after first agent:thought due to IPC ordering)
+        if (!ws) {
+          ws = {
+            agentId,
+            agentName: thought.agentName || agentId,
+            taskId: null,
+            task: '',
+            isRunning: true,
+            status: 'running' as const,
+            streamingContent: '',
+            isStreaming: false,
+            thoughts: [],
+            isThinking: false,
+            textBlockVersion: 0,
+            error: null,
+            completedAt: null,
+            pendingQuestion: null,
+          }
+          newWorkerSessions.set(agentId, ws)
+        }
 
         const existingIds = new Set(ws.thoughts.map(t => t.id))
         if (existingIds.has(thought.id)) return state
