@@ -383,6 +383,19 @@ class AgentOrchestrator extends EventEmitter {
     const agentRole = agent.config.role || 'worker'
     const hyperSpaceMcp = createHyperSpaceMcpServer(spaceId, conversationId, agentRole, agent.id, agent.config.name)
 
+    // Also register standard MCP servers (same as non-Hyper-Space path)
+    const { getEnabledMcpServers } = await import('./helpers')
+    const { createHaloAppsMcpServer } = await import('../../apps/conversation-mcp')
+    const { createGhSearchMcpServer } = await import('../gh-search')
+    const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
+
+    const mcpServers: Record<string, any> = { 'hyper-space': hyperSpaceMcp }
+    if (enabledMcpServers) {
+      Object.assign(mcpServers, enabledMcpServers)
+    }
+    mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
+    mcpServers['gh-search'] = createGhSearchMcpServer()
+
     const abortController = new AbortController()
 
     // Build SDK options
@@ -396,7 +409,7 @@ class AgentOrchestrator extends EventEmitter {
       stderrHandler: (data: string) => {
         console.error(`[Agent][${childConversationId}] stderr:`, data)
       },
-      mcpServers: { 'hyper-space': hyperSpaceMcp },
+      mcpServers,
       contextWindow: resolvedCredentials.contextWindow
     })
 
@@ -2502,6 +2515,38 @@ just complete the task normally — the orchestrator will collect your results a
     context += `You are the **LEADER** of a multi-agent team. You have ${team.workers.length} worker agent(s) available to execute tasks.\n\n`
 
     // ====================================================================
+    // CRITICAL: spawn_subagent vs Agent tool
+    // ====================================================================
+    context += '### CRITICAL: When to use spawn_subagent vs Agent Tool\n\n'
+    context += 'You have TWO ways to delegate work:\n\n'
+    context += '1. **`spawn_subagent` (MCP tool)** — Assigns a task to a **team Worker** running on their own machine (local or remote server). Use this when the task:\n'
+    context += '   - Requires execution on a specific server (e.g., checking NPU status, running training, deploying models)\n'
+    context += '   - Matches a Worker\'s **capabilities** (see Team Context above)\n'
+    context += '   - Needs access to remote server\'s file system, GPU, or other hardware\n\n'
+    context += '2. **Agent tool (built-in)** — Spawns a sub-agent on YOUR OWN machine. Use this ONLY when the task:\n'
+    context += '   - Is purely analytical/planning work on local files\n'
+    context += '   - Does NOT require any Worker\'s special capabilities\n'
+    context += '   - Is a simple local operation like reading code, writing documentation, etc.\n\n'
+    context += '**RULE: If a task involves remote servers, hardware (NPU/GPU), or matches a Worker\'s capabilities, you MUST use `spawn_subagent`. NEVER use the Agent tool for tasks that should run on a remote server.**\n\n'
+
+    // ====================================================================
+    // CRITICAL: Capability-based routing
+    // ====================================================================
+    context += '### CRITICAL: Route Tasks by Worker Capabilities\n\n'
+    context += 'You MUST match tasks to Workers based on their declared capabilities:\n\n'
+
+    // Build a capability routing table from actual worker configs
+    for (const worker of team.workers) {
+      const caps = worker.config.capabilities || []
+      if (caps.length === 0) continue
+      const workerName = worker.config.name || worker.id
+      const location = worker.config.type === 'remote' ? `remote server (${worker.config.environment?.ip || worker.config.remoteServerId || 'unknown'})` : 'local machine'
+      context += `- **${workerName}** (${location}): ${caps.join(', ')}\n`
+    }
+    context += '\n'
+    context += 'When a user request involves any of the capabilities listed above, delegate to the matching Worker via `spawn_subagent` with the correct `targetAgentId`.\n\n'
+
+    // ====================================================================
     // TASK PLANNING — the most critical section
     // ====================================================================
     context += '### Task Planning Workflow (MUST FOLLOW):\n\n'
@@ -2557,15 +2602,17 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Important rules
     context += '### Important Rules:\n\n'
-    context += '1. **Plan first, then execute** — Always show the user your plan before dispatching any tasks\n'
-    context += '2. **DO NOT poll** - Do NOT use sessions_list, sessions_history, or sleep to check status\n'
-    context += '3. **Automatic result collection** - Workers will automatically announce completion to you. You do NOT need to call `wait_for_team` — worker results will be delivered to you automatically even if you stop generating.\n'
-    context += '4. **Incremental delegation** - Dispatch one step at a time unless tasks are truly parallel\n'
-    context += '5. **Verify results** - Check worker output quality before proceeding to the next step\n'
-    context += '6. **Adapt the plan** - If a step fails or produces unexpected results, adjust the plan\n'
-    context += '7. **Handle failures** - If a worker fails, you can retry or report the issue\n'
-    context += '8. **Use `wait_for_team` optionally** - If you want to collect all results at once before processing, use `wait_for_team`. But it is not required — results will be delivered to you automatically.\n'
-    context += '9. **Workers can report proactively** - Workers may send intermediate progress updates via `report_to_leader`. These will be delivered to you as messages.\n\n'
+    context += '1. **NEVER use Agent tool for remote tasks** — If a task must run on a remote server, use `spawn_subagent` with the matching Worker\'s `targetAgentId`. The Agent tool runs on YOUR local machine and CANNOT access remote servers.\n'
+    context += '2. **Match tasks to Worker capabilities** — Always check Worker capabilities before delegating. Use `list_team_members` to see available Workers and their capabilities.\n'
+    context += '3. **Plan first, then execute** — Always show the user your plan before dispatching any tasks\n'
+    context += '4. **DO NOT poll** - Do NOT use sessions_list, sessions_history, or sleep to check status\n'
+    context += '5. **Automatic result collection** - Workers will automatically announce completion to you. You do NOT need to call `wait_for_team` — worker results will be delivered to you automatically even if you stop generating.\n'
+    context += '6. **Incremental delegation** - Dispatch one step at a time unless tasks are truly parallel\n'
+    context += '7. **Verify results** - Check worker output quality before proceeding to the next step\n'
+    context += '8. **Adapt the plan** - If a step fails or produces unexpected results, adjust the plan\n'
+    context += '9. **Handle failures** - If a worker fails, you can retry or report the issue\n'
+    context += '10. **Use `wait_for_team` optionally** - If you want to collect all results at once before processing, use `wait_for_team`. But it is not required — results will be delivered to you automatically.\n'
+    context += '11. **Workers can report proactively** - Workers may send intermediate progress updates via `report_to_leader`. These will be delivered to you as messages.\n\n'
 
     // Communication tools
     context += '### Communication Tools:\n\n'
