@@ -1,0 +1,23 @@
+{
+  "cachedGrowthBookFeatures": {
+    "tengu_mcp_tool_search": false,
+    "tengu_event_sampling_config": {},
+    "tengu_log_segment_events": false,
+    "tengu_log_datadog_events": true,
+    "tengu_marble_anvil": true,
+    "tengu_tool_pear": false,
+    "tengu_scarf_coffee": false,
+    "tengu_claudeai_mcp_connectors": true,
+    "tengu_keybinding_customization_release": true,
+    "tengu_slate_nexus": false,
+    "tengu_amber_quartz": true,
+    "tengu_thinkback": false,
+    "tengu_chomp_inflection": false,
+    "tengu_marble_sandcastle": false,
+    "tengu_marble_lantern_disabled": false
+  },
+  "firstStartTime": "2026-03-28T09:45:39.960Z",
+  "opusProMigrationComplete": true,
+  "sonnet1m45MigrationComplete": true,
+  "userID": "9d2cc758a996e229cefce5f7ab039d0023ab5d8e36244f13ecaadd311303452b"
+}
