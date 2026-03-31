@@ -168,7 +168,7 @@ export class SkillManager {
    */
   private parseSkillMd(content: string, skillId: string): SkillSpec | null {
     // 解析 YAML frontmatter
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!frontmatterMatch) {
       // 没有 frontmatter，使用默认值
       return {
@@ -278,7 +278,7 @@ export class SkillManager {
     try {
       // 安全检查：确保路径在技能目录内
       const normalizedPath = path.normalize(fullPath);
-      const skillDir = path.join(this.skillsDir, skillId);
+      const skillDir = path.join(this.skillsDir, skillId) + path.sep;
       if (!normalizedPath.startsWith(skillDir)) {
         console.error('[SkillManager] Invalid file path:', filePath);
         return null;
@@ -301,7 +301,7 @@ export class SkillManager {
     try {
       // 安全检查：确保路径在技能目录内
       const normalizedPath = path.normalize(fullPath);
-      const skillDir = path.join(this.skillsDir, skillId);
+      const skillDir = path.join(this.skillsDir, skillId) + path.sep;
       if (!normalizedPath.startsWith(skillDir)) {
         console.error('[SkillManager] Invalid file path:', filePath);
         return false;

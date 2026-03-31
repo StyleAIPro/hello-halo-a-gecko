@@ -23,6 +23,7 @@
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { exec } from 'child_process'
+import { existsSync } from 'fs'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
@@ -43,6 +44,49 @@ const CMD_TIMEOUT = 30_000
 // ============================================
 
 /**
+ * Resolve the bundled gh CLI binary path.
+ * Uses the binary bundled in resources/gh/{platform}/ if available,
+ * otherwise falls back to system PATH.
+ */
+function getGhBinaryPath(): string {
+  try {
+    const path = require('path')
+    const os = require('os')
+    const { app } = require('electron')
+
+    const platform = os.platform()
+    const arch = os.arch()
+
+    let platformDir: string
+    if (platform === 'darwin') {
+      platformDir = arch === 'arm64' ? 'mac-arm64' : 'mac-x64'
+    } else if (platform === 'win32') {
+      platformDir = 'win-x64'
+    } else if (platform === 'linux') {
+      platformDir = 'linux-x64'
+    } else {
+      return 'gh'
+    }
+
+    const binaryName = platform === 'win32' ? 'gh.exe' : 'gh'
+    let binPath = path.join(app.getAppPath(), 'resources', 'gh', platformDir, binaryName)
+
+    // Fix path for packaged Electron app (asar -> asar.unpacked)
+    if (binPath.includes('app.asar')) {
+      binPath = binPath.replace('app.asar', 'app.asar.unpacked')
+    }
+
+    if (existsSync(binPath)) {
+      return binPath
+    }
+  } catch {
+    // Electron or fs not available (e.g. test environment)
+  }
+
+  return 'gh'
+}
+
+/**
  * Build a standard text content response.
  */
 function textResult(text: string, isError = false) {
@@ -54,10 +98,12 @@ function textResult(text: string, isError = false) {
 
 /**
  * Execute a GitHub CLI command with timeout.
+ * Uses the bundled gh binary if available, otherwise falls back to system gh.
  */
 async function execGh(args: string, timeout = CMD_TIMEOUT): Promise<{ stdout: string; stderr: string }> {
+  const ghBin = getGhBinaryPath()
   try {
-    const result = await execAsync(`gh ${args}`, {
+    const result = await execAsync(`"${ghBin}" ${args}`, {
       timeout,
       maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large results
     })
@@ -728,3 +774,8 @@ export function createGhSearchMcpServer() {
 export function getGhSearchSdkToolNames(): string[] {
   return allSdkTools.map(t => t.name)
 }
+
+/**
+ * Get the resolved gh binary path (for external use)
+ */
+export { getGhBinaryPath }

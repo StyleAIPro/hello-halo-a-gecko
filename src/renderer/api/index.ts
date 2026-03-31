@@ -1321,6 +1321,64 @@ export const api = {
     return window.halo.openExternal(url)
   },
 
+  // ===== GitHub Integration (Electron only) =====
+
+  githubGetAuthStatus: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubGetAuthStatus()
+  },
+
+  githubLoginBrowser: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubLoginBrowser()
+  },
+
+  githubLoginToken: async (token: string): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubLoginToken(token)
+  },
+
+  githubLogout: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubLogout()
+  },
+
+  githubSetupGitCredentials: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubSetupGitCredentials()
+  },
+
+  githubGitConfig: async (key: string, value: string): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubGitConfig(key, value)
+  },
+
+  githubGetGitConfig: async (key: string): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' }
+    }
+    return window.halo.githubGetGitConfig(key)
+  },
+
+  onGithubLoginProgress: (callback: (data: { code?: string; url?: string; message: string }) => void) => {
+    if (!isElectron()) {
+      return () => {}
+    }
+    return window.halo.onGithubLoginProgress(callback)
+  },
+
   // ===== Bootstrap Lifecycle (Electron only) =====
   // Used to coordinate renderer initialization with main process service registration.
   // Implements Pull+Push pattern for reliable initialization:

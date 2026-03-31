@@ -205,3 +205,47 @@ export function getToolFriendlyFormat(
       return ''
   }
 }
+
+// ============================================
+// Action Summary for Pulse Task Cards
+// ============================================
+
+/**
+ * Get human-friendly action summary from thoughts array.
+ * Searches from the end to find the most recent action.
+ * Used by Pulse task cards and _computePulseItems.
+ */
+export function getActionSummary(thoughts: Thought[]): string {
+  for (let i = thoughts.length - 1; i >= 0; i--) {
+    const th = thoughts[i]
+    if (th.type === 'tool_use' && th.toolName) {
+      // Tool still streaming params
+      if (th.isStreaming || !th.isReady) {
+        return th.toolName
+      }
+      const formatted = getToolFriendlyFormat(th.toolName, th.toolInput)
+      if (formatted) return truncateText(formatted, 40)
+      return th.toolName
+    }
+    if (th.type === 'thinking') {
+      return 'Thinking...'
+    }
+  }
+  return ''
+}
+
+/**
+ * Count completed tool steps from thoughts array.
+ * A step is "completed" when a tool_use thought has a toolResult attached.
+ */
+export function getStepCounts(thoughts: Thought[]): { completed: number; total: number } {
+  let completed = 0
+  let total = 0
+  for (const th of thoughts) {
+    if (th.type === 'tool_use') {
+      total++
+      if (th.toolResult) completed++
+    }
+  }
+  return { completed, total }
+}

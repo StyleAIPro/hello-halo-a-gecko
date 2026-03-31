@@ -641,6 +641,24 @@ export async function getOrCreateV2Session(
   // Use 'as any' to bypass type check, actual params handled by patched SDK
   const session = (await unstable_v2_createSession(sdkOptions as any)) as unknown as V2SDKSession
 
+  // WORKAROUND: V2 Session constructor does not register in-process SDK MCP server instances
+  // into the Query layer. It only passes mcpServers to the CLI subprocess config.
+  // The CLI subprocess tries to connect but finds no transport handler → all MCP servers fail.
+  // Fix: manually call setMcpServers() to properly register SDK MCP server instances.
+  if (sdkOptions.mcpServers && Object.keys(sdkOptions.mcpServers).length > 0) {
+    try {
+      const query = (session as any).query
+      if (query && typeof query.setMcpServers === 'function') {
+        await query.setMcpServers(sdkOptions.mcpServers)
+        console.log(`[Agent][${conversationId}] SDK MCP servers registered via setMcpServers: ${Object.keys(sdkOptions.mcpServers).join(', ')}`)
+      } else {
+        console.warn(`[Agent][${conversationId}] V2 session has no setMcpServers method, SDK MCP servers may not work`)
+      }
+    } catch (err) {
+      console.error(`[Agent][${conversationId}] Failed to register SDK MCP servers:`, err)
+    }
+  }
+
   // Log PID for health system verification (via SDK patch)
   const pid = (session as any).pid
   console.log(`[Agent][${conversationId}] V2 session created in ${Date.now() - startTime}ms, PID: ${pid ?? 'unavailable'}`)

@@ -775,7 +775,7 @@ WRAPPER
       this.emitCommandOutput(id, 'command', `$ npm install`)
 
       const installResult = await manager.executeCommandStreaming(
-        `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+        `cd ${DEPLOY_AGENT_PATH} && export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
         (type, data) => {
           // Send each line of output to terminal
           const lines = data.split('\n').filter(line => line.trim())
@@ -797,7 +797,7 @@ WRAPPER
       this.emitDeployProgress(id, 'install', '正在全局安装 SDK...', 77)
       this.emitCommandOutput(id, 'command', '$ npm install -g @anthropic-ai/claude-agent-sdk')
       const globalSdkResult = await manager.executeCommandStreaming(
-        'npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
+        'export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
         (type, data) => {
           const lines = data.split('\n').filter(line => line.trim())
           for (const line of lines) {
@@ -922,19 +922,45 @@ WRAPPER
       }
     }
 
-    // Check if this is the first deployment (no version.json on remote)
+    // Check if this is the first deployment or a broken deployment.
+    // Verify both version.json exists AND npm/node are functional — a partial
+    // previous deployment may have uploaded files but never installed Node.js.
     const firstDeployCheck = await manager.executeCommandFull(
-      `test -f ${DEPLOY_AGENT_PATH}/version.json && echo "DEPLOYED" || echo "NOT_DEPLOYED"`
+      `test -f ${DEPLOY_AGENT_PATH}/version.json && export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && command -v npm >/dev/null 2>&1 && echo "DEPLOYED" || echo "NOT_DEPLOYED"`
     )
 
     if (!firstDeployCheck.stdout.includes('DEPLOYED')) {
-      this.emitCommandOutput(id, 'output', '首次部署，执行完整安装...')
+      this.emitCommandOutput(id, 'output', '首次部署或环境不完整，执行完整安装...')
       this.emitDeployProgress(id, 'prepare', '首次部署中...', 10)
       return this.deployAgentCode(id)
     }
 
     // --- Incremental update path ---
     this.emitCommandOutput(id, 'command', '增量更新模式 (跳过环境初始化)')
+
+    // Ensure remote directories exist (in case of partial/broken previous deployment)
+    this.emitCommandOutput(id, 'output', '正在检查远程目录...')
+    await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/dist`)
+    await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/patches`)
+    await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/config`)
+    await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
+
+    // Detect npm path: SSH exec runs non-login/non-interactive shell,
+    // so .bashrc/.profile are not sourced and npm may not be in PATH.
+    const npmPathDetect = await manager.executeCommandFull(
+      `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && which npm 2>/dev/null || echo ""`
+    )
+    const npmCmd = npmPathDetect.stdout.trim()
+
+    if (!npmCmd) {
+      // npm not found — deployment environment is broken, fall back to full install
+      this.emitCommandOutput(id, 'output', 'npm 未找到，回退到完整安装...')
+      this.emitDeployProgress(id, 'prepare', '环境不完整，执行完整安装...', 10)
+      return this.deployAgentCode(id)
+    }
+
+    const npmPathPrefix = `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && `
+
     this.emitDeployProgress(id, 'upload', '正在检查文件变更...', 10)
 
     const packageDir = getRemoteAgentProxyPath()
@@ -987,7 +1013,7 @@ WRAPPER
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 40)
 
       const installResult = await manager.executeCommandStreaming(
-        `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+        `cd ${DEPLOY_AGENT_PATH} && ${npmPathPrefix}npm install --legacy-peer-deps 2>&1`,
         (type, data) => {
           const lines = data.split('\n').filter(line => line.trim())
           for (const line of lines) {
@@ -1009,7 +1035,7 @@ WRAPPER
         this.emitDeployProgress(id, 'install', '正在修复依赖 (npm install)...', 40)
 
         const repairResult = await manager.executeCommandStreaming(
-          `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+          `cd ${DEPLOY_AGENT_PATH} && ${npmPathPrefix}npm install --legacy-peer-deps 2>&1`,
           (type, data) => {
             const lines = data.split('\n').filter(line => line.trim())
             for (const line of lines) {
@@ -1033,14 +1059,14 @@ WRAPPER
     const localVersionInfo = this.getLocalAgentVersion()
     if (localVersionInfo?.version) {
       const remoteVersionResult = await manager.executeCommandFull(
-        `${AGENT_CHECK_COMMAND} | grep -oP 'claude-agent-sdk@\\K[^\\s]+' || echo ""`
+        `${npmPathPrefix}${AGENT_CHECK_COMMAND} | grep -oP 'claude-agent-sdk@\\K[^\\s]+' || echo ""`
       )
       const remoteSdkVersion = remoteVersionResult.stdout.trim()
       if (remoteSdkVersion && remoteSdkVersion !== localVersionInfo.version) {
         this.emitCommandOutput(id, 'output', `SDK 版本变更: ${remoteSdkVersion} → ${localVersionInfo.version}`)
         this.emitDeployProgress(id, 'install', '正在更新 SDK...', 57)
         await manager.executeCommandStreaming(
-          'npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
+          `${npmPathPrefix}npm install -g @anthropic-ai/claude-agent-sdk 2>&1`,
           (type, data) => {
             const lines = data.split('\n').filter(line => line.trim())
             for (const line of lines) {
@@ -1222,7 +1248,7 @@ WRAPPER
 
     console.log(`[RemoteDeployService] Starting agent with env: PORT=${server.wsPort || 8080}, WORK_DIR=${server.workDir || '(not set, will use per-session workDir)'}`)
 
-    const startCommand = `nohup env ${envVars} node ${indexPath} > ${DEPLOY_AGENT_PATH}/logs/output.log 2>&1 &`
+    const startCommand = `nohup env PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" ${envVars} node ${indexPath} > ${DEPLOY_AGENT_PATH}/logs/output.log 2>&1 &`
     await manager.executeCommand(startCommand)
 
     // Wait a moment for the process to start
@@ -1262,7 +1288,7 @@ WRAPPER
         // Run npm install
         this.emitCommandOutput(id, 'output', '执行 npm install...')
         const repairResult = await manager.executeCommandStreaming(
-          `cd ${DEPLOY_AGENT_PATH} && npm install --legacy-peer-deps 2>&1`,
+          `cd ${DEPLOY_AGENT_PATH} && export PATH="/usr/local/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
           (type, data) => {
             const lines = data.split('\n').filter(line => line.trim())
             for (const line of lines) {
@@ -1315,6 +1341,11 @@ WRAPPER
     }
 
     const manager = this.getSSHManager(id)
+
+    // Ensure SSH connection is established before executing command
+    if (!manager.isConnected()) {
+      await this.connectServer(id)
+    }
 
     // Kill any node process running from the deployment directory
     await manager.executeCommand(

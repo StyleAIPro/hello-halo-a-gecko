@@ -32,6 +32,7 @@ import { registerOverlayHandlers, cleanupOverlayHandlers } from '../ipc/overlay'
 import { initializeSearchHandlers, cleanupSearchHandlers } from '../ipc/search'
 import { registerPerfHandlers } from '../ipc/perf'
 import { registerGitBashHandlers, initializeGitBashOnStartup } from '../ipc/git-bash'
+import { registerGitHubHandlers } from '../ipc/github'
 import { cleanupAllCaches } from '../services/artifact-cache.service'
 import { markExtendedServicesReady } from './state'
 import { getMainWindow, sendToRenderer } from '../services/window.service'
@@ -202,6 +203,9 @@ export function initializeExtendedServices(): void {
 
   // GitBash: Windows Git Bash detection and setup
   registerGitBashHandlers()
+
+  // GitHub: Authentication and git configuration
+  registerGitHubHandlers()
 
   // Health: System health monitoring and recovery
   // Register IPC handlers for health queries from renderer

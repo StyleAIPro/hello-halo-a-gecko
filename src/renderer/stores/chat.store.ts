@@ -24,6 +24,7 @@ import { api } from '../api'
 import type { Conversation, ConversationMeta, Message, ToolCall, Artifact, Thought, AgentEventBase, ImageAttachment, CompactInfo, CanvasContext, AgentErrorType, PendingQuestion, Question, TaskStatus, PulseItem } from '../types'
 import { PULSE_READ_GRACE_PERIOD_MS } from '../types'
 import { canvasLifecycle } from '../services/canvas-lifecycle'
+import { getActionSummary, getStepCounts } from '../components/chat/thought-utils'
 import { useTerminalStore } from './terminal.store'
 
 // LRU cache size limit
@@ -2440,7 +2441,22 @@ function _extractPulseFingerprint(sessions: Map<string, SessionState>): string {
   for (const [id, s] of sessions) {
     // Only include sessions that could produce non-idle status
     if (s.isGenerating || s.pendingToolApproval || s.error || s.pendingQuestion?.status === 'active') {
-      parts.push(`${id}:${s.isGenerating ? 1 : 0}${s.pendingToolApproval ? 1 : 0}${s.error && s.errorType !== 'interrupted' ? 1 : 0}${s.pendingQuestion?.status === 'active' ? 1 : 0}`)
+      // Include action fingerprint: last tool_use toolName + isReady, and step count
+      // This detects step transitions without triggering on every streaming token
+      let actionFingerprint = ''
+      for (let i = s.thoughts.length - 1; i >= 0; i--) {
+        const th = s.thoughts[i]
+        if (th.type === 'tool_use') {
+          actionFingerprint = `${th.toolName || ''}:${th.isReady ? 1 : 0}`
+          break
+        }
+        if (th.type === 'thinking') {
+          actionFingerprint = 'thinking'
+          break
+        }
+      }
+      const stepCount = s.thoughts.filter(t => t.type === 'tool_use' && t.toolResult).length
+      parts.push(`${id}:${s.isGenerating ? 1 : 0}${s.pendingToolApproval ? 1 : 0}${s.error && s.errorType !== 'interrupted' ? 1 : 0}${s.pendingQuestion?.status === 'active' ? 1 : 0}:${actionFingerprint}:${stepCount}`)
     }
   }
   return parts.join('|')
@@ -2479,6 +2495,13 @@ function _computePulseItems(state: ChatState): PulseItem[] {
     // Skip skill-creator space
     if (shouldSkipSpace(meta.spaceId)) continue
 
+    // Extract progress info from session
+    const currentAction = session.isGenerating ? getActionSummary(session.thoughts) : undefined
+    const { completed, total } = session.isGenerating ? getStepCounts(session.thoughts) : { completed: 0, total: 0 }
+    const generatingStartedAt = session.thoughts.length > 0
+      ? new Date(session.thoughts[0].timestamp).getTime()
+      : undefined
+
     items.push({
       conversationId,
       spaceId: meta.spaceId,
@@ -2486,7 +2509,12 @@ function _computePulseItems(state: ChatState): PulseItem[] {
       title: meta.title,
       status,
       starred: !!meta.starred,
-      updatedAt: meta.updatedAt
+      updatedAt: meta.updatedAt,
+      currentAction,
+      completedSteps: completed,
+      totalSteps: total,
+      isThinking: session.isThinking,
+      generatingStartedAt,
     })
     addedIds.add(conversationId)
   }

@@ -325,6 +325,16 @@ export interface HaloAPI {
   }) => void) => Promise<{ success: boolean; path?: string; error?: string }>
   openExternal: (url: string) => Promise<void>
 
+  // GitHub Integration
+  githubGetAuthStatus: () => Promise<IpcResponse>
+  githubLoginBrowser: () => Promise<IpcResponse>
+  githubLoginToken: (token: string) => Promise<IpcResponse>
+  githubLogout: () => Promise<IpcResponse>
+  githubSetupGitCredentials: () => Promise<IpcResponse>
+  githubGitConfig: (key: string, value: string) => Promise<IpcResponse>
+  githubGetGitConfig: (key: string) => Promise<IpcResponse>
+  onGithubLoginProgress: (callback: (data: { code?: string; url?: string; message: string }) => void) => () => void
+
   // Bootstrap lifecycle
   getBootstrapStatus: () => Promise<IpcResponse<{
     extendedReady: boolean
@@ -767,6 +777,16 @@ const api: HaloAPI = {
     }
   },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+
+  // GitHub Integration
+  githubGetAuthStatus: () => ipcRenderer.invoke('github:auth-status'),
+  githubLoginBrowser: () => ipcRenderer.invoke('github:login-browser'),
+  githubLoginToken: (token) => ipcRenderer.invoke('github:login-token', token),
+  githubLogout: () => ipcRenderer.invoke('github:logout'),
+  githubSetupGitCredentials: () => ipcRenderer.invoke('github:setup-git-credentials'),
+  githubGitConfig: (key, value) => ipcRenderer.invoke('github:git-config', key, value),
+  githubGetGitConfig: (key) => ipcRenderer.invoke('github:get-git-config', key),
+  onGithubLoginProgress: (callback) => createEventListener('github:login-progress', callback as (data: unknown) => void),
 
   // Bootstrap lifecycle
   getBootstrapStatus: () => ipcRenderer.invoke('bootstrap:get-status'),

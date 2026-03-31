@@ -74,6 +74,24 @@ const BETTER_SQLITE3_PLATFORMS = {
   'linux': { platform: 'linux', arch: 'x64' }
 }
 
+// GitHub CLI (gh) binary configuration
+// Binaries are stored in resources/gh/{platform}/ and bundled with the app
+// via asarUnpack so they work at runtime without system installation.
+const GH_PATHS = {
+  'mac-arm64': 'resources/gh/mac-arm64/gh',
+  'mac-x64': 'resources/gh/mac-x64/gh',
+  'win': 'resources/gh/win-x64/gh.exe',
+  'linux': 'resources/gh/linux-x64/gh'
+}
+
+// gh release asset name patterns (version placeholder: {version})
+const GH_ASSET_NAMES = {
+  'mac-arm64': 'gh_{version}_macOS_arm64.zip',
+  'mac-x64': 'gh_{version}_macOS_amd64.zip',
+  'win': 'gh_{version}_windows_amd64.zip',
+  'linux': 'gh_{version}_linux_amd64.tar.gz'
+}
+
 /**
  * Detect current platform
  */
@@ -423,6 +441,211 @@ async function installWatcher(platform) {
 }
 
 /**
+ * Check if gh CLI binary exists and is valid for platform
+ */
+function checkGh(platform) {
+  const filePath = path.join(PROJECT_ROOT, GH_PATHS[platform])
+  if (!fs.existsSync(filePath)) {
+    return { exists: false }
+  }
+  // gh binary should be > 5 MB
+  const stats = fs.statSync(filePath)
+  return { exists: true, valid: stats.size > 5 * 1024 * 1024, size: stats.size }
+}
+
+/**
+ * Get the latest gh CLI release version from GitHub API
+ */
+async function getLatestGhVersion() {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/cli/cli/releases/latest',
+      headers: { 'User-Agent': 'halo-prepare-binaries' }
+    }
+    https.get(options, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data)
+          // tag_name is like "v2.67.0"
+          const version = json.tag_name.replace(/^v/, '')
+          resolve(version)
+        } catch (err) {
+          reject(new Error(`Failed to parse gh latest version: ${err.message}`))
+        }
+      })
+    }).on('error', reject)
+  })
+}
+
+/**
+ * Download and extract gh CLI binary for platform
+ */
+async function downloadGh(platform) {
+  const version = await getLatestGhVersion()
+  const assetName = GH_ASSET_NAMES[platform].replace('{version}', version)
+  const url = `https://github.com/cli/cli/releases/download/v${version}/${assetName}`
+  const outputPath = path.join(PROJECT_ROOT, GH_PATHS[platform])
+  const outputDir = path.dirname(outputPath)
+
+  log.info(`Downloading gh CLI v${version} for ${platform}...`)
+
+  // Ensure directory exists
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true })
+  }
+
+  // Remove existing file
+  if (fs.existsSync(outputPath)) {
+    fs.unlinkSync(outputPath)
+  }
+
+  const tmpArchive = path.join(PROJECT_ROOT, `node_modules/.gh-download-${platform}`)
+
+  try {
+    await httpsDownload(url, tmpArchive)
+
+    if (assetName.endsWith('.zip')) {
+      // Windows/macOS: extract zip and find gh binary
+      const tmpExtract = path.join(PROJECT_ROOT, `node_modules/.gh-extract-${platform}`)
+      if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true })
+      fs.mkdirSync(tmpExtract, { recursive: true })
+
+      extractZip(tmpArchive, tmpExtract)
+
+      // Find the gh binary in the extracted directory
+      const binaryName = platform === 'win' ? 'gh.exe' : 'gh'
+      const ghBinary = findFile(tmpExtract, binaryName)
+
+      if (!ghBinary) {
+        throw new Error(`Could not find ${binaryName} in downloaded archive`)
+      }
+
+      fs.copyFileSync(ghBinary, outputPath)
+
+      // Cleanup
+      fs.rmSync(tmpExtract, { recursive: true })
+    } else {
+      // Linux: extract tar.gz and find gh binary
+      const tmpExtract = path.join(PROJECT_ROOT, `node_modules/.gh-extract-${platform}`)
+      if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true })
+      fs.mkdirSync(tmpExtract, { recursive: true })
+
+      extractTgz(tmpArchive, tmpExtract)
+
+      const ghBinary = findFile(tmpExtract, 'gh')
+      if (!ghBinary) {
+        throw new Error('Could not find gh binary in downloaded archive')
+      }
+
+      fs.copyFileSync(ghBinary, outputPath)
+      fs.rmSync(tmpExtract, { recursive: true })
+    }
+
+    // Clean up archive
+    fs.unlinkSync(tmpArchive)
+
+    // Set executable permissions (non-Windows)
+    if (platform !== 'win') {
+      fs.chmodSync(outputPath, 0o755)
+    }
+
+    const sizeMB = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1)
+    log.success(`Downloaded gh CLI v${version} for ${platform} (${sizeMB} MB)`)
+  } catch (err) {
+    // Cleanup on failure
+    if (fs.existsSync(tmpArchive)) fs.unlinkSync(tmpArchive)
+    const tmpExtract = path.join(PROJECT_ROOT, `node_modules/.gh-extract-${platform}`)
+    if (fs.existsSync(tmpExtract)) fs.rmSync(tmpExtract, { recursive: true })
+    log.error(`Failed to download gh CLI for ${platform}: ${err.message}`)
+    throw err
+  }
+}
+
+/**
+ * Extract a zip file using built-in Node.js (cross-platform, no external tools)
+ */
+function extractZip(zipPath, outputDir) {
+  const data = fs.readFileSync(zipPath)
+
+  // Parse ZIP file format manually
+  // End of central directory record
+  let eocdOffset = -1
+  for (let i = data.length - 22; i >= 0; i--) {
+    if (data.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i
+      break
+    }
+  }
+
+  if (eocdOffset === -1) {
+    throw new Error('Invalid ZIP file: EOCD not found')
+  }
+
+  const centralDirOffset = data.readUInt32LE(eocdOffset + 16)
+  const centralDirEntries = data.readUInt16LE(eocdOffset + 10)
+
+  let offset = centralDirOffset
+  for (let i = 0; i < centralDirEntries; i++) {
+    if (data.readUInt32LE(offset) !== 0x02014b50) break
+
+    const compressionMethod = data.readUInt16LE(offset + 10)
+    const compressedSize = data.readUInt32LE(offset + 20)
+    const uncompressedSize = data.readUInt32LE(offset + 24)
+    const fileNameLength = data.readUInt16LE(offset + 28)
+    const extraLength = data.readUInt16LE(offset + 30)
+    const commentLength = data.readUInt16LE(offset + 32)
+    const localHeaderOffset = data.readUInt32LE(offset + 42)
+
+    const fileName = data.slice(offset + 46, offset + 46 + fileNameLength).toString('utf8')
+
+    offset += 46 + extraLength + fileNameLength + commentLength
+
+    // Skip directories
+    if (fileName.endsWith('/')) continue
+
+    // Read local file header to get actual data
+    const localExtraLength = data.readUInt16LE(localHeaderOffset + 28)
+    const localFileNameLength = data.readUInt16LE(localHeaderOffset + 26)
+    const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraLength
+
+    const fullPath = path.join(outputDir, fileName)
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true })
+
+    if (compressionMethod === 0) {
+      // Stored (no compression)
+      fs.writeFileSync(fullPath, data.slice(dataOffset, dataOffset + uncompressedSize))
+    } else if (compressionMethod === 8) {
+      // Deflate
+      const compressed = data.slice(dataOffset, dataOffset + compressedSize)
+      const decompressed = zlib.inflateRawSync(compressed)
+      fs.writeFileSync(fullPath, decompressed)
+    } else {
+      throw new Error(`Unsupported ZIP compression method: ${compressionMethod}`)
+    }
+  }
+}
+
+/**
+ * Recursively find a file by name in a directory
+ */
+function findFile(dir, name) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const found = findFile(fullPath, name)
+      if (found) return found
+    } else if (entry.name === name) {
+      return fullPath
+    }
+  }
+  return null
+}
+
+/**
  * Prepare all binaries for a platform
  */
 async function preparePlatform(platform) {
@@ -450,6 +673,14 @@ async function preparePlatform(platform) {
     downloadBetterSqlite3(platform)
   } else {
     log.success(`better-sqlite3 prebuild already exists for ${platform}`)
+  }
+
+  // Check and download GitHub CLI binary
+  const ghStatus = checkGh(platform)
+  if (!ghStatus.exists || !ghStatus.valid) {
+    await downloadGh(platform)
+  } else {
+    log.success(`gh CLI binary already exists for ${platform}`)
   }
 }
 

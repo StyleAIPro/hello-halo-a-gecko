@@ -20,6 +20,7 @@ import {
   AISourcesSection,
   AppearanceSection,
   SystemSection,
+  GitHubSection,
   RemoteAccessSection,
   RemoteServersSection,
   AboutSection,
@@ -139,6 +140,11 @@ export function SettingsPage() {
               {/* System Section - Desktop only */}
               {!isRemoteMode && (
                 <SystemSection config={config} setConfig={setConfig} />
+              )}
+
+              {/* GitHub Integration Section - Desktop only */}
+              {!isRemoteMode && (
+                <GitHubSection />
               )}
 
               {/* Remote Access Section */}

@@ -21,7 +21,7 @@
  */
 
 // Import SDK MCP server creator
-import { createGhSearchMcpServer, getGhSearchSdkToolNames } from './sdk-mcp-server'
+import { createGhSearchMcpServer, getGhSearchSdkToolNames, getGhBinaryPath } from './sdk-mcp-server'
 
 // Re-export SDK MCP server functions
 export { createGhSearchMcpServer, getGhSearchSdkToolNames }
@@ -44,9 +44,11 @@ export async function checkGhCliStatus(): Promise<{
   const { promisify } = require('util')
   const execAsync = promisify(exec)
 
+  const ghBin = getGhBinaryPath()
+
   try {
-    // Check if gh is installed
-    await execAsync('gh --version')
+    // Check if gh is available (bundled or system)
+    await execAsync(`"${ghBin}" --version`)
   } catch {
     return {
       available: false,
@@ -57,7 +59,7 @@ export async function checkGhCliStatus(): Promise<{
 
   try {
     // Check authentication status
-    const { stdout } = await execAsync('gh auth status --hostname github.com 2>&1 || true')
+    const { stdout } = await execAsync(`"${ghBin}" auth status --hostname github.com 2>&1 || true`)
 
     // Parse the output to check if logged in
     if (stdout.includes('not logged in')) {
@@ -70,7 +72,7 @@ export async function checkGhCliStatus(): Promise<{
 
     // Try to get the logged in user
     try {
-      const { stdout: userOut } = await execAsync('gh api user --jq ".login"')
+      const { stdout: userOut } = await execAsync(`"${ghBin}" api user --jq ".login"`)
       return {
         available: true,
         authenticated: true,

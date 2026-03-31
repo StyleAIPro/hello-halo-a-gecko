@@ -403,7 +403,7 @@ export function RemoteServersSection() {
     }
   }
 
-  const handleCheckAgent = async (serverId: string) => {
+  const handleCheckAgent = async (serverId: string): Promise<boolean> => {
     setCheckingAgent(serverId)
     expandServer(serverId)
     // Don't clear terminal - preserve update agent output
@@ -459,16 +459,19 @@ export function RemoteServersSection() {
 
       addTerminalEntry(serverId, 'success', 'Agent status check complete')
       await loadServers()
+      return true
     } catch (error) {
       addTerminalEntry(serverId, 'error', `Error checking agent: ${error}`)
       console.error('[RemoteServersSection] Check agent error:', error)
+      return false
     } finally {
       setCheckingAgent(null)
     }
   }
   // Update agent code to latest version
-  const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean) => {
-    if (!skipConfirm && !confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return
+  // Returns true if update succeeded, false if failed
+  const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean): Promise<boolean> => {
+    if (!skipConfirm && !confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return true
     setUpdatingAgent(serverId)
     expandServer(serverId)
     // Clear terminal only when starting a new update (as requested by user)
@@ -499,11 +502,13 @@ export function RemoteServersSection() {
           }
         }
         await loadServers()
+        return true
       } else {
         addTerminalEntry(serverId, 'error', `Update failed: ${result.error}`)
         if (!skipConfirm) {
           alert(result.error || t('Failed to update agent'))
         }
+        return false
       }
     } catch (error) {
       addTerminalEntry(serverId, 'error', `Error updating agent: ${error}`)
@@ -511,6 +516,7 @@ export function RemoteServersSection() {
       if (!skipConfirm) {
         alert(t('Failed to update agent'))
       }
+      return false
     } finally {
       setUpdatingAgent(null)
     }
@@ -525,21 +531,24 @@ export function RemoteServersSection() {
     const total = servers.length
     setBatchProgress({ current: 0, total })
     let completed = 0
+    let succeeded = 0
 
     const results = await Promise.allSettled(
       servers.map(server =>
-        handleCheckAgent(server.id).finally(() => {
+        handleCheckAgent(server.id).then(ok => {
+          if (ok) succeeded++
+        }).finally(() => {
           completed++
           setBatchProgress({ current: completed, total })
         })
       )
     )
 
-    const failed = results.filter(r => r.status === 'rejected').length
+    const failed = total - succeeded
     setBatchProgress(null)
     setBatchChecking(false)
     if (failed > 0) {
-      addTerminalEntry('batch', 'error', `Batch check completed: ${total - failed}/${total} succeeded, ${failed} failed`)
+      addTerminalEntry('batch', 'error', `Batch check completed: ${succeeded}/${total} succeeded, ${failed} failed`)
     }
     await loadServers()
   }
@@ -554,18 +563,20 @@ export function RemoteServersSection() {
     const total = servers.length
     setBatchProgress({ current: 0, total })
     let completed = 0
+    let succeeded = 0
 
     const results = await Promise.allSettled(
       servers.map(server =>
-        handleUpdateAgent(server.id, true).finally(() => {
+        handleUpdateAgent(server.id, true).then(ok => {
+          if (ok) succeeded++
+        }).finally(() => {
           completed++
           setBatchProgress({ current: completed, total })
         })
       )
     )
 
-    const succeeded = results.filter(r => r.status === 'fulfilled').length
-    const failed = results.filter(r => r.status === 'rejected').length
+    const failed = total - succeeded
     setBatchProgress(null)
     setBatchUpdating(false)
     // Show summary alert

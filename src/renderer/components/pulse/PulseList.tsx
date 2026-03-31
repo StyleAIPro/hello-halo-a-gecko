@@ -6,8 +6,7 @@
  *
  * Responsibilities:
  * - Renders grouped items (active first, then pinned idle)
- * - Status indicators per item
- * - Pin/unpin toggle
+ * - Uses TaskCard for rich progress display
  * - Cross-space navigation on click
  * - Empty state
  *
@@ -15,21 +14,12 @@
  */
 
 import { useCallback, useMemo } from 'react'
-import { Star } from 'lucide-react'
 import { usePulseItems, useChatStore } from '../../stores/chat.store'
 import { useSpaceStore } from '../../stores/space.store'
 import { useAppStore } from '../../stores/app.store'
 import { useTranslation } from '../../i18n'
-import { TaskStatusDot } from './TaskStatusDot'
-import type { PulseItem, TaskStatus } from '../../types'
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  'generating': 'Generating...',
-  'waiting': 'Waiting for input',
-  'completed-unseen': 'Completed',
-  'error': 'Error',
-  'idle': 'Pinned',
-}
+import { TaskCard } from './TaskCard'
+import type { PulseItem } from '../../types'
 
 /**
  * Navigate to a conversation, handling cross-space switching.
@@ -86,18 +76,6 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
     })
   }, [rawItems, haloSpace, spaces])
 
-  const handleItemClick = useCallback((item: PulseItem) => {
-    navigateToConversation(item.spaceId, item.conversationId)
-    onItemClick?.()
-  }, [onItemClick])
-
-  // Pin/Unpin: UI uses "Pin" terminology, backend API uses "Star" (starred field).
-  // The mapping is: Pin = starred:true, Unpin = starred:false.
-  const handleTogglePin = useCallback((e: React.MouseEvent, item: PulseItem) => {
-    e.stopPropagation()
-    useChatStore.getState().toggleStarConversation(item.spaceId, item.conversationId, !item.starred)
-  }, [])
-
   const activeItems = items.filter(i => i.status !== 'idle')
   const pinnedIdleItems = items.filter(i => i.status === 'idle')
 
@@ -112,64 +90,19 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
     )
   }
 
-  const py = compact ? 'py-1.5' : 'py-2.5'
-  const px = compact ? 'px-3' : 'px-4'
-
-  const renderItem = (item: PulseItem) => {
-    const isRead = !!item.readAt
-    return (
-      <div
-        key={item.conversationId}
-        onClick={() => handleItemClick(item)}
-        className={`pulse-item flex items-center gap-3 ${px} ${py} cursor-pointer ${isRead ? 'opacity-50' : ''}`}
-      >
-        {/* Status dot */}
-        <TaskStatusDot status={item.status} size="md" />
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate text-foreground">
-            {item.title}
-          </p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-xs text-muted-foreground truncate">
-              {item.spaceName}
-            </span>
-            <span className="text-muted-foreground/30 text-xs">·</span>
-            <span className={`text-xs ${
-              item.status === 'waiting' ? 'text-yellow-500' :
-              item.status === 'error' ? 'text-red-500' :
-              item.status === 'completed-unseen' ? 'text-green-500' :
-              item.status === 'generating' ? 'text-blue-500' :
-              'text-muted-foreground'
-            }`}>
-              {t(STATUS_LABEL[item.status])}
-            </span>
-          </div>
-        </div>
-
-        {/* Pin toggle */}
-        <button
-          onClick={(e) => handleTogglePin(e, item)}
-          className={`p-1 rounded transition-colors flex-shrink-0 ${
-            item.starred
-              ? 'text-yellow-500 hover:text-yellow-400'
-              : 'text-muted-foreground/40 hover:text-yellow-500'
-          }`}
-          title={item.starred ? t('Unpin') : t('Pin')}
-        >
-          <Star className={`w-3.5 h-3.5 ${item.starred ? 'fill-current' : ''}`} />
-        </button>
-      </div>
-    )
-  }
-
   return (
     <div className="overflow-auto scrollbar-thin" style={{ maxHeight }}>
-      {/* Active items */}
+      {/* Active items — rendered as TaskCards */}
       {activeItems.length > 0 && (
         <div className="py-1">
-          {activeItems.map(renderItem)}
+          {activeItems.map(item => (
+            <TaskCard
+              key={item.conversationId}
+              item={item}
+              onItemClick={onItemClick}
+              compact={compact}
+            />
+          ))}
         </div>
       )}
 
@@ -178,10 +111,17 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
         <div className="mx-4 border-t border-border/30" />
       )}
 
-      {/* Pinned idle items */}
+      {/* Pinned idle items — rendered as TaskCards */}
       {pinnedIdleItems.length > 0 && (
         <div className="py-1">
-          {pinnedIdleItems.map(renderItem)}
+          {pinnedIdleItems.map(item => (
+            <TaskCard
+              key={item.conversationId}
+              item={item}
+              onItemClick={onItemClick}
+              compact={compact}
+            />
+          ))}
         </div>
       )}
     </div>

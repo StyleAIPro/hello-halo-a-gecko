@@ -105,7 +105,8 @@ export async function installSkillFromMarket(
     return new Promise((resolve) => {
       const childProcess = spawn(command, args, {
         env: { ...process.env },
-        timeout: 120000 // 2 分钟超时
+        timeout: 120000, // 2 分钟超时
+        shell: true  // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
       });
 
       let hasError = false;
@@ -897,7 +898,7 @@ async function fetchWithHttp(url: string): Promise<{
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       },

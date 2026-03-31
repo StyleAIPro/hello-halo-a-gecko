@@ -243,6 +243,69 @@ const BINARY_DEPENDENCIES = [
         return { valid: false, info: 'cannot read file' }
       }
     }
+  },
+
+  // GitHub CLI (gh) - Bundled binary for GitHub search capabilities
+  // Downloaded by prepare-binaries.mjs and stored in resources/gh/{platform}/
+  {
+    name: 'Mac arm64 gh CLI',
+    path: 'resources/gh/mac-arm64/gh',
+    platform: 'mac-arm64',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 5 * 1024 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Mac x64 gh CLI',
+    path: 'resources/gh/mac-x64/gh',
+    platform: 'mac-x64',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 5 * 1024 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Windows x64 gh CLI',
+    path: 'resources/gh/win-x64/gh.exe',
+    platform: 'win',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 5 * 1024 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
+  },
+  {
+    name: 'Linux x64 gh CLI',
+    path: 'resources/gh/linux-x64/gh',
+    platform: 'linux',
+    fix: 'npm run prepare:all',
+    validate: (filePath) => {
+      try {
+        const stats = fs.statSync(filePath)
+        const sizeMB = (stats.size / 1024 / 1024).toFixed(1)
+        return { valid: stats.size > 5 * 1024 * 1024, info: `${sizeMB} MB` }
+      } catch {
+        return { valid: false, info: 'cannot read file' }
+      }
+    }
   }
 ]
 

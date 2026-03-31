@@ -977,6 +977,17 @@ export class ClaudeManager {
 
     // Add hyper-space MCP proxy server if provided
     if (hyperSpaceMcpServer) {
+      // CRITICAL: createSdkMcpServer() returns objects with a live McpServer instance
+      // that contains circular references. The SDK internally JSON.stringify's the
+      // options during initialization. Add a toJSON method to skip the non-serializable
+      // instance. (Same fix as local sdk-config.ts:462-477)
+      const obj = hyperSpaceMcpServer as any
+      if (obj.instance != null && typeof obj.toJSON !== 'function') {
+        obj.toJSON = () => {
+          const { instance, ...rest } = obj
+          return rest
+        }
+      }
       options.mcpServers = { 'hyper-space': hyperSpaceMcpServer }
       console.log(`[ClaudeManager][${conversationId}] Injecting hyper-space MCP proxy server`)
     }

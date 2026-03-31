@@ -273,6 +273,16 @@ export interface PulseItem {
   updatedAt: string;
   /** Timestamp when user viewed this item; present = item is in grace period before removal */
   readAt?: number;
+  /** Current action summary (e.g. "Executing npm build...") */
+  currentAction?: string;
+  /** Number of completed tool_use steps */
+  completedSteps?: number;
+  /** Total tool_use steps (completed + in-progress) */
+  totalSteps?: number;
+  /** Whether the agent is currently in thinking phase */
+  isThinking?: boolean;
+  /** Timestamp when generation started (for elapsed time display) */
+  generatingStartedAt?: number;
 }
 
 /** Grace period for read pulse items before removal (milliseconds) */

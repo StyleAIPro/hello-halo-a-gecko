@@ -264,6 +264,16 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
     }
   }, [message.content])
 
+  // Extract text blocks from thoughts for divider rendering
+  // When thoughts contain multiple type='text' entries, they represent separate
+  // AI text outputs between tool calls. We use these to insert dividers.
+  const textBlocks = useMemo(() => {
+    if (!Array.isArray(message.thoughts) || message.thoughts.length === 0) return null
+    const textEntries = message.thoughts.filter(t => t.type === 'text' && t.content)
+    if (textEntries.length <= 1) return null
+    return textEntries.map(t => t.content!)
+  }, [message.thoughts])
+
   // Extract browser tools from thoughts (tool_use type with browser tool names)
   // Note: Tool calls are stored in thoughts, not in message.toolCalls
   // When thoughts are stored separately (null), browser tools won't show until thoughts are loaded
@@ -346,7 +356,19 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
             <span className="whitespace-pre-wrap">{message.content}</span>
           ) : (
             // Assistant messages: full markdown rendering
-            <MarkdownRenderer content={message.content} />
+            textBlocks ? (
+              // Multiple text blocks: render with dividers between them
+              textBlocks.map((block, i) => (
+                <div key={i}>
+                  <MarkdownRenderer content={block} />
+                  {i < textBlocks.length - 1 && (
+                    <div className="border-t border-border/40 my-4" />
+                  )}
+                </div>
+              ))
+            ) : (
+              <MarkdownRenderer content={message.content} />
+            )
           )
         )}
         {/* Streaming cursor when actively receiving tokens */}

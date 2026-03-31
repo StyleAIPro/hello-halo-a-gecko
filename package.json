@@ -164,7 +164,8 @@
     "asarUnpack": [
       "node_modules/cloudflared/**/*",
       "node_modules/@parcel/watcher-*/**/*",
-      "node_modules/better-sqlite3/build/Release/*.node"
+      "node_modules/better-sqlite3/build/Release/*.node",
+      "resources/gh/**/*"
     ],
     "publish": {
       "provider": "github",

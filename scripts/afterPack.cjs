@@ -32,6 +32,15 @@ const WATCHER_TARGETS = {
   'linux-x64':    'watcher-linux-x64-glibc',
 };
 
+// Maps platform-arch to the gh CLI binary directory to KEEP.
+// Everything else under resources/gh/ gets removed.
+const GH_TARGETS = {
+  'darwin-arm64': 'mac-arm64',
+  'darwin-x64':   'mac-x64',
+  'win32-x64':    'win-x64',
+  'linux-x64':    'linux-x64',
+};
+
 /**
  * Resolve the app.asar.unpacked directory from electron-builder context.
  *
@@ -133,12 +142,58 @@ function swapBetterSqlite3Binary(context) {
   console.log(`[afterPack] ${key}: swapped better-sqlite3 binary (${sizeMB} MB)`);
 }
 
+/**
+ * Remove non-target gh CLI binaries from the unpacked output.
+ *
+ * All 4 platform binaries may exist in resources/gh/ (from prepare-binaries),
+ * but only the target platform's binary is needed at runtime.
+ */
+function cleanNonTargetGhBinaries(context) {
+  const platform = context.electronPlatformName;
+  const archStr = ARCH_NAMES[context.arch] || String(context.arch);
+  const key = `${platform}-${archStr}`;
+  const targetDir = GH_TARGETS[key];
+
+  if (!targetDir) {
+    console.warn(`[afterPack] No gh mapping for ${key}, skipping cleanup`);
+    return;
+  }
+
+  const unpackedDir = getUnpackedDir(context);
+  const ghDir = path.join(unpackedDir, 'resources', 'gh');
+
+  if (!fs.existsSync(ghDir)) {
+    console.log(`[afterPack] No resources/gh dir in unpacked output, skipping gh cleanup`);
+    return;
+  }
+
+  const entries = fs.readdirSync(ghDir, { withFileTypes: true });
+  const removed = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === targetDir) continue;
+
+    const fullPath = path.join(ghDir, entry.name);
+    fs.rmSync(fullPath, { recursive: true });
+    removed.push(entry.name);
+  }
+
+  if (removed.length > 0) {
+    console.log(`[afterPack] ${key}: removed ${removed.length} non-target gh binary(s): ${removed.join(', ')}`);
+  }
+  console.log(`[afterPack] ${key}: keeping gh binary: ${targetDir}`);
+}
+
 module.exports = async function(context) {
   // Clean non-target watcher packages from unpacked output
   cleanNonTargetWatchers(context);
 
   // Swap better-sqlite3 native binary for the target platform
   swapBetterSqlite3Binary(context);
+
+  // Clean non-target gh CLI binaries from unpacked output
+  cleanNonTargetGhBinaries(context);
 
   // macOS ad-hoc signing (other platforms skip)
   if (context.electronPlatformName !== 'darwin') {

@@ -251,11 +251,21 @@ function StreamingBubble({
           {/* History segments - will be scrolled out of view */}
           <div ref={historyRef}>
             {segments.map((seg, i) => (
-              <div key={i} className="pb-4 break-words leading-relaxed">
-                <MarkdownRenderer content={seg} mode="streaming" />
+              <div key={i}>
+                <div className="pb-4 break-words leading-relaxed">
+                  <MarkdownRenderer content={seg} mode="streaming" />
+                </div>
+                {i < segments.length - 1 && (
+                  <div className="border-t border-border/40 my-3" />
+                )}
               </div>
             ))}
           </div>
+
+          {/* Divider between history segments and current content */}
+          {segments.length > 0 && displayContent && (
+            <div className="border-t border-border/40 my-3" />
+          )}
 
           {/* Current content - always visible, shows only NEW part after snapshots */}
           <div ref={currentRef} className="break-words leading-relaxed">

@@ -5,6 +5,7 @@
 
 import { BrowserWindow } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
+import { homedir } from 'os'
 import { getConfig } from '../config.service'
 import { getAgentsSkillsDir } from '../config.service'
 import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
@@ -386,7 +387,7 @@ function buildInitialMessage(options: TempSessionOptions): string {
 请创建新技能: ${skillName}
 
 ## 指令
-请使用 Write 工具创建 SKILL.yaml 文件到 ~/.agents/skills/${skillName}/ 目录。确保包含:
+请使用 Write 工具创建 SKILL.yaml 文件到 ${homedir()}/.agents/skills/${skillName}/ 目录。确保包含:
 1. name: 技能名称
 2. description: 技能描述
 3. trigger_command: 触发命令（如 /${skillName.replace(/[^a-z0-9]/g, '')}）
@@ -441,7 +442,7 @@ ${conversationAnalysis.toolPattern.successPattern}
 请${mode === 'optimize' ? '优化现有技能或创建新版本' : '创建新的技能'}:
 1. 分析上述对话模式
 2. 设计合适的 system_prompt
-3. 使用 Write 工具创建或更新 SKILL.yaml 文件到 ~/.agents/skills/${skillName}/ 目录
+3. 使用 Write 工具创建或更新 SKILL.yaml 文件到 ${homedir()}/.agents/skills/${skillName}/ 目录
 4. 确保包含 name、description、trigger_command 等必要字段
 `
 
