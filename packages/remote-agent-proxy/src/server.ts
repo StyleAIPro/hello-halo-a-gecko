@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig } from './types.js'
+import * as fs from 'fs'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 
 export class RemoteAgentServer {
@@ -15,9 +16,10 @@ export class RemoteAgentServer {
   }> = new Map()
   private claudeManager: ClaudeManager
 
+  // Token whitelist: merged from tokens.json and bootstrap env var
+  private authTokens: Set<string> = new Set()
+
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
-  // When the remote Claude calls a hyper-space MCP tool, the MCP handler
-  // sends tool:call to the Halo client and waits here for tool:approve response.
   private pendingHyperSpaceTools = new Map<string, {
     resolve: (result: string) => void
     reject: (error: Error) => void
@@ -27,6 +29,17 @@ export class RemoteAgentServer {
     this.config = config
     // Explicitly listen on IPv4 to ensure compatibility
     this.server = new WebSocketServer({ port: config.port, host: '0.0.0.0' })
+
+    // Build token whitelist: tokens.json entries + bootstrap env var fallback
+    if (config.authTokens) {
+      for (const t of config.authTokens) {
+        this.authTokens.add(t)
+      }
+    }
+    if (config.authToken) {
+      this.authTokens.add(config.authToken)
+    }
+    console.log(`[RemoteAgentServer] Auth whitelist initialized with ${this.authTokens.size} token(s)`)
 
     if (!config.claudeApiKey) {
       console.warn('Warning: No Claude API key provided. Chat features will be unavailable.')
@@ -53,18 +66,17 @@ export class RemoteAgentServer {
       // HTTP headers are case-insensitive, check both 'authorization' and 'Authorization'
       const authHeader = req.headers['authorization'] || req.headers['Authorization']
 
-      if (this.config.authToken && typeof authHeader === 'string') {
+      if (this.authTokens.size > 0 && typeof authHeader === 'string') {
         const token = authHeader.split(' ')[1]
-        if (token === this.config.authToken) {
+        if (this.isTokenValid(token)) {
           console.log('Client authenticated via Authorization header')
           this.clients.set(ws, { authenticated: true })
         } else {
           console.log('Authentication failed via Authorization header')
-          console.log(`Expected token: ${this.config.authToken}, got: ${token}`)
           ws.close(1008, 'Unauthorized')
           return
         }
-      } else if (!this.config.authToken) {
+      } else if (this.authTokens.size === 0) {
         // No auth required, auto-authenticate
         console.log('No auth required, auto-authenticating')
         this.clients.set(ws, { authenticated: true })
@@ -268,14 +280,26 @@ export class RemoteAgentServer {
       } else {
         console.log(`[${message.type}] No pending tool found for ID: ${toolId}`)
       }
+    } else if (message.type === 'register-token') {
+      // Register a new token to the whitelist
+      // Client must already be authenticated to register a new token
+      if (!client.authenticated) {
+        this.sendMessage(ws, {
+          type: 'register-token:error',
+          data: { message: 'Must be authenticated to register a token' }
+        })
+        return
+      }
+      await this.handleRegisterToken(message.payload)
+      this.sendMessage(ws, { type: 'register-token:success' })
     } else {
       this.sendError(ws, 'Unknown message type', sessionId)
     }
   }
 
   private handleAuth(ws: WebSocket, token: string): void {
-    if (this.config.authToken) {
-      if (token === this.config.authToken) {
+    if (this.authTokens.size > 0) {
+      if (this.isTokenValid(token)) {
         const client = this.clients.get(ws)
         if (client) {
           client.authenticated = true
@@ -296,6 +320,116 @@ export class RemoteAgentServer {
         this.sendMessage(ws, { type: 'auth:success' })
         console.log('Client authenticated (no auth required)')
       }
+    }
+  }
+
+  /**
+   * Check if a token is valid against the whitelist.
+   * Returns true if whitelist is empty (no auth required).
+   */
+  private isTokenValid(token: string | undefined): boolean {
+    if (this.authTokens.size === 0) {
+      return true
+    }
+    return token !== undefined && this.authTokens.has(token)
+  }
+
+  /**
+   * Handle token registration: add a new token to the whitelist and persist to tokens.json.
+   * If the token already exists, update lastSeen.
+   */
+  private handleRegisterToken(payload: any): void {
+    const token = payload?.token
+    const clientId = payload?.clientId || 'unknown'
+    const hostname = payload?.hostname || 'unknown'
+
+    if (!token) {
+      console.log('[RemoteAgentServer] register-token: missing token in payload')
+      return
+    }
+
+    if (this.authTokens.has(token)) {
+      console.log(`[RemoteAgentServer] Token already in whitelist (clientId: ${clientId})`)
+      // Update lastSeen in tokens.json
+      this.updateLastSeen(token, hostname)
+      return
+    }
+
+    // Add to in-memory whitelist
+    this.authTokens.add(token)
+    console.log(`[RemoteAgentServer] New token registered (clientId: ${clientId}, hostname: ${hostname})`)
+
+    // Persist to tokens.json
+    this.persistTokenEntry({ token, clientId, hostname, createdAt: new Date().toISOString(), lastSeen: new Date().toISOString() })
+  }
+
+  /**
+   * Update the lastSeen timestamp for an existing token in tokens.json.
+   */
+  private updateLastSeen(token: string, hostname: string): void {
+    const tokensPath = this.config.tokensFilePath
+    if (!tokensPath) return
+
+    try {
+      let data: TokensFile
+      try {
+        data = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
+      } catch {
+        data = { version: 1, tokens: [] }
+      }
+
+      const entry = data.tokens.find(t => t.token === token)
+      if (entry) {
+        entry.lastSeen = new Date().toISOString()
+        if (hostname && hostname !== 'unknown') {
+          entry.hostname = hostname
+        }
+        // Atomic write
+        fs.writeFileSync(tokensPath + '.tmp', JSON.stringify(data, null, 2))
+        fs.renameSync(tokensPath + '.tmp', tokensPath)
+      }
+    } catch (e) {
+      console.error('[RemoteAgentServer] Failed to update lastSeen in tokens.json:', e)
+    }
+  }
+
+  /**
+   * Persist a new token entry to tokens.json (or update existing).
+   * Uses atomic write (.tmp + rename) for crash safety.
+   */
+  private persistTokenEntry(entry: TokenEntry): void {
+    const tokensPath = this.config.tokensFilePath
+    if (!tokensPath) {
+      console.warn('[RemoteAgentServer] No tokensFilePath configured, token not persisted to disk')
+      return
+    }
+
+    try {
+      let data: TokensFile
+      try {
+        data = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
+      } catch {
+        data = { version: 1, tokens: [] }
+      }
+
+      // Ensure version
+      data.version = 1
+
+      // Check if already exists
+      const existing = data.tokens.find(t => t.token === entry.token)
+      if (!existing) {
+        data.tokens.push(entry)
+      } else {
+        existing.lastSeen = entry.lastSeen
+        existing.hostname = entry.hostname
+      }
+
+      // Atomic write
+      fs.writeFileSync(tokensPath + '.tmp', JSON.stringify(data, null, 2))
+      fs.renameSync(tokensPath + '.tmp', tokensPath)
+      console.log(`[RemoteAgentServer] tokens.json updated with ${data.tokens.length} token(s)`)
+    } catch (e) {
+      console.error('[RemoteAgentServer] Failed to persist token to tokens.json:', e)
     }
   }
 

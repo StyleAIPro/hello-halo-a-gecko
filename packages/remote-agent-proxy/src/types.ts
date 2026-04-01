@@ -1,6 +1,27 @@
+// ============================================
+// Auth Token Whitelist Types
+// ============================================
+
+export interface TokenEntry {
+  token: string
+  clientId: string
+  hostname: string
+  createdAt: string
+  lastSeen: string
+}
+
+export interface TokensFile {
+  version: 1
+  tokens: TokenEntry[]
+}
+
 export interface RemoteServerConfig {
   port: number
   authToken?: string
+  /** Token whitelist loaded from tokens.json (takes precedence over single authToken) */
+  authTokens?: string[]
+  /** Path to tokens.json file on disk */
+  tokensFilePath?: string
   workDir?: string
   claudeApiKey?: string
   claudeBaseUrl?: string
@@ -11,7 +32,8 @@ export interface RemoteServerConfig {
 
 export interface ClientMessage {
   type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
-        'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list'  // Hyper Space agent management
+        'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list' |  // Hyper Space agent management
+        'register-token'  // Auth token whitelist registration
   sessionId?: string
   payload?: {
     messages?: any[]
@@ -69,7 +91,8 @@ export interface ServerMessage {
          'compact:boundary' |  // Context compression notification
          'text:block-start' |  // Text block start signal
          'worker:started' | 'worker:completed' |  // Subagent worker lifecycle
-         'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error'  // Hyper Space agent management
+         'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error' |  // Hyper Space agent management
+         'register-token:success' | 'register-token:error'  // Token whitelist registration
   sessionId?: string
   data?: any
 }

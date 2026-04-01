@@ -236,49 +236,17 @@ export class RemoteDeployService {
     console.log('[RemoteDeployService] addServer - Shared config:', JSON.stringify(shared))
     console.log(`[RemoteDeployService] Added server: ${server.name} (${id})`)
 
-    // Automatically connect and perform full deployment
+    // Only establish SSH connection, do NOT auto-deploy
+    // Deployment is handled separately via "Update Agent" button
     try {
       await this.connectServer(id)
-
-      // Step 1: Check and install Claude CLI + SDK globally
-      const agentCheck = await this.checkAgentInstalled(id)
-      console.log(`[RemoteDeployService] Agent check result:`, agentCheck)
-
-      if (!agentCheck.installed) {
-        console.log(`[RemoteDeployService] Deploying Claude CLI and SDK to ${server.name}...`)
-        await this.deployAgentSDK(id)
-
-        const postDeployCheck = await this.checkAgentInstalled(id)
-        await this.updateServer(id, {
-          sdkInstalled: postDeployCheck.installed,
-          sdkVersion: postDeployCheck.version,
-        })
-      } else {
-        console.log(`[RemoteDeployService] claude-agent-sdk already installed on ${server.name}, version: ${agentCheck.version}`)
-        await this.updateServer(id, {
-          sdkInstalled: agentCheck.installed,
-          sdkVersion: agentCheck.version,
-          error: undefined,
-        })
-      }
-
-      // Step 2: Deploy agent code (upload remote-agent-proxy, install deps, upload patched SDK)
-      console.log(`[RemoteDeployService] Deploying agent code to ${server.name}...`)
-      await this.deployAgentCode(id)
-
-      // Step 3: Start the agent
-      console.log(`[RemoteDeployService] Starting agent on ${server.name}...`)
-      await this.startAgent(id)
-
-      await this.updateServer(id, { status: 'connected', error: undefined })
-      console.log(`[RemoteDeployService] Full deployment completed for ${server.name}`)
+      console.log(`[RemoteDeployService] Server ${server.name} connected (deployment skipped - use Update Agent)`)
     } catch (error) {
-      console.error('[RemoteDeployService] Auto deployment failed:', error)
+      console.error('[RemoteDeployService] Connection failed:', error)
       await this.updateServer(id, {
         status: 'error',
         error: error instanceof Error ? error.message : String(error)
       })
-      await this.disconnectServer(id)
     }
 
     return id
@@ -440,23 +408,13 @@ export class RemoteDeployService {
         throw new Error('SSH connection not established')
       }
 
-      // Sync auth token from remote server
+      // Register this PC's token to the remote whitelist (tokens.json)
+      // This ensures the PC can authenticate when connecting via WebSocket
       try {
-        console.log(`[RemoteDeployService] Syncing auth token from remote server...`)
-        const envContent = await manager.executeCommand(`cat ${DEPLOY_AGENT_PATH}/.env 2>/dev/null || echo ""`)
-        const authTokenMatch = envContent.match(/AUTH_TOKEN=(.+)/)
-        if (authTokenMatch && authTokenMatch[1]) {
-          const remoteAuthToken = authTokenMatch[1].trim()
-          if (remoteAuthToken !== server.authToken) {
-            console.log(`[RemoteDeployService] Updating local auth token to match remote`)
-            server.authToken = remoteAuthToken
-            await this.saveServers()
-          }
-        } else {
-          console.log(`[RemoteDeployService] No AUTH_TOKEN found in remote .env, using local config`)
-        }
+        console.log(`[RemoteDeployService] Ensuring local token is in remote whitelist...`)
+        await this.registerTokenOnRemote(id)
       } catch (error) {
-        console.error(`[RemoteDeployService] Failed to sync auth token:`, error)
+        console.warn(`[RemoteDeployService] Failed to register token (non-fatal):`, error)
       }
 
       await this.updateServer(id, {
@@ -613,6 +571,20 @@ export class RemoteDeployService {
           const localPath = path.join(patchesDir, file)
           if (fs.statSync(localPath).isFile()) {
             await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
+          }
+        }
+      }
+
+      // Upload scripts directory (register-token.js etc.)
+      const scriptsDir = path.join(packageDir, 'scripts')
+      if (fs.existsSync(scriptsDir)) {
+        this.emitDeployProgress(id, 'upload', '正在上传辅助脚本...', 41)
+        await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/scripts`)
+        const scriptFiles = fs.readdirSync(scriptsDir)
+        for (const file of scriptFiles) {
+          const localPath = path.join(scriptsDir, file)
+          if (fs.statSync(localPath).isFile()) {
+            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/scripts/${file}`)
           }
         }
       }
@@ -944,6 +916,7 @@ WRAPPER
     await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/patches`)
     await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/config`)
     await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
+    await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/scripts`)
 
     // Detect npm path: SSH exec runs non-login/non-interactive shell,
     // so .bashrc/.profile are not sourced and npm may not be in PATH.
@@ -1125,9 +1098,80 @@ WRAPPER
       }
     }
 
-    // 6. Sync system prompt
+    // 6. Upload scripts (register-token.js etc.)
+    const scriptsDir = path.join(packageDir, 'scripts')
+    if (fs.existsSync(scriptsDir)) {
+      const scriptFiles = fs.readdirSync(scriptsDir)
+      let scriptChanged = 0
+      await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/scripts`)
+      for (const file of scriptFiles) {
+        const localPath = path.join(scriptsDir, file)
+        if (fs.statSync(localPath).isFile()) {
+          const localMd5 = this.computeMd5(localPath)
+          const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/scripts/${file} 2>/dev/null | awk '{print $1}' || echo ""`)
+          if (localMd5 !== remoteMd5Result.stdout.trim()) {
+            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/scripts/${file}`)
+            scriptChanged++
+          }
+        }
+      }
+      if (scriptChanged > 0) {
+        this.emitCommandOutput(id, 'output', `scripts: ${scriptChanged} 个文件已更新`)
+      }
+    }
+
+    // 7. Sync system prompt
     this.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 75)
     await this.syncSystemPrompt(id)
+
+    // 8. Register this PC's auth token to the remote whitelist (tokens.json)
+    // This ensures the token whitelist is created/updated even during incremental updates
+    try {
+      this.emitDeployProgress(id, 'token', '正在注册认证令牌...', 85)
+      await this.registerTokenOnRemote(id)
+      this.emitCommandOutput(id, 'success', '✓ 认证令牌已注册到白名单')
+    } catch (tokenError) {
+      this.emitCommandOutput(id, 'error', `⚠️ 令牌注册失败（非致命）：${tokenError}`)
+    }
+
+    // 9. Restart agent to apply changes (same logic as deployAgentCode)
+    this.emitDeployProgress(id, 'restart', '检查 Agent 状态...', 90)
+    try {
+      const healthPort = (server.wsPort || 8080) + 1
+      const checkHealthCmd = `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`
+      const healthCheck = await manager.executeCommandFull(checkHealthCmd)
+
+      let hasActiveSessions = false
+      let agentRunning = false
+      let activeSessionCount = 0
+
+      try {
+        const healthData = JSON.parse(healthCheck.stdout || '{}')
+        if (healthData.status === 'ok') {
+          agentRunning = true
+          activeSessionCount = healthData.activeSessions || 0
+          hasActiveSessions = activeSessionCount > 0
+        }
+      } catch (e) {
+        agentRunning = false
+      }
+
+      if (hasActiveSessions) {
+        this.emitCommandOutput(id, 'output', `⚠️ 检测到 ${activeSessionCount} 个活跃会话，跳过重启以避免中断`)
+        this.emitCommandOutput(id, 'output', '提示：代码已更新，将在所有会话完成后手动重启生效')
+      } else if (agentRunning) {
+        await this.stopAgent(id)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        await this.startAgent(id)
+        this.emitCommandOutput(id, 'success', '✓ Agent 重启成功')
+      } else {
+        await this.startAgent(id)
+        this.emitCommandOutput(id, 'success', '✓ Agent 已启动')
+      }
+    } catch (restartError) {
+      this.emitCommandOutput(id, 'error', `⚠️ Agent 重启失败：${restartError}`)
+      // Don't throw - the code was deployed successfully
+    }
 
     this.emitDeployProgress(id, 'complete', '✓ 更新完成!', 100)
     this.emitCommandOutput(id, 'success', '========================================')
@@ -1225,20 +1269,36 @@ WRAPPER
       await this.stopAgent(id)
     }
 
+    // Register this PC's auth token to the remote whitelist (tokens.json)
+    // This supports multiple PCs connecting to the same remote server simultaneously
+    await this.registerTokenOnRemote(id)
+
+    // Read the first token from tokens.json to use as bootstrap token for REMOTE_AGENT_AUTH_TOKEN
+    // The bootstrap token ensures backward compatibility and allows at least one PC to connect
+    let bootstrapToken = server.authToken
+    try {
+      const tokensResult = await manager.executeCommandFull(
+        `node -e "const d=JSON.parse(require('fs').readFileSync('${DEPLOY_AGENT_PATH}/tokens.json','utf-8'));console.log(d.tokens[0]?.token||'')"`
+      )
+      if (tokensResult.exitCode === 0 && tokensResult.stdout.trim()) {
+        bootstrapToken = tokensResult.stdout.trim()
+        console.log(`[RemoteDeployService] Using bootstrap token from tokens.json (first of ${0})`)
+      }
+    } catch (e) {
+      console.warn('[RemoteDeployService] Failed to read bootstrap token from tokens.json:', e)
+    }
+
     // Start the agent server with environment variables
-    // Use the correct env var names expected by remote-agent-proxy
-    // Escape single quotes in values and wrap them in single quotes to handle special characters
     const escapeEnvValue = (value: string | undefined): string => {
       if (!value) return "''"
-      // Escape single quotes by replacing ' with '\''
       return `'${value.replace(/'/g, "'\\''")}'`
     }
 
     const envVars = [
       `REMOTE_AGENT_PORT=${server.wsPort || 8080}`,
-      `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(server.authToken)}`,
+      `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(bootstrapToken)}`,
       server.workDir ? `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir)}` : null,
-      `IS_SANDBOX=1`,  // Required for bypass-permissions mode in root environment
+      `IS_SANDBOX=1`,
       server.claudeApiKey ? `ANTHROPIC_API_KEY=${escapeEnvValue(server.claudeApiKey)}` : null,
       server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${escapeEnvValue(server.claudeBaseUrl)}` : null,
       server.claudeModel ? `ANTHROPIC_MODEL=${escapeEnvValue(server.claudeModel)}` : null
@@ -1353,6 +1413,49 @@ WRAPPER
     )
 
     console.log(`[RemoteDeployService] Agent stopped on: ${server.name}`)
+  }
+
+  /**
+   * Register this PC's auth token to the remote server's tokens.json whitelist.
+   * Called during startAgent() and connectServer() to ensure the PC's token is
+   * in the whitelist before connecting via WebSocket.
+   */
+  async registerTokenOnRemote(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    const manager = this.getSSHManager(id)
+
+    // Ensure SSH connection is established
+    if (!manager.isConnected()) {
+      await this.connectServer(id)
+    }
+
+    const token = server.authToken
+    const clientId = server.id
+    const hostname = os.hostname()
+
+    console.log(`[RemoteDeployService] Registering token for ${server.name} (clientId: ${clientId})`)
+
+    // Call the register-token.js script on the remote server
+    const scriptPath = `${DEPLOY_AGENT_PATH}/scripts/register-token.cjs`
+    const registerCmd = `node ${scriptPath} '${token}' '${clientId}' '${hostname}'`
+
+    try {
+      const result = await manager.executeCommandFull(registerCmd)
+      if (result.stdout.includes('TOKEN_REGISTERED')) {
+        console.log(`[RemoteDeployService] Token registered on remote (clientId: ${clientId})`)
+      } else if (result.stdout.includes('TOKEN_UPDATED')) {
+        console.log(`[RemoteDeployService] Token updated on remote (clientId: ${clientId})`)
+      } else {
+        console.warn(`[RemoteDeployService] Unexpected register-token output: ${result.stdout}`)
+      }
+    } catch (e) {
+      console.error(`[RemoteDeployService] Failed to register token on remote:`, e)
+      // Don't throw - the token may already be registered from a previous session
+    }
   }
 
   /**

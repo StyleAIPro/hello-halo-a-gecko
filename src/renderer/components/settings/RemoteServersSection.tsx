@@ -823,7 +823,7 @@ export function RemoteServersSection() {
 
       {/* Add/Edit Server Dialog */}
       {(showAddDialog || editingServer) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={() => { setShowAddDialog(false); setEditingServer(null) }}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md relative z-[101]" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">
               {editingServer ? t('Edit Server') : t('Add Remote Server')}

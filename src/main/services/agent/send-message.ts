@@ -716,8 +716,6 @@ async function executeRemoteMessage(
     throw new Error(`Remote server is not connected: ${server.name}`)
   }
 
-  const DEPLOY_AGENT_PATH = '/opt/claude-deployment'
-
   const {
     spaceId,
     conversationId,
@@ -766,54 +764,25 @@ async function executeRemoteMessage(
   const toolCalls: any[] = []
 
   try {
-    // Sync auth token from remote server before connecting
+    // Ensure local auth token is registered in the remote whitelist (tokens.json)
     // OPTIMIZATION: Use cached token to avoid SSH connection on every message
     const cachedToken = getCachedAuthToken(serverId)
     if (cachedToken && cachedToken === server.authToken) {
       console.log(`[Agent][Remote] Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
     } else {
-      // Cache miss or token mismatch - need to sync from remote
+      // Cache miss - need to register local token on remote
       try {
-        console.log(`[Agent][Remote] Syncing auth token from remote server (cache ${cachedToken ? 'expired' : 'miss'})...`)
-        const decryptedPassword = decryptString(server.password || '')
+        console.log(`[Agent][Remote] Ensuring local token is in remote whitelist (cache ${cachedToken ? 'expired' : 'miss'})...`)
 
-        // Create temporary SSH manager to read auth token
-        const tempManager = new SSHManager()
-        await tempManager.connect({
-          host: server.host,
-          port: server.sshPort || 22,
-          username: server.username,
-          password: decryptedPassword
-        })
+        // Use the deploy service's registerTokenOnRemote method
+        await deployService.registerTokenOnRemote(serverId)
 
-        const envContent = await tempManager.executeCommand(`cat ${DEPLOY_AGENT_PATH}/.env 2>/dev/null || echo ""`)
-        // Match AUTH_TOKEN at the start of a line (not ANTHROPIC_AUTH_TOKEN)
-        const authTokenMatch = envContent.match(/^AUTH_TOKEN=(.+)/m)
-        if (authTokenMatch && authTokenMatch[1]) {
-          const remoteAuthToken = authTokenMatch[1].trim()
-          if (remoteAuthToken !== server.authToken) {
-            console.log(`[Agent][Remote] Updating local auth token to match remote`)
-            server.authToken = remoteAuthToken
-            // Update server in deploy service
-            await deployService.updateServer(serverId, { authToken: remoteAuthToken })
-          }
-          // Update cache with the synced token
-          setCachedAuthToken(serverId, remoteAuthToken)
-          console.log(`[Agent][Remote] Auth token cached for server ${serverId}`)
-        } else if (server.authToken) {
-          // No remote token found, but we have a local token - cache it
-          setCachedAuthToken(serverId, server.authToken)
-          console.log(`[Agent][Remote] Using existing local token (no remote token found)`)
-        }
-
-        // Close temporary SSH connection - SSHManager doesn't have close(), use end()
-        try {
-          ;(tempManager as any).end?.()
-        } catch {}
+        // Cache the local token (never overwrite with a different token)
+        setCachedAuthToken(serverId, server.authToken)
+        console.log(`[Agent][Remote] Local token registered/cached for server ${serverId}`)
       } catch (syncError) {
-        console.warn(`[Agent][Remote] Failed to sync auth token:`, syncError)
-        // Continue anyway, using existing token
-        // Cache the existing token to avoid repeated failed attempts
+        console.warn(`[Agent][Remote] Failed to register token on remote (non-fatal):`, syncError)
+        // Continue anyway, using existing local token
         if (server.authToken) {
           setCachedAuthToken(serverId, server.authToken)
         }
