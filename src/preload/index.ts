@@ -227,6 +227,7 @@ export interface HaloAPI {
   unmaximizeWindow: () => Promise<IpcResponse>
   isWindowMaximized: () => Promise<IpcResponse<boolean>>
   toggleMaximizeWindow: () => Promise<IpcResponse<boolean>>
+  forceRepaint: () => Promise<IpcResponse>
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => () => void
 
   // Search
@@ -250,7 +251,7 @@ export interface HaloAPI {
   createBrowserView: (viewId: string, url?: string) => Promise<IpcResponse>
   destroyBrowserView: (viewId: string) => Promise<IpcResponse>
   showBrowserView: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<IpcResponse>
-  hideBrowserView: (viewId: string) => Promise<IpcResponse>
+  hideBrowserView: (viewId: string, force?: boolean) => Promise<IpcResponse>
   resizeBrowserView: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<IpcResponse>
   navigateBrowserView: (viewId: string, url: string) => Promise<IpcResponse>
   browserGoBack: (viewId: string) => Promise<IpcResponse>
@@ -698,6 +699,7 @@ const api: HaloAPI = {
   unmaximizeWindow: () => ipcRenderer.invoke('window:unmaximize'),
   isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize'),
+  forceRepaint: () => ipcRenderer.invoke('window:force-repaint'),
   onWindowMaximizeChange: (callback) => createEventListener('window:maximize-change', callback as (data: unknown) => void),
 
   // Search
@@ -717,7 +719,7 @@ const api: HaloAPI = {
   createBrowserView: (viewId, url) => ipcRenderer.invoke('browser:create', { viewId, url }),
   destroyBrowserView: (viewId) => ipcRenderer.invoke('browser:destroy', { viewId }),
   showBrowserView: (viewId, bounds) => ipcRenderer.invoke('browser:show', { viewId, bounds }),
-  hideBrowserView: (viewId) => ipcRenderer.invoke('browser:hide', { viewId }),
+  hideBrowserView: (viewId, force = false) => ipcRenderer.invoke('browser:hide', { viewId, force }),
   resizeBrowserView: (viewId, bounds) => ipcRenderer.invoke('browser:resize', { viewId, bounds }),
   navigateBrowserView: (viewId, url) => ipcRenderer.invoke('browser:navigate', { viewId, url }),
   browserGoBack: (viewId) => ipcRenderer.invoke('browser:go-back', { viewId }),

@@ -85,9 +85,9 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Hide a BrowserView
    */
-  ipcMain.handle('browser:hide', async (_event, { viewId }: { viewId: string }) => {
+  ipcMain.handle('browser:hide', async (_event, { viewId, force = false }: { viewId: string; force?: boolean }) => {
     try {
-      const result = browserViewManager.hide(viewId)
+      const result = browserViewManager.hide(viewId, force)
       return { success: result }
     } catch (error) {
       console.error('[Browser IPC] Hide failed:', error)

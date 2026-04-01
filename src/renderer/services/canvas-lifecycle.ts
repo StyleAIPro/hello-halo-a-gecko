@@ -984,9 +984,9 @@ class CanvasLifecycle {
   /**
    * Hide a BrowserView
    */
-  private async hideBrowserView(viewId: string): Promise<void> {
-    console.log(`[CanvasLifecycle] Hiding BrowserView: ${viewId}`)
-    await api.hideBrowserView(viewId)
+  private async hideBrowserView(viewId: string, force: boolean = false): Promise<void> {
+    console.log(`[CanvasLifecycle] Hiding BrowserView: ${viewId}${force ? ' (force mode)' : ''}`)
+    await api.hideBrowserView(viewId, force)
   }
 
   /**
@@ -994,7 +994,8 @@ class CanvasLifecycle {
    */
   private async destroyBrowserView(viewId: string): Promise<void> {
     console.log(`[CanvasLifecycle] Destroying BrowserView: ${viewId}`)
-    await api.hideBrowserView(viewId)
+    // Always use force mode when destroying to ensure clean removal
+    await api.hideBrowserView(viewId, true)
     await api.destroyBrowserView(viewId)
   }
 
@@ -1052,6 +1053,7 @@ class CanvasLifecycle {
 
   /**
    * Hide active BrowserView (called when canvas is hidden)
+   * Uses force mode on Windows to prevent click-blocking bugs.
    */
   async hideActiveBrowserView(): Promise<void> {
     if (!this.activeTabId) return
@@ -1059,19 +1061,23 @@ class CanvasLifecycle {
     const tab = this.tabs.get(this.activeTabId)
     const hasBrowserView = (tab?.type === 'browser' || tab?.type === 'pdf') && tab.browserViewId
     if (hasBrowserView) {
-      await this.hideBrowserView(tab.browserViewId!)
+      // Force mode on Windows to prevent the click-blocking bug
+      const force = process.platform === 'win32'
+      await this.hideBrowserView(tab.browserViewId!, force)
     }
   }
 
   /**
    * Hide all BrowserViews (called when leaving SpacePage)
-   * Keeps tabs in memory, just hides the native views
+   * Keeps tabs in memory, just hides the native views.
+   * Uses force mode on Windows to ensure complete removal.
    */
   async hideAllBrowserViews(): Promise<void> {
+    const force = process.platform === 'win32'
     for (const [, tab] of this.tabs) {
       const hasBrowserView = (tab.type === 'browser' || tab.type === 'pdf') && tab.browserViewId
       if (hasBrowserView) {
-        await this.hideBrowserView(tab.browserViewId!)
+        await this.hideBrowserView(tab.browserViewId!, force)
       }
     }
   }
@@ -1204,6 +1210,12 @@ class CanvasLifecycle {
     setTimeout(() => {
       this.isTransitioning = false
     }, 300)
+
+    // On Windows, force a repaint after canvas collapses to clear any
+    // lingering BrowserView HWND that may block input clicks.
+    if (!open && typeof navigator !== 'undefined' && navigator.platform?.includes('Win')) {
+      api.forceRepaint()
+    }
   }
 
   /**

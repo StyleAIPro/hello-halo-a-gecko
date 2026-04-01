@@ -24,6 +24,16 @@ export function registerSystemHandlers(): void {
       window.on('unmaximize', () => {
         window.webContents.send('window:maximize-change', false)
       })
+
+      // Auto force-repaint on window focus (Windows only)
+      // Fixes the BrowserView HWND click-blocking bug where a transparent
+      // BrowserView overlay blocks input after the view was hidden.
+      // DWM re-composition on focus return clears the stale HWND.
+      if (process.platform === 'win32') {
+        window.on('focus', () => {
+          forceRepaint(window)
+        })
+      }
     }
   })
 
@@ -206,5 +216,55 @@ export function registerSystemHandlers(): void {
     }
   })
 
+  // Force window repaint (fixes BrowserView HWND click-blocking on Windows)
+  ipcMain.handle('window:force-repaint', async () => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        forceRepaint(mainWindow)
+      }
+      return { success: true }
+    } catch (error) {
+      const err = error as Error
+      console.error('[System] force-repaint failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
   console.log('[Settings] System handlers registered')
+}
+
+/**
+ * Force a window repaint to clear stale BrowserView HWND overlays.
+ *
+ * On Windows, Electron's removeBrowserView() can silently fail, leaving a
+ * transparent HWND that blocks all pointer events. This function forces the
+ * DWM (Desktop Window Manager) to re-composite by performing a tiny
+ * size change cycle on the main window.
+ *
+ * This is the same mechanism that naturally occurs when opening/closing a
+ * native dialog (e.g. file picker), which is why that action "fixes" the bug.
+ */
+function forceRepaint(window: BrowserWindow): void {
+  if (window.isDestroyed() || window.isMinimized()) return
+
+  try {
+    // Method 1: Tiny size change to trigger DWM re-composition
+    const [width, height] = window.getSize()
+    window.setSize(width, height + 1)
+    // Restore on next tick (user won't perceive a 1px change at 60fps)
+    setImmediate(() => {
+      if (!window.isDestroyed()) {
+        window.setSize(width, height)
+      }
+    })
+
+    // Method 2: Also invalidate renderer to force GPU redraw
+    try {
+      window.webContents.invalidate()
+    } catch (_e) {
+      // Ignore
+    }
+  } catch (_e) {
+    // Ignore - best effort
+  }
 }

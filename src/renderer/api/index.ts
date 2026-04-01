@@ -888,6 +888,17 @@ export const api = {
     return window.halo.toggleMaximizeWindow()
   },
 
+  /**
+   * Force window repaint to fix BrowserView click-blocking on Windows.
+   * Performs a tiny size change to trigger DWM re-composition.
+   */
+  forceRepaint: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.forceRepaint()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => {
     if (!isElectron()) {
       return () => { } // No-op in remote mode
@@ -979,9 +990,9 @@ export const api = {
     return { success: false, error: 'Browser views only available in desktop app' }
   },
 
-  hideBrowserView: async (viewId: string): Promise<ApiResponse> => {
+  hideBrowserView: async (viewId: string, force: boolean = false): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.halo.hideBrowserView(viewId)
+      return window.halo.hideBrowserView(viewId, force)
     }
     return { success: false, error: 'Browser views only available in desktop app' }
   },

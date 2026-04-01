@@ -363,39 +363,76 @@ class BrowserViewManager {
 
   /**
    * On Windows, removeBrowserView can silently fail, leaving a transparent
-   * HWND that blocks clicks. We mitigate this by moving the view offscreen
-   * BEFORE attempting removal, so even a failed remove won't block UI.
+   * HWND that blocks clicks. We mitigate this by:
+   * 1. Moving the view offscreen before removal
+   * 2. Multiple removal attempts with small delays
+   * 3. Forcing DWM compositor flush using invalidate() + blur/focus cycle
+   *
+   * The root cause is a race condition in Electron's BrowserView removal
+   * on Windows. The native HWND sometimes persists after removal, blocking
+   * all pointer events. Opening/closing a native dialog forces DWM to
+   * re-composite, which is why that "fixes" the issue.
    */
-  hide(viewId: string) {
+  hide(viewId: string, force: boolean = false) {
     const view = this.views.get(viewId)
     if (!view) return false
 
-    // Step 1: Move offscreen to eliminate click interception risk
+    const hostWindow = this.offscreenViewIds.has(viewId)
+      ? this.offscreenWindow
+      : this.mainWindow
+
+    if (!hostWindow || hostWindow.isDestroyed()) {
+      if (this.activeViewId === viewId) {
+        this.activeViewId = null
+      }
+      return true
+    }
+
+    // Step 1: Move offscreen immediately to eliminate click interception
+    // Even if removal fails, the view won't block clicks at (-10000, -10000)
     try {
       view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 })
     } catch (_e) {
       // Bounds update can fail if view is already detached
     }
 
-    // Step 2: Remove from the correct host window
-    const hostWindow = this.offscreenViewIds.has(viewId)
-      ? this.offscreenWindow
-      : this.mainWindow
+    // Step 2: Attempt removal - on Windows, try twice with a small delay
+    // The second attempt often succeeds when the first fails silently
+    try {
+      hostWindow.removeBrowserView(view)
 
-    if (hostWindow && !hostWindow.isDestroyed()) {
-      try {
-        hostWindow.removeBrowserView(view)
-      } catch (_e) {
-        // View might already be removed
+      // On Windows, always do a second attempt after a short delay
+      // This catches the race condition where the first removal is still processing
+      if (process.platform === 'win32') {
+        setTimeout(() => {
+          try {
+            hostWindow.removeBrowserView(view)
+          } catch (_e) {
+            // Second attempt failed, but first likely succeeded
+          }
+        }, 50)
       }
+    } catch (_e) {
+      // First removal failed, view might already be removed
     }
 
-    // Step 3: On Windows, force compositor flush after removing
-    if (process.platform === 'win32' && hostWindow && !hostWindow.isDestroyed()) {
+    // Step 3: On Windows, force DWM compositor flush
+    // This mimics the "opening/closing dialog" effect that fixes the issue
+    if (process.platform === 'win32' && !hostWindow.isDestroyed()) {
       try {
+        // Force a full compositor redraw
         hostWindow.webContents.invalidate()
+
+        // Blur and refocus the window to trigger DWM re-composition
+        // This is the key step that clears any lingering transparent HWNDs
+        hostWindow.blur()
+        setTimeout(() => {
+          if (!hostWindow.isDestroyed() && !hostWindow.isMinimized()) {
+            hostWindow.focus()
+          }
+        }, 100)
       } catch (_e) {
-        // Ignore
+        // Ignore - best effort only
       }
     }
 
