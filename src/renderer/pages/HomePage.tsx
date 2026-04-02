@@ -12,7 +12,7 @@ import {
   SpaceIcon,
   Sparkles,
   Settings,
-  Plus,
+
   Trash2,
   FolderOpen,
   Pencil
@@ -20,7 +20,7 @@ import {
 import { Header } from '../components/layout/Header'
 import { SpaceGuide } from '../components/space/SpaceGuide'
 import { HyperSpaceCreationDialog } from '../components/space/HyperSpaceCreationDialog'
-import { Monitor, Blocks, ArrowRight, Cloud, Folder } from 'lucide-react'
+import { Monitor, Blocks, ArrowRight, Cloud, Folder, Bot } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
 import { useConfirm } from '../components/ui/ConfirmDialog'
@@ -317,7 +317,7 @@ export function HomePage() {
               className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
               title={t('Apps')}
             >
-              <Blocks className="w-5 h-5" />
+              <Bot className="w-5 h-5" />
             </button>
             <button
               onClick={() => setView('settings')}
@@ -401,19 +401,37 @@ export function HomePage() {
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-medium text-muted-foreground">{t('Dedicated Spaces')}</h3>
           <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground mr-1">{t('Space Creation')}</span>
+            <div className="w-px h-4 bg-border mx-1" />
+            <button
+              onClick={() => {
+                setClaudeSource('local')
+                setShowCreateDialog(true)
+              }}
+              title={t('Create a local space with files stored on your computer. Suitable for local development and file management.')}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-green-600 hover:bg-green-500/10 rounded-lg transition-colors"
+            >
+              <Folder className="w-4 h-4" />
+              {t('Local')}
+            </button>
+            <button
+              onClick={() => {
+                setClaudeSource('remote')
+                setShowCreateDialog(true)
+              }}
+              title={t('Create a remote space connected to a remote server via SSH. Suitable for cloud servers, NPU clusters, and remote development.')}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-blue-500 hover:bg-blue-500/10 rounded-lg transition-colors"
+            >
+              <Cloud className="w-4 h-4" />
+              {t('Remote')}
+            </button>
             <button
               onClick={() => setShowHyperSpaceDialog(true)}
+              title={t('Create a Hyper Space with multiple AI agents collaborating. The leader agent orchestrates tasks and delegates to worker agents.')}
               className="flex items-center gap-1 px-3 py-1 text-sm text-purple-500 hover:bg-purple-500/10 rounded-lg transition-colors"
             >
               <Blocks className="w-4 h-4" />
               {t('Hyper')}
-            </button>
-            <button
-              onClick={() => setShowCreateDialog(true)}
-              className="flex items-center gap-1 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-lg transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              {t('New')}
             </button>
           </div>
         </div>
@@ -502,7 +520,9 @@ export function HomePage() {
           {/* Animation wrapper — separated from scroll container to avoid Chromium hit-testing issues */}
           <div className="animate-fade-in" onClick={e => e.stopPropagation()}>
             <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-medium mb-4">{t('Create Dedicated Space')}</h2>
+            <h2 className="text-lg font-medium mb-4">
+              {claudeSource === 'local' ? t('Create Local Space') : t('Create Remote Space')}
+            </h2>
 
             {/* Icon select */}
             <div className="mb-4">
@@ -521,42 +541,6 @@ export function HomePage() {
                     <SpaceIcon iconId={iconId} size={20} />
                   </button>
                 ))}
-              </div>
-            </div>
-
-            {/* Claude Source Selection - moved above storage location */}
-            <div className="mb-4">
-              <label className="block text-sm text-muted-foreground mb-2">{t('Claude Source')}</label>
-              <div className="flex gap-4 mt-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="claudeSource"
-                    value="local"
-                    checked={claudeSource === 'local'}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setClaudeSource('local')
-                        setRemoteServerId('')
-                      }
-                    }}
-                  />
-                  <span>{t('Local')}</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="claudeSource"
-                    value="remote"
-                    checked={claudeSource === 'remote'}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setClaudeSource('remote')
-                      }
-                    }}
-                  />
-                  <span>{t('Remote')}</span>
-                </label>
               </div>
             </div>
 
