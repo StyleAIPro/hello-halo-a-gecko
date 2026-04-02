@@ -726,13 +726,19 @@ export class ClaudeManager {
   /**
    * Build SDK options for session creation
    * @param workDir - Optional override for working directory (per-session)
+   * @param customSystemPrompt - Optional custom system prompt (from client space config)
    */
-  private buildSdkOptions(workDir?: string): any {
+  private buildSdkOptions(workDir?: string, customSystemPrompt?: string): any {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
+    // If custom system prompt is provided, append it to the base system prompt
+    const basePrompt = buildSystemPrompt(effectiveWorkDir, this.model)
+    const systemPrompt = customSystemPrompt
+      ? `${basePrompt}\n\n# Additional Instructions (from space configuration)\n\n${customSystemPrompt}`
+      : basePrompt
     const options: any = {
       model: this.model || 'claude-sonnet-4-20250514',
       cwd: effectiveWorkDir,
-      systemPrompt: buildSystemPrompt(effectiveWorkDir, this.model),
+      systemPrompt,
       permissionMode: 'bypassPermissions',
       extraArgs: {
         'dangerously-skip-permissions': null
@@ -882,7 +888,8 @@ export class ClaudeManager {
     workDir?: string,
     resumeSessionId?: string,
     maxThinkingTokens?: number,
-    hyperSpaceMcpServer?: any
+    hyperSpaceMcpServer?: any,
+    customSystemPrompt?: string
   ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
@@ -973,7 +980,7 @@ export class ClaudeManager {
 
     // Create new session
     console.log(`[ClaudeManager][${conversationId}] Creating new V2 session with workDir=${effectiveWorkDir}...`)
-    const options = this.buildSdkOptions(effectiveWorkDir)
+    const options = this.buildSdkOptions(effectiveWorkDir, customSystemPrompt)
 
     // Add hyper-space MCP proxy server if provided
     if (hyperSpaceMcpServer) {
@@ -1169,7 +1176,7 @@ export class ClaudeManager {
       hyperSpaceMcpServer = this.createHyperSpaceMcpServer(options.hyperSpaceTools, hyperSpaceToolExecutor)
     }
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer)
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation

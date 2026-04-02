@@ -53,6 +53,7 @@ import type { Thought, Message } from '../../../types'
 import type { InstalledSkill, SkillFileNode } from '../../../../shared/skill/skill-types'
 import { CodeMirrorEditor, CodeMirrorEditorRef } from '../../canvas/viewers/CodeMirrorEditor'
 import { getSkillSpaceId } from '../../../services/skill-space'
+import { useConfirm } from '../../ui/ConfirmDialog'
 
 // ============================================
 // Types
@@ -111,6 +112,7 @@ const SKILL_SPACE_ID = getSkillSpaceId()
 
 export function SkillEditorPage() {
   const { t } = useTranslation()
+  const { confirm: confirmDialog, alert: alertDialog, ConfirmDialogElement } = useConfirm()
   const spaces = useSpaceStore(state => state.spaces)
   const {
     installedSkills,
@@ -684,7 +686,7 @@ export function SkillEditorPage() {
     const hasRequirements = skillRequirements.trim().length > 0
 
     if (!hasConversations && !hasPages && !hasRequirements) {
-      alert(t('Please select conversations, add webpage URLs, or describe the skill you want'))
+      await alertDialog(t('Please select conversations, add webpage URLs, or describe the skill you want'))
       return
     }
 
@@ -692,7 +694,7 @@ export function SkillEditorPage() {
     if (hasConversations) {
       const stillLoading = selectedConversations.some(c => c.isLoadingMessages)
       if (stillLoading) {
-        alert(t('Please wait for conversations to finish loading'))
+        await alertDialog(t('Please wait for conversations to finish loading'))
         return
       }
     }
@@ -702,7 +704,7 @@ export function SkillEditorPage() {
       skill => skill.appId === 'skill-creator' || skill.spec?.name === 'skill-creator'
     )
     if (!skillCreatorInstalled) {
-      alert(t('skill-creator skill is not installed. Please install it from the Skill Market first.'))
+      await alertDialog(t('skill-creator skill is not installed. Please install it from the Skill Market first.'))
       useSkillStore.getState().setCurrentView('market')
       return
     }
@@ -914,7 +916,7 @@ ${contextParts.join('\n\n')}
 
   const handleDeleteConversation = async (conversationId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm(t('Delete this conversation?'))) return
+    if (!(await confirmDialog(t('Delete this conversation?')))) return
 
     try {
       await api.skillConversationDelete(conversationId)
@@ -1406,7 +1408,9 @@ ${contextParts.join('\n\n')}
   // ============================================
 
   return (
-    <div className="flex h-full">
+    <>
+      {ConfirmDialogElement}
+      <div className="flex h-full">
       {/* 左侧面板 */}
       <div className="w-80 border-r border-border flex flex-col flex-shrink-0">
         {/* Tab 切换 */}
@@ -2007,6 +2011,7 @@ ${contextParts.join('\n\n')}
         </div>
       )}
     </div>
+    </>
   )
 }
 

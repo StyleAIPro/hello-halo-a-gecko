@@ -23,12 +23,14 @@ import { HyperSpaceCreationDialog } from '../components/space/HyperSpaceCreation
 import { Monitor, Blocks, ArrowRight, Cloud, Folder } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // Check if running in web mode
 const isWebMode = api.isRemoteMode()
 
 export function HomePage() {
   const { t } = useTranslation()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
   const { setView, setPageTransition } = useAppStore()
   const { haloSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
 
@@ -54,6 +56,11 @@ export function HomePage() {
   const [remotePath, setRemotePath] = useState<string>('/home')
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const [useSshTunnel, setUseSshTunnel] = useState<boolean>(true)  // Default to true for security
+
+  const DEFAULT_REMOTE_SYSTEM_PROMPT = `1. 你是一个华为昇腾NPU服务器操作高手，精通各种NPU相关操作命令和模型迁移调优分析方法。
+2. 当需要下载模型时，优先使用中国国内的模型网站，如modelscope
+3. 当需要下载模型或者下载超大文件时，要先分析一下目标目录的剩余空间，不要直接下载`
+  const [systemPrompt, setSystemPrompt] = useState<string>(DEFAULT_REMOTE_SYSTEM_PROMPT)
 
   // Load spaces on mount
   useEffect(() => {
@@ -165,6 +172,7 @@ export function HomePage() {
     setRemoteServerId('')
     setRemotePath('/home')
     setUseSshTunnel(true)  // Default to true for security
+    setSystemPrompt(DEFAULT_REMOTE_SYSTEM_PROMPT)
   }
 
   // Handle space click - no reset needed, SpacePage handles its own state
@@ -196,7 +204,8 @@ export function HomePage() {
       claudeSource,
       remoteServerId: claudeSource === 'remote' ? remoteServerId : undefined,
       remotePath: claudeSource === 'remote' ? remotePath : undefined,
-      useSshTunnel: claudeSource === 'remote' ? useSshTunnel : undefined
+      useSshTunnel: claudeSource === 'remote' ? useSshTunnel : undefined,
+      systemPrompt: claudeSource === 'remote' ? systemPrompt : undefined
     }
 
     const newSpace = await createSpace(input)
@@ -239,7 +248,7 @@ export function HomePage() {
       ? t('Are you sure you want to delete this space?\n\nOnly Halo data (conversation history) will be deleted, your project files will be kept.')
       : t('Are you sure you want to delete this space?\n\nAll conversations and files in the space will be deleted.')
 
-    if (confirm(message)) {
+    if (await confirmDialog(message)) {
       await deleteSpace(spaceId)
     }
   }
@@ -288,6 +297,8 @@ export function HomePage() {
   }
 
   return (
+    <>
+      {ConfirmDialogElement}
     <div className="h-full w-full flex flex-col">
       {/* Header - cross-platform support */}
       <Header
@@ -320,7 +331,7 @@ export function HomePage() {
 
       {/* Content */}
       <main className="flex-1 overflow-auto p-6">
-        {/* Primary entry cards: Halo Space + Skill Management */}
+        {/* Primary entry cards: Halo Space + 技能管理 */}
         <div className="grid grid-cols-2 gap-4 mb-8 animate-fade-in">
           {/* Halo Space card */}
           {haloSpace && (
@@ -373,10 +384,10 @@ export function HomePage() {
               <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
-              <h2 className="text-sm font-semibold">{t('Skill Management')}</h2>
+              <h2 className="text-sm font-semibold">{t('技能管理')}</h2>
             </div>
             <p className="text-xs text-muted-foreground flex-1">
-              {t('Skill library, market, and editor')}
+              {t('技能库、市场与编辑器')}
             </p>
             <div className="flex justify-end">
               <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -696,6 +707,18 @@ export function HomePage() {
                     </p>
                   )}
                 </div>
+
+                {/* System Prompt */}
+                <div className="mb-6">
+                  <label className="block text-sm text-muted-foreground mb-2">{t('System Prompt (optional)')}</label>
+                  <textarea
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                    placeholder={t('Custom instructions for the AI agent in this space...')}
+                    rows={5}
+                    className="w-full mt-1 px-3 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors resize-y text-sm"
+                  />
+                </div>
               </>
             )}
 
@@ -815,5 +838,6 @@ export function HomePage() {
         }}
       />
     </div>
+    </>
   )
 }

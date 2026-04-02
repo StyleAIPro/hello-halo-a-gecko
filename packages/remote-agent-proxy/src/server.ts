@@ -488,6 +488,7 @@ export class RemoteAgentServer {
       console.log(`[RemoteAgentServer] Received claude:chat request for session ${sessionId} with ${messages.length} messages`)
       console.log(`[RemoteAgentServer] options.workDir = ${options?.workDir || 'not provided'}`)
       console.log(`[RemoteAgentServer] options.maxThinkingTokens = ${options?.maxThinkingTokens || 'not provided'}`)
+      console.log(`[RemoteAgentServer] options.system = ${options?.system ? options.system.substring(0, 100) + '...' : 'not provided'}`)
       console.log(`[RemoteAgentServer] SDK session resumption: ${sdkSessionIdForResume || 'new session'}`)
 
       // Normalize messages to ChatMessage format

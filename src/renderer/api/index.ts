@@ -899,32 +899,6 @@ export const api = {
     return { success: false, error: 'Only available in desktop app' }
   },
 
-  /**
-   * Show a native confirm dialog with automatic DWM cleanup on Windows.
-   *
-   * On Windows, native confirm/alert dialogs trigger DWM re-composition which
-   * can re-activate ghost BrowserView HWNDs. This wrapper calls forceRepaint()
-   * after the dialog closes to ensure the DWM composition tree is clean.
-   */
-  confirmWithCleanup: (message: string): boolean => {
-    const result = window.confirm(message)
-    // Schedule DWM cleanup after dialog closes (returns synchronously)
-    if (typeof navigator !== 'undefined' && navigator.platform?.includes('Win')) {
-      api.forceRepaint()
-    }
-    return result
-  },
-
-  /**
-   * Show a native alert dialog with automatic DWM cleanup on Windows.
-   */
-  alertWithCleanup: (message: string): void => {
-    window.alert(message)
-    if (typeof navigator !== 'undefined' && navigator.platform?.includes('Win')) {
-      api.forceRepaint()
-    }
-  },
-
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => {
     if (!isElectron()) {
       return () => { } // No-op in remote mode

@@ -171,7 +171,8 @@ export async function sendMessage(
         request,
         space.remoteServerId,
         space.remotePath || '/home',
-        useSshTunnel
+        useSshTunnel,
+        space.systemPrompt
       )
       console.log('[Agent] executeRemoteMessage completed')
     } catch (error) {
@@ -701,7 +702,8 @@ async function executeRemoteMessage(
   request: AgentRequest,
   serverId: string,
   remotePath: string,
-  useSshTunnel?: boolean  // Use SSH port forwarding (localhost:8080) instead of direct connection
+  useSshTunnel?: boolean,  // Use SSH port forwarding (localhost:8080) instead of direct connection
+  systemPrompt?: string  // Custom system prompt for the space
 ): Promise<void> {
   console.log('[Agent][Remote] ===== FUNCTION START =====')
   console.log('[Agent][Remote] serverId=', serverId, 'remotePath=', remotePath, 'useSshTunnel=', useSshTunnel)
@@ -1312,7 +1314,7 @@ async function executeRemoteMessage(
         baseUrl: currentSource?.apiUrl || undefined,
         model,
         maxTokens: config.agent?.maxTokens || 8192,
-        system: undefined,  // Can add custom system prompt here
+        system: systemPrompt || undefined,  // Custom system prompt from space config
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
         workDir: remotePath,  // CRITICAL: Pass workDir from Space config
         sdkSessionId: sdkSessionIdForResume  // Pass SDK session ID for resumption

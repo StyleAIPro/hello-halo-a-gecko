@@ -51,6 +51,7 @@ interface Space {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string  // Custom system prompt for remote spaces
 
   // Hyper Space support
   spaceType?: SpaceType
@@ -81,6 +82,7 @@ interface SpaceMeta {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string  // Custom system prompt for remote spaces
 
   // Hyper Space support
   spaceType?: SpaceType
@@ -106,6 +108,7 @@ interface SpaceIndexEntry {
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string  // Custom system prompt for remote spaces
 
   // Hyper Space support
   spaceType?: SpaceType
@@ -157,6 +160,7 @@ function metaToEntry(meta: SpaceMeta, spacePath: string): SpaceIndexEntry {
     remoteServerId: meta.remoteServerId,
     remotePath: meta.remotePath,
     useSshTunnel: meta.useSshTunnel,
+    systemPrompt: meta.systemPrompt,
     // Include Hyper Space fields
     spaceType: meta.spaceType,
     agents: meta.agents,
@@ -338,6 +342,7 @@ function entryToSpace(id: string, entry: SpaceIndexEntry): Space {
     remoteServerId: entry.remoteServerId,
     remotePath: entry.remotePath || '/home',
     useSshTunnel: entry.useSshTunnel || false,  // Default to false for old spaces
+    systemPrompt: entry.systemPrompt,
     // Hyper Space fields
     spaceType: entry.spaceType || (entry.claudeSource === 'remote' ? 'remote' : 'local'),
     agents: entry.agents,
@@ -359,6 +364,7 @@ function entryToSpaceWithPreferences(id: string, entry: SpaceIndexEntry): Space 
   space.remoteServerId = meta.remoteServerId || entry.remoteServerId
   space.remotePath = meta.remotePath || entry.remotePath || '/home'
   space.useSshTunnel = meta.useSshTunnel ?? entry.useSshTunnel ?? false  // Default to false
+  space.systemPrompt = meta.systemPrompt || entry.systemPrompt
   return space
 }
 
@@ -450,7 +456,8 @@ export function createSpace({
   claudeSource = 'local',
   remoteServerId,
   remotePath = '/home',
-  useSshTunnel = false
+  useSshTunnel = false,
+  systemPrompt
 }: {
   name: string
   icon: string
@@ -459,6 +466,7 @@ export function createSpace({
   remoteServerId?: string
   remotePath?: string
   useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string  // Custom system prompt for remote spaces
 }): Space {
   const id = uuidv4()
   const now = new Date().toISOString()
@@ -485,7 +493,8 @@ export function createSpace({
     claudeSource,
     remoteServerId,
     remotePath,
-    useSshTunnel
+    useSshTunnel,
+    systemPrompt
   }
 
   writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
@@ -501,7 +510,8 @@ export function createSpace({
     claudeSource,
     remoteServerId,
     remotePath,
-    useSshTunnel
+    useSshTunnel,
+    systemPrompt
   }
   getRegistry().set(id, entry)
   persistIndex(getRegistry())

@@ -226,6 +226,7 @@ export interface Space {
   remoteServerId?: string;
   remotePath?: string;
   useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string;  // Custom system prompt for remote spaces
 }
 
 export interface CreateSpaceInput {
@@ -236,6 +237,7 @@ export interface CreateSpaceInput {
   remoteServerId?: string;
   remotePath?: string;
   useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string;  // Custom system prompt for remote spaces
 }
 
 // ============================================

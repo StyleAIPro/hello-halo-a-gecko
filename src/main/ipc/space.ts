@@ -59,7 +59,7 @@ export function registerSpaceHandlers(): void {
   // Create a new space
   ipcMain.handle(
     'space:create',
-    async (_event, input: { name: string; icon: string; customPath?: string; claudeSource?: 'local' | 'remote'; remoteServerId?: string; remotePath?: string }) => {
+    async (_event, input: { name: string; icon: string; customPath?: string; claudeSource?: 'local' | 'remote'; remoteServerId?: string; remotePath?: string; systemPrompt?: string }) => {
       try {
         const space = createSpace(input)
         return { success: true, data: space }

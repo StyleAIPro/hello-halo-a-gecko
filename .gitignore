@@ -34,6 +34,9 @@ scripts/deploy_local_*.sh
 # Website (landing page, managed separately)
 website/
 
+# Claude Code workspace config
+.claude/
+
 # OS files
 .DS_Store
 RELEASE_NOTES.md

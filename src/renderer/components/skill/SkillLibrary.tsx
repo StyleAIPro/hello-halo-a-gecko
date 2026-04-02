@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import type { InstalledSkill, SkillFileNode } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
+import { useConfirm } from '../ui/ConfirmDialog'
 
 // 文件节点接口
 interface FileNode {
@@ -41,6 +42,7 @@ interface FileNode {
 
 export function SkillLibrary() {
   const { t } = useTranslation()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
   const {
     installedSkills,
     selectedSkillId,
@@ -185,7 +187,7 @@ export function SkillLibrary() {
   // 处理卸载确认
   const handleUninstall = async (skillId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (window.confirm(t('Are you sure you want to uninstall this skill?'))) {
+    if (await confirmDialog(t('Are you sure you want to uninstall this skill?'))) {
       await uninstallSkill(skillId)
     }
   }
@@ -247,6 +249,8 @@ export function SkillLibrary() {
   }
 
   return (
+    <>
+      {ConfirmDialogElement}
     <div className="flex h-full">
       {/* 左侧：技能列表 */}
       <div className="w-80 border-r border-border overflow-y-auto">
@@ -550,6 +554,7 @@ export function SkillLibrary() {
         </div>
       )}
     </div>
+    </>
   )
 }
 
