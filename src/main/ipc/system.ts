@@ -9,6 +9,7 @@ import { setAutoLaunch, getAutoLaunch } from '../services/config.service'
 import { getMainWindow, onMainWindowChange } from '../services/window.service'
 import { getServerInfo } from '../http/server'
 import { validateToken } from '../http/auth'
+import { forceDwmCleanup, dwmFlush } from '../services/win32-hwnd-cleanup'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -237,28 +238,46 @@ export function registerSystemHandlers(): void {
  * Force a window repaint to clear stale BrowserView HWND overlays.
  *
  * On Windows, Electron's removeBrowserView() can silently fail, leaving a
- * transparent HWND that blocks all pointer events. This function forces the
- * DWM (Desktop Window Manager) to re-composite by performing a tiny
- * size change cycle on the main window.
+ * transparent HWND that blocks all pointer events.
  *
- * This is the same mechanism that naturally occurs when opening/closing a
- * native dialog (e.g. file picker), which is why that action "fixes" the bug.
+ * Strategy:
+ * 1. Try native DwmFlush + SetWindowPos(SWP_FRAMECHANGED) via koffi.
+ *    This directly forces the DWM to finish composition and rebuild its tree,
+ *    which is the exact same mechanism that fires when opening/closing a
+ *    native dialog (e.g. file picker).
+ * 2. Fallback: Chromium invalidate() + tiny size change cycle.
  */
 function forceRepaint(window: BrowserWindow): void {
   if (window.isDestroyed() || window.isMinimized()) return
 
   try {
-    // Method 1: Tiny size change to trigger DWM re-composition
+    // Try native DWM cleanup first (most reliable)
+    const nativeOk = forceDwmCleanup(window)
+    if (nativeOk) {
+      // Also invalidate the Chromium compositor as a belt-and-suspenders measure
+      try {
+        window.webContents.invalidate()
+      } catch (_e) {
+        // Ignore
+      }
+      return
+    }
+  } catch (_e) {
+    // Native cleanup failed, fall through to fallback
+  }
+
+  // Fallback: Chromium-level tricks (less reliable than native DWM flush)
+  try {
+    // Tiny size change to trigger DWM re-composition
     const [width, height] = window.getSize()
     window.setSize(width, height + 1)
-    // Restore on next tick (user won't perceive a 1px change at 60fps)
     setImmediate(() => {
       if (!window.isDestroyed()) {
         window.setSize(width, height)
       }
     })
 
-    // Method 2: Also invalidate renderer to force GPU redraw
+    // Also invalidate renderer to force GPU redraw
     try {
       window.webContents.invalidate()
     } catch (_e) {

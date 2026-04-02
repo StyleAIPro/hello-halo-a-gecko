@@ -4230,6 +4230,11 @@ klaw-sync@^6.0.0:
   dependencies:
     graceful-fs "^4.1.11"
 
+koffi@^2.15.2:
+  version "2.15.2"
+  resolved "https://registry.npmjs.org/koffi/-/koffi-2.15.2.tgz"
+  integrity sha512-r9tjJLVRSOhCRWdVyQlF3/Ugzeg13jlzS4czS82MAgLff4W+BcYOW7g8Y62t9O5JYjYOLAjAovAZDNlDfZNu+g==
+
 lazy-val@^1.0.4, lazy-val@^1.0.5:
   version "1.0.5"
   resolved "https://registry.npmmirror.com/lazy-val/-/lazy-val-1.0.5.tgz"

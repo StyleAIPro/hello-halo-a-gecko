@@ -102,6 +102,14 @@ export function SettingsPage() {
                 <AISourcesSection config={config as HaloConfig} setConfig={setConfig} />
               </section>
 
+              {/* Remote Servers Section */}
+              <RemoteServersSection />
+
+              {/* GitHub Integration Section - Desktop only */}
+              {!isRemoteMode && (
+                <GitHubSection />
+              )}
+
               {/* MCP Servers Section */}
               <section id="mcp" className="bg-card rounded-xl border border-border p-6">
                 <McpServerList
@@ -128,30 +136,22 @@ export function SettingsPage() {
                 </div>
               </section>
 
+              {/* Appearance Section */}
+              <AppearanceSection config={config} setConfig={setConfig} />
+
               {/* Notification Channels Section */}
               <NotificationChannelsSection config={config} setConfig={setConfig} />
 
+              {/* Remote Access Section */}
+              <RemoteAccessSection />
+
               {/* App Store Registry Section */}
               <RegistrySection />
-
-              {/* Appearance Section */}
-              <AppearanceSection config={config} setConfig={setConfig} />
 
               {/* System Section - Desktop only */}
               {!isRemoteMode && (
                 <SystemSection config={config} setConfig={setConfig} />
               )}
-
-              {/* GitHub Integration Section - Desktop only */}
-              {!isRemoteMode && (
-                <GitHubSection />
-              )}
-
-              {/* Remote Access Section */}
-              <RemoteAccessSection />
-
-              {/* Remote Servers Section */}
-              <RemoteServersSection />
 
               {/* About Section */}
               <AboutSection />

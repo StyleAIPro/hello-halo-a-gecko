@@ -16,6 +16,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { forceDwmCleanup } from './win32-hwnd-cleanup'
 
 // BrowserView is imported dynamically to avoid ESM bundling issues
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -293,10 +294,13 @@ class OverlayManager {
     // Update bounds to cover the capsule area (left side)
     this.updateOverlayBounds()
 
-    // On Windows, force compositor flush after adding the BrowserView HWND
+    // On Windows, force DWM flush after adding the BrowserView HWND
     if (process.platform === 'win32') {
       try {
-        this.mainWindow.webContents.invalidate()
+        const nativeOk = forceDwmCleanup(this.mainWindow)
+        if (!nativeOk) {
+          this.mainWindow.webContents.invalidate()
+        }
       } catch (_e) {
         // Ignore
       }
@@ -344,11 +348,15 @@ class OverlayManager {
     }
 
     // Step 3: On Windows, force DWM to re-composite after removing the child HWND.
-    // Without this, the removed HWND may still intercept WM_NCHITTEST messages
-    // until the next compositor flush cycle.
+    // Uses native Win32 APIs (DwmFlush + SetWindowPos SWP_FRAMECHANGED) to
+    // rebuild the composition tree, which is the same mechanism that fires
+    // when opening/closing a native dialog.
     if (process.platform === 'win32') {
       try {
-        this.mainWindow.webContents.invalidate()
+        const nativeOk = forceDwmCleanup(this.mainWindow)
+        if (!nativeOk) {
+          this.mainWindow.webContents.invalidate()
+        }
       } catch (_e) {
         // webContents may be destroyed during shutdown
       }

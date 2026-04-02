@@ -59,6 +59,7 @@ export function SpacePage() {
 
   // Precise selectors — only subscribe to what SpacePage needs for layout orchestration
   const setView = useAppStore(state => state.setView)
+  const pageTransition = useAppStore(state => state.pageTransition)
   const mockBashMode = useAppStore(state => state.mockBashMode)
   const gitBashInstallProgress = useAppStore(state => state.gitBashInstallProgress)
   const startGitBashInstall = useAppStore(state => state.startGitBashInstall)
@@ -375,7 +376,7 @@ export function SpacePage() {
             {/* Skills - navigate to Skill management page */}
             <button
               onClick={() => setView('skill')}
-              className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
+              className={`p-1.5 hover:bg-secondary rounded-lg transition-colors ${pageTransition.isAnimating ? 'animate-icon-catch' : ''}`}
               title={t('Skill Library')}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

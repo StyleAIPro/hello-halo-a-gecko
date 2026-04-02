@@ -2,7 +2,8 @@
  * Halo - Main App Component
  */
 
-import { useEffect, useRef, Suspense, lazy } from 'react'
+import { useEffect, useRef, useState, useCallback, Suspense, lazy } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore } from './stores/app.store'
 import { useChatStore } from './stores/chat.store'
 import { useOnboardingStore } from './stores/onboarding.store'
@@ -77,6 +78,45 @@ function applyTheme(theme: 'light' | 'dark' | 'system') {
   api.setTitleBarOverlay(colors).catch(() => {
     // Ignore errors - may not be supported on current platform
   })
+}
+
+/**
+ * Helper component that triggers a CSS transition on mount.
+ * Applies transform/opacity to parent after first frame.
+ */
+function MountTransition({ dx, dy, scaleX, scaleY, onComplete }: {
+  dx: number; dy: number; scaleX: number; scaleY: number; onComplete: () => void
+}) {
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const parent = parentRef.current?.parentElement
+    if (!parent) return
+
+    const frame = requestAnimationFrame(() => {
+      parent.style.transform = `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`
+      parent.style.opacity = '0'
+      parent.style.borderRadius = '8px'
+    })
+
+    const handleTransitionEnd = (e: TransitionEvent) => {
+      if (e.target === parent) {
+        onComplete()
+      }
+    }
+    parent.addEventListener('transitionend', handleTransitionEnd)
+
+    // Safety timeout in case transitionend doesn't fire
+    const timeout = setTimeout(onComplete, 1200)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      parent.removeEventListener('transitionend', handleTransitionEnd)
+      clearTimeout(timeout)
+    }
+  }, [])
+
+  return <div ref={parentRef} />
 }
 
 export default function App() {
@@ -179,8 +219,8 @@ export default function App() {
 
   // Theme switching
   useEffect(() => {
-    // Default to 'dark' before config loads, then use config value
-    const theme = config?.appearance?.theme || 'dark'
+    // Default to 'light' before config loads, then use config value
+    const theme = config?.appearance?.theme || 'light'
     applyTheme(theme)
 
     // Listen for system theme changes when using 'system' mode
@@ -621,6 +661,69 @@ export default function App() {
     }
   }
 
+  // Page transition overlay for skill card -> book icon animation
+  const PageTransitionOverlay = useCallback(() => {
+    const pageTransition = useAppStore.getState().pageTransition
+    const setPageTransition = useAppStore.getState().setPageTransition
+
+    if (!pageTransition.isAnimating || !pageTransition.sourceRect) return null
+
+    const src = pageTransition.sourceRect
+    const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
+    // Target: center of book icon in SpacePage header
+    // From right edge of content area: Settings(32) + gap(8) + half book icon(16) = 56px
+    // Plus platform padding: Windows pr-36=144px, Mac pr-4=16px, Browser pr-4=16px
+    const platformPadding = isMac ? 16 : 144
+    const targetRight = platformPadding + 56  // Windows: 200, Mac: 72
+    const targetTop = 12  // header height 40px / 2 - half of 6px target + center adjustment
+    const targetWidth = 6
+    const targetHeight = 6
+
+    // Calculate transform deltas (GPU-accelerated)
+    const targetCenterX = window.innerWidth - targetRight - targetWidth / 2
+    const targetCenterY = targetTop + targetHeight / 2
+    const srcCenterX = src.left + src.width / 2
+    const srcCenterY = src.top + src.height / 2
+    const dx = targetCenterX - srcCenterX
+    const dy = targetCenterY - srcCenterY
+    const scaleX = targetWidth / src.width
+    const scaleY = targetHeight / src.height
+
+    const cleanup = () => {
+      setPageTransition({ isAnimating: false, sourceRect: null })
+    }
+
+    return createPortal(
+      <div
+        style={{
+          position: 'fixed',
+          top: `${src.top}px`,
+          left: `${src.left}px`,
+          width: `${src.width}px`,
+          height: `${src.height}px`,
+          zIndex: 9999,
+          pointerEvents: 'none',
+          transform: 'translate(0, 0) scale(1)',
+          opacity: 1,
+          borderRadius: '12px',
+          transition: 'transform 1000ms cubic-bezier(0.22, 1, 0.36, 1), opacity 500ms ease-in 500ms, border-radius 1000ms cubic-bezier(0.22, 1, 0.36, 1)',
+        }}
+        className="bg-card border border-border"
+      >
+        <div className="w-full h-full rounded-xl flex flex-col gap-3 p-5">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </div>
+        </div>
+        {/* Transition trigger - apply target styles after mount */}
+        <MountTransition dx={dx} dy={dy} scaleX={scaleX} scaleY={scaleY} onComplete={cleanup} />
+      </div>,
+      document.body
+    )
+  }, [])
+
   // Render based on current view
   // Heavy pages (HomePage, SpacePage, SettingsPage) are lazy-loaded for better initial performance
   const renderView = () => {
@@ -681,6 +784,7 @@ export default function App() {
   return (
     <div className="h-full w-full overflow-hidden bg-background">
       {renderView()}
+      <PageTransitionOverlay />
       {/* Search panel - full screen edit mode */}
       <SearchPanel isOpen={isSearchOpen} onClose={closeSearch} />
       {/* Search highlight bar - floating navigation mode */}

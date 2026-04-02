@@ -17,25 +17,20 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: Bot
   },
   {
+    id: 'remote-servers',
+    labelKey: '远程服务器管理',
+    icon: Server
+  },
+  {
+    id: 'github',
+    labelKey: 'GitHub 连接',
+    icon: Github,
+    desktopOnly: true
+  },
+  {
     id: 'mcp',
     labelKey: 'MCP',
     icon: Puzzle
-  },
-  // Future: Skills section
-  // {
-  //   id: 'skills',
-  //   labelKey: 'Skills',
-  //   icon: Wand
-  // },
-  {
-    id: 'notification-channels',
-    labelKey: 'Notification Channels',
-    icon: Bell
-  },
-  {
-    id: 'app-store',
-    labelKey: 'App Store',
-    icon: Store
   },
   {
     id: 'appearance',
@@ -43,16 +38,9 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: Palette
   },
   {
-    id: 'system',
-    labelKey: 'System',
-    icon: Settings,
-    desktopOnly: true
-  },
-  {
-    id: 'github',
-    labelKey: 'GitHub',
-    icon: Github,
-    desktopOnly: true
+    id: 'notification-channels',
+    labelKey: 'Notification Channels',
+    icon: Bell
   },
   {
     id: 'remote',
@@ -61,10 +49,15 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     desktopOnly: true
   },
   {
-    id: 'remote-servers',
-    labelKey: '远程服务器管理',
-    icon: Server,
-    desktopOnly: false,
+    id: 'app-store',
+    labelKey: 'App Store',
+    icon: Store
+  },
+  {
+    id: 'system',
+    labelKey: 'System',
+    icon: Settings,
+    desktopOnly: true
   },
   {
     id: 'about',

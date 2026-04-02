@@ -20,26 +20,17 @@ import {
 import { Header } from '../components/layout/Header'
 import { SpaceGuide } from '../components/space/SpaceGuide'
 import { HyperSpaceCreationDialog } from '../components/space/HyperSpaceCreationDialog'
-import { Monitor, Blocks, ArrowRight, AlertCircle, Cloud, Folder } from 'lucide-react'
+import { Monitor, Blocks, ArrowRight, Cloud, Folder } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
-import { useAppsStore } from '../stores/apps.store'
-import { useAppsPageStore } from '../stores/apps-page.store'
 
 // Check if running in web mode
 const isWebMode = api.isRemoteMode()
 
 export function HomePage() {
   const { t } = useTranslation()
-  const { setView } = useAppStore()
+  const { setView, setPageTransition } = useAppStore()
   const { haloSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
-  const { apps, loadApps } = useAppsStore()
-  const { setInitialAppId } = useAppsPageStore()
-
-  // Load apps on mount for the Apps card
-  useEffect(() => {
-    loadApps()
-  }, [loadApps])
 
   // Dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -178,6 +169,17 @@ export function HomePage() {
 
   // Handle space click - no reset needed, SpacePage handles its own state
   const handleSpaceClick = (space: Space) => {
+    // Capture skill card rect for transition animation (single-step: shrink + fly simultaneously)
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const skillCard = document.querySelector('[data-transition-source="skill-card"]')
+    if (skillCard && !prefersReducedMotion) {
+      const rect = skillCard.getBoundingClientRect()
+      setPageTransition({
+        isAnimating: true,
+        sourceRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+      })
+    }
+
     setCurrentSpace(space)
     refreshCurrentSpace()  // Load full space data (preferences) from backend
     setView('space')
@@ -298,18 +300,27 @@ export function HomePage() {
           </>
         }
         right={
-          <button
-            onClick={() => setView('settings')}
-            className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
+          <>
+            <button
+              onClick={() => setView('apps')}
+              className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
+              title={t('Apps')}
+            >
+              <Blocks className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setView('settings')}
+              className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </>
         }
       />
 
       {/* Content */}
       <main className="flex-1 overflow-auto p-6">
-        {/* Primary entry cards: Halo Space + Apps */}
+        {/* Primary entry cards: Halo Space + Skill Management */}
         <div className="grid grid-cols-2 gap-4 mb-8 animate-fade-in">
           {/* Halo Space card */}
           {haloSpace && (
@@ -352,49 +363,21 @@ export function HomePage() {
             </div>
           )}
 
-          {/* Apps card */}
+          {/* Skill Management card */}
           <div
-            onClick={() => setView('apps')}
+            data-transition-source="skill-card"
+            onClick={() => setView('skill')}
             className="p-5 rounded-xl cursor-pointer border border-border hover:border-primary/40 hover:bg-secondary/50 transition-colors flex flex-col gap-3 min-h-[120px]"
           >
             <div className="flex items-center gap-2">
-              <Blocks className="w-5 h-5 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">{t('Apps')}</h2>
+              <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <h2 className="text-sm font-semibold">{t('Skill Management')}</h2>
             </div>
-
-            {apps.length === 0 ? (
-              <p className="text-xs text-muted-foreground flex-1">
-                {t('No apps yet. Create from a conversation.')}
-              </p>
-            ) : (
-              <div className="flex-1 space-y-1">
-                {apps.slice(0, 3).map(app => {
-                  const isWaiting = app.status === 'waiting_user'
-                  return (
-                    <button
-                      key={app.id}
-                      onClick={e => {
-                        e.stopPropagation()
-                        setInitialAppId(app.id)
-                        setView('apps')
-                      }}
-                      className="w-full flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        isWaiting ? 'bg-orange-400' :
-                        app.status === 'active' ? 'bg-green-500/70' :
-                        app.status === 'error' ? 'bg-red-500' : 'border border-muted-foreground/40'
-                      }`} />
-                      <span className="text-xs text-foreground truncate flex-1 min-w-0">{app.spec.name}</span>
-                      {isWaiting && (
-                        <AlertCircle className="w-3 h-3 text-orange-400 flex-shrink-0" />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-
+            <p className="text-xs text-muted-foreground flex-1">
+              {t('Skill library, market, and editor')}
+            </p>
             <div className="flex justify-end">
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 {t('Open')} <ArrowRight className="w-3 h-3" />

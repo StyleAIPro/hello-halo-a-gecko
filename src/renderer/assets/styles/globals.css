@@ -352,6 +352,17 @@ body {
   animation: fade-out 0.2s ease-out forwards;
 }
 
+/* Book icon catch animation (space page header) */
+@keyframes icon-catch {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-icon-catch {
+  animation: icon-catch 300ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
+}
+
 /* Slide animations */
 @keyframes slide-in-right {
   from {

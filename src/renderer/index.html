@@ -9,24 +9,25 @@
     />
   <title>Halo - AI that gets things done</title>
     <style>
-      /* Anti-flash: set background before CSS loads */
-      html, body, #root { background-color: #0a0a0a; }
-      html.light, html.light body, html.light #root { background-color: #ffffff; }
+      /* Anti-flash: set background before CSS loads (default: light) */
+      html, body, #root { background-color: #ffffff; }
+      html:not(.light), html:not(.light) body, html:not(.light) #root { background-color: #0a0a0a; }
     </style>
     <script>
-      // Anti-flash: apply theme before render (default: dark)
+      // Anti-flash: apply theme before render (default: light)
       (function() {
         try {
+          document.documentElement.classList.add('light');
           var theme = localStorage.getItem('halo-theme');
-          if (theme === 'light') {
-            document.documentElement.classList.add('light');
+          if (theme === 'dark') {
+            document.documentElement.classList.remove('light');
           } else if (theme === 'system') {
             // system: check preference
-            if (!window.matchMedia('(prefers-color-scheme: dark)').matches) {
-              document.documentElement.classList.add('light');
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              document.documentElement.classList.remove('light');
             }
           }
-          // default (no localStorage or 'dark'): stay dark, do nothing
+          // default (no localStorage or 'light'): stay light
         } catch (e) {}
         // Platform class for conditional CSS (e.g. backdrop-filter only on GPU-enabled platforms)
         if (navigator.userAgent.indexOf('Windows') !== -1) {

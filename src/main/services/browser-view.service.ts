@@ -16,6 +16,7 @@
  */
 
 import { BrowserWindow } from 'electron'
+import { forceDwmCleanup } from './win32-hwnd-cleanup'
 
 // BrowserView is imported dynamically to avoid ESM bundling issues
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,7 +124,11 @@ class BrowserViewManager {
           this.mainWindow.webContents.send('browser:all-views-hidden')
           // On Windows, force DWM to re-composite after bulk removeBrowserView
           if (process.platform === 'win32') {
-            this.mainWindow.webContents.invalidate()
+            try {
+              forceDwmCleanup(this.mainWindow)
+            } catch (_e) {
+              this.mainWindow.webContents.invalidate()
+            }
           }
         } catch (_e) {
           // Ignore
@@ -349,10 +354,15 @@ class BrowserViewManager {
     this.activeViewId = viewId
     console.log(`[BrowserView] <<< show() success - activeViewId: ${this.activeViewId}`)
 
-    // On Windows, force compositor flush after adding the BrowserView HWND
+    // On Windows, force DWM flush after adding the BrowserView HWND
     if (process.platform === 'win32') {
       try {
-        this.mainWindow.webContents.invalidate()
+        // Try native DWM flush first (more reliable)
+        const nativeOk = forceDwmCleanup(this.mainWindow)
+        if (!nativeOk) {
+          // Fallback to Chromium-level invalidation
+          this.mainWindow.webContents.invalidate()
+        }
       } catch (_e) {
         // Ignore
       }
@@ -416,23 +426,28 @@ class BrowserViewManager {
       // First removal failed, view might already be removed
     }
 
-    // Step 3: On Windows, force DWM compositor flush
-    // This mimics the "opening/closing dialog" effect that fixes the issue
+    // Step 3: On Windows, force DWM to rebuild composition tree.
+    // Uses native Win32 APIs (DwmFlush + SetWindowPos SWP_FRAMECHANGED)
+    // via koffi, which is the same mechanism that fires when opening/closing
+    // a native dialog. Falls back to invalidate() + blur/focus if koffi fails.
     if (process.platform === 'win32' && !hostWindow.isDestroyed()) {
       try {
-        // Force a full compositor redraw
-        hostWindow.webContents.invalidate()
-
-        // Blur and refocus the window to trigger DWM re-composition
-        // This is the key step that clears any lingering transparent HWNDs
-        hostWindow.blur()
-        setTimeout(() => {
-          if (!hostWindow.isDestroyed() && !hostWindow.isMinimized()) {
-            hostWindow.focus()
-          }
-        }, 100)
+        const nativeCleanupOk = forceDwmCleanup(hostWindow)
+        if (!nativeCleanupOk) {
+          // Fallback: Chromium-level compositor flush (less reliable)
+          hostWindow.webContents.invalidate()
+          hostWindow.blur()
+          setTimeout(() => {
+            if (!hostWindow.isDestroyed() && !hostWindow.isMinimized()) {
+              hostWindow.focus()
+            }
+          }, 100)
+        }
       } catch (_e) {
-        // Ignore - best effort only
+        // Fallback on error
+        try {
+          hostWindow.webContents.invalidate()
+        } catch (_e2) { /* ignore */ }
       }
     }
 
@@ -645,6 +660,16 @@ class BrowserViewManager {
         hostWindow.removeBrowserView(view)
       } catch (_e) {
         // Already removed
+      }
+
+      // On Windows, force DWM cleanup after destroying a BrowserView
+      // to guarantee the child HWND is fully removed from the composition tree
+      if (process.platform === 'win32') {
+        try {
+          forceDwmCleanup(hostWindow)
+        } catch (_e) {
+          // Best effort
+        }
       }
     }
 

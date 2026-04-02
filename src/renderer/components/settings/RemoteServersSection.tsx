@@ -7,6 +7,7 @@ import React from 'react'
 import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit, ListChecks } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
+import { useConfirm } from '../ui/ConfirmDialog'
 
 interface TerminalEntry {
   id: string
@@ -17,6 +18,7 @@ interface TerminalEntry {
 
 export function RemoteServersSection() {
   const { t } = useTranslation()
+  const { confirm: confirmDialog, alert: alertDialog, ConfirmDialogElement } = useConfirm()
   const [servers, setServers] = React.useState<any[]>([])
   const [loading, setLoading] = React.useState(false)
   const [showAddDialog, setShowAddDialog] = React.useState(false)
@@ -273,11 +275,11 @@ export function RemoteServersSection() {
         await loadServers()
       } else {
         console.error('[RemoteServersSection] Add failed:', result.error)
-        alert(result.error || t('Failed to add server'))
+        await alertDialog(result.error || t('Failed to add server'))
       }
     } catch (error) {
       console.error('[RemoteServersSection] Add error:', error)
-      alert(t('Failed to add server'))
+      await alertDialog(t('Failed to add server'))
     } finally {
       setSaving(false)
     }
@@ -344,18 +346,18 @@ export function RemoteServersSection() {
         await loadServers()
       } else {
         console.error('[RemoteServersSection] Edit failed:', result.error)
-        alert(result.error || t('Failed to update server'))
+        await alertDialog(result.error || t('Failed to update server'))
       }
     } catch (error) {
       console.error('[RemoteServersSection] Edit error:', error)
-      alert(t('Failed to update server'))
+      await alertDialog(t('Failed to update server'))
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeleteServer = async (serverId: string) => {
-    if (!confirm(t('Are you sure you want to delete this server?'))) return
+    if (!(await confirmDialog(t('Are you sure you want to delete this server?')))) return
     try {
       const result = await api.remoteServerDelete(serverId)
       if (result.success) {
@@ -381,11 +383,11 @@ export function RemoteServersSection() {
         // The status will be updated via the status-change event
         // No need to reload servers - status-change event will update UI
       } else {
-        alert(result.error || t('Failed to connect'))
+        await alertDialog(result.error || t('Failed to connect'))
       }
     } catch (error) {
       console.error('[RemoteServersSection] Failed to connect server:', error)
-      alert(t('Failed to connect'))
+      await alertDialog(t('Failed to connect'))
     }
   }
 
@@ -471,7 +473,7 @@ export function RemoteServersSection() {
   // Update agent code to latest version
   // Returns true if update succeeded, false if failed
   const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean): Promise<boolean> => {
-    if (!skipConfirm && !confirm(t('Update remote agent to latest version? This will restart the agent service.'))) return true
+    if (!skipConfirm && !(await confirmDialog(t('Update remote agent to latest version? This will restart the agent service.')))) return true
     setUpdatingAgent(serverId)
     expandServer(serverId)
     // Clear terminal only when starting a new update (as requested by user)
@@ -493,12 +495,12 @@ export function RemoteServersSection() {
           // Only show alert for single (non-batch) updates
           if (!skipConfirm) {
             let alertMessage = `${t('Agent updated successfully')}\n\n${t('Local version')}: ${versionInfo.localVersion || 'unknown'}${versionInfo.localBuildTime ? `\n${t('Local build time')}: ${versionInfo.localBuildTime}` : ''}\n\n${t('Remote version')}: ${versionInfo.remoteVersion}${versionInfo.remoteBuildTime ? `\n${t('Remote build time')}: ${versionInfo.remoteBuildTime}` : ''}`
-            alert(alertMessage)
+            await alertDialog(alertMessage)
           }
         } else {
           addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
           if (!skipConfirm) {
-            alert(t('Agent updated successfully'))
+            await alertDialog(t('Agent updated successfully'))
           }
         }
         await loadServers()
@@ -506,7 +508,7 @@ export function RemoteServersSection() {
       } else {
         addTerminalEntry(serverId, 'error', `Update failed: ${result.error}`)
         if (!skipConfirm) {
-          alert(result.error || t('Failed to update agent'))
+          await alertDialog(result.error || t('Failed to update agent'))
         }
         return false
       }
@@ -514,7 +516,7 @@ export function RemoteServersSection() {
       addTerminalEntry(serverId, 'error', `Error updating agent: ${error}`)
       console.error('[RemoteServersSection] Update agent error:', error)
       if (!skipConfirm) {
-        alert(t('Failed to update agent'))
+        await alertDialog(t('Failed to update agent'))
       }
       return false
     } finally {
@@ -556,7 +558,7 @@ export function RemoteServersSection() {
   // Batch update all servers
   const handleBatchUpdate = async () => {
     if (servers.length === 0) return
-    if (!confirm(t('Batch update all servers to latest version? This will restart all agent services.'))) return
+    if (!(await confirmDialog(t('Batch update all servers to latest version? This will restart all agent services.')))) return
     setBatchUpdating(true)
     // Expand all servers to show terminal output
     setExpandedServers(prev => new Set([...prev, ...servers.map(s => s.id)]))
@@ -580,7 +582,7 @@ export function RemoteServersSection() {
     setBatchProgress(null)
     setBatchUpdating(false)
     // Show summary alert
-    alert(`Batch update completed: ${succeeded}/${total} succeeded${failed > 0 ? `, ${failed} failed` : ''}`)
+    await alertDialog(`Batch update completed: ${succeeded}/${total} succeeded${failed > 0 ? `, ${failed} failed` : ''}`)
     await loadServers()
   }
 
@@ -610,7 +612,9 @@ export function RemoteServersSection() {
   }
 
   return (
-    <section id="remote-servers" className="bg-card rounded-xl border border-border p-6">
+    <>
+      {ConfirmDialogElement}
+      <section id="remote-servers" className="bg-card rounded-xl border border-border p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold">{t('远程服务器管理')}</h2>
@@ -976,5 +980,6 @@ export function RemoteServersSection() {
         </div>
       )}
     </section>
+    </>
   )
 }

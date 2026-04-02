@@ -17,7 +17,7 @@ export function AppearanceSection({ config, setConfig }: AppearanceSectionProps)
   const { t } = useTranslation()
 
   // Theme state
-  const [theme, setTheme] = useState<ThemeMode>(config?.appearance?.theme || 'system')
+  const [theme, setTheme] = useState<ThemeMode>(config?.appearance?.theme || 'light')
 
   // Auto-save helper for appearance settings
   const autoSave = useCallback(async (partialConfig: Partial<HaloConfig>) => {

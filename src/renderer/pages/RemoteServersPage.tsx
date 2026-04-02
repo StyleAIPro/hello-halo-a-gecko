@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react'
 import { ArrowLeft, Plus, Server, Trash2, Edit, Globe, FolderOpen, Terminal, AlertCircle, CheckCircle, Loader2, MessageSquare, Rocket, Link as LinkIcon, Info, X } from 'lucide-react'
 import { Header } from '../components/layout/Header'
 import { api } from '../api'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useAppStore } from '../stores/app.store'
 import { useSpaceStore } from '../stores/space.store'
 import { useChatStore } from '../stores/chat.store'
@@ -31,6 +32,7 @@ export interface RemoteServer {
 
 export function RemoteServersPage() {
   const { t } = useTranslation()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
   const { goBack, setView } = useAppStore()
   const { spaces, loadSpaces, setCurrentSpace } = useSpaceStore()
   const { selectConversation } = useChatStore()
@@ -237,7 +239,7 @@ export function RemoteServersPage() {
   }
 
   const handleDeleteServer = async (id: string) => {
-    if (!confirm(t('Are you sure you want to delete this remote server?'))) {
+    if (!(await confirmDialog(t('Are you sure you want to delete this remote server?')))) {
       return
     }
 
@@ -374,6 +376,8 @@ export function RemoteServersPage() {
       : keyPath.trim())
 
   return (
+    <>
+      {ConfirmDialogElement}
     <div className="h-full w-full flex flex-col">
       {/* Header */}
       <Header
@@ -994,5 +998,6 @@ export function RemoteServersPage() {
         </div>
       )}
     </div>
+    </>
   )
 }
