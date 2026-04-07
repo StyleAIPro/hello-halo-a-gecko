@@ -190,6 +190,8 @@ npm run dev
 
 > To build for all platforms, run `npm run prepare:all` first to download binaries for every target platform.
 
+详细的 Windows 本地开发、构建、部署指南请参阅 [WINDOWS_DEV.md](./WINDOWS_DEV.md)。
+
 ---
 
 ## Quick Start
