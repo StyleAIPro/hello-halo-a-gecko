@@ -306,19 +306,6 @@ export function SkillLibrary() {
 
   const isLocal = selectedSource.type === 'local'
 
-  // 空状态：本地无技能
-  if (isLocal && sortedSkills.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <Book className="w-16 h-16 text-muted-foreground/50 mb-4" />
-        <h3 className="text-lg font-semibold text-foreground mb-2">{t('No skills installed')}</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          {t('Install skills from the market or create your own to get started.')}
-        </p>
-      </div>
-    )
-  }
-
   return (
     <>
       {ConfirmDialogElement}
@@ -465,6 +452,15 @@ export function SkillLibrary() {
               <Server className="w-10 h-10 mb-3 opacity-50" />
               <p className="text-sm">{t('No skills on this server')}</p>
               <p className="text-xs mt-1">{t('Use Sync to upload local skills.')}</p>
+            </div>
+          )}
+
+          {/* 空状态（本地） */}
+          {!activeLoading && !activeError && activeSkills.length === 0 && isLocal && (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Book className="w-10 h-10 mb-3 opacity-50" />
+              <p className="text-sm">{t('No skills installed')}</p>
+              <p className="text-xs mt-1">{t('Install skills from the market or create your own.')}</p>
             </div>
           )}
 

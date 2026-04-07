@@ -99,6 +99,9 @@ export function SkillMarket() {
   // 远程服务器列表
   const [servers, setServers] = useState<ServerInfo[]>([])
 
+  // 远程服务器已安装技能映射: serverId -> Set<appId>
+  const [remoteInstalledMap, setRemoteInstalledMap] = useState<Record<string, Set<string>>>({})
+
   // 当前选中技能的各环境安装状态
   const [envStatuses, setEnvStatuses] = useState<EnvStatus[]>([])
 
@@ -120,12 +123,28 @@ export function SkillMarket() {
     setHasMore(true)
   }, [debouncedQuery])
 
-  // 加载远程服务器列表
+  // 加载远程服务器列表，同时查询每个服务器上已安装的技能
   const loadServers = useCallback(async () => {
     try {
       const result = await api.remoteServerList()
       if (result.success && result.data) {
-        setServers(result.data as ServerInfo[])
+        const serverList = result.data as ServerInfo[]
+        setServers(serverList)
+
+        // 并行查询每个服务器的已安装技能
+        const map: Record<string, Set<string>> = {}
+        const queries = serverList.map(async (server) => {
+          try {
+            const res = await api.remoteServerListSkills(server.id)
+            if (res.success && res.data) {
+              map[server.id] = new Set((res.data as Array<{ appId: string }>).map(s => s.appId))
+            }
+          } catch {
+            // ignore individual server query failure
+          }
+        })
+        await Promise.all(queries)
+        setRemoteInstalledMap(map)
       }
     } catch (error) {
       console.error('Failed to load servers:', error)
@@ -182,6 +201,20 @@ export function SkillMarket() {
   const installedSkillIds = useMemo(() => {
     return new Set(installedSkills.map(s => s.appId))
   }, [installedSkills])
+
+  // 查询某个 appId 在哪些环境安装了
+  const getInstalledTargets = useCallback((appId: string) => {
+    const targets: Array<{ key: string; name: string; type: 'local' | 'remote' }> = []
+    if (installedSkillIds.has(appId)) {
+      targets.push({ key: 'local', name: t('Local'), type: 'local' })
+    }
+    for (const server of servers) {
+      if (remoteInstalledMap[server.id]?.has(appId)) {
+        targets.push({ key: `remote:${server.id}`, name: server.name, type: 'remote' })
+      }
+    }
+    return targets
+  }, [installedSkillIds, remoteInstalledMap, servers, t])
 
   // 当选中技能变化时，查询所有环境的安装状态
   useEffect(() => {
@@ -341,6 +374,10 @@ export function SkillMarket() {
       await loadInstalledSkills()
       // 刷新该环境的安装状态
       refreshEnvStatus(skill, env)
+      // 刷新远程已安装映射（用于卡片标记）
+      if (env.type === 'remote' && env.serverId) {
+        refreshRemoteInstalledMap(env.serverId)
+      }
     } catch (error) {
       console.error('Failed to install skill:', error)
     } finally {
@@ -368,6 +405,10 @@ export function SkillMarket() {
       await api.skillUninstallMulti({ appId, targets: [target] })
       await loadInstalledSkills()
       refreshEnvStatus(skill, env)
+      // 刷新远程已安装映射
+      if (env.type === 'remote' && env.serverId) {
+        refreshRemoteInstalledMap(env.serverId)
+      }
     } catch (error) {
       console.error('Failed to uninstall skill:', error)
     } finally {
@@ -431,6 +472,16 @@ export function SkillMarket() {
         )
       })
     }
+  }
+
+  // 刷新单个远程服务器的已安装技能映射（用于卡片标记）
+  const refreshRemoteInstalledMap = (serverId: string) => {
+    api.remoteServerListSkills(serverId).then(result => {
+      if (result.success && result.data) {
+        const appIds = new Set((result.data as Array<{ appId: string }>).map(s => s.appId))
+        setRemoteInstalledMap(prev => ({ ...prev, [serverId]: appIds }))
+      }
+    }).catch(() => {})
   }
 
   // 获取目标名称
@@ -588,7 +639,8 @@ export function SkillMarket() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {skills.map((skill) => {
                 const appId = extractAppId(skill.id)
-                const isInstalled = installedSkillIds.has(appId)
+                const installedTargets = getInstalledTargets(appId)
+                const isInstalled = installedTargets.length > 0
 
                 return (
                   <div
@@ -611,10 +663,29 @@ export function SkillMarket() {
                       {isInstalled && (
                         <span className="text-xs text-green-500 px-1.5 py-0.5 bg-green-500/10 rounded flex items-center gap-1 shrink-0">
                           <Check className="w-3 h-3" />
-                          {t('Installed')}
+                          {installedTargets.length}
                         </span>
                       )}
                     </div>
+
+                    {/* 安装位置标签 */}
+                    {isInstalled && (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {installedTargets.map(target => (
+                          <span
+                            key={target.key}
+                            className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground bg-secondary/80 px-1.5 py-0.5 rounded"
+                          >
+                            {target.type === 'local' ? (
+                              <Monitor className="w-2.5 h-2.5" />
+                            ) : (
+                              <Server className="w-2.5 h-2.5" />
+                            )}
+                            {target.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
                       {skill.description}

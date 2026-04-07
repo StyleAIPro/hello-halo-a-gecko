@@ -36,6 +36,137 @@ async function ensureInitialized(): Promise<void> {
   }
 }
 
+/**
+ * Fallback: 直接从 GitHub 下载 SKILL.md 并写入本地目录安装
+ * 当 npx 不可用时使用（如新 PC 未安装 Node.js）
+ */
+async function installSkillFromGitHub(
+  githubRepo: string,
+  skillName: string,
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+): Promise<{ success: boolean; error?: string }> {
+  const path = await import('path');
+  const fs = await import('fs/promises');
+  const { getAgentsSkillsDir } = await import('../services/config.service');
+  const { parse as parseYaml } = await import('yaml');
+
+  const skillId = skillName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
+  const skillDir = path.join(getAgentsSkillsDir(), skillId);
+
+  onOutput?.({ type: 'stdout', content: `npx not available, downloading directly from GitHub...\n` });
+
+  // 尝试多个可能的 GitHub 路径
+  const branches = ['main', 'master'];
+  const pathVariants = [
+    `skills/${skillName}/SKILL.md`,
+    `skills/${skillName}/SKILL.yaml`,
+    `skills-${skillName}/SKILL.md`,
+    `skills-${skillName}/SKILL.yaml`,
+    `${skillName}/SKILL.md`,
+    `${skillName}/SKILL.yaml`,
+  ];
+
+  let skillContent: string | null = null;
+  let isYaml = false;
+  let usedBranch = 'main';
+  let usedPath = '';
+
+  for (const branch of branches) {
+    for (const variant of pathVariants) {
+      const url = `https://raw.githubusercontent.com/${githubRepo}/${branch}/${variant}`;
+      try {
+        onOutput?.({ type: 'stdout', content: `  Trying ${url}...\n` });
+        const response = await fetch(url);
+        if (response.ok) {
+          skillContent = await response.text();
+          usedBranch = branch;
+          usedPath = variant;
+          isYaml = variant.endsWith('.yaml')
+          break;
+        }
+      } catch {
+        // continue
+      }
+    }
+    if (skillContent) break;
+  }
+
+  if (!skillContent) {
+    const error = `Failed to download skill files from GitHub repo: ${githubRepo}`;
+    onOutput?.({ type: 'error', content: `  ${error}\n` });
+    return { success: false, error };
+  }
+
+  onOutput?.({ type: 'stdout', content: `  Downloaded ${usedPath} (${skillContent.length} bytes)\n` });
+
+  try {
+    // 创建技能目录
+    await fs.mkdir(skillDir, { recursive: true });
+
+    if (isYaml) {
+      // SKILL.yaml 格式：直接写入文件，由 loadSkills 读取
+      await fs.writeFile(path.join(skillDir, 'SKILL.yaml'), skillContent, 'utf-8');
+    } else {
+      // SKILL.md 格式：写入 SKILL.md（Claude Code 原生格式）
+      // 同时解析 frontmatter 生成 META.json 以便 loadSkills 识别
+      await fs.writeFile(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
+
+      // 尝试从 SKILL.md 的 frontmatter 解析元数据
+      const frontmatterMatch = skillContent.match(/^---\n([\s\S]*?)\n---/)
+      if (frontmatterMatch) {
+        try {
+          const meta = parseYaml(frontmatterMatch[1]);
+          const metaJson = {
+            appId: skillId,
+            spec: meta,
+            enabled: true,
+            installedAt: new Date().toISOString()
+          };
+          await fs.writeFile(
+            path.join(skillDir, 'META.json'),
+            JSON.stringify(metaJson, null, 2),
+            'utf-8'
+          );
+        } catch {
+          // frontmatter 解析失败，写入基本 META.json
+          const metaJson = {
+            appId: skillId,
+            enabled: true,
+            installedAt: new Date().toISOString()
+          };
+          await fs.writeFile(
+            path.join(skillDir, 'META.json'),
+            JSON.stringify(metaJson, null, 2),
+            'utf-8'
+          );
+        }
+      } else {
+        // 没有 frontmatter，写入基本 META.json
+        const metaJson = {
+          appId: skillId,
+          enabled: true,
+          installedAt: new Date().toISOString()
+        };
+        await fs.writeFile(
+          path.join(skillDir, 'META.json'),
+          JSON.stringify(metaJson, null, 2),
+          'utf-8'
+        );
+      }
+    }
+
+    // 刷新技能列表
+    await skillManager.refresh();
+
+    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (via GitHub download)!\n` });
+    return { success: true };
+  } catch (error) {
+    const err = error as Error;
+    onOutput?.({ type: 'error', content: `  Failed to write skill files: ${err.message}\n` });
+    return { success: false, error: err.message };
+  }
+}
+
 export async function listInstalledSkills() {
   try {
     await ensureInitialized();
@@ -130,8 +261,13 @@ export async function installSkillFromMarket(
       childProcess.on('error', (error: Error) => {
         console.error('[SkillController] Process error:', error);
         hasError = true;
-        onOutput?.({ type: 'error', content: error.message });
-        resolve({ success: false, error: error.message });
+        const msg = error.message;
+        onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
+        // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
+        onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
+        installSkillFromGitHub(downloadResult.githubRepo!, downloadResult.skillName!, onOutput)
+          .then(resolve)
+          .catch(() => resolve({ success: false, error: msg }));
       });
 
       childProcess.on('close', async (code: number) => {
@@ -140,19 +276,23 @@ export async function installSkillFromMarket(
         if (code === 0 && !hasError) {
           onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
 
-          // 3. 刷新技能列表
           try {
             await skillManager.refresh();
-            console.log('[SkillController] Skill installed successfully:', skillId);
           } catch (refreshError) {
             console.warn('[SkillController] Failed to refresh skills:', refreshError);
           }
 
           resolve({ success: true });
         } else {
-          const error = `Installation failed with exit code ${code}`;
-          onOutput?.({ type: 'error', content: `\n✗ ${error}\n` });
-          resolve({ success: false, error });
+          // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
+          onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
+          const result = await installSkillFromGitHub(downloadResult.githubRepo!, downloadResult.skillName!, onOutput);
+          if (result.success) {
+            resolve({ success: true });
+          } else {
+            onOutput?.({ type: 'error', content: `\n✗ Both npx and GitHub download failed.\n` });
+            resolve({ success: false, error: result.error });
+          }
         }
       });
     });
