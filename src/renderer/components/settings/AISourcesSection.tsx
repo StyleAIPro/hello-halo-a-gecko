@@ -19,7 +19,7 @@ import {
 import type {
   AISource,
   AISourcesConfig,
-  HaloConfig
+  AicoBotConfig
 } from '../../types'
 import { getBuiltinProvider } from '../../types'
 import { useTranslation } from '../../i18n'
@@ -27,8 +27,8 @@ import { api } from '../../api'
 import { ProviderSelector } from './ProviderSelector'
 
 interface AISourcesSectionProps {
-  config: HaloConfig
-  setConfig: (config: HaloConfig) => void
+  config: AicoBotConfig
+  setConfig: (config: AicoBotConfig) => void
 }
 
 export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
@@ -51,7 +51,7 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
   const reloadConfig = async () => {
     const result = await api.getConfig()
     if (result.success && result.data) {
-      setConfig(result.data as HaloConfig)
+      setConfig(result.data as AicoBotConfig)
     }
   }
 

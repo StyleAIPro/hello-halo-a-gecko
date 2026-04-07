@@ -1,7 +1,7 @@
 /**
  * platform/event-bus -- Dedup Cache
  *
- * In-memory TTL-based deduplication cache for HaloEvent streams.
+ * In-memory TTL-based deduplication cache for AicoBotEvent streams.
  *
  * When an event has a `dedupKey`, the cache checks if the same key
  * was seen within the TTL window. If so, the event is considered a

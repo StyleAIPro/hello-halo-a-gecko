@@ -1,7 +1,7 @@
 /**
  * platform/scheduler -- Public API
  *
- * Persistent job scheduling engine for the Halo platform layer.
+ * Persistent job scheduling engine for the AICO-Bot platform layer.
  * This is a general-purpose engine: it does not know about AI, LLM, or Apps.
  *
  * Usage in bootstrap/extended.ts:

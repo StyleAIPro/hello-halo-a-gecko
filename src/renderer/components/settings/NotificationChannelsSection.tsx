@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
-import type { HaloConfig } from '../../types'
+import type { AicoBotConfig } from '../../types'
 import { NOTIFICATION_CHANNEL_META } from '../../../shared/types/notification-channels'
 import type {
   NotificationChannelType,
@@ -27,8 +27,8 @@ import type {
 // ============================================
 
 interface NotificationChannelsSectionProps {
-  config: HaloConfig | null
-  setConfig: (config: HaloConfig) => void
+  config: AicoBotConfig | null
+  setConfig: (config: AicoBotConfig) => void
 }
 
 interface TestResult {
@@ -464,7 +464,7 @@ export function NotificationChannelsSection({ config, setConfig }: NotificationC
         ...config.notificationChannels,
         [channelType]: channelConfig,
       },
-    } as HaloConfig
+    } as AicoBotConfig
     try {
       await api.setConfig({ notificationChannels: updatedConfig.notificationChannels })
       setConfig(updatedConfig)

@@ -48,7 +48,7 @@ describe("registry.service", () => {
   beforeEach(() => {
     fetchMock.mockReset()
     vi.stubGlobal("fetch", fetchMock)
-    mkdirSync(join(homedir(), ".halo-dev"), { recursive: true })
+    mkdirSync(join(homedir(), ".aico-bot-dev"), { recursive: true })
     getAppManagerMock.mockReset()
     getAppRuntimeMock.mockReset()
     getAppManagerMock.mockReturnValue(null)

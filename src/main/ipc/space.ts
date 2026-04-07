@@ -4,7 +4,7 @@
 
 import { ipcMain, dialog } from 'electron'
 import {
-  getHaloSpace,
+  getAicoBotSpace,
   listSpaces,
   createSpace,
   deleteSpace,
@@ -30,15 +30,15 @@ interface SpacePreferences {
 }
 
 export function registerSpaceHandlers(): void {
-  // Get Halo temp space
-  ipcMain.handle('space:get-halo', async () => {
+  // Get AICO-Bot temp space
+  ipcMain.handle('space:get-aico-bot', async () => {
     try {
-      const space = getHaloSpace()
-      console.log('[SpaceIPC] space:get-halo response: id=%s', space?.id)
+      const space = getAicoBotSpace()
+      console.log('[SpaceIPC] space:get-aico-bot response: id=%s', space?.id)
       return { success: true, data: space }
     } catch (error: unknown) {
       const err = error as Error
-      console.error('[SpaceIPC] space:get-halo error:', err.message)
+      console.error('[SpaceIPC] space:get-aico-bot error:', err.message)
       return { success: false, error: err.message }
     }
   })

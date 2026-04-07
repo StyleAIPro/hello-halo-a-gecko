@@ -33,7 +33,7 @@ export interface ProcessEntry {
 
 /**
  * Health registry persisted to disk
- * Location: ~/.halo/.health-registry.json
+ * Location: ~/.aico-bot/.health-registry.json
  */
 export interface HealthRegistry {
   /** Registry format version */

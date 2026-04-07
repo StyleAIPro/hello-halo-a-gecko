@@ -117,10 +117,10 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
 
   /**
    * Resolve the work directory path for an App.
-   * Format: {spacePath}/.halo/apps/{appId}/
+   * Format: {spacePath}/.aico-bot/apps/{appId}/
    */
   function resolveWorkDir(spacePath: string, appId: string): string {
-    return join(spacePath, '.halo', 'apps', appId)
+    return join(spacePath, '.aico-bot', 'apps', appId)
   }
 
   /**

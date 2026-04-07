@@ -14,11 +14,11 @@ import { useTranslation } from '../../i18n'
 // Step configurations with their spotlight targets and messages
 // Note: titles and descriptions are translation keys
 const STEP_CONFIGS = {
-  'halo-space': {
-    targetSelector: '[data-onboarding="halo-space"]',
+  'default-space': {
+    targetSelector: '[data-onboarding="default-space"]',
     tooltipPosition: 'bottom' as const,
     titleKey: 'Start your first conversation',
-    descriptionKey: 'Click to enter Halo space and experience how AI can help you',
+    descriptionKey: 'Click to enter AICO-Bot space and experience how AI can help you',
     icon: Sparkles,
     iconColor: 'text-primary',
     buttonText: null, // User must click the target
@@ -114,20 +114,20 @@ export function OnboardingOverlay() {
 
       {/* Step indicator */}
       <div className="flex items-center justify-center gap-2 mt-4 pt-3 border-t border-border">
-        {['halo-space', 'send-message', 'view-artifact'].map((step, index) => (
+        {['default-space', 'send-message', 'view-artifact'].map((step, index) => (
           <div
             key={step}
             className={`w-2 h-2 rounded-full transition-colors ${
               step === currentStep
                 ? 'bg-primary'
-                : index < ['halo-space', 'send-message', 'view-artifact'].indexOf(currentStep)
+                : index < ['default-space', 'send-message', 'view-artifact'].indexOf(currentStep)
                 ? 'bg-primary/50'
                 : 'bg-muted'
             }`}
           />
         ))}
         <span className="text-xs text-muted-foreground ml-2">
-          {['halo-space', 'send-message', 'view-artifact'].indexOf(currentStep) + 1} / 3
+          {['default-space', 'send-message', 'view-artifact'].indexOf(currentStep) + 1} / 3
         </span>
       </div>
     </Spotlight>

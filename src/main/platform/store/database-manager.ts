@@ -26,7 +26,7 @@ const CREATE_MIGRATIONS_TABLE_SQL = `
 /**
  * Apply performance and safety PRAGMAs to a newly opened database.
  *
- * These settings optimize for the Halo use case:
+ * These settings optimize for the AICO-Bot use case:
  * - WAL mode: concurrent reads, no reader blocking on writes
  * - NORMAL synchronous: good durability/performance balance with WAL
  * - Foreign keys: enforce referential integrity

@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'crypto'
 import type {
-  HaloEvent,
+  AicoBotEvent,
   EventFilter,
   EventHandler,
   EventBusService,
@@ -56,7 +56,7 @@ export function createEventBus(dedupConfig?: Partial<DedupConfig>): EventBusServ
       if (!running) return
 
       // Assign id and timestamp
-      const event: HaloEvent = {
+      const event: AicoBotEvent = {
         id: randomUUID(),
         timestamp: Date.now(),
         ...partial
@@ -190,7 +190,7 @@ export function createEventBus(dedupConfig?: Partial<DedupConfig>): EventBusServ
    * Handlers are invoked sequentially. If a handler throws or rejects,
    * the error is logged and the next handler is still called (error isolation).
    */
-  async function dispatchEvent(event: HaloEvent): Promise<void> {
+  async function dispatchEvent(event: AicoBotEvent): Promise<void> {
     for (const sub of Array.from(subscriptions.values())) {
       if (!matchesFilter(event, sub.filter)) continue
 

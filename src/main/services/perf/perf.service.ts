@@ -1,7 +1,7 @@
 /**
  * Performance Monitoring Service
  *
- * Provides real-time performance monitoring for Halo.
+ * Provides real-time performance monitoring for AICO-Bot.
  * This is a developer tool for diagnosing performance issues.
  *
  * Features:

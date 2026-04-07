@@ -1,7 +1,7 @@
 /**
  * apps/spec Validation
  *
- * Wraps Zod schema parsing with Halo-specific error formatting.
+ * Wraps Zod schema parsing with AICO-Bot-specific error formatting.
  * Converts ZodError into AppSpecValidationError with structured issues.
  */
 

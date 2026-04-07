@@ -7,7 +7,7 @@
  * Integration approach:
  * - Calls `addFsEventsHandler(callback)` on the watcher-host to receive
  *   ProcessedFsEvent batches from the child_process worker.
- * - Converts each ProcessedFsEvent into a HaloEvent with:
+ * - Converts each ProcessedFsEvent into a AicoBotEvent with:
  *   - type: "file.changed" | "file.created" | "file.deleted"
  *   - source: "file-watcher"
  *   - payload: { spaceId, filePath, relativePath, changeType, extension, ... }
@@ -29,7 +29,7 @@ import type { ProcessedFsEvent } from '../../../../shared/protocol/file-watcher.
 // ---------------------------------------------------------------------------
 
 /**
- * Map ProcessedFsEvent.changeType to a HaloEvent type string.
+ * Map ProcessedFsEvent.changeType to a AicoBotEvent type string.
  *
  * The file-watcher worker produces: 'add', 'addDir', 'change', 'unlink'
  * We normalize to: 'file.created', 'file.changed', 'file.deleted'

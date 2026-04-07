@@ -1,6 +1,6 @@
 # Anthropic SDK 三件套关系解析
 
-本文档解释 `@anthropic-ai/sdk`、`@anthropic-ai/claude-agent-sdk` 和 `claude-code-cli` 之间的关系，以及在 Halo 框架中的使用方式。
+本文档解释 `@anthropic-ai/sdk`、`@anthropic-ai/claude-agent-sdk` 和 `claude-code-cli` 之间的关系，以及在 AICO-Bot 框架中的使用方式。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              应用层 (Halo)                                   │
+│                              应用层 (AICO-Bot)                                   │
 │                                                                             │
 │   调用 unstable_v2_createSession() 创建 Agent 会话                          │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -88,7 +88,7 @@ for await (const event of stream) {
 }
 ```
 
-**Halo 中的使用**:
+**AICO-Bot 中的使用**:
 - 在 `execute.ts` 中直接调用用于轻量级 API 请求
 - 作为 `@anthropic-ai/claude-agent-sdk` 的依赖
 
@@ -159,12 +159,12 @@ for await (const message of session.stream()) {
 }
 ```
 
-**Halo 中的使用位置**:
+**AICO-Bot 中的使用位置**:
 | 文件 | 用途 |
 |------|------|
 | `session-manager.ts` | 创建/管理 V2 Session |
 | `send-message.ts` | 通过 Session 发送消息 |
-| `conversation-mcp/index.ts` | 创建 Halo Apps MCP 服务器 |
+| `conversation-mcp/index.ts` | 创建 AICO-Bot Apps MCP 服务器 |
 | `ai-browser/sdk-mcp-server.ts` | 创建 AI Browser MCP 服务器 |
 | `apps/runtime/execute.ts` | 自动化任务执行 |
 | `api-validator.service.ts` | API 凭证验证 |
@@ -198,7 +198,7 @@ interface SDKSessionOptions {
 }
 ```
 
-**Halo 的使用方式**:
+**AICO-Bot 的使用方式**:
 ```typescript
 // sdk-config.ts
 const sdkOptions = {
@@ -214,7 +214,7 @@ const sdkOptions = {
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                           Halo 调用链路                                     │
+│                           AICO-Bot 调用链路                                     │
 ├────────────────────────────────────────────────────────────────────────────┤
 │                                                                            │
 │  1. 用户发送消息                                                            │
@@ -279,7 +279,7 @@ const sdkOptions = {
 
 ---
 
-## 四、Halo 中的具体使用
+## 四、AICO-Bot 中的具体使用
 
 ### 4.1 创建 Session
 
@@ -314,9 +314,9 @@ const notifyTool = tool({
   }
 })
 
-export function createHaloAppsMcpServer(spaceId: string) {
+export function createAICO-BotAppsMcpServer(spaceId: string) {
   return createSdkMcpServer({
-    name: 'halo-apps',
+    name: 'aico-bot-apps',
     tools: [notifyTool, openUrlTool, askQuestionTool]
   })
 }
@@ -364,14 +364,14 @@ const response = await client.messages.create({
 ### 5.2 环境变量
 
 ```typescript
-// Halo 设置的环境变量
+// AICO-Bot 设置的环境变量
 {
   // API 凭证
   ANTHROPIC_API_KEY: 'sk-...',           // 或编码的后端配置
   ANTHROPIC_BASE_URL: 'https://...',     // API 端点
 
   // 配置目录
-  CLAUDE_CONFIG_DIR: '~/Library/Application Support/halo/claude-config',
+  CLAUDE_CONFIG_DIR: '~/Library/Application Support/aico-bot/claude-config',
 
   // 性能优化
   CLAUDE_CODE_REMOTE: 'true',
@@ -387,7 +387,7 @@ const response = await client.messages.create({
 
 ## 六、版本信息
 
-| 包 | Halo 使用版本 | 说明 |
+| 包 | AICO-Bot 使用版本 | 说明 |
 |---|---|---|
 | `@anthropic-ai/sdk` | `latest` (0.73.0) | API 客户端 |
 | `@anthropic-ai/claude-agent-sdk` | `0.1.76` | Agent SDK |
@@ -397,7 +397,7 @@ const response = await client.messages.create({
 
 ## 七、总结
 
-| 包 | 层级 | 职责 | Halo 使用场景 |
+| 包 | 层级 | 职责 | AICO-Bot 使用场景 |
 |---|---|---|---|
 | `@anthropic-ai/sdk` | 底层 | HTTP API 调用 | 轻量级请求、API 验证 |
 | `@anthropic-ai/claude-agent-sdk` | 中层 | Agent 编排、Session 管理 | 主要 Agent 逻辑 |
@@ -406,7 +406,7 @@ const response = await client.messages.create({
 **关键理解**:
 1. Agent SDK **内置** CLI，不需要单独安装
 2. Agent SDK 通过 `@anthropic-ai/sdk` 调用 API
-3. Halo 通过 Agent SDK 创建 Session，由 CLI 执行实际任务
+3. AICO-Bot 通过 Agent SDK 创建 Session，由 CLI 执行实际任务
 
 ---
 

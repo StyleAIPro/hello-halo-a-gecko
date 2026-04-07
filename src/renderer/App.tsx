@@ -1,5 +1,5 @@
 /**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
- * Halo - Main App Component
+ * AICO-Bot - Main App Component
  */
 
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
@@ -23,7 +23,7 @@ import { NotificationToast } from './components/notification/NotificationToast'
 import { useNotificationStore } from './stores/notification.store'
 import { api } from './api'
 import { useTranslation } from './i18n'
-import type { AgentEventBase, Thought, ToolCall, HaloConfig, AgentErrorType, Question } from './types'
+import type { AgentEventBase, Thought, ToolCall, AicoBotConfig, AgentErrorType, Question } from './types'
 import { hasAnyAISource } from './types'
 
 // Lazy load heavy page components for better initial load performance
@@ -60,7 +60,7 @@ function applyTheme(theme: 'light' | 'dark' | 'system') {
 
   // Save to localStorage for anti-flash script
   try {
-    localStorage.setItem('halo-theme', theme)
+    localStorage.setItem('aico-bot-theme', theme)
   } catch (e) { /* ignore */ }
 
   let isDark: boolean
@@ -109,7 +109,7 @@ export default function App() {
   const { setInitialAppId } = useAppsPageStore()
 
   // For search result navigation
-  const { spaces, haloSpace, setCurrentSpace: setSpaceStoreCurrentSpace, refreshCurrentSpace } = useSpaceStore()
+  const { spaces, aicoBotSpace, setCurrentSpace: setSpaceStoreCurrentSpace, refreshCurrentSpace } = useSpaceStore()
 
   // Initialize app on mount - wait for backend extended services to be ready
   // Uses Pull+Push pattern for reliable initialization:
@@ -542,8 +542,8 @@ export default function App() {
 
           // Find the space object
           let targetSpace = null
-          if (spaceId === 'halo-temp' && haloSpace) {
-            targetSpace = haloSpace
+          if (spaceId === 'aico-bot-temp' && aicoBotSpace) {
+            targetSpace = aicoBotSpace
           } else {
             targetSpace = spaces.find(s => s.id === spaceId)
           }
@@ -594,7 +594,7 @@ export default function App() {
 
     window.addEventListener('search:navigate-to-result', handleNavigateToResult)
     return () => window.removeEventListener('search:navigate-to-result', handleNavigateToResult)
-  }, [currentSpaceId, spaces, haloSpace, setSpaceStoreCurrentSpace, refreshCurrentSpace, setChatCurrentSpace, loadConversations, selectConversation])
+  }, [currentSpaceId, spaces, aicoBotSpace, setSpaceStoreCurrentSpace, refreshCurrentSpace, setChatCurrentSpace, loadConversations, selectConversation])
 
   // Handle Git Bash setup completion
   const handleGitBashSetupComplete = async (installed: boolean) => {
@@ -608,7 +608,7 @@ export default function App() {
     // Continue with normal initialization - sync config to store
     const response = await api.getConfig()
     if (response.success && response.data) {
-      const loadedConfig = response.data as HaloConfig
+      const loadedConfig = response.data as AicoBotConfig
       setConfig(loadedConfig)  // Sync config to store (was missing, causing empty apiKey in settings)
       // Show setup if first launch or no AI source configured
       if (loadedConfig.isFirstLaunch || !hasAnyAISource(loadedConfig.aiSources)) {

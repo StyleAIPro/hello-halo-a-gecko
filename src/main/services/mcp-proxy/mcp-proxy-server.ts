@@ -1,7 +1,7 @@
 /**
- * Halo MCP Proxy Server
+ * AICO-Bot MCP Proxy Server
  *
- * Exposes Halo's built-in MCP tools (halo-apps, gh-search) via the
+ * Exposes AICO-Bot's built-in MCP tools (aico-bot-apps, gh-search) via the
  * MCP Streamable HTTP protocol. This allows remote Claude instances
  * to access these tools through an HTTP connection.
  *
@@ -12,7 +12,7 @@
  * - Auth via Bearer token
  *
  * Tools exposed:
- * - halo-apps: 8 tools (list, create, update, delete, get, pause, resume, trigger)
+ * - aico-bot-apps: 8 tools (list, create, update, delete, get, pause, resume, trigger)
  * - gh-search: 8 tools (search repos, issues, PRs, code, commits; view issue, PR, repo)
  *
  * NOT exposed (requires local resources):
@@ -23,7 +23,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { buildTools as buildHaloAppsTools } from '../../apps/conversation-mcp/index.js'
+import { buildTools as buildAicoBotAppsTools } from '../../apps/conversation-mcp/index.js'
 import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server.js'
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 
@@ -49,7 +49,7 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000  // Check every 5 minutes
 // MCP Proxy Server
 // ============================================
 
-export class HaloMcpProxyServer {
+export class AicoBotMcpProxyServer {
   private httpServer: ReturnType<typeof createServer> | null = null
   private port: number = DEFAULT_PORT
   private authToken: string
@@ -200,16 +200,16 @@ export class HaloMcpProxyServer {
 
     // Create a unified McpServer for this space
     const server = new McpServer({
-      name: `halo-mcp-proxy-${spaceId.substring(0, 8)}`,
+      name: `aico-bot-mcp-proxy-${spaceId.substring(0, 8)}`,
       version: '1.0.0',
     })
 
-    // Register halo-apps tools (space-specific)
-    const haloAppsTools = buildHaloAppsTools(spaceId)
-    for (const toolDef of haloAppsTools) {
+    // Register aico-bot-apps tools (space-specific)
+    const aicoBotAppsTools = buildAicoBotAppsTools(spaceId)
+    for (const toolDef of aicoBotAppsTools) {
       this.registerSdkToolOnMcpServer(server, toolDef as SdkMcpToolDefinition)
     }
-    console.log(`[MCP Proxy] Registered ${haloAppsTools.length} halo-apps tools for space ${spaceId}`)
+    console.log(`[MCP Proxy] Registered ${aicoBotAppsTools.length} aico-bot-apps tools for space ${spaceId}`)
 
     // Register gh-search tools (stateless, shared)
     const ghSearchTools = buildGhSearchTools()

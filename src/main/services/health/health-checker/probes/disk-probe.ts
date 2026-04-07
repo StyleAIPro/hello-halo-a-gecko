@@ -2,13 +2,13 @@
  * Disk Probe - Disk space health check
  *
  * Checks:
- * - Free disk space on Halo data directory
+ * - Free disk space on AICO-Bot data directory
  * - Warns if below threshold
  */
 
 import { statfsSync } from 'fs'
 import type { DiskProbeResult } from '../../types'
-import { getHaloDir } from '../../../config.service'
+import { getAicoBotDir } from '../../../config.service'
 
 // Minimum free space threshold (100 MB)
 const MIN_FREE_SPACE_MB = 100
@@ -53,10 +53,10 @@ function formatBytes(bytes: number): string {
  * Check disk space health
  */
 export async function runDiskProbe(): Promise<DiskProbeResult> {
-  const haloDir = getHaloDir()
+  const spaceDataDir = getAicoBotDir()
 
   try {
-    const diskSpace = getDiskSpace(haloDir)
+    const diskSpace = getDiskSpace(spaceDataDir)
 
     if (!diskSpace) {
       return {
@@ -66,7 +66,7 @@ export async function runDiskProbe(): Promise<DiskProbeResult> {
         message: 'Unable to check disk space',
         timestamp: Date.now(),
         data: {
-          path: haloDir,
+          path: spaceDataDir,
           freeSpace: 0,
           totalSpace: 0,
           freePercent: 0,
@@ -100,7 +100,7 @@ export async function runDiskProbe(): Promise<DiskProbeResult> {
       message,
       timestamp: Date.now(),
       data: {
-        path: haloDir,
+        path: spaceDataDir,
         freeSpace: diskSpace.free,
         totalSpace: diskSpace.total,
         freePercent,
@@ -115,7 +115,7 @@ export async function runDiskProbe(): Promise<DiskProbeResult> {
       message: `Disk check failed: ${(error as Error).message}`,
       timestamp: Date.now(),
       data: {
-        path: haloDir,
+        path: spaceDataDir,
         freeSpace: 0,
         totalSpace: 0,
         freePercent: 0,

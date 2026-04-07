@@ -4,7 +4,7 @@
  */
 
 import {
-  getHaloSpace,
+  getAicoBotSpace,
   listSpaces as serviceListSpaces,
   createSpace as serviceCreateSpace,
   deleteSpace as serviceDeleteSpace,
@@ -20,11 +20,11 @@ export interface ControllerResponse<T = unknown> {
 }
 
 /**
- * Get the Halo temp space
+ * Get the AICO-Bot temp space
  */
-export function getHaloTempSpace(): ControllerResponse {
+export function getAicoBotTempSpace(): ControllerResponse {
   try {
-    const space = getHaloSpace()
+    const space = getAicoBotSpace()
     return { success: true, data: space }
   } catch (error: unknown) {
     const err = error as Error

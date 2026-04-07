@@ -1,6 +1,6 @@
-# Halo Claude 集成方案
+# AICO-Bot Claude 集成方案
 
-本文档详细说明 Halo 如何调用本地和远程服务器的 Claude，实现统一的 AI 助手体验。
+本文档详细说明 AICO-Bot 如何调用本地和远程服务器的 Claude，实现统一的 AI 助手体验。
 
 ## 目录
 
@@ -17,7 +17,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                           Halo Electron App                          │
+│                           AICO-Bot Electron App                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  ┌─────────────────┐              ┌─────────────────────────────┐   │
@@ -265,7 +265,7 @@ Space B ─┘
 
 ### 自动部署流程
 
-添加新服务器时，Halo 自动完成以下步骤：
+添加新服务器时，AICO-Bot 自动完成以下步骤：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -470,7 +470,7 @@ private buildSdkOptions(workDir?: string): any {
    ssh root@<host> "grep IS_SANDBOX /opt/claude-deployment/dist/claude-manager.js"
    ```
 
-3. 点击 Halo 中的 "Update Agent" 按钮重新部署
+3. 点击 AICO-Bot 中的 "Update Agent" 按钮重新部署
 
 #### 4. 工作目录不正确
 
@@ -503,7 +503,7 @@ ssh root@<host> "pkill -f 'node.*claude-deployment'"
 # 清理部署目录
 ssh root@<host> "rm -rf /opt/claude-deployment"
 
-# 在 Halo 中点击 "Update Agent" 重新部署
+# 在 AICO-Bot 中点击 "Update Agent" 重新部署
 ```
 
 ---

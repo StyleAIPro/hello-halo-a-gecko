@@ -7,7 +7,7 @@
 
 Event-bus is the unified event routing hub in the platform layer.
 `apps/runtime` subscribes via `eventBus.on(filter, handler)` and receives
-HaloEvent objects when any registered source (file-watcher, webhook, scheduler)
+AicoBotEvent objects when any registered source (file-watcher, webhook, scheduler)
 produces events. This module does NOT process business logic and has zero
 knowledge of AI/LLM.
 
@@ -78,7 +78,7 @@ it accepts an Express Router or Application instance via its constructor/start
 method. The bootstrap layer passes the Express app when creating the source.
 
 The `/hooks/*` endpoint is public (no auth middleware) because external
-services (GitHub, payment providers) need to POST to it without Halo's
+services (GitHub, payment providers) need to POST to it without AICO-Bot's
 auth token. A separate HMAC/token verification can be layered per-hook
 by the consuming automation App's configuration.
 
@@ -90,7 +90,7 @@ receives events via `watcher-host.service.ts` which exposes
 
 **Decision**: FileWatcherSource calls `setFsEventsHandler` on start and
 sets it to null on stop. Each `ProcessedFsEvent` batch is converted to
-individual HaloEvent objects with:
+individual AicoBotEvent objects with:
 
 - `type`: `"file.changed"`, `"file.created"`, `"file.deleted"`
 - `source`: `"file-watcher"`
@@ -102,7 +102,7 @@ individual HaloEvent objects with:
 The scheduler module does not exist yet (will be built in parallel). The
 ScheduleBridgeSource accepts a scheduler-like object conforming to a minimal
 interface: `onJobDue(handler)`. When the scheduler fires, the bridge
-converts the job info into a HaloEvent with:
+converts the job info into a AicoBotEvent with:
 
 - `type`: `"schedule.due"`
 - `source`: `"scheduler"`
@@ -132,7 +132,7 @@ No implementation in V1.
 ```
 src/main/platform/event-bus/
   index.ts           -- initEventBus(), shutdownEventBus(), re-exports
-  types.ts           -- HaloEvent, EventFilter, FilterRule, EventBusService, etc.
+  types.ts           -- AicoBotEvent, EventFilter, FilterRule, EventBusService, etc.
   event-bus.ts       -- Core EventBus implementation
   filter.ts          -- FilterRule matching logic
   dedup.ts           -- TTL dedup cache

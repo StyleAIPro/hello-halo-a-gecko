@@ -13,16 +13,16 @@ import path from 'path'
 import {
   getConfig,
   saveConfig,
-  getHaloDir,
+  getAicoBotDir,
   getConfigPath,
   initializeApp
 } from '../../../src/main/services/config.service'
 
 describe('Config Service', () => {
-  describe('getHaloDir', () => {
-    it('should return path to .halo directory in home', () => {
-      const haloDir = getHaloDir()
-      expect(haloDir).toContain('.halo')
+  describe('getAicoBotDir', () => {
+    it('should return path to .aico-bot directory in home', () => {
+      const aicoBotDir = getAicoBotDir()
+      expect(aicoBotDir).toContain('.aico-bot')
     })
   })
 
@@ -30,7 +30,7 @@ describe('Config Service', () => {
     it('should return path to config.json', () => {
       const configPath = getConfigPath()
       expect(configPath).toContain('config.json')
-      expect(configPath).toContain('.halo')
+      expect(configPath).toContain('.aico-bot')
     })
   })
 
@@ -38,10 +38,10 @@ describe('Config Service', () => {
     it('should create necessary directories', async () => {
       await initializeApp()
 
-      const haloDir = getHaloDir()
-      expect(fs.existsSync(haloDir)).toBe(true)
-      expect(fs.existsSync(path.join(haloDir, 'temp'))).toBe(true)
-      expect(fs.existsSync(path.join(haloDir, 'spaces'))).toBe(true)
+      const aicoBotDir = getAicoBotDir()
+      expect(fs.existsSync(aicoBotDir)).toBe(true)
+      expect(fs.existsSync(path.join(aicoBotDir, 'temp'))).toBe(true)
+      expect(fs.existsSync(path.join(aicoBotDir, 'spaces'))).toBe(true)
     })
 
     it('should create default config if not exists', async () => {

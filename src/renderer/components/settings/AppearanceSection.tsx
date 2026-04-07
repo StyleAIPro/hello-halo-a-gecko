@@ -4,13 +4,13 @@
  */
 
 import { useState, useCallback } from 'react'
-import type { HaloConfig, ThemeMode } from '../../types'
+import type { AicoBotConfig, ThemeMode } from '../../types'
 import { useTranslation, setLanguage, getCurrentLanguage, SUPPORTED_LOCALES, type LocaleCode } from '../../i18n'
 import { api } from '../../api'
 
 interface AppearanceSectionProps {
-  config: HaloConfig | null
-  setConfig: (config: HaloConfig) => void
+  config: AicoBotConfig | null
+  setConfig: (config: AicoBotConfig) => void
 }
 
 export function AppearanceSection({ config, setConfig }: AppearanceSectionProps) {
@@ -20,8 +20,8 @@ export function AppearanceSection({ config, setConfig }: AppearanceSectionProps)
   const [theme, setTheme] = useState<ThemeMode>(config?.appearance?.theme || 'light')
 
   // Auto-save helper for appearance settings
-  const autoSave = useCallback(async (partialConfig: Partial<HaloConfig>) => {
-    const newConfig = { ...config, ...partialConfig } as HaloConfig
+  const autoSave = useCallback(async (partialConfig: Partial<AicoBotConfig>) => {
+    const newConfig = { ...config, ...partialConfig } as AicoBotConfig
     await api.setConfig(partialConfig)
     setConfig(newConfig)
   }, [config, setConfig])
@@ -31,7 +31,7 @@ export function AppearanceSection({ config, setConfig }: AppearanceSectionProps)
     setTheme(value)
     // Sync to localStorage immediately (for anti-flash on reload)
     try {
-      localStorage.setItem('halo-theme', value)
+      localStorage.setItem('aico-bot-theme', value)
     } catch (e) { /* ignore */ }
     await autoSave({
       appearance: { theme: value }

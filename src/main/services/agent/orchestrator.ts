@@ -376,6 +376,12 @@ class AgentOrchestrator extends EventEmitter {
     const childConversationId = `${conversationId}:agent-${agent.id}`
     console.log(`[Orchestrator][${conversationId}] Using child conversation ID: ${childConversationId}`)
 
+    // --- Persist worker conversation to database ---
+    const { createConversationWithId, addMessage } = await import('../conversation.service')
+    createConversationWithId(spaceId, childConversationId, `Worker: ${agent.config.name || agent.id}`)
+    addMessage(spaceId, childConversationId, { role: 'user', content: task })
+    addMessage(spaceId, childConversationId, { role: 'assistant', content: '' })
+
     // Create Hyper Space MCP server with appropriate role
     // IMPORTANT: Pass the parent conversationId (not childConversationId) to MCP tools.
     // MCP tools like spawn_subagent need the parent conversationId so that:
@@ -388,7 +394,7 @@ class AgentOrchestrator extends EventEmitter {
 
     // Also register standard MCP servers (same as non-Hyper-Space path)
     const { getEnabledMcpServers } = await import('./helpers')
-    const { createHaloAppsMcpServer } = await import('../../apps/conversation-mcp')
+    const { createAicoBotAppsMcpServer } = await import('../../apps/conversation-mcp')
     const { createGhSearchMcpServer } = await import('../gh-search')
     const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
 
@@ -396,7 +402,7 @@ class AgentOrchestrator extends EventEmitter {
     if (enabledMcpServers) {
       Object.assign(mcpServers, enabledMcpServers)
     }
-    mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
+    mcpServers['aico-bot-apps'] = createAicoBotAppsMcpServer(spaceId)
     mcpServers['gh-search'] = createGhSearchMcpServer()
 
     const abortController = new AbortController()
@@ -497,6 +503,19 @@ class AgentOrchestrator extends EventEmitter {
                 metadata,
                 error: r.errorThought?.content
               })
+
+              // Also persist to child conversation for WorkerView history
+              try {
+                updateLastMessage(spaceId, childConversationId, {
+                  content: r.finalContent,
+                  thoughts: r.thoughts.length > 0 ? [...r.thoughts] : undefined,
+                  tokenUsage: r.tokenUsage || undefined,
+                  metadata,
+                  error: r.errorThought?.content
+                })
+              } catch (e) {
+                console.error(`[Orchestrator] Failed to persist @mention worker response to ${childConversationId}:`, e)
+              }
 
               // Only unregister when NOT continuing with injection
               if (!r.hasPendingInjection) {
@@ -704,6 +723,12 @@ class AgentOrchestrator extends EventEmitter {
     // Format: {mainConversationId}:agent-{agentId} (NO timestamp - same session for same agent)
     const childConversationId = `${conversationId}:agent-${agent.id}`
     console.log(`[Orchestrator][${conversationId}] Using child conversation ID for remote: ${childConversationId}`)
+
+    // --- Persist worker conversation to database ---
+    const { createConversationWithId: cc, addMessage: am } = await import('../conversation.service')
+    cc(spaceId, childConversationId, `Worker: ${agent.config.name || agent.id}`)
+    am(spaceId, childConversationId, { role: 'user', content: task })
+    am(spaceId, childConversationId, { role: 'assistant', content: '' })
 
     // Get conversation for session resumption
     const conversation = getConversation(spaceId, conversationId)
@@ -942,6 +967,18 @@ class AgentOrchestrator extends EventEmitter {
         metadata,
         tokenUsage: response.tokenUsage
       })
+
+      // Also persist to child conversation for WorkerView history
+      try {
+        updateLastMessage(spaceId, childConversationId, {
+          content: result,
+          thoughts: thoughts.length > 0 ? [...thoughts] : undefined,
+          metadata,
+          tokenUsage: response.tokenUsage
+        })
+      } catch (e) {
+        console.error(`[Orchestrator] Failed to persist @mention remote worker response to ${childConversationId}:`, e)
+      }
 
       // Send completion event
       sendToRenderer('agent:complete', spaceId, conversationId, {
@@ -1689,6 +1726,12 @@ just complete the task normally — the orchestrator will collect your results a
       // Use stable per-agent child conversation ID for context persistence across tasks
       const childConversationId = `${subtask.parentConversationId}:agent-${agent.id}`
 
+      // --- Persist worker conversation to database ---
+      const { createConversationWithId, addMessage, updateLastMessage } = await import('../conversation.service')
+      createConversationWithId(team.spaceId, childConversationId, `Worker: ${agent.config.name || agent.id}`)
+      addMessage(team.spaceId, childConversationId, { role: 'user', content: subtask.task })
+      addMessage(team.spaceId, childConversationId, { role: 'assistant', content: '' })
+
       const config = getConfig()
       const credentials = await getApiCredentials(config)
       const resolvedCredentials = await resolveCredentialsForSdk(credentials)
@@ -1769,6 +1812,16 @@ just complete the task normally — the orchestrator will collect your results a
             if (result.capturedSessionId) {
               this.workerSessionIds.set(childConversationId, result.capturedSessionId)
             }
+            // Persist worker response to child conversation
+            try {
+              updateLastMessage(team.spaceId, childConversationId, {
+                content: result.finalContent,
+                thoughts: result.thoughts.length > 0 ? [...result.thoughts] : undefined,
+                tokenUsage: result.tokenUsage || undefined
+              })
+            } catch (e) {
+              console.error(`[Orchestrator] Failed to persist worker response to ${childConversationId}:`, e)
+            }
           }
         }
       })
@@ -1806,6 +1859,21 @@ just complete the task normally — the orchestrator will collect your results a
     } catch (error) {
       // Notify frontend that worker has failed
       const { sendToRenderer } = await import('./helpers')
+
+      // Persist error to child conversation
+      try {
+        const childConversationId = `${subtask.parentConversationId}:agent-${agent.id}`
+        const { createConversationWithId: cc, addMessage: am, updateLastMessage: um } = await import('../conversation.service')
+        cc(team.spaceId, childConversationId, `Worker: ${agent.config.name || agent.id}`)
+        am(team.spaceId, childConversationId, { role: 'user', content: subtask.task })
+        am(team.spaceId, childConversationId, { role: 'assistant', content: '' })
+        um(team.spaceId, childConversationId, {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      } catch (persistErr) {
+        console.error(`[Orchestrator] Failed to persist worker error:`, persistErr)
+      }
+
       sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
         agentId: agent.id,
         agentName: agent.config.name || agent.id,
@@ -1861,6 +1929,12 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Use stable per-agent child conversation ID for context persistence across tasks
     const childConversationId = `${subtask.parentConversationId}:agent-${agent.id}`
+
+    // --- Persist worker conversation to database ---
+    const { createConversationWithId, addMessage: addWorkerMsg, updateLastMessage: updateWorkerMsg } = await import('../conversation.service')
+    createConversationWithId(team.spaceId, childConversationId, `Worker: ${agent.config.name || agent.id}`)
+    addWorkerMsg(team.spaceId, childConversationId, { role: 'user', content: subtask.task })
+    addWorkerMsg(team.spaceId, childConversationId, { role: 'assistant', content: '' })
 
     // Determine if SSH tunnel should be used (default: true for security)
     const useSshTunnel = agent.config.useSshTunnel ?? true
@@ -2047,6 +2121,16 @@ just complete the task normally — the orchestrator will collect your results a
       // Use the accumulated streaming content or response content
       const result = streamingContent || response.content || ''
 
+      // Persist worker response to child conversation
+      try {
+        updateWorkerMsg(team.spaceId, childConversationId, {
+          content: result,
+          thoughts: thoughts.length > 0 ? [...thoughts] : undefined
+        })
+      } catch (e) {
+        console.error(`[Orchestrator] Failed to persist remote worker response to ${childConversationId}:`, e)
+      }
+
       // Disconnect
       client.disconnect()
 
@@ -2085,6 +2169,21 @@ just complete the task normally — the orchestrator will collect your results a
 
     } catch (error) {
       client.disconnect()
+
+      // Persist error to child conversation
+      try {
+        const { createConversationWithId: cc, addMessage: am, updateLastMessage: um } = await import('../conversation.service')
+        const childConvId = `${subtask.parentConversationId}:agent-${agent.id}`
+        cc(team.spaceId, childConvId, `Worker: ${agent.config.name || agent.id}`)
+        am(team.spaceId, childConvId, { role: 'user', content: subtask.task })
+        am(team.spaceId, childConvId, { role: 'assistant', content: '' })
+        um(team.spaceId, childConvId, {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      } catch (persistErr) {
+        console.error(`[Orchestrator] Failed to persist remote worker error:`, persistErr)
+      }
+
       // Notify frontend that worker has failed
       sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
         ...workerTag,
@@ -2901,7 +3000,7 @@ just complete the task normally — the orchestrator will collect your results a
    * Handle a hyper-space tool call from a remote worker.
    *
    * When a remote Claude calls a hyper-space MCP tool (e.g., report_to_leader),
-   * the remote-agent-proxy sends a tool:call event to Halo via WebSocket.
+   * the remote-agent-proxy sends a tool:call event to AICO-Bot via WebSocket.
    * This method receives the event, executes the tool via the orchestrator,
    * and sends the result back via tool:approve.
    *

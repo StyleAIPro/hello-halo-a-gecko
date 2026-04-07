@@ -30,7 +30,7 @@ export async function sendWebhook(
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'Halo/1.0',
+      'User-Agent': 'AICO-Bot/1.0',
       ...config.headers,
     }
 
@@ -39,7 +39,7 @@ export async function sendWebhook(
       const signature = createHmac('sha256', config.secret)
         .update(body)
         .digest('hex')
-      headers['X-Halo-Signature'] = `sha256=${signature}`
+      headers['X-AICO-Bot-Signature'] = `sha256=${signature}`
     }
 
     const method = config.method || 'POST'
@@ -69,8 +69,8 @@ export async function sendWebhook(
 export async function testWebhook(config: WebhookChannelConfig): Promise<{ success: boolean; error?: string }> {
   try {
     const testPayload: NotificationPayload = {
-      title: 'Halo Test',
-      body: 'This is a test notification from Halo.',
+      title: 'AICO-Bot Test',
+      body: 'This is a test notification from AICO-Bot.',
       timestamp: Date.now(),
     }
     const result = await sendWebhook(config, testPayload)

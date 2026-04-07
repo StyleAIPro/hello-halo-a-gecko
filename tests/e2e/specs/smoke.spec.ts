@@ -14,21 +14,21 @@ async function navigateToChat(window: any) {
   await window.waitForSelector('#root', { timeout: 10000 })
   await window.waitForLoadState('networkidle')
 
-  // Look for "Enter Halo" or "进入 Halo" text button (supports both EN and CN)
-  let enterHalo = await window.waitForSelector(
-    'text=/Enter Halo|进入 Halo/i',
+  // Look for "Enter AICO-Bot" or "进入 AICO-Bot" text button (supports both EN and CN)
+  let enterAicoBot = await window.waitForSelector(
+    'text=/Enter AICO-Bot|进入 AICO-Bot/i',
     { timeout: 5000 }
   ).catch(() => null)
 
-  if (!enterHalo) {
-    enterHalo = await window.waitForSelector(
-      ':text("Halo"):visible',
+  if (!enterAicoBot) {
+    enterAicoBot = await window.waitForSelector(
+      ':text("AICO-Bot"):visible',
       { timeout: 5000 }
     ).catch(() => null)
   }
 
-  if (enterHalo) {
-    await enterHalo.click()
+  if (enterAicoBot) {
+    await enterAicoBot.click()
   }
 
   await window.waitForSelector('textarea', { timeout: 10000 })
@@ -114,7 +114,7 @@ test.describe('Smoke Tests', () => {
       window.waitForSelector('[data-testid="main-content"]', { timeout: 5000 }).catch(() => null),
       window.waitForSelector('[data-testid="api-setup"]', { timeout: 5000 }).catch(() => null),
       // Fallback: any visible text content
-      window.waitForSelector('text=/Halo|API|连接|设置/', { timeout: 5000 }).catch(() => null)
+      window.waitForSelector('text=/AICO-Bot|API|连接|设置/', { timeout: 5000 }).catch(() => null)
     ])
 
     // Take screenshot for debugging
@@ -203,7 +203,7 @@ test.describe('Core Features', () => {
   test('can send message and receive AI response', async ({ window }, testInfo) => {
     // Skip if no API key configured
     if (!hasApiKey()) {
-      testInfo.skip(true, 'Skipping: HALO_TEST_API_KEY not set')
+      testInfo.skip(true, 'Skipping: AICO_BOT_TEST_API_KEY not set')
       return
     }
 
@@ -222,7 +222,7 @@ test.describe('Core Features', () => {
     await window.waitForSelector('.message-assistant', { timeout: 30000 })
 
     // Wait for AI to finish working (supports both EN and CN)
-    await window.waitForSelector('text=/Halo 工作中|Halo is working/i', { state: 'hidden', timeout: 45000 }).catch(() => {})
+    await window.waitForSelector('text=/AICO-Bot 工作中|AICO-Bot is working/i', { state: 'hidden', timeout: 45000 }).catch(() => {})
 
     // Verify AI response contains expected content
     const assistantMessage = await window.waitForSelector('.message-assistant', { timeout: 5000 })

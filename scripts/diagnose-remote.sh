@@ -170,7 +170,7 @@ echo "=========================================="
 
 if [ "$FILES_OK" = true ] && [ "$PROCESS_RUNNING" = true ]; then
     log_info "All checks passed - service should be functional"
-    log_info "Try testing the connection from the local Halo app"
+    log_info "Try testing the connection from the local AICO-Bot app"
 else
     log_error "Some checks failed - see details above"
 

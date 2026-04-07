@@ -2,13 +2,13 @@
  * Electron App Fixture
  *
  * Provides a reusable fixture for launching and interacting with
- * the Halo Electron application in E2E tests.
+ * the AICO-Bot Electron application in E2E tests.
  *
  * Environment Variables:
- *   HALO_TEST_API_KEY   - API key for testing (required for chat tests)
- *   HALO_TEST_API_URL   - API URL (default: https://api.anthropic.com)
- *   HALO_TEST_MODEL     - Model to use (default: claude-haiku-4-5-20251001)
- *   HALO_TEST_PROVIDER  - Provider ID (default: anthropic)
+ *   AICO_BOT_TEST_API_KEY   - API key for testing (required for chat tests)
+ *   AICO_BOT_TEST_API_URL   - API URL (default: https://api.anthropic.com)
+ *   AICO_BOT_TEST_MODEL     - Model to use (default: claude-haiku-4-5-20251001)
+ *   AICO_BOT_TEST_PROVIDER  - Provider ID (default: anthropic)
  */
 
 import { test as base, ElectronApplication, Page } from '@playwright/test'
@@ -23,21 +23,21 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // Test configuration from environment variables
-const TEST_API_KEY = process.env.HALO_TEST_API_KEY || ''
-const TEST_API_URL = process.env.HALO_TEST_API_URL || ''
-const TEST_MODEL = process.env.HALO_TEST_MODEL || ''
-const TEST_PROVIDER = process.env.HALO_TEST_PROVIDER || ''
-const TEST_OAUTH_SOURCE = process.env.HALO_TEST_OAUTH_SOURCE || ''
+const TEST_API_KEY = process.env.AICO_BOT_TEST_API_KEY || ''
+const TEST_API_URL = process.env.AICO_BOT_TEST_API_URL || ''
+const TEST_MODEL = process.env.AICO_BOT_TEST_MODEL || ''
+const TEST_PROVIDER = process.env.AICO_BOT_TEST_PROVIDER || ''
+const TEST_OAUTH_SOURCE = process.env.AICO_BOT_TEST_OAUTH_SOURCE || ''
 
 // Validate: if API key is set, the other three must also be set
 if (TEST_API_KEY && (!TEST_API_URL || !TEST_MODEL || !TEST_PROVIDER)) {
   const missing = [
-    !TEST_API_URL && 'HALO_TEST_API_URL',
-    !TEST_MODEL && 'HALO_TEST_MODEL',
-    !TEST_PROVIDER && 'HALO_TEST_PROVIDER'
+    !TEST_API_URL && 'AICO_BOT_TEST_API_URL',
+    !TEST_MODEL && 'AICO_BOT_TEST_MODEL',
+    !TEST_PROVIDER && 'AICO_BOT_TEST_PROVIDER'
   ].filter(Boolean)
   throw new Error(
-    `HALO_TEST_API_KEY is set but missing: ${missing.join(', ')}. ` +
+    `AICO_BOT_TEST_API_KEY is set but missing: ${missing.join(', ')}. ` +
     'All four env vars must be configured together in .env.local'
   )
 }
@@ -87,8 +87,8 @@ function ensureProductJson(projectRoot: string): void {
     if (product.authProviders) {
       for (const provider of product.authProviders) {
         if (provider.path && provider.path.startsWith('./')) {
-          // Original path is relative to project root, e.g. "./halo-local/dist/..."
-          // We need it relative to out/main/, e.g. "../../halo-local/dist/..."
+          // Original path is relative to project root, e.g. "./aico-bot-local/dist/..."
+          // We need it relative to out/main/, e.g. "../../aico-bot-local/dist/..."
           const absolutePath = path.resolve(projectRoot, provider.path)
           provider.path = path.relative(destDir, absolutePath)
         }
@@ -112,16 +112,16 @@ function ensureProductJson(projectRoot: string): void {
 function createTestConfigDir(appPath: string): string {
   const testDir = path.join(
     process.env.TMPDIR || '/tmp',
-    `halo-e2e-test-${Date.now()}`
+    `aico-bot-e2e-test-${Date.now()}`
   )
 
   // Create directory structure
-  const haloDir = path.join(testDir, '.halo')
-  const tempDir = path.join(haloDir, 'temp')
-  const spacesDir = path.join(haloDir, 'spaces')
+  const aicoBotDir = path.join(testDir, '.aico-bot')
+  const tempDir = path.join(aicoBotDir, 'temp')
+  const spacesDir = path.join(aicoBotDir, 'spaces')
 
   fs.mkdirSync(testDir, { recursive: true })
-  fs.mkdirSync(haloDir, { recursive: true })
+  fs.mkdirSync(aicoBotDir, { recursive: true })
   fs.mkdirSync(tempDir, { recursive: true })
   fs.mkdirSync(spacesDir, { recursive: true })
   fs.mkdirSync(path.join(tempDir, 'artifacts'), { recursive: true })
@@ -157,13 +157,13 @@ function createTestConfigDir(appPath: string): string {
       sources.push(oauthSource)
       console.log(`[E2E] Loaded OAuth source: ${oauthSource.provider}`)
     } catch (err) {
-      console.warn('[E2E] Failed to parse HALO_TEST_OAUTH_SOURCE:', err.message)
+      console.warn('[E2E] Failed to parse AICO_BOT_TEST_OAUTH_SOURCE:', err.message)
     }
   }
 
   // Create config.json with both legacy api field and v2 aiSources format
   const config = {
-    // Legacy api field (still required by HaloConfig for backward compatibility)
+    // Legacy api field (still required by AicoBotConfig for backward compatibility)
     api: {
       provider: TEST_PROVIDER || 'anthropic',
       apiKey: TEST_API_KEY,
@@ -200,15 +200,15 @@ function createTestConfigDir(appPath: string): string {
   }
 
   fs.writeFileSync(
-    path.join(haloDir, 'config.json'),
+    path.join(aicoBotDir, 'config.json'),
     JSON.stringify(config, null, 2)
   )
 
   // Create headless-electron symlink for Claude Agent SDK
   // SDK uses this to spawn child processes without Dock icon on macOS
-  // Path: ~/Library/Application Support/Halo/headless-electron/electron-node
+  // Path: ~/Library/Application Support/AICO-Bot/headless-electron/electron-node
   if (process.platform === 'darwin') {
-    const userDataDir = path.join(testDir, 'Library', 'Application Support', 'Halo')
+    const userDataDir = path.join(testDir, 'Library', 'Application Support', 'AICO-Bot')
     const headlessDir = path.join(userDataDir, 'headless-electron')
 
     fs.mkdirSync(headlessDir, { recursive: true })
@@ -251,7 +251,7 @@ export const test = base.extend<ElectronFixtures>({
     console.log(`[E2E] Test config dir: ${testConfigDir}`)
 
     // Build a clean env without ELECTRON_RUN_AS_NODE.
-    // Halo sets ELECTRON_RUN_AS_NODE=1 for its child processes (Claude Agent SDK),
+    // AICO-Bot sets ELECTRON_RUN_AS_NODE=1 for its child processes (Claude Agent SDK),
     // which forces Electron into plain Node.js mode. E2E tests inherit this env var,
     // but Playwright needs Electron in full app mode to connect via CDP.
     const { ELECTRON_RUN_AS_NODE: _, ...cleanEnv } = process.env
@@ -263,14 +263,14 @@ export const test = base.extend<ElectronFixtures>({
         // Use test-specific config directory
         HOME: testConfigDir,
         USERPROFILE: testConfigDir,
-        // Point app config to the test .halo dir directly.
-        // config.service.ts checks HALO_DATA_DIR first (highest priority),
-        // bypassing the .halo vs .halo-dev dev-mode logic.
-        HALO_DATA_DIR: path.join(testConfigDir, '.halo'),
+        // Point app config to the test .aico-bot dir directly.
+        // config.service.ts checks AICO_BOT_DATA_DIR first (highest priority),
+        // bypassing the .aico-bot vs .aico-bot-dev dev-mode logic.
+        AICO_BOT_DATA_DIR: path.join(testConfigDir, '.aico-bot'),
         // Disable hardware acceleration for CI
         ELECTRON_DISABLE_GPU: '1',
         // Mark as E2E test
-        HALO_E2E_TEST: '1'
+        AICO_BOT_E2E_TEST: '1'
       }
     })
 

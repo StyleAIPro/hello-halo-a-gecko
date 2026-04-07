@@ -139,7 +139,7 @@ export function loadProductConfig(): ProductConfig {
  */
 function getDefaultProductConfig(): ProductConfig {
   return {
-    name: 'Halo',
+    name: 'AICO-Bot',
     version: '1.0.0',
     authProviders: [
       {

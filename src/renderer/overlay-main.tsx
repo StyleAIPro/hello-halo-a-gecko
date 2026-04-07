@@ -1,5 +1,5 @@
 /**
- * Halo Overlay - Separate SPA for floating UI elements
+ * AICO-Bot Overlay - Separate SPA for floating UI elements
  *
  * This SPA runs in a separate WebContentsView that renders above
  * BrowserViews (the AI Browser). It handles all floating UI elements

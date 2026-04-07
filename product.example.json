@@ -1,11 +1,11 @@
 {
   "$schema": "./product.schema.json",
-  "name": "Halo",
+  "name": "AICO-Bot",
   "version": "1.0.0",
   "updateConfig": {
     "provider": "github",
     "owner": "openkursar",
-    "repo": "hello-halo"
+    "repo": "hello-aico-bot"
   },
   "authProviders": [
     {

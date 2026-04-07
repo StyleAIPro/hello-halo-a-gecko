@@ -6,7 +6,7 @@
 
 ## 1. Module Scope
 
-`platform/background` is the process-survival and browser-resource layer for Halo.
+`platform/background` is the process-survival and browser-resource layer for AICO-Bot.
 It provides three capabilities:
 
 1. **Keep-Alive** -- Prevent the Electron process from exiting when the main window

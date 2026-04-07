@@ -45,13 +45,13 @@ async function installSkillFromGitHub(
   skillName: string,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
 ): Promise<{ success: boolean; error?: string }> {
-  const path = await import('path');
-  const fs = await import('fs/promises');
-  const { getAgentsSkillsDir } = await import('../services/config.service');
-  const { parse as parseYaml } = await import('yaml');
+  const nodePath = await import('path');
+  const nodeFs = await import('fs/promises');
+  const configService = await import('../services/config.service');
+  const yamlModule = await import('yaml');
 
   const skillId = skillName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
-  const skillDir = path.join(getAgentsSkillsDir(), skillId);
+  const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
   onOutput?.({ type: 'stdout', content: `npx not available, downloading directly from GitHub...\n` });
 
@@ -101,29 +101,29 @@ async function installSkillFromGitHub(
 
   try {
     // 创建技能目录
-    await fs.mkdir(skillDir, { recursive: true });
+    await nodeFs.mkdir(skillDir, { recursive: true });
 
     if (isYaml) {
       // SKILL.yaml 格式：直接写入文件，由 loadSkills 读取
-      await fs.writeFile(path.join(skillDir, 'SKILL.yaml'), skillContent, 'utf-8');
+      await nodeFs.writeFile(nodePath.join(skillDir, 'SKILL.yaml'), skillContent, 'utf-8');
     } else {
       // SKILL.md 格式：写入 SKILL.md（Claude Code 原生格式）
       // 同时解析 frontmatter 生成 META.json 以便 loadSkills 识别
-      await fs.writeFile(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
+      await nodeFs.writeFile(nodePath.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
 
       // 尝试从 SKILL.md 的 frontmatter 解析元数据
       const frontmatterMatch = skillContent.match(/^---\n([\s\S]*?)\n---/)
       if (frontmatterMatch) {
         try {
-          const meta = parseYaml(frontmatterMatch[1]);
+          const meta = yamlModule.parse(frontmatterMatch[1]);
           const metaJson = {
             appId: skillId,
             spec: meta,
             enabled: true,
             installedAt: new Date().toISOString()
           };
-          await fs.writeFile(
-            path.join(skillDir, 'META.json'),
+          await nodeFs.writeFile(
+            nodePath.join(skillDir, 'META.json'),
             JSON.stringify(metaJson, null, 2),
             'utf-8'
           );
@@ -134,8 +134,8 @@ async function installSkillFromGitHub(
             enabled: true,
             installedAt: new Date().toISOString()
           };
-          await fs.writeFile(
-            path.join(skillDir, 'META.json'),
+          await nodeFs.writeFile(
+            nodePath.join(skillDir, 'META.json'),
             JSON.stringify(metaJson, null, 2),
             'utf-8'
           );
@@ -147,8 +147,8 @@ async function installSkillFromGitHub(
           enabled: true,
           installedAt: new Date().toISOString()
         };
-        await fs.writeFile(
-          path.join(skillDir, 'META.json'),
+        await nodeFs.writeFile(
+          nodePath.join(skillDir, 'META.json'),
           JSON.stringify(metaJson, null, 2),
           'utf-8'
         );

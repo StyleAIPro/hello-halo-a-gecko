@@ -15,7 +15,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { getConfig, saveConfig as saveHaloConfig } from '../services/config.service'
+import { getConfig, saveConfig as saveAppConfig } from '../services/config.service'
 import { getAppManager } from '../apps/manager'
 import { getAppRuntime } from '../apps/runtime'
 import { AppSpecSchema } from '../apps/spec/schema'
@@ -57,7 +57,7 @@ const DEFAULT_CACHE_TTL_MS = 3600000
 /** Fetch timeout: 10 seconds */
 const FETCH_TIMEOUT_MS = 10000
 
-/** Config key used in HaloConfig for store settings */
+/** Config key used in AicoBotConfig for store settings */
 const CONFIG_KEY = 'appStore'
 
 /** Supported app types in index.json */
@@ -640,13 +640,13 @@ export function toggleRegistry(registryId: string, enabled: boolean): void {
 // ============================================
 
 /**
- * Load registry service configuration from the main HaloConfig.
+ * Load registry service configuration from the main AicoBotConfig.
  * Returns defaults if no configuration exists.
  */
 export function loadConfig(): RegistryServiceConfig {
   try {
-    const haloConfig = getConfig()
-    const storeConfig = (haloConfig as Record<string, unknown>)[CONFIG_KEY] as Record<string, unknown> | undefined
+    const appConfig = getConfig()
+    const storeConfig = (appConfig as Record<string, unknown>)[CONFIG_KEY] as Record<string, unknown> | undefined
 
     if (!storeConfig) {
       return {
@@ -682,7 +682,7 @@ export function loadConfig(): RegistryServiceConfig {
 }
 
 /**
- * Persist the current registry service configuration to the main HaloConfig.
+ * Persist the current registry service configuration to the main AicoBotConfig.
  */
 export function saveConfig(): void {
   saveConfigToFile()
@@ -901,11 +901,11 @@ function ensureInitialized(): void {
 }
 
 /**
- * Persist current config to the HaloConfig file.
+ * Persist current config to the AicoBotConfig file.
  */
 function saveConfigToFile(): void {
   try {
-    saveHaloConfig({
+    saveAppConfig({
       [CONFIG_KEY]: {
         registries: config.registries,
         cacheTtlMs: config.cacheTtlMs,
@@ -983,7 +983,7 @@ async function fetchAndCacheIndex(registry: RegistrySource): Promise<RegistryInd
       signal: controller.signal,
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'Halo-Store/1.0',
+        'User-Agent': 'AICO-Bot-Store/1.0',
       },
     })
 
@@ -1078,7 +1078,7 @@ async function fetchSpec(entry: RegistryEntry, registryId: string): Promise<AppS
     const response = await fetch(specUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Halo-Store/1.0',
+        'User-Agent': 'AICO-Bot-Store/1.0',
       },
     })
 

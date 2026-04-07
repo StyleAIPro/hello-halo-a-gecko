@@ -1,16 +1,16 @@
 /**
- * Halo MCP Bridge
+ * AICO-Bot MCP Bridge
  *
  * Collects PC resource MCP tool definitions (ai-browser, gh-search, user-configured),
  * serializes them for WebSocket transmission, and dispatches incoming tool
  * calls from the remote proxy to the correct local handler.
  *
  * Architecture: Only PC resources are bridged to the remote proxy.
- * Business logic tools (halo-apps, hyper-space) are NOT bridged —
+ * Business logic tools (aico-bot-apps, hyper-space) are NOT bridged —
  * the remote proxy has its own independent implementations.
  *
  * Key design:
- * - Tool handlers are kept in memory on the Halo side (never serialized)
+ * - Tool handlers are kept in memory on the AICO-Bot side (never serialized)
  * - Only metadata (name, description, inputSchema) is sent to the remote proxy
  * - The remote proxy reconstructs in-process MCP servers using these definitions
  */
@@ -25,7 +25,7 @@ import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server
 // ============================================
 
 /** Serialized MCP tool definition for WebSocket transmission */
-export interface HaloMcpToolDef {
+export interface AicoBotMcpToolDef {
   name: string
   description: string
   /** Zod raw shape, serialized as plain object */
@@ -35,17 +35,17 @@ export interface HaloMcpToolDef {
 }
 
 /** Capability flags advertised to the remote proxy */
-export interface HaloMcpCapabilities {
+export interface AicoBotMcpCapabilities {
   aiBrowser: boolean
   ghSearch: boolean
   version: number
 }
 
 // ============================================
-// HaloMcpBridge
+// AicoBotMcpBridge
 // ============================================
 
-export class HaloMcpBridge {
+export class AicoBotMcpBridge {
   /**
    * Map of tool name -> { handler, serverName }
    * Handlers are closure-captured functions from the original MCP tool definitions.
@@ -57,16 +57,16 @@ export class HaloMcpBridge {
    * Collect tool definitions from local PC resource MCP servers and build the handler map.
    *
    * Only bridges PC resource tools (ai-browser, gh-search). Business logic tools
-   * (halo-apps, hyper-space) are handled independently by the remote proxy.
+   * (aico-bot-apps, hyper-space) are handled independently by the remote proxy.
    *
    * @param spaceId - Space ID (reserved for future use with user-configured MCP)
    * @param includeAiBrowser - Whether to include ai-browser tools (default: true)
    * @returns Serialized tool definitions for WebSocket transmission
    */
-  collectTools(spaceId: string, includeAiBrowser = true): HaloMcpToolDef[] {
+  collectTools(spaceId: string, includeAiBrowser = true): AicoBotMcpToolDef[] {
     this.tools.clear()
 
-    const allDefs: HaloMcpToolDef[] = []
+    const allDefs: AicoBotMcpToolDef[] = []
 
     // 1. AI Browser tools (26 tools) — PC resource, bridged
     if (includeAiBrowser) {
@@ -85,9 +85,9 @@ export class HaloMcpBridge {
             serverName: 'ai-browser'
           })
         }
-        console.log(`[HaloMcpBridge] Collected ${aiBrowserTools.length} ai-browser tools`)
+        console.log(`[AicoBotMcpBridge] Collected ${aiBrowserTools.length} ai-browser tools`)
       } catch (error) {
-        console.warn(`[HaloMcpBridge] Failed to collect ai-browser tools:`, error)
+        console.warn(`[AicoBotMcpBridge] Failed to collect ai-browser tools:`, error)
       }
     }
 
@@ -107,15 +107,15 @@ export class HaloMcpBridge {
           serverName: 'gh-search'
         })
       }
-      console.log(`[HaloMcpBridge] Collected ${ghSearchTools.length} gh-search tools`)
+      console.log(`[AicoBotMcpBridge] Collected ${ghSearchTools.length} gh-search tools`)
     } catch (error) {
-      console.warn(`[HaloMcpBridge] Failed to collect gh-search tools:`, error)
+      console.warn(`[AicoBotMcpBridge] Failed to collect gh-search tools:`, error)
     }
 
-    // Note: halo-apps tools are NOT bridged. The remote proxy has its own
+    // Note: aico-bot-apps tools are NOT bridged. The remote proxy has its own
     // independent AppManager + AppRuntime (Phase 3).
 
-    console.log(`[HaloMcpBridge] Total: ${allDefs.length} tools collected`)
+    console.log(`[AicoBotMcpBridge] Total: ${allDefs.length} tools collected`)
     return allDefs
   }
 
@@ -125,7 +125,7 @@ export class HaloMcpBridge {
    *
    * @param tools - Tool definitions from user-configured MCP servers
    */
-  addUserMcpTools(tools: HaloMcpToolDef[]): void {
+  addUserMcpTools(tools: AicoBotMcpToolDef[]): void {
     for (const toolDef of tools) {
       // Don't overwrite existing tools
       if (!this.tools.has(toolDef.name)) {
@@ -140,7 +140,7 @@ export class HaloMcpBridge {
         })
       }
     }
-    console.log(`[HaloMcpBridge] Added ${tools.length} user MCP tool definitions (handlers pending future phase)`)
+    console.log(`[AicoBotMcpBridge] Added ${tools.length} user MCP tool definitions (handlers pending future phase)`)
   }
 
   /**
@@ -160,7 +160,7 @@ export class HaloMcpBridge {
       }
     }
 
-    console.log(`[HaloMcpBridge] Executing tool: ${entry.serverName}:${toolName}`)
+    console.log(`[AicoBotMcpBridge] Executing tool: ${entry.serverName}:${toolName}`)
 
     try {
       const result = await entry.handler(args, null)
@@ -171,7 +171,7 @@ export class HaloMcpBridge {
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[HaloMcpBridge] Tool error (${entry.serverName}:${toolName}):`, message)
+      console.error(`[AicoBotMcpBridge] Tool error (${entry.serverName}:${toolName}):`, message)
       return {
         content: [{ type: 'text', text: `Error executing ${toolName}: ${message}` }],
         isError: true
@@ -189,7 +189,7 @@ export class HaloMcpBridge {
   /**
    * Get the capabilities based on registered tools.
    */
-  getCapabilities(): HaloMcpCapabilities {
+  getCapabilities(): AicoBotMcpCapabilities {
     let aiBrowser = false
     let ghSearch = false
 
@@ -210,6 +210,6 @@ export class HaloMcpBridge {
    */
   dispose(): void {
     this.tools.clear()
-    console.log('[HaloMcpBridge] Disposed')
+    console.log('[AicoBotMcpBridge] Disposed')
   }
 }

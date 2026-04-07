@@ -19,7 +19,7 @@ import type { CanvasTab } from '../../../stores/canvas.store'
 import { useTranslation } from '../../../i18n'
 
 /**
- * Resolve relative image paths to halo-file:// protocol URLs
+ * Resolve relative image paths to aico-bot-file:// protocol URLs
  * This bypasses cross-origin restrictions in dev mode (http://localhost -> file://)
  */
 function resolveImageSrc(src: string | undefined, basePath: string): string {
@@ -33,9 +33,9 @@ function resolveImageSrc(src: string | undefined, basePath: string): string {
   // No base path available, return original
   if (!basePath) return src
 
-  // Resolve relative paths to halo-file:// protocol
+  // Resolve relative paths to aico-bot-file:// protocol
   if (src.startsWith('./')) {
-    return `halo-file://${basePath}/${src.slice(2)}`
+    return `aico-bot-file://${basePath}/${src.slice(2)}`
   }
 
   if (src.startsWith('../')) {
@@ -45,15 +45,15 @@ function resolveImageSrc(src: string | undefined, basePath: string): string {
       parts.pop()
       srcParts.shift()
     }
-    return `halo-file://${parts.join('/')}/${srcParts.join('/')}`
+    return `aico-bot-file://${parts.join('/')}/${srcParts.join('/')}`
   }
 
   if (src.startsWith('/')) {
-    return `halo-file://${src}`
+    return `aico-bot-file://${src}`
   }
 
   // Relative path without prefix
-  return `halo-file://${basePath}/${src}`
+  return `aico-bot-file://${basePath}/${src}`
 }
 
 interface MarkdownViewerProps {
@@ -214,7 +214,7 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
                     </a>
                   )
                 },
-                // Style images - resolve relative paths using halo-file:// protocol
+                // Style images - resolve relative paths using aico-bot-file:// protocol
                 img({ src, alt }: any) {
                   return (
                     <img

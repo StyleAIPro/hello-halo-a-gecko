@@ -19,9 +19,9 @@
  * A normalized event flowing through the event bus.
  *
  * All event sources (file-watcher, webhook, scheduler bridge) produce
- * HaloEvent instances. Subscribers receive these after filtering and dedup.
+ * AicoBotEvent instances. Subscribers receive these after filtering and dedup.
  */
-export interface HaloEvent {
+export interface AicoBotEvent {
   /** Unique event identifier (UUID v4, assigned by the bus on emit). */
   id: string
   /**
@@ -73,13 +73,13 @@ export interface EventFilter {
 /**
  * A single field-level filter rule.
  *
- * Rules are evaluated against the full HaloEvent object, so `field` can
+ * Rules are evaluated against the full AicoBotEvent object, so `field` can
  * reference any property path: `"type"`, `"source"`, `"payload.extension"`,
  * `"payload.items[0].price"`, etc.
  */
 export interface FilterRule {
   /**
-   * Dot-separated field path into the HaloEvent.
+   * Dot-separated field path into the AicoBotEvent.
    * Supports array index notation: `"payload.items[0].name"`
    */
   field: string
@@ -94,7 +94,7 @@ export interface FilterRule {
 // ---------------------------------------------------------------------------
 
 /** Event handler callback. May be sync or async. */
-export type EventHandler = (event: HaloEvent) => void | Promise<void>
+export type EventHandler = (event: AicoBotEvent) => void | Promise<void>
 
 /** Function to unsubscribe a previously registered handler. */
 export type Unsubscribe = () => void
@@ -119,7 +119,7 @@ export interface EventBusService {
    *
    * Matching subscribers are invoked sequentially with error isolation.
    */
-  emit(event: Omit<HaloEvent, 'id' | 'timestamp'>): void
+  emit(event: Omit<AicoBotEvent, 'id' | 'timestamp'>): void
 
   /**
    * Subscribe to events matching the given filter.
@@ -177,7 +177,7 @@ export type EventSourceType =
  * V1 implements three built-in adapters:
  * - FileWatcherSource: wraps the existing file-watcher worker
  * - WebhookSource: mounts POST /hooks/* on the existing Express server
- * - ScheduleBridgeSource: bridges scheduler jobDue events to HaloEvent
+ * - ScheduleBridgeSource: bridges scheduler jobDue events to AicoBotEvent
  *
  * V2 will add WebPageSource (AI Browser snapshot + diff) and RSSSource.
  */
@@ -203,7 +203,7 @@ export interface EventSourceAdapter {
 }
 
 /** The emit function signature provided to source adapters. */
-export type EventEmitFn = (event: Omit<HaloEvent, 'id' | 'timestamp'>) => void
+export type EventEmitFn = (event: Omit<AicoBotEvent, 'id' | 'timestamp'>) => void
 
 /** Summary information about a registered source adapter. */
 export interface EventSourceInfo {

@@ -20,7 +20,7 @@ import {
 import { useTranslation } from '../../i18n'
 
 // localStorage key for guide state
-const GUIDE_STATE_KEY = 'halo-space-guide-expanded'
+const GUIDE_STATE_KEY = 'aico-bot-space-guide-expanded'
 
 export function SpaceGuide() {
   const { t } = useTranslation()
@@ -79,7 +79,7 @@ export function SpaceGuide() {
               <div className="flex-1 min-w-0">
                 <h4 className="text-sm font-medium mb-1 sm:mb-1.5">{t('What can AI do?')}</h4>
                 <div className="text-xs sm:text-sm text-muted-foreground leading-relaxed space-y-0.5 sm:space-y-1">
-                  <p>{t('Halo is not just chat, it can help you do things')}</p>
+                  <p>{t('AICO-Bot is not just chat, it can help you do things')}</p>
                   <p>{t('Use natural language to have it write documents, create spreadsheets, search the web, write code...')}</p>
                   <p>{t('It can create, modify, and delete files')}</p>
                 </div>
@@ -111,7 +111,7 @@ export function SpaceGuide() {
                   <p>
                     <span className="text-foreground/80">{t('Casual chat, asking questions')}</span>
                     <span className="mx-1 sm:mx-1.5">→</span>
-                    {t('Use Halo space')}
+                    {t('Use AICO-Bot space')}
                   </p>
                   <p>
                     <span className="text-foreground/80">{t('Projects, long-term tasks')}</span>
@@ -125,11 +125,11 @@ export function SpaceGuide() {
           </div>
 
           {/* Warning section - keep separate with subtle top border */}
-          <div className="px-3 py-2.5 sm:p-3 bg-halo-warning/5 border-t border-border/50">
+          <div className="px-3 py-2.5 sm:p-3 bg-aico-bot-warning/5 border-t border-border/50">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-halo-warning flex-shrink-0" />
+              <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-aico-bot-warning flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                <span className="text-halo-warning font-medium">{t('AI has delete permissions')}</span>
+                <span className="text-aico-bot-warning font-medium">{t('AI has delete permissions')}</span>
                 {t(', be mindful of backing up important files')}
               </p>
             </div>

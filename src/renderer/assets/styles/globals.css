@@ -49,11 +49,11 @@
   --ring: 217 91% 60%;
   --radius: 0.75rem;
 
-  /* Halo brand colors */
-  --halo-glow: 217 91% 60%;
-  --halo-success: 142 71% 45%;
-  --halo-warning: 38 92% 50%;
-  --halo-error: 0 62% 50%;
+  /* AICO-Bot brand colors */
+  --aico-bot-glow: 217 91% 60%;
+  --aico-bot-success: 142 71% 45%;
+  --aico-bot-warning: 38 92% 50%;
+  --aico-bot-error: 0 62% 50%;
 }
 
 /* Light theme */
@@ -78,11 +78,11 @@
   --input: 0 0% 94%;
   --ring: 217 91% 55%;
 
-  /* Halo brand colors (adjusted for light) */
-  --halo-glow: 217 91% 55%;
-  --halo-success: 142 71% 40%;
-  --halo-warning: 38 92% 45%;
-  --halo-error: 0 72% 51%;
+  /* AICO-Bot brand colors (adjusted for light) */
+  --aico-bot-glow: 217 91% 55%;
+  --aico-bot-success: 142 71% 40%;
+  --aico-bot-warning: 38 92% 45%;
+  --aico-bot-error: 0 72% 51%;
 }
 
 * {
@@ -280,17 +280,17 @@ body {
    Shared Keyframes & Animations
    ============================================ */
 
-/* Halo glow animation */
-@keyframes halo-pulse {
+/* AICO-Bot glow animation */
+@keyframes aico-bot-pulse {
   0%, 100% {
-    box-shadow: 0 0 20px hsl(var(--halo-glow) / 0.3);
+    box-shadow: 0 0 20px hsl(var(--aico-bot-glow) / 0.3);
   }
   50% {
-    box-shadow: 0 0 40px hsl(var(--halo-glow) / 0.5);
+    box-shadow: 0 0 40px hsl(var(--aico-bot-glow) / 0.5);
   }
 }
 
-@keyframes halo-breathe {
+@keyframes aico-bot-breathe {
   0%, 100% {
     opacity: 0.6;
     transform: scale(1);
@@ -301,7 +301,7 @@ body {
   }
 }
 
-@keyframes halo-spin {
+@keyframes aico-bot-spin {
   from {
     transform: rotate(0deg);
   }
@@ -310,16 +310,16 @@ body {
   }
 }
 
-.halo-glow {
-  animation: halo-pulse 3s ease-in-out infinite;
+.aico-bot-glow {
+  animation: aico-bot-pulse 3s ease-in-out infinite;
 }
 
-.halo-breathe {
-  animation: halo-breathe 3s ease-in-out infinite;
+.aico-bot-breathe {
+  animation: aico-bot-breathe 3s ease-in-out infinite;
 }
 
-.halo-spin {
-  animation: halo-spin 2s linear infinite;
+.aico-bot-spin {
+  animation: aico-bot-spin 2s linear infinite;
 }
 
 /* Fade in animation */
@@ -705,20 +705,20 @@ body {
 }
 
 .tool-running {
-  border-color: hsl(var(--halo-glow));
-  animation: halo-pulse 1.5s ease-in-out infinite;
+  border-color: hsl(var(--aico-bot-glow));
+  animation: aico-bot-pulse 1.5s ease-in-out infinite;
 }
 
 .tool-success {
-  border-color: hsl(var(--halo-success));
+  border-color: hsl(var(--aico-bot-success));
 }
 
 .tool-error {
-  border-color: hsl(var(--halo-error));
+  border-color: hsl(var(--aico-bot-error));
 }
 
 .tool-waiting {
-  border-color: hsl(var(--halo-warning));
+  border-color: hsl(var(--aico-bot-warning));
 }
 
 /* ============================================
@@ -901,13 +901,13 @@ body {
   transform: translateY(-2px);
 }
 
-/* Halo space special style */
-.halo-space-card {
+/* AICO-Bot space special style */
+.aico-bot-space-card {
   background: linear-gradient(135deg, hsl(var(--primary) / 0.15), hsl(var(--primary) / 0.05));
   border: 1px solid hsl(var(--primary) / 0.3);
 }
 
-.halo-space-card:hover {
+.aico-bot-space-card:hover {
   border-color: hsl(var(--primary));
   box-shadow: 0 0 20px hsl(var(--primary) / 0.2);
 }
@@ -1076,17 +1076,17 @@ body {
 }
 
 .pulse-dot-waiting {
-  background-color: hsl(var(--halo-warning));
+  background-color: hsl(var(--aico-bot-warning));
   animation: pulse-dot-breathe 1.5s ease-in-out infinite;
 }
 
 .pulse-dot-completed {
-  background-color: hsl(var(--halo-success));
+  background-color: hsl(var(--aico-bot-success));
   animation: pulse-dot-appear 0.3s ease-out;
 }
 
 .pulse-dot-error {
-  background-color: hsl(var(--halo-error));
+  background-color: hsl(var(--aico-bot-error));
 }
 
 /* Pulse panel */
@@ -1139,10 +1139,10 @@ body {
 /* Running node glow pulse */
 @keyframes timeline-node-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 hsl(var(--halo-success) / 0.4);
+    box-shadow: 0 0 0 0 hsl(var(--aico-bot-success) / 0.4);
   }
   50% {
-    box-shadow: 0 0 8px 3px hsl(var(--halo-success) / 0.25);
+    box-shadow: 0 0 8px 3px hsl(var(--aico-bot-success) / 0.25);
   }
 }
 
@@ -1154,11 +1154,11 @@ body {
 .activity-running-card {
   background: linear-gradient(
     135deg,
-    hsl(var(--halo-success) / 0.06),
-    hsl(var(--halo-success) / 0.02) 60%,
+    hsl(var(--aico-bot-success) / 0.06),
+    hsl(var(--aico-bot-success) / 0.02) 60%,
     transparent
   );
-  border: 1px solid hsl(var(--halo-success) / 0.12);
+  border: 1px solid hsl(var(--aico-bot-success) / 0.12);
   border-radius: 0.5rem;
 }
 

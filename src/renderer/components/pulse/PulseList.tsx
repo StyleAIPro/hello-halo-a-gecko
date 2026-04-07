@@ -36,8 +36,8 @@ export function navigateToConversation(spaceId: string, conversationId: string) 
 
   // Different space - switch space first
   const spaceStore = useSpaceStore.getState()
-  const targetSpace = spaceStore.haloSpace?.id === spaceId
-    ? spaceStore.haloSpace
+  const targetSpace = spaceStore.defaultSpace?.id === spaceId
+    ? spaceStore.defaultSpace
     : spaceStore.spaces.find(s => s.id === spaceId)
 
   if (!targetSpace) return
@@ -62,19 +62,19 @@ interface PulseListProps {
 export function PulseList({ maxHeight = '360px', onItemClick, compact = false }: PulseListProps) {
   const { t } = useTranslation()
   const rawItems = usePulseItems()
-  const haloSpace = useSpaceStore(state => state.haloSpace)
+  const defaultSpace = useSpaceStore(state => state.defaultSpace)
   const spaces = useSpaceStore(state => state.spaces)
 
   // Enrich items with proper space names from space store
   const items = useMemo(() => {
     return rawItems.map(item => {
       if (item.spaceName !== item.spaceId) return item
-      const space = haloSpace?.id === item.spaceId
-        ? haloSpace
+      const space = defaultSpace?.id === item.spaceId
+        ? defaultSpace
         : spaces.find(s => s.id === item.spaceId)
-      return space ? { ...item, spaceName: space.isTemp ? 'Halo' : space.name } : item
+      return space ? { ...item, spaceName: space.isTemp ? 'AICO-Bot' : space.name } : item
     })
-  }, [rawItems, haloSpace, spaces])
+  }, [rawItems, defaultSpace, spaces])
 
   const activeItems = items.filter(i => i.status !== 'idle')
   const pinnedIdleItems = items.filter(i => i.status === 'idle')

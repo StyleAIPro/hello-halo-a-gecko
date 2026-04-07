@@ -1,6 +1,6 @@
-# Halo Test Suite
+# AICO-Bot Test Suite
 
-This directory contains the automated test infrastructure for Halo.
+This directory contains the automated test infrastructure for AICO-Bot.
 
 ## Test Layers
 

@@ -8,7 +8,7 @@
 
 ## 1. Module Purpose
 
-A general-purpose, persistent job scheduler for the Halo Electron main process.
+A general-purpose, persistent job scheduler for the AICO-Bot Electron main process.
 It knows nothing about AI, LLM, or Apps -- it manages timed jobs with callbacks.
 
 The consuming layer (`apps/runtime`) registers jobs via `addJob()` and listens
@@ -105,7 +105,7 @@ This guarantees at most one catch-up run per job, never a backlog storm.
 ### 2.6 SQLite Persistence Strategy
 
 Using `better-sqlite3` synchronous API through `DatabaseManager`. The scheduler
-owns two tables in the app-level database (`~/.halo/halo.db`):
+owns two tables in the app-level database (`~/.aico-bot/aico-bot.db`):
 
 - `scheduler_jobs`: Job definitions and runtime state
 - `scheduler_run_log`: Execution history

@@ -5,7 +5,7 @@
  * - Virtual scrolling for large files
  * - Read-only mode by default
  * - Optional edit mode with undo/redo
- * - Theme integration with Halo (auto light/dark)
+ * - Theme integration with AICO-Bot (auto light/dark)
  * - Scroll position preservation
  *
  * Performance optimizations:

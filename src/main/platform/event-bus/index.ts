@@ -1,7 +1,7 @@
 /**
  * platform/event-bus -- Public API
  *
- * Unified event routing hub for the Halo platform layer.
+ * Unified event routing hub for the AICO-Bot platform layer.
  * Connects information sources (file changes, webhooks, scheduler)
  * to automation event handlers.
  *
@@ -27,7 +27,7 @@ import type { EventBusDeps, EventBusService } from './types'
 
 // Re-export types for consumers
 export type {
-  HaloEvent,
+  AicoBotEvent,
   EventFilter,
   FilterRule,
   EventHandler,

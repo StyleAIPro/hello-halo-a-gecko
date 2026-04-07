@@ -1,21 +1,21 @@
 /**
- * Halo MCP Proxy - Public API
+ * AICO-Bot MCP Proxy - Public API
  *
- * Provides a singleton MCP proxy server that exposes Halo's built-in
- * MCP tools (halo-apps, gh-search) via HTTP for remote Claude sessions.
+ * Provides a singleton MCP proxy server that exposes AICO-Bot's built-in
+ * MCP tools (aico-bot-apps, gh-search) via HTTP for remote Claude sessions.
  */
 
-import { HaloMcpProxyServer } from './mcp-proxy-server.js'
+import { AicoBotMcpProxyServer } from './mcp-proxy-server.js'
 
-let instance: HaloMcpProxyServer | null = null
+let instance: AicoBotMcpProxyServer | null = null
 
 /**
  * Get or create the singleton MCP proxy server.
  * Starts the server if not already running.
  */
-export async function getMcpProxy(authToken: string): Promise<HaloMcpProxyServer> {
+export async function getMcpProxy(authToken: string): Promise<AicoBotMcpProxyServer> {
   if (!instance) {
-    instance = new HaloMcpProxyServer(authToken)
+    instance = new AicoBotMcpProxyServer(authToken)
     await instance.start()
   }
   return instance
@@ -24,7 +24,7 @@ export async function getMcpProxy(authToken: string): Promise<HaloMcpProxyServer
 /**
  * Get the MCP proxy instance if it's running.
  */
-export function getMcpProxyInstance(): HaloMcpProxyServer | null {
+export function getMcpProxyInstance(): AicoBotMcpProxyServer | null {
   return instance
 }
 
@@ -38,4 +38,4 @@ export async function stopMcpProxy(): Promise<void> {
   }
 }
 
-export { HaloMcpProxyServer } from './mcp-proxy-server.js'
+export { AicoBotMcpProxyServer } from './mcp-proxy-server.js'

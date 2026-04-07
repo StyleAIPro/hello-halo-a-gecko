@@ -21,7 +21,7 @@ labels: bug
 
 ## Environment
 - OS: <!-- e.g., macOS 14.0, Windows 11, Ubuntu 22.04 -->
-- Halo Version: <!-- e.g., 1.0.0 -->
+- AICO-Bot Version: <!-- e.g., 1.0.0 -->
 
 ## Screenshots (if applicable)
 <!-- Add screenshots to help explain the problem -->

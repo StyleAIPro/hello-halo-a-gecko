@@ -461,7 +461,7 @@ async function getLatestGhVersion() {
     const options = {
       hostname: 'api.github.com',
       path: '/repos/cli/cli/releases/latest',
-      headers: { 'User-Agent': 'halo-prepare-binaries' }
+      headers: { 'User-Agent': 'aico-bot-prepare-binaries' }
     }
     https.get(options, (res) => {
       let data = ''

@@ -6,16 +6,16 @@
  *
  * Path conventions (from architecture doc section 3.4):
  *
- *   user-memory:   {haloDir}/user-memory.md
- *   space-memory:  {spacePath}/.halo/memory.md
- *   app-memory:    {spacePath}/.halo/apps/{appId}/memory.md
+ *   user-memory:   {spaceDataDir}/user-memory.md
+ *   space-memory:  {spacePath}/.aico-bot/memory.md
+ *   app-memory:    {spacePath}/.aico-bot/apps/{appId}/memory.md
  *
  * Each scope also has a memory/ subdirectory for archives:
  *   {basePath}/memory/   (session summaries, compaction archives)
  */
 
 import { join, sep } from 'path'
-import { getHaloDir } from '../../services/config.service'
+import { getAicoBotDir } from '../../services/config.service'
 import type { MemoryCallerScope, MemoryScopeType } from './types'
 
 /** Memory file name (main file for each scope) */
@@ -41,19 +41,19 @@ const MEMORY_ARCHIVE_DIR = 'memory'
 export function getMemoryBaseDir(caller: MemoryCallerScope, scope: MemoryScopeType): string {
   switch (scope) {
     case 'user':
-      // User memory lives directly in the halo data directory
-      return getHaloDir()
+      // User memory lives directly in the AICO-Bot data directory
+      return getAicoBotDir()
 
     case 'space':
-      // Space memory lives in the space's .halo directory
-      return join(caller.spacePath, '.halo')
+      // Space memory lives in the space's .aico-bot directory
+      return join(caller.spacePath, '.aico-bot')
 
     case 'app': {
       if (!caller.appId) {
         throw new Error('Memory scope "app" requires an appId in the caller scope')
       }
-      // App memory lives in the space's .halo/apps/{appId}/ directory
-      return join(caller.spacePath, '.halo', 'apps', caller.appId)
+      // App memory lives in the space's .aico-bot/apps/{appId}/ directory
+      return join(caller.spacePath, '.aico-bot', 'apps', caller.appId)
     }
 
     default:
@@ -65,7 +65,7 @@ export function getMemoryBaseDir(caller: MemoryCallerScope, scope: MemoryScopeTy
  * Get the path to the main memory file (memory.md) for a given scope.
  *
  * Special case: user scope uses "user-memory.md" instead of "memory.md"
- * to avoid confusion with other files in the halo directory.
+ * to avoid confusion with other files in the AICO-Bot data directory.
  */
 export function getMemoryFilePath(caller: MemoryCallerScope, scope: MemoryScopeType): string {
   const baseDir = getMemoryBaseDir(caller, scope)

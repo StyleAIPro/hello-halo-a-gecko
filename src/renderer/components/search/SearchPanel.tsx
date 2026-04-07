@@ -48,7 +48,7 @@ export function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   const { t } = useTranslation()
 
   const { currentSpaceId, currentConversationId, selectConversation, setCurrentSpace, loadConversations } = useChatStore()
-  const { spaces, haloSpace, setCurrentSpace: setSpaceStoreCurrentSpace } = useSpaceStore()
+  const { spaces, defaultSpace, setCurrentSpace: setSpaceStoreCurrentSpace } = useSpaceStore()
 
   // Use search store for state management
   const {
@@ -179,8 +179,8 @@ export function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
 
         // Find the space object
         let targetSpace = null
-        if (result.spaceId === 'halo-temp' && haloSpace) {
-          targetSpace = haloSpace
+        if (result.spaceId === 'aico-bot-temp' && defaultSpace) {
+          targetSpace = defaultSpace
         } else {
           targetSpace = spaces.find(s => s.id === result.spaceId)
         }

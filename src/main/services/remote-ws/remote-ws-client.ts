@@ -31,7 +31,7 @@ export interface ServerMessage {
          'mcp:status' |  // MCP server status
          'compact:boundary' |  // Context compression notification
          'text:block-start' |  // Text block start signal
-         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks Halo to execute a tool
+         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks AICO-Bot to execute a tool
          'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background tasks
   sessionId?: string
   data?: any
@@ -283,7 +283,7 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         case 'mcp:tool:call':
-          // WebSocket MCP Bridge: remote proxy asks Halo to execute a tool
+          // WebSocket MCP Bridge: remote proxy asks AICO-Bot to execute a tool
           this.emit('mcp:tool:call', { sessionId: message.sessionId, data: message.data })
           break
 
@@ -621,7 +621,7 @@ export class RemoteWsClient extends EventEmitter {
   // ============================================
 
   /**
-   * Register MCP tools available on this Halo instance.
+   * Register MCP tools available on this AICO-Bot instance.
    * Called after authentication succeeds to advertise local tool capabilities.
    */
   registerMcpTools(tools: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>, capabilities: { aiBrowser: boolean; ghSearch: boolean; version?: number }): boolean {

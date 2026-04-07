@@ -1,12 +1,12 @@
-# Halo 本地调用流程分析
+# AICO-Bot 本地调用流程分析
 
-本文档详细描述了 Halo 应用本地调用 Claude Code SDK 的完整架构和交互流程。
+本文档详细描述了 AICO-Bot 应用本地调用 Claude Code SDK 的完整架构和交互流程。
 
 ## 一、架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Halo Electron App                               │
+│                              AICO-Bot Electron App                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────┐     IPC      ┌─────────────────────────────────────┐  │
@@ -211,7 +211,7 @@ export function buildSdkEnv(params) {
     ANTHROPIC_API_KEY: params.anthropicApiKey,
     ANTHROPIC_BASE_URL: params.anthropicBaseUrl,
 
-    // Halo 专用配置目录 (隔离用户自己的 ~/.claude)
+    // AICO-Bot 专用配置目录 (隔离用户自己的 ~/.claude)
     CLAUDE_CONFIG_DIR: path.join(app.getPath('userData'), 'claude-config'),
 
     // Localhost 绕过代理
@@ -322,12 +322,12 @@ export async function processStream(params) {
 **事件监听注册 (App.tsx):**
 ```typescript
 // App.tsx 中注册 IPC 事件监听
-window.halo.onAgentMessage((data) => chatStore.handleAgentMessage(data))
-window.halo.onAgentThought((data) => chatStore.handleAgentThought(data))
-window.halo.onAgentToolCall((data) => chatStore.handleAgentToolCall(data))
-window.halo.onAgentToolResult((data) => chatStore.handleAgentToolResult(data))
-window.halo.onAgentComplete((data) => chatStore.handleAgentComplete(data))
-window.halo.onAgentError((data) => chatStore.handleAgentError(data))
+window.aicoBot.onAgentMessage((data) => chatStore.handleAgentMessage(data))
+window.aicoBot.onAgentThought((data) => chatStore.handleAgentThought(data))
+window.aicoBot.onAgentToolCall((data) => chatStore.handleAgentToolCall(data))
+window.aicoBot.onAgentToolResult((data) => chatStore.handleAgentToolResult(data))
+window.aicoBot.onAgentComplete((data) => chatStore.handleAgentComplete(data))
+window.aicoBot.onAgentError((data) => chatStore.handleAgentError(data))
 ```
 
 **ChatStore 事件处理:**
@@ -531,7 +531,7 @@ handleAgentError: (data) => {
 
 ## 八、多提供商支持
 
-Halo 通过 `OpenAI Compat Router` 支持多种 LLM 提供商：
+AICO-Bot 通过 `OpenAI Compat Router` 支持多种 LLM 提供商：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

@@ -1,5 +1,5 @@
 /**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
- * Halo - Electron Main Process
+ * AICO-Bot - Electron Main Process
  * The main entry point for the Electron application
  */
 
@@ -8,7 +8,7 @@
 // ========================================
 // Initialize electron-log before any other code to capture all logs
 // This replaces console.log/warn/error globally with electron-log
-// Logs are written to: ~/Library/Logs/Halo/ (macOS), %USERPROFILE%\AppData\Roaming\Halo\logs (Windows)
+// Logs are written to: ~/Library/Logs/AICO-Bot/ (macOS), %USERPROFILE%\AppData\Roaming\AICO-Bot\logs (Windows)
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
@@ -88,7 +88,7 @@ app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
 // Must be called before app.whenReady()
 // Skip in development mode and E2E tests to allow multiple instances
 const gotTheLock =
-  !app.isPackaged || process.env.HALO_E2E_TEST ? true : app.requestSingleInstanceLock()
+  !app.isPackaged || process.env.AICO_BOT_E2E_TEST ? true : app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
   // Another instance is already running, exit immediately
@@ -372,7 +372,7 @@ function createWindow(): void {
   }
 
   // Open DevTools in development (skip during E2E to avoid viewport interference)
-  if (is.dev && !process.env.HALO_E2E_TEST) {
+  if (is.dev && !process.env.AICO_BOT_E2E_TEST) {
     mainWindow.webContents.openDevTools()
   }
 }
@@ -380,9 +380,9 @@ function createWindow(): void {
 // Initialize application
 app.whenReady().then(async () => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.halo.app')
+  electronApp.setAppUserModelId('com.aico-bot.app')
 
-  // Register custom protocols (halo-file://, etc.)
+  // Register custom protocols (aico-bot-file://, etc.)
   registerProtocols()
 
   // Default open or close DevTools by F12 in development

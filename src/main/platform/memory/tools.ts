@@ -231,7 +231,7 @@ export function createMemoryMcpServer(
 
   // ── Build MCP Server ─────────────────────────────────────────────────────
   return createSdkMcpServer({
-    name: 'halo-memory',
+    name: 'aico-bot-memory',
     version: '1.0.0',
     tools: [memory_read, memory_write, memory_list]
   })

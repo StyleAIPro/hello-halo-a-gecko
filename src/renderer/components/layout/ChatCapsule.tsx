@@ -6,7 +6,7 @@
  *
  * Design:
  * - Circular button with frosted glass effect
- * - Displays Halo icon
+ * - Displays AICO-Bot icon
  * - Fixed position on left edge, vertically centered
  * - Subtle shadow and hover effects
  *
@@ -54,7 +54,7 @@ export function ChatCapsule({ className = '' }: ChatCapsuleProps) {
       title={t('Return to conversation')}
       aria-label={t('Exit fullscreen and return to chat')}
     >
-      {/* Halo-style icon - using MessageCircle as chat indicator */}
+      {/* AICO-Bot-style icon - using MessageCircle as chat indicator */}
       <MessageCircle
         className="
           w-5 h-5

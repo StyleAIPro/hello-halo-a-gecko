@@ -13,18 +13,18 @@ import fs from 'fs'
 // Use global variable to store current test directory
 // This allows the mock to access the current test directory
 declare global {
-  var __HALO_TEST_DIR__: string
+  var __AICO_BOT_TEST_DIR__: string
 }
 
-globalThis.__HALO_TEST_DIR__ = ''
+globalThis.__AICO_BOT_TEST_DIR__ = ''
 
 // Create a unique temporary directory for each test
 function createTestDir(): string {
   const dir = path.join(
     os.tmpdir(),
-    'halo-test-' + Date.now() + '-' + Math.random().toString(36).slice(2)
+    'aico-bot-test-' + Date.now() + '-' + Math.random().toString(36).slice(2)
   )
-  globalThis.__HALO_TEST_DIR__ = dir
+  globalThis.__AICO_BOT_TEST_DIR__ = dir
   return dir
 }
 
@@ -34,7 +34,7 @@ vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('os')>()
   return {
     ...actual,
-    homedir: () => globalThis.__HALO_TEST_DIR__ || '/tmp/halo-test-fallback'
+    homedir: () => globalThis.__AICO_BOT_TEST_DIR__ || '/tmp/aico-bot-test-fallback'
   }
 })
 
@@ -43,14 +43,14 @@ vi.mock('electron', () => {
   return {
     app: {
       getPath: (name: string) => {
-        const dir = globalThis.__HALO_TEST_DIR__ || '/tmp/halo-test-fallback'
+        const dir = globalThis.__AICO_BOT_TEST_DIR__ || '/tmp/aico-bot-test-fallback'
         if (name === 'home') return dir
-        if (name === 'userData') return path.join(dir, '.halo')
+        if (name === 'userData') return path.join(dir, '.aico-bot')
         return dir
       },
       setLoginItemSettings: vi.fn(),
       getLoginItemSettings: vi.fn(() => ({ openAtLogin: false })),
-      getName: vi.fn(() => 'Halo'),
+      getName: vi.fn(() => 'AICO-Bot'),
       getVersion: vi.fn(() => '1.0.0-test')
     },
     BrowserWindow: vi.fn(() => ({
@@ -74,13 +74,13 @@ beforeEach(() => {
   // Create fresh unique test directory for this test
   const testDir = createTestDir()
 
-  // Create .halo directory structure
-  const haloDir = path.join(testDir, '.halo')
-  const tempDir = path.join(haloDir, 'temp')
-  const spacesDir = path.join(haloDir, 'spaces')
+  // Create .aico-bot directory structure
+  const aicoBotDir = path.join(testDir, '.aico-bot')
+  const tempDir = path.join(aicoBotDir, 'temp')
+  const spacesDir = path.join(aicoBotDir, 'spaces')
 
   fs.mkdirSync(testDir, { recursive: true })
-  fs.mkdirSync(haloDir, { recursive: true })
+  fs.mkdirSync(aicoBotDir, { recursive: true })
   fs.mkdirSync(tempDir, { recursive: true })
   fs.mkdirSync(spacesDir, { recursive: true })
   fs.mkdirSync(path.join(tempDir, 'artifacts'), { recursive: true })
@@ -89,7 +89,7 @@ beforeEach(() => {
 
 // Clean up test data directory after each test
 afterEach(() => {
-  const testDir = globalThis.__HALO_TEST_DIR__
+  const testDir = globalThis.__AICO_BOT_TEST_DIR__
 
   // Remove test directory with force option
   try {
@@ -101,7 +101,7 @@ afterEach(() => {
   }
 
   // Reset test directory
-  globalThis.__HALO_TEST_DIR__ = ''
+  globalThis.__AICO_BOT_TEST_DIR__ = ''
 
   // Clear all mocks
   vi.clearAllMocks()
@@ -109,5 +109,5 @@ afterEach(() => {
 
 // Export for use in tests if needed
 export function getTestDir(): string {
-  return globalThis.__HALO_TEST_DIR__
+  return globalThis.__AICO_BOT_TEST_DIR__
 }

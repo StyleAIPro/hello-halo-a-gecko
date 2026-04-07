@@ -192,7 +192,7 @@ function notifyStatusChange(): void {
 
 /**
  * Show the main window. Creates a new one if it was closed.
- * This is triggered by clicking "Show Halo" in the tray menu
+ * This is triggered by clicking "Show AICO-Bot" in the tray menu
  * or by clicking the tray icon on Windows.
  */
 function showMainWindow(): void {

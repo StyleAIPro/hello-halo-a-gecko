@@ -1,7 +1,7 @@
 /**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
  * Agent Module - Public API
  *
- * This module provides the AI agent functionality for Halo.
+ * This module provides the AI agent functionality for AICO-Bot.
  * It manages V2 Sessions with Claude Code SDK, handles message streaming,
  * tool permissions, and MCP server connections.
  *

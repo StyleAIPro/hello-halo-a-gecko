@@ -5,9 +5,9 @@
  * These tests actually send messages to the API and verify responses.
  *
  * Required Environment Variables:
- *   HALO_TEST_API_KEY - API key for testing
- *   HALO_TEST_API_URL - API URL (optional)
- *   HALO_TEST_MODEL   - Model to use (optional)
+ *   AICO_BOT_TEST_API_KEY - API key for testing
+ *   AICO_BOT_TEST_API_URL - API URL (optional)
+ *   AICO_BOT_TEST_MODEL   - Model to use (optional)
  */
 
 import { test, expect, hasApiKey } from '../fixtures/electron'
@@ -15,35 +15,35 @@ import { test, expect, hasApiKey } from '../fixtures/electron'
 // Skip all chat tests if no API key is configured
 test.beforeEach(async ({}, testInfo) => {
   if (!hasApiKey()) {
-    testInfo.skip(true, 'Skipping chat tests: HALO_TEST_API_KEY not set')
+    testInfo.skip(true, 'Skipping chat tests: AICO_BOT_TEST_API_KEY not set')
   }
 })
 
 /**
  * Helper to navigate from Home Page to Chat Interface
- * The app shows Home Page first, need to click "进入 Halo" to get to chat
+ * The app shows Home Page first, need to click "进入 AICO-Bot" to get to chat
  */
 async function navigateToChat(window: any) {
   await window.waitForSelector('#root', { timeout: 10000 })
   await window.waitForLoadState('networkidle')
 
-  // Look for "进入 Halo" text button (the main Halo temp space card)
+  // Look for "进入 AICO-Bot" text button (the main AICO-Bot temp space card)
   // Try multiple approaches
-  let enterHalo = await window.waitForSelector(
-    'text=/进入 Halo/',
+  let enterAicoBot = await window.waitForSelector(
+    'text=/进入 AICO-Bot/',
     { timeout: 5000 }
   ).catch(() => null)
 
-  if (!enterHalo) {
-    // Fallback: look for any element with "Halo" text that's clickable
-    enterHalo = await window.waitForSelector(
-      ':text("Halo"):visible',
+  if (!enterAicoBot) {
+    // Fallback: look for any element with "AICO-Bot" text that's clickable
+    enterAicoBot = await window.waitForSelector(
+      ':text("AICO-Bot"):visible',
       { timeout: 5000 }
     ).catch(() => null)
   }
 
-  if (enterHalo) {
-    await enterHalo.click()
+  if (enterAicoBot) {
+    await enterAicoBot.click()
   }
 
   // Wait for chat interface to load (textarea should appear)
@@ -65,9 +65,9 @@ test.describe('Chat Interface', () => {
     expect(isEnabled).toBe(true)
 
     // Should be able to type
-    await chatInput.fill('Hello, Halo!')
+    await chatInput.fill('Hello, AICO-Bot!')
     const value = await chatInput.inputValue()
-    expect(value).toBe('Hello, Halo!')
+    expect(value).toBe('Hello, AICO-Bot!')
   })
 
   test('send button exists and is functional', async ({ window }) => {
@@ -126,9 +126,9 @@ test.describe('Real Chat Flow', () => {
       { timeout: 30000 }
     )
 
-    // Wait for AI to finish working (wait for "Halo 工作中" to disappear)
+    // Wait for AI to finish working (wait for "AICO-Bot 工作中" to disappear)
     await window.waitForSelector(
-      'text="Halo 工作中"',
+      'text="AICO-Bot 工作中"',
       { state: 'hidden', timeout: 45000 }
     ).catch(() => {
       // Indicator might have already disappeared, continue
@@ -155,9 +155,9 @@ test.describe('Real Chat Flow', () => {
     const sendButton = await window.waitForSelector('[data-onboarding="send-button"]', { timeout: 5000 })
     await sendButton.click()
 
-    // Look for working indicator ("Halo 工作中")
+    // Look for working indicator ("AICO-Bot 工作中")
     const hasIndicator = await window.waitForSelector(
-      'text="Halo 工作中"',
+      'text="AICO-Bot 工作中"',
       { timeout: 10000 }
     ).then(() => true).catch(() => false)
 
@@ -165,7 +165,7 @@ test.describe('Real Chat Flow', () => {
     await window.waitForSelector('.message-assistant', { timeout: 30000 })
 
     // Wait for AI to finish working
-    await window.waitForSelector('text="Halo 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
+    await window.waitForSelector('text="AICO-Bot 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
 
     // Verify AI response contains numbers (1-5)
     const assistantMessage = await window.waitForSelector('.message-assistant', { timeout: 5000 })
@@ -205,7 +205,7 @@ test.describe('Real Chat Flow', () => {
 
     // Wait for first AI response
     await window.waitForSelector('.message-assistant', { timeout: 30000 })
-    await window.waitForSelector('text="Halo 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
+    await window.waitForSelector('text="AICO-Bot 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
 
     // Verify first response
     let assistantMessages = await window.$$('.message-assistant')
@@ -218,7 +218,7 @@ test.describe('Real Chat Flow', () => {
 
     // Wait for second AI response (should now have 2 assistant messages)
     await window.waitForFunction(() => document.querySelectorAll('.message-assistant').length >= 2, { timeout: 30000 })
-    await window.waitForSelector('text="Halo 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
+    await window.waitForSelector('text="AICO-Bot 工作中"', { state: 'hidden', timeout: 45000 }).catch(() => {})
 
     // Verify second response
     assistantMessages = await window.$$('.message-assistant')
@@ -293,7 +293,7 @@ test.describe('Switch Provider and Chat', () => {
     await window.waitForSelector('.message-assistant', { timeout: 45000 })
 
     // Wait for AI to finish
-    await window.waitForSelector('text="Halo 工作中"', { state: 'hidden', timeout: 60000 }).catch(() => {})
+    await window.waitForSelector('text="AICO-Bot 工作中"', { state: 'hidden', timeout: 60000 }).catch(() => {})
 
     await window.screenshot({ path: 'tests/e2e/results/chat-tencent-glm-response.png' })
 

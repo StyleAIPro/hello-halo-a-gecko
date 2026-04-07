@@ -7,7 +7,7 @@ import { useState, useCallback } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { useAppStore } from '../stores/app.store'
 import { api } from '../api'
-import type { HaloConfig, McpServersConfig } from '../types'
+import type { AicoBotConfig, McpServersConfig } from '../types'
 import { Header } from '../components/layout/Header'
 import { McpServerList } from '../components/settings/McpServerList'
 import { useTranslation } from '../i18n'
@@ -46,7 +46,7 @@ export function SettingsPage() {
   // Handle MCP servers save
   const handleMcpServersSave = async (servers: McpServersConfig) => {
     await api.setConfig({ mcpServers: servers })
-    setConfig({ ...config, mcpServers: servers } as HaloConfig)
+    setConfig({ ...config, mcpServers: servers } as AicoBotConfig)
   }
 
   // Handle back - return to previous view
@@ -99,7 +99,7 @@ export function SettingsPage() {
               {/* AI Sources Section (v2) */}
               <section id="ai-model" className="bg-card rounded-xl border border-border p-6">
                 <h2 className="text-lg font-medium mb-4">{t('AI Model')}</h2>
-                <AISourcesSection config={config as HaloConfig} setConfig={setConfig} />
+                <AISourcesSection config={config as AicoBotConfig} setConfig={setConfig} />
               </section>
 
               {/* Remote Servers Section */}

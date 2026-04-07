@@ -329,7 +329,7 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
       {isWorking && !isUser && (
         <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/30 working-indicator-fade">
           <Sparkles size={12} className="text-primary/60 animate-pulse-gentle" />
-          <span className="text-xs text-muted-foreground/70">{t('Halo is working')}</span>
+          <span className="text-xs text-muted-foreground/70">{t('AICO-Bot is working')}</span>
         </div>
       )}
 

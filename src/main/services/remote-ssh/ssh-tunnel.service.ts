@@ -398,7 +398,7 @@ class SshTunnelService extends EventEmitter {
   /**
    * Create a reverse SSH tunnel (-R).
    * Makes the remote machine listen on remotePort, forwarding connections
-   * back to a local (Halo) service on localPort.
+   * back to a local (AICO-Bot) service on localPort.
    *
    * Unlike regular tunnels, reverse tunnels reuse the existing SSH connection
    * for a server to avoid creating extra connections.

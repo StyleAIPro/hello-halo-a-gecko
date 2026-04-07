@@ -67,7 +67,7 @@ describe('AppManager', () => {
 
   /**
    * Create fresh service instance with in-memory DB and temp directories.
-   * Uses the global __HALO_TEST_DIR__ from setup.ts for filesystem paths.
+   * Uses the global __AICO_BOT_TEST_DIR__ from setup.ts for filesystem paths.
    */
   function setup(): void {
     dbManager = createDatabaseManager(':memory:')
@@ -76,7 +76,7 @@ describe('AppManager', () => {
     store = new AppManagerStore(db)
 
     // Create space directories in the test temp dir
-    const testDir = globalThis.__HALO_TEST_DIR__
+    const testDir = globalThis.__AICO_BOT_TEST_DIR__
     spacePaths = {
       [TEST_SPACE_ID]: join(testDir, 'spaces', TEST_SPACE_ID),
       [TEST_SPACE_ID_2]: join(testDir, 'spaces', TEST_SPACE_ID_2),
@@ -122,7 +122,7 @@ describe('AppManager', () => {
       const spec = createTestSpec()
       const appId = await service.install(TEST_SPACE_ID, spec)
 
-      const workDir = join(spacePaths[TEST_SPACE_ID], '.halo', 'apps', appId)
+      const workDir = join(spacePaths[TEST_SPACE_ID], '.aico-bot', 'apps', appId)
       const memoryDir = join(workDir, 'memory')
 
       expect(existsSync(workDir)).toBe(true)
@@ -210,7 +210,7 @@ describe('AppManager', () => {
 
     it('should preserve work directory (soft-delete does not purge)', async () => {
       const appId = await service.install(TEST_SPACE_ID, createTestSpec())
-      const workDir = join(spacePaths[TEST_SPACE_ID], '.halo', 'apps', appId)
+      const workDir = join(spacePaths[TEST_SPACE_ID], '.aico-bot', 'apps', appId)
       expect(existsSync(workDir)).toBe(true)
 
       await service.uninstall(appId)
@@ -278,7 +278,7 @@ describe('AppManager', () => {
 
     it('should purge work directory on permanent deletion', async () => {
       const appId = await service.install(TEST_SPACE_ID, createTestSpec())
-      const workDir = join(spacePaths[TEST_SPACE_ID], '.halo', 'apps', appId)
+      const workDir = join(spacePaths[TEST_SPACE_ID], '.aico-bot', 'apps', appId)
       expect(existsSync(workDir)).toBe(true)
 
       await service.uninstall(appId)
@@ -802,13 +802,13 @@ describe('AppManager', () => {
       const appId = await service.install(TEST_SPACE_ID, createTestSpec())
       const workDir = service.getAppWorkDir(appId)
 
-      expect(workDir).toBe(join(spacePaths[TEST_SPACE_ID], '.halo', 'apps', appId))
+      expect(workDir).toBe(join(spacePaths[TEST_SPACE_ID], '.aico-bot', 'apps', appId))
       expect(existsSync(workDir)).toBe(true)
     })
 
     it('should auto-create work directory if missing', async () => {
       const appId = await service.install(TEST_SPACE_ID, createTestSpec())
-      const workDir = join(spacePaths[TEST_SPACE_ID], '.halo', 'apps', appId)
+      const workDir = join(spacePaths[TEST_SPACE_ID], '.aico-bot', 'apps', appId)
 
       // Remove the directory
       const { rmSync } = require('fs')

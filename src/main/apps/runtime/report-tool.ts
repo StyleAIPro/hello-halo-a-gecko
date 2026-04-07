@@ -222,7 +222,7 @@ export function createReportToolServer(
   )
 
   return createSdkMcpServer({
-    name: 'halo-report',
+    name: 'aico-bot-report',
     version: '1.0.0',
     tools: [reportTool],
   })

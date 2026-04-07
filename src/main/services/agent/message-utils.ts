@@ -51,15 +51,15 @@ export function formatCanvasContext(canvasContext?: CanvasContext): string {
     .map(t => `${t.isActive ? '▶ ' : '  '}${t.title} (${t.type})${t.path ? ` - ${t.path}` : ''}${t.url ? ` - ${t.url}` : ''}`)
     .join('\n')
 
-  return `<halo_canvas>
-Content canvas currently open in Halo:
+  return `<aico_bot_canvas>
+Content canvas currently open in AICO-Bot:
 - Total ${canvasContext.tabCount} tabs
 - Active: ${activeTab ? `${activeTab.title} (${activeTab.type})` : 'None'}
 ${activeTab?.url ? `- URL: ${activeTab.url}` : ''}${activeTab?.path ? `- File path: ${activeTab.path}` : ''}
 
 All tabs:
 ${tabsSummary}
-</halo_canvas>
+</aico_bot_canvas>
 
 `
 }

@@ -75,7 +75,7 @@ export function saveOnboardingConversation(
     if (space.isTemp) {
       conversationsDir = join(space.path, 'conversations')
     } else {
-      conversationsDir = join(space.path, '.halo', 'conversations')
+      conversationsDir = join(space.path, '.aico-bot', 'conversations')
     }
 
     // Ensure directory exists
@@ -90,7 +90,7 @@ export function saveOnboardingConversation(
     const conversation: Conversation = {
       id: conversationId,
       spaceId,
-      title: 'Welcome to Halo',
+      title: 'Welcome to AICO-Bot',
       messages: [
         {
           id: uuidv4(),

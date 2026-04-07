@@ -624,7 +624,7 @@ function InputAreaInternal(
               onPaste={handlePaste}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder={placeholder || t('Type a message, let Halo help you...')}
+              placeholder={placeholder || t('Type a message, let AICO-Bot help you...')}
               disabled={isOnboardingSendStep}  // Only disabled during onboarding
               readOnly={isOnboardingSendStep}
               rows={1}

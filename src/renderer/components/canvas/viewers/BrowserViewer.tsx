@@ -492,7 +492,7 @@ export function BrowserViewerFallback({ tab }: BrowserViewerProps) {
           <Globe className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
           <h3 className="text-lg font-medium mb-2">{t('Browser features are only available in the desktop client')}</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            {t('Please use the built-in browser in the Halo desktop app')}
+            {t('Please use the built-in browser in the AICO-Bot desktop app')}
           </p>
           {tab.url && (
             <button

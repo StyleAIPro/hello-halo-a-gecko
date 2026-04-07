@@ -26,8 +26,8 @@ export {
 export {
   cleanupOrphans,
   forceKillProcess,
-  isHaloManagedProcess,
-  getRunningHaloProcesses,
+  isAicoBotManagedProcess,
+  getRunningAicoBotProcesses,
   verifyCleanup
 } from './cleaner'
 

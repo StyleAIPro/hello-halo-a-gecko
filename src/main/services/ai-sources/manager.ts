@@ -140,7 +140,7 @@ class AISourceManager {
   }
 
   /**
-   * Get aiSources config from HaloConfig (v2 format)
+   * Get aiSources config from AicoBotConfig (v2 format)
    */
   private getAiSourcesConfig(): AISourcesConfig {
     const config = getConfig() as any

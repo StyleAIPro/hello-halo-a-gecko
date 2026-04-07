@@ -176,17 +176,17 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
 
       {/* Header with Logo */}
       <div className="flex flex-col items-center mb-10">
-        {/* Logo with halo glow effect */}
-        <div className="w-20 h-20 rounded-full border-2 border-primary/60 flex items-center justify-center halo-glow">
+        {/* Logo with aico-bot glow effect */}
+        <div className="w-20 h-20 rounded-full border-2 border-primary/60 flex items-center justify-center aico-bot-glow">
           <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/30 to-transparent" />
         </div>
-        <h1 className="mt-4 text-3xl font-light tracking-wide">Halo</h1>
+        <h1 className="mt-4 text-3xl font-light tracking-wide">AICO-Bot</h1>
       </div>
 
       {/* Main content */}
       <div className="w-full max-w-md">
         <h2 className="text-center text-lg mb-8 text-muted-foreground">
-          {t('Select AI Login Method')}
+          {t('Configure AI model token to install a brain for AICO-Bot')}
         </h2>
 
         {/* Login options */}

@@ -42,7 +42,7 @@ npm run build
 echo ""
 echo "Creating systemd service..."
 
-SERVICE_NAME="halo-remote-agent"
+SERVICE_NAME="aico-bot-remote-agent"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [ "$EUID" -ne 0 ]; then
@@ -52,7 +52,7 @@ if [ "$EUID" -ne 0 ]; then
     echo "Service file content:"
     cat <<EOF
 [Unit]
-Description=Halo Remote Agent Proxy
+Description=AICO-Bot Remote Agent Proxy
 After=network.target
 
 [Service]
@@ -77,7 +77,7 @@ EOF
     # Create a local copy of the service file
     cat > "${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Halo Remote Agent Proxy
+Description=AICO-Bot Remote Agent Proxy
 After=network.target
 
 [Service]
@@ -110,7 +110,7 @@ else
     # Running as root, install the service
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Halo Remote Agent Proxy
+Description=AICO-Bot Remote Agent Proxy
 After=network.target
 
 [Service]

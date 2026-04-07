@@ -47,7 +47,7 @@ export function useSearchShortcuts({
       // which is why we recommend Cmd+K for global as the primary shortcut
       if (metaKey && (e.key === 'f' || e.key === 'F') && !e.shiftKey) {
         // Only handle in Electron mode to avoid browser Find conflict
-        if (typeof window !== 'undefined' && 'halo' in window) {
+        if (typeof window !== 'undefined' && 'aicoBot' in window) {
           e.preventDefault()
           onSearch('conversation')
         }

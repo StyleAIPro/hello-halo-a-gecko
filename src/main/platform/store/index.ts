@@ -1,7 +1,7 @@
 /**
  * platform/store -- Public API
  *
- * SQLite persistence foundation for the Halo platform layer.
+ * SQLite persistence foundation for the AICO-Bot platform layer.
  * This is the lowest module in the dependency chain: scheduler, event-bus,
  * apps/manager, and apps/runtime all depend on this module for database access.
  *
@@ -35,7 +35,7 @@
  */
 
 import { join } from 'path'
-import { getHaloDir } from '../../services/config.service'
+import { getAicoBotDir } from '../../services/config.service'
 import { createDatabaseManager } from './database-manager'
 import type { DatabaseManager, Migration } from './types'
 
@@ -46,13 +46,13 @@ export type { DatabaseManager, Migration }
 export { createDatabaseManager }
 
 /** Name of the application-level database file. */
-const APP_DB_FILENAME = 'halo.db'
+const APP_DB_FILENAME = 'aico-bot.db'
 
 /**
  * Initialize the platform store module.
  *
- * Creates and returns a DatabaseManager configured for the Halo data directory.
- * The app-level database is located at `{haloDir}/halo.db`.
+ * Creates and returns a DatabaseManager configured for the AICO-Bot data directory.
+ * The app-level database is located at `{spaceDataDir}/aico-bot.db`.
  *
  * This function must be called first in the platform initialization sequence
  * (bootstrap Phase 3), before any other platform or apps module.
@@ -62,8 +62,8 @@ const APP_DB_FILENAME = 'halo.db'
 export async function initStore(): Promise<DatabaseManager> {
   const start = performance.now()
 
-  const haloDir = getHaloDir()
-  const appDbPath = join(haloDir, APP_DB_FILENAME)
+  const spaceDataDir = getAicoBotDir()
+  const appDbPath = join(spaceDataDir, APP_DB_FILENAME)
 
   console.log(`[Store] Initializing store at: ${appDbPath}`)
 

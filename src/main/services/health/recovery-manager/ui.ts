@@ -76,7 +76,7 @@ export async function showRecoveryDialog(
   const strategy = getStrategy(suggestedStrategy)
 
   // Build dialog message
-  const title = 'Halo is having trouble'
+  const title = 'AICO-Bot is having trouble'
   const message = buildDialogMessage(consecutiveFailures, errorMessage, strategy)
 
   // Build buttons based on strategy
@@ -305,7 +305,7 @@ export async function showRecoverySuccessDialog(
 ): Promise<void> {
   await showNotificationDialog(
     'Recovery Successful',
-    `${strategyName} completed successfully.\n\nHalo should be working normally now.`,
+    `${strategyName} completed successfully.\n\nAICO-Bot should be working normally now.`,
     'info',
     parentWindow
   )
@@ -322,7 +322,7 @@ export async function showRecoveryFailedDialog(
   await showNotificationDialog(
     'Recovery Failed',
     `${strategyName} could not be completed.\n\nError: ${errorMessage}\n\n` +
-    'You may need to restart Halo manually or contact support.',
+    'You may need to restart AICO-Bot manually or contact support.',
     'error',
     parentWindow
   )

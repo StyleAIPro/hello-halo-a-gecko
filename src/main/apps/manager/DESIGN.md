@@ -109,9 +109,9 @@ uses `'app_manager'` as a namespace. Follows the underscore convention used by o
 ### 2.8 App Work Directory Structure
 
 ```
-{space.path}/.halo/apps/{appId}/          -- App root work directory
-{space.path}/.halo/apps/{appId}/memory/   -- App memory directory
-{space.path}/.halo/apps/{appId}/memory.md -- App memory file (created by memory module, not us)
+{space.path}/.aico-bot/apps/{appId}/          -- App root work directory
+{space.path}/.aico-bot/apps/{appId}/memory/   -- App memory directory
+{space.path}/.aico-bot/apps/{appId}/memory.md -- App memory file (created by memory module, not us)
 ```
 
 `getAppWorkDir(appId)` returns the root. It ensures the directory exists (auto-creates).

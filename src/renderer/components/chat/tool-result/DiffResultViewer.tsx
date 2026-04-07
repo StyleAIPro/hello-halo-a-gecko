@@ -21,7 +21,7 @@ function useIsDarkMode(): boolean {
   return true
 }
 
-// Custom styles matching Halo's dark theme (same as DiffContent.tsx)
+// Custom styles matching AICO-Bot's dark theme (same as DiffContent.tsx)
 const customStyles = {
   variables: {
     dark: {

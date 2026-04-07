@@ -37,7 +37,7 @@ export function detectGitBash(): GitBashDetectionResult {
     return { found: true, path: envPath, source: 'env-var' }
   }
 
-  // 2. Check app-local installation (managed by Halo)
+  // 2. Check app-local installation (managed by AICO-Bot)
   const localGitBash = join(app.getPath('userData'), 'git-bash', 'bin', 'bash.exe')
   if (existsSync(localGitBash)) {
     console.log('[GitBash] Found app-local installation:', localGitBash)
@@ -100,7 +100,7 @@ export function getAppLocalGitBashDir(): string {
 }
 
 /**
- * Check if Git Bash is installed by Halo (app-local)
+ * Check if Git Bash is installed by AICO-Bot (app-local)
  */
 export function isAppLocalInstallation(): boolean {
   const result = detectGitBash()

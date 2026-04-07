@@ -66,7 +66,7 @@ export function UpdateNotification() {
 
         show({
           id: UPDATE_TOAST_ID,
-          title: t('New version Halo {{version}} available', { version: data.version }),
+          title: t('New version AICO-Bot {{version}} available', { version: data.version }),
           body: notes || (isManual || isMac ? t('Click to download') : t('Click to restart and complete update')),
           variant: 'success',
           duration: 0, // Sticky — user must act or dismiss

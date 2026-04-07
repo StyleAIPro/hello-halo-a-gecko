@@ -272,6 +272,15 @@ function invalidateThoughtsCache(conversationId: string): void {
 }
 
 /**
+ * Sanitize conversation ID for use as a filename.
+ * childConversationId format ({parentConvId}:agent-{agentId}) contains colons
+ * which are illegal in Windows filenames.
+ */
+function safeFileName(conversationId: string): string {
+  return conversationId.replace(/:/g, '_')
+}
+
+/**
  * Get conversation from cache or disk. Returns null if not found.
  * On cache miss, reads from disk and populates cache.
  */
@@ -287,7 +296,7 @@ function cachedRead(spaceId: string, conversationId: string): { conversation: Co
 
   // Cache miss — read from disk
   const conversationsDir = getConversationsDir(spaceId)
-  const filePath = join(conversationsDir, `${conversationId}.json`)
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
 
   if (!existsSync(filePath)) {
     return null
@@ -475,8 +484,8 @@ function computeThoughtsSummary(thoughts: Thought[]): ThoughtsSummary {
  * - If crash between the two writes, next read detects v1 and re-migrates
  */
 function migrateConversationV1toV2(conversationsDir: string, conversation: Conversation): void {
-  const mainPath = join(conversationsDir, `${conversation.id}.json`)
-  const thoughtsPath = join(conversationsDir, `${conversation.id}.thoughts.json`)
+  const mainPath = join(conversationsDir, `${safeFileName(conversation.id)}.json`)
+  const thoughtsPath = join(conversationsDir, `${safeFileName(conversation.id)}.thoughts.json`)
 
   // Step 1: Extract thoughts from all messages
   const thoughtsData: Record<string, Thought[]> = {}
@@ -642,6 +651,8 @@ function fullScanConversations(conversationsDir: string, spaceId: string): Conve
     try {
       const content = readFileSync(join(conversationsDir, file), 'utf-8')
       const conversation: Conversation = JSON.parse(content)
+      // Skip child/worker conversations (format: {uuid}:agent-{id})
+      if (conversation.id.includes(':agent-')) continue
       metas.push(toMeta(conversation))
     } catch (error) {
       console.error(`[Conversation] Failed to read conversation ${file}:`, error)
@@ -711,7 +722,7 @@ function getConversationsDir(spaceId: string): string {
 
   const convDir = space.isTemp
     ? join(space.path, 'conversations')
-    : join(space.path, '.halo', 'conversations')
+    : join(space.path, '.aico-bot', 'conversations')
   return convDir
 }
 
@@ -742,6 +753,9 @@ export function listConversations(spaceId: string, filter?: { relatedSkillId?: s
       return conv.relatedSkillId === filter.relatedSkillId
     })
   }
+
+  // Filter out child/worker conversations (format: {uuid}:agent-{id})
+  conversations = conversations.filter(conv => !conv.id.includes(':agent-'))
 
   return conversations
 }
@@ -810,6 +824,45 @@ export function updateConversation(
   debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(updated))
 
   return updated
+}
+
+/**
+ * Create a conversation with a specific ID (used for child/worker conversations).
+ * Idempotent: returns existing conversation if file already exists.
+ * Does NOT add an index entry — child conversations are hidden from the sidebar.
+ */
+export function createConversationWithId(
+  spaceId: string,
+  conversationId: string,
+  title?: string
+): Conversation {
+  const existing = cachedRead(spaceId, conversationId)
+  if (existing) {
+    return existing.conversation
+  }
+
+  const now = new Date().toISOString()
+  const conversation: Conversation = {
+    id: conversationId,
+    spaceId,
+    title: title || generateTitle(),
+    createdAt: now,
+    updatedAt: now,
+    messageCount: 0,
+    messages: [],
+    version: CONVERSATION_FORMAT_VERSION
+  }
+
+  const conversationsDir = getConversationsDir(spaceId)
+  if (!existsSync(conversationsDir)) {
+    mkdirSync(conversationsDir, { recursive: true })
+  }
+
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
+
+  // No index entry — child conversations are hidden from listConversations
+  return conversation
 }
 
 /**
@@ -898,7 +951,7 @@ export function updateLastMessage(
 
     // Write thoughts file first (crash safety: if this succeeds but main fails,
     // next migration will re-extract from the still-inline thoughts)
-    const thoughtsPath = join(conversationsDir, `${conversationId}.thoughts.json`)
+    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
 
     // Read existing thoughts file to merge (may have thoughts from previous messages)
     // Use cached file if available
@@ -949,7 +1002,7 @@ export function getMessageThoughts(
   messageId: string
 ): Thought[] {
   const conversationsDir = getConversationsDir(spaceId)
-  const thoughtsPath = join(conversationsDir, `${conversationId}.thoughts.json`)
+  const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
 
   // Use cached thoughts file
   const thoughtsFile = getCachedThoughtsFile(conversationId, thoughtsPath)
@@ -969,7 +1022,7 @@ export function getMessageThoughts(
  */
 export function deleteConversation(spaceId: string, conversationId: string): boolean {
   const conversationsDir = getConversationsDir(spaceId)
-  const filePath = join(conversationsDir, `${conversationId}.json`)
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
 
   if (existsSync(filePath)) {
     // Evict from cache before deleting
@@ -978,7 +1031,7 @@ export function deleteConversation(spaceId: string, conversationId: string): boo
     rmSync(filePath)
 
     // Also delete thoughts file if it exists
-    const thoughtsPath = join(conversationsDir, `${conversationId}.thoughts.json`)
+    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
     if (existsSync(thoughtsPath)) {
       try {
         rmSync(thoughtsPath)
@@ -1000,10 +1053,46 @@ export function deleteConversation(spaceId: string, conversationId: string): boo
     if (pending) pending.entries.delete(conversationId)
     updateIndexEntry(conversationsDir, spaceId, conversationId, null)
 
+    // Also delete any child/worker conversations for this parent
+    deleteChildConversations(spaceId, conversationId)
+
     return true
   }
 
   return false
+}
+
+/**
+ * Delete all child conversations for a given parent conversation ID.
+ * Called when a parent conversation is deleted to clean up worker history files.
+ */
+function deleteChildConversations(spaceId: string, parentConversationId: string): void {
+  const conversationsDir = getConversationsDir(spaceId)
+  if (!existsSync(conversationsDir)) return
+
+  try {
+    const files = readdirSync(conversationsDir)
+    const childPrefix = safeFileName(`${parentConversationId}:agent-`)
+
+    for (const file of files) {
+      if (file.startsWith(childPrefix) && file.endsWith('.json') && !file.endsWith('.thoughts.json')) {
+        try {
+          const filePath = join(conversationsDir, file)
+          rmSync(filePath)
+          // Also remove thoughts file
+          const thoughtsFile = file.replace('.json', '.thoughts.json')
+          const thoughtsPath = join(conversationsDir, thoughtsFile)
+          if (existsSync(thoughtsPath)) {
+            rmSync(thoughtsPath)
+          }
+        } catch (e) {
+          console.error(`[Conversation] Failed to delete child conversation file ${file}:`, e)
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[Conversation] Failed to scan for child conversations:`, e)
+  }
 }
 
 // Save session ID for a conversation

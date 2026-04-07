@@ -26,7 +26,7 @@ export async function exportReport(filePath?: string): Promise<string> {
   // Default to downloads folder
   const outputPath = filePath || join(
     app.getPath('downloads'),
-    `halo-diagnostics-${Date.now()}.json`
+    `aico-bot-diagnostics-${Date.now()}.json`
   )
 
   writeFileSync(outputPath, JSON.stringify(report, null, 2))

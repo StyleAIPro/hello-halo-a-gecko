@@ -9,7 +9,7 @@
  * Internally, the spec type remains `'automation'` throughout the codebase, database,
  * and YAML format — this is intentional and must not change.
  *
- * In the UI, `automation` is presented as "Digital Human" (Halo 数字人) to convey
+ * In the UI, `automation` is presented as "Digital Human" (AICO-Bot 数字人) to convey
  * that these are autonomous AI entities, not scripts. MCP and Skill keep their
  * industry-standard names as they are already well understood in the ecosystem.
  *

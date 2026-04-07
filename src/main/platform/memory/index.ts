@@ -1,7 +1,7 @@
 /**
  * platform/memory -- Public API
  *
- * Persistent memory foundation for the Halo platform layer.
+ * Persistent memory foundation for the AICO-Bot platform layer.
  * Enables AI agents to maintain knowledge across sessions through
  * markdown-based memory files with scope-based isolation.
  *

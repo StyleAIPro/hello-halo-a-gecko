@@ -11,7 +11,7 @@
 
 import { join } from 'path'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { getTempSpacePath, getHaloDir } from './config.service'
+import { getTempSpacePath, getAicoBotDir } from './config.service'
 import { getSpace } from './space.service'
 
 /**
@@ -142,10 +142,10 @@ export class SearchService {
       const searchRegex = new RegExp(query, 'gi')
 
       // Get space name
-      let spaceName = data.spaceId === 'halo-temp' ? 'Halo' : data.spaceId
+      let spaceName = data.spaceId === 'aico-bot-temp' ? 'AICO-Bot' : data.spaceId
 
       try {
-        if (data.spaceId !== 'halo-temp') {
+        if (data.spaceId !== 'aico-bot-temp') {
           const space = getSpace(data.spaceId)
           if (space) {
             spaceName = space.name
@@ -208,7 +208,7 @@ export class SearchService {
     conversationId?: string,
     spaceId?: string
   ): string[] {
-    const haloDir = getHaloDir()
+    const spaceDataDir = getAicoBotDir()
     const files: string[] = []
 
     if (scope === 'conversation' && conversationId) {
@@ -219,14 +219,14 @@ export class SearchService {
 
     if (scope === 'space' && spaceId) {
       // Search all conversations in a space
-      if (spaceId === 'halo-temp') {
+      if (spaceId === 'aico-bot-temp') {
         const tempPath = getTempSpacePath()
         return this.scanConversationFiles(join(tempPath, 'conversations'))
       } else {
         try {
           const space = getSpace(spaceId)
           if (space) {
-            return this.scanConversationFiles(join(space.path, '.halo', 'conversations'))
+            return this.scanConversationFiles(join(space.path, '.aico-bot', 'conversations'))
           }
         } catch (e) {
           console.error(`Failed to get space ${spaceId}:`, e)
@@ -245,12 +245,12 @@ export class SearchService {
       }
 
       // Scan all custom spaces
-      const spacesDir = join(haloDir, 'spaces')
+      const spacesDir = join(spaceDataDir, 'spaces')
       if (existsSync(spacesDir)) {
         const spaceNames = readdirSync(spacesDir)
         spaceNames.forEach(spaceName => {
           try {
-            const convDir = join(spacesDir, spaceName, '.halo', 'conversations')
+            const convDir = join(spacesDir, spaceName, '.aico-bot', 'conversations')
             if (existsSync(convDir)) {
               files.push(...this.scanConversationFiles(convDir))
             }
@@ -294,11 +294,11 @@ export class SearchService {
    * Find conversation file in filesystem
    */
   private findConversationFile(conversationId: string, spaceId?: string): string | null {
-    const haloDir = getHaloDir()
+    const spaceDataDir = getAicoBotDir()
 
     // If spaceId is provided, search in that space first
     if (spaceId) {
-      if (spaceId === 'halo-temp') {
+      if (spaceId === 'aico-bot-temp') {
         const tempPath = getTempSpacePath()
         const filePath = join(tempPath, 'conversations', `${conversationId}.json`)
         if (existsSync(filePath)) {
@@ -308,7 +308,7 @@ export class SearchService {
         try {
           const space = getSpace(spaceId)
           if (space) {
-            const filePath = join(space.path, '.halo', 'conversations', `${conversationId}.json`)
+            const filePath = join(space.path, '.aico-bot', 'conversations', `${conversationId}.json`)
             if (existsSync(filePath)) {
               return filePath
             }
@@ -328,12 +328,12 @@ export class SearchService {
     }
 
     // Search custom spaces
-    const spacesDir = join(haloDir, 'spaces')
+    const spacesDir = join(spaceDataDir, 'spaces')
     if (existsSync(spacesDir)) {
       const spaceNames = readdirSync(spacesDir)
       for (const spaceName of spaceNames) {
         try {
-          filePath = join(spacesDir, spaceName, '.halo', 'conversations', `${conversationId}.json`)
+          filePath = join(spacesDir, spaceName, '.aico-bot', 'conversations', `${conversationId}.json`)
           if (existsSync(filePath)) {
             return filePath
           }

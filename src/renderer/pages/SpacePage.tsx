@@ -204,9 +204,9 @@ export function SpacePage() {
       await useChatStore.getState().loadConversations(currentSpace.id)
 
       // Preload other spaces' conversations in background for PULSE global visibility
-      const { haloSpace, spaces } = useSpaceStore.getState()
+      const { defaultSpace, spaces } = useSpaceStore.getState()
       const allSpaceIds = [
-        ...(haloSpace ? [haloSpace.id] : []),
+        ...(defaultSpace ? [defaultSpace.id] : []),
         ...spaces.map(s => s.id)
       ].filter(id => id !== currentSpace.id)
       useChatStore.getState().preloadAllSpaceConversations(allSpaceIds)

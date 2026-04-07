@@ -23,7 +23,7 @@ export const ALWAYS_IGNORE_DIRS = [
   'CVS',
   '.bzr',
   // App metadata
-  '.halo',
+  '.aico-bot',
 ]
 
 // ─── Layer 1.5: C++ level safe directories ───────────────────────────────────

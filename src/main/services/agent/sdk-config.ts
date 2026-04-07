@@ -209,7 +209,7 @@ async function resolveAnthropicPassthrough(
  *   - Routes all network requests through the proxy (added latency)
  *   - Has a bug where '*' wildcard is not properly handled (causes false blocks)
  *
- * Security note: SDK has built-in filesystem restrictions (e.g., protecting Halo config files)
+ * Security note: SDK has built-in filesystem restrictions (e.g., protecting AICO-Bot config files)
  * that are separate from these sandbox settings.
  */
 const SANDBOX_CONFIG = {
@@ -263,7 +263,7 @@ function ensureSandboxSettings(configDir: string): void {
 /**
  * Prefixes to strip from inherited env before spawning CC subprocess.
  * Prevents leaked vars (ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY, CLAUDE_CODE_SSE_PORT, etc.)
- * from overriding Halo's explicit configuration.
+ * from overriding AICO-Bot's explicit configuration.
  */
 const AI_SDK_ENV_PREFIXES = ['ANTHROPIC_', 'OPENAI_', 'CLAUDE_']
 
@@ -307,7 +307,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     ANTHROPIC_API_KEY: params.anthropicApiKey,
     ANTHROPIC_BASE_URL: params.anthropicBaseUrl,
 
-    // Halo's unified config dir at ~/.agents/
+    // AICO-Bot's unified config dir at ~/.agents/
     // Skills are stored in ~/.agents/skills/ and SDK config in ~/.agents/claude-config/
     CLAUDE_CONFIG_DIR: (() => {
       const agentsDir = path.join(os.homedir(), '.agents')
@@ -357,7 +357,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     // Performance: skip warmup calls + raise V8 heap ceiling
     CLAUDE_CODE_REMOTE: 'true',
 
-    // Performance: skip file snapshot I/O (Halo doesn't expose /rewind)
+    // Performance: skip file snapshot I/O (AICO-Bot doesn't expose /rewind)
     CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING: '1',
 
     // Windows: pass through Git Bash path (set by git-bash.service during startup)
@@ -422,7 +422,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     stderr: stderrHandler || ((data: string) => {
       console.error(`[Agent][${conversationId}] CLI stderr:`, data)
     }),
-    // Use Halo's custom system prompt instead of SDK's 'claude_code' preset
+    // Use AICO-Bot's custom system prompt instead of SDK's 'claude_code' preset
     systemPrompt: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],

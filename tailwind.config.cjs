@@ -39,11 +39,11 @@ module.exports = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Halo brand colors
-        'halo-glow': 'hsl(var(--halo-glow))',
-        'halo-success': 'hsl(var(--halo-success))',
-        'halo-warning': 'hsl(var(--halo-warning))',
-        'halo-error': 'hsl(var(--halo-error))',
+        // AICO-Bot brand colors
+        'aico-bot-glow': 'hsl(var(--aico-bot-glow))',
+        'aico-bot-success': 'hsl(var(--aico-bot-success))',
+        'aico-bot-warning': 'hsl(var(--aico-bot-warning))',
+        'aico-bot-error': 'hsl(var(--aico-bot-error))',
       },
       borderRadius: {
         lg: 'var(--radius)',

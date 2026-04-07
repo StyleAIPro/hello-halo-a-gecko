@@ -41,7 +41,7 @@ const DIMMED_DIRS = new Set([
   // Test/Coverage
   'coverage', '.nyc_output', '__pycache__', '.pytest_cache', '.mypy_cache', '.tox',
   // Misc
-  '.halo', 'logs', 'tmp', 'temp',
+  '.aico-bot', 'logs', 'tmp', 'temp',
 ])
 
 function isDimmed(name: string): boolean {

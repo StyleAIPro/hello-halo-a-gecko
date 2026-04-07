@@ -5,7 +5,7 @@
  * - spaces-index.json (v3) stores space registration info (name/icon/path/timestamps)
  * - Preferences are NOT stored in the index — they live in per-space meta.json
  * - Module-level registry Map is the in-memory working copy of the index
- * - Halo temp space is unified into the registry (no special branches)
+ * - AICO-Bot temp space is unified into the registry (no special branches)
  * - Lazy-loaded on first access; auto-migrates from v1/v2 formats if needed
  * - Mutations (create/update/delete) update both memory and disk atomically
  * - listSpaces() is pure memory read — zero disk I/O after startup
@@ -17,7 +17,7 @@
 import { shell } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync, renameSync } from 'fs'
-import { getHaloDir, getTempSpacePath, getSpacesDir } from './config.service'
+import { getAicoBotDir, getTempSpacePath, getSpacesDir } from './config.service'
 import { v4 as uuidv4 } from 'uuid'
 import type {
   AgentConfig,
@@ -102,7 +102,7 @@ interface SpaceIndexEntry {
   createdAt: string
   updatedAt: string
   workingDir?: string
-  isTemp?: boolean  // true only for halo-temp (not persisted to disk)
+  isTemp?: boolean  // true only for aico-bot-temp (not persisted to disk)
 
   // Remote Claude support
   claudeSource?: 'local' | 'remote'
@@ -131,7 +131,7 @@ export function _resetSpaceRegistry(): void {
 }
 
 function getSpaceIndexPath(): string {
-  return join(getHaloDir(), 'spaces-index.json')
+  return join(getAicoBotDir(), 'spaces-index.json')
 }
 
 /**
@@ -171,7 +171,7 @@ function metaToEntry(meta: SpaceMeta, spacePath: string): SpaceIndexEntry {
 
 /**
  * Load space index from disk. Handles v3 (direct), v2 (migration), v1/missing (full scan).
- * Always registers halo-temp into the returned map.
+ * Always registers aico-bot-temp into the returned map.
  */
 function loadSpaceIndex(): Map<string, SpaceIndexEntry> {
   const indexPath = getSpaceIndexPath()
@@ -196,7 +196,7 @@ function loadSpaceIndex(): Map<string, SpaceIndexEntry> {
       }
     }
     console.log(`[Space] Index v3 loaded: ${map.size} spaces`)
-    registerHaloTemp(map)
+    registerAicoBotTemp(map)
     return map
   }
 
@@ -213,7 +213,7 @@ function loadSpaceIndex(): Map<string, SpaceIndexEntry> {
     }
     persistIndex(map)
     console.log(`[Space] Index v3 migration complete: ${map.size} spaces`)
-    registerHaloTemp(map)
+    registerAicoBotTemp(map)
     return map
   }
 
@@ -255,19 +255,19 @@ function loadSpaceIndex(): Map<string, SpaceIndexEntry> {
   // Persist v3 format
   persistIndex(map)
   console.log(`[Space] Index v3 migration complete: ${map.size} spaces`)
-  registerHaloTemp(map)
+  registerAicoBotTemp(map)
   return map
 }
 
 /**
- * Register halo-temp into the registry (in-memory only, never persisted to index).
+ * Register aico-bot-temp into the registry (in-memory only, never persisted to index).
  */
-function registerHaloTemp(map: Map<string, SpaceIndexEntry>): void {
+function registerAicoBotTemp(map: Map<string, SpaceIndexEntry>): void {
   const tempPath = getTempSpacePath()
   const now = new Date().toISOString()
-  map.set('halo-temp', {
+  map.set('aico-bot-temp', {
     path: tempPath,
-    name: 'Halo',
+    name: 'AICO Space',
     icon: 'sparkles',
     createdAt: now,
     updatedAt: now,
@@ -279,7 +279,7 @@ function registerHaloTemp(map: Map<string, SpaceIndexEntry>): void {
  * Try to read SpaceMeta from a path. Returns null on any failure.
  */
 function tryReadMeta(spacePath: string): SpaceMeta | null {
-  const metaPath = join(spacePath, '.halo', 'meta.json')
+  const metaPath = join(spacePath, '.aico-bot', 'meta.json')
   if (!existsSync(metaPath)) return null
   try {
     return JSON.parse(readFileSync(metaPath, 'utf-8'))
@@ -290,10 +290,10 @@ function tryReadMeta(spacePath: string): SpaceMeta | null {
 
 /**
  * Persist the registry Map to disk as v3 (atomic write via tmp + rename).
- * Excludes halo-temp (isTemp entries are memory-only).
+ * Excludes aico-bot-temp (isTemp entries are memory-only).
  */
 function persistIndex(map: Map<string, SpaceIndexEntry>): void {
-  // Filter out halo-temp before persisting
+  // Filter out aico-bot-temp before persisting
   const persistable: Record<string, SpaceIndexEntry> = {}
   for (const [id, entry] of map) {
     if (!entry.isTemp) {
@@ -309,7 +309,7 @@ function persistIndex(map: Map<string, SpaceIndexEntry>): void {
   const tmpPath = indexPath + '.tmp'
   try {
     // Ensure parent directory exists
-    const dir = getHaloDir()
+    const dir = getAicoBotDir()
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
@@ -370,10 +370,10 @@ function entryToSpaceWithPreferences(id: string, entry: SpaceIndexEntry): Space 
 }
 
 /**
- * Get Halo temp space. Delegates to unified getSpace().
+ * Get AICO-Bot temp space. Delegates to unified getSpace().
  */
-export function getHaloSpace(): Space {
-  return getSpace('halo-temp')!
+export function getAicoBotSpace(): Space {
+  return getSpace('aico-bot-temp')!
 }
 
 /**
@@ -406,7 +406,7 @@ export function listSpaces(): Space[] {
   const invalidIds: string[] = []
 
   for (const [id, entry] of getRegistry()) {
-    if (entry.isTemp) continue  // halo-temp is returned via getHaloSpace()
+    if (entry.isTemp) continue  // aico-bot-temp is returned via getAicoBotSpace()
     if (isSkillSpace(id)) continue  // skill space is hidden from the list
 
     if (!existsSync(entry.path)) {
@@ -472,7 +472,7 @@ export function createSpace({
   const id = uuidv4()
   const now = new Date().toISOString()
 
-  // Data always stored centrally under ~/.halo/spaces/{id}/
+  // Data always stored centrally under ~/.aico-bot/spaces/{id}/
   const spacePath = join(getSpacesDir(), id)
 
   // customPath is stored as workingDir (agent cwd, artifact root, file explorer)
@@ -480,8 +480,8 @@ export function createSpace({
 
   // Create directories
   mkdirSync(spacePath, { recursive: true })
-  mkdirSync(join(spacePath, '.halo'), { recursive: true })
-  mkdirSync(join(spacePath, '.halo', 'conversations'), { recursive: true })
+  mkdirSync(join(spacePath, '.aico-bot'), { recursive: true })
+  mkdirSync(join(spacePath, '.aico-bot', 'conversations'), { recursive: true })
 
   // Create meta file
   const meta: SpaceMeta = {
@@ -498,7 +498,7 @@ export function createSpace({
     systemPrompt
   }
 
-  writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+  writeFileSync(join(spacePath, '.aico-bot', 'meta.json'), JSON.stringify(meta, null, 2))
 
   // Register in index (memory + disk)
   const entry: SpaceIndexEntry = {
@@ -543,10 +543,10 @@ export function deleteSpace(spaceId: string): { success: boolean; error?: string
       // Centralized storage (new spaces + default spaces): delete entire folder
       rmSync(spacePath, { recursive: true, force: true })
     } else {
-      // Legacy custom path spaces: only delete .halo folder (preserve user's files)
-      const haloDir = join(spacePath, '.halo')
-      if (existsSync(haloDir)) {
-        rmSync(haloDir, { recursive: true, force: true })
+      // Legacy custom path spaces: only delete .aico-bot folder (preserve user's files)
+      const spaceDataDir = join(spacePath, '.aico-bot')
+      if (existsSync(spaceDataDir)) {
+        rmSync(spaceDataDir, { recursive: true, force: true })
       }
     }
 
@@ -622,7 +622,7 @@ export function updateSpace(spaceId: string, updates: { name?: string; icon?: st
       preferences: existingMeta?.preferences,
       workingDir: entry.workingDir
     }
-    writeFileSync(join(entry.path, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+    writeFileSync(join(entry.path, '.aico-bot', 'meta.json'), JSON.stringify(meta, null, 2))
 
     return entryToSpaceWithPreferences(spaceId, entry)
   } catch (error) {
@@ -642,13 +642,13 @@ export function updateSpacePreferences(
   const entry = getRegistry().get(spaceId)
   if (!entry) return null
 
-  const metaPath = join(entry.path, '.halo', 'meta.json')
+  const metaPath = join(entry.path, '.aico-bot', 'meta.json')
 
   try {
-    // Ensure .halo directory exists
-    const haloDir = join(entry.path, '.halo')
-    if (!existsSync(haloDir)) {
-      mkdirSync(haloDir, { recursive: true })
+    // Ensure .aico-bot directory exists
+    const spaceDataDir = join(entry.path, '.aico-bot')
+    if (!existsSync(spaceDataDir)) {
+      mkdirSync(spaceDataDir, { recursive: true })
     }
 
     // Read existing meta to get current preferences
@@ -751,13 +751,13 @@ export function saveOnboardingConversation(
 
     const conversationsDir = space.isTemp
       ? join(space.path, 'conversations')
-      : join(space.path, '.halo', 'conversations')
+      : join(space.path, '.aico-bot', 'conversations')
 
     mkdirSync(conversationsDir, { recursive: true })
 
     const conversation = {
       id: conversationId,
-      title: 'Welcome to Halo',
+      title: 'Welcome to AICO-Bot',
       createdAt: now,
       updatedAt: now,
       messages: [
@@ -809,7 +809,7 @@ export function createHyperSpace(params: CreateHyperSpaceInput): Space | null {
     const id = uuidv4()
     const now = new Date().toISOString()
 
-    // Data always stored centrally under ~/.halo/spaces/{id}/
+    // Data always stored centrally under ~/.aico-bot/spaces/{id}/
     const spacePath = join(getSpacesDir(), id)
 
     // customPath is stored as workingDir
@@ -817,8 +817,8 @@ export function createHyperSpace(params: CreateHyperSpaceInput): Space | null {
 
     // Create directories
     mkdirSync(spacePath, { recursive: true })
-    mkdirSync(join(spacePath, '.halo'), { recursive: true })
-    mkdirSync(join(spacePath, '.halo', 'conversations'), { recursive: true })
+    mkdirSync(join(spacePath, '.aico-bot'), { recursive: true })
+    mkdirSync(join(spacePath, '.aico-bot', 'conversations'), { recursive: true })
 
     // Build orchestration config
     const orchestrationConfig = createOrchestrationConfig(orchestration)
@@ -837,7 +837,7 @@ export function createHyperSpace(params: CreateHyperSpaceInput): Space | null {
       orchestration: orchestrationConfig
     }
 
-    writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+    writeFileSync(join(spacePath, '.aico-bot', 'meta.json'), JSON.stringify(meta, null, 2))
 
     // Register in index (memory + disk)
     const entry: SpaceIndexEntry = {
@@ -917,7 +917,7 @@ export function updateHyperSpaceAgents(
       spaceType: 'hyper',
       agents
     }
-    writeFileSync(join(entry.path, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+    writeFileSync(join(entry.path, '.aico-bot', 'meta.json'), JSON.stringify(meta, null, 2))
 
     console.log(`[Space] Updated Hyper Space ${spaceId} agents: ${agents.length} agents`)
 
@@ -962,7 +962,7 @@ export function getHyperSpaceStatus(spaceId: string): {
 // ============================================================================
 
 // 固定的技能空间 ID
-const SKILL_SPACE_ID = 'halo-skill-creator'
+const SKILL_SPACE_ID = 'aico-bot-skill-creator'
 
 /**
  * 获取或创建技能专用空间
@@ -982,14 +982,14 @@ export function getOrCreateSkillSpace(): Space {
   const now = new Date().toISOString()
 
   // 使用 ~/.agents/skills 作为工作目录（这是技能存放的位置）
-  const skillsDir = join(getHaloDir(), '..', '.agents', 'skills')
-  // 空间数据存储在 ~/.halo/spaces/halo-skill-creator/
+  const skillsDir = join(getAicoBotDir(), '..', '.agents', 'skills')
+  // 空间数据存储在 ~/.aico-bot/spaces/aico-bot-skill-creator/
   const spacePath = join(getSpacesDir(), SKILL_SPACE_ID)
 
   // 创建目录
   mkdirSync(spacePath, { recursive: true })
-  mkdirSync(join(spacePath, '.halo'), { recursive: true })
-  mkdirSync(join(spacePath, '.halo', 'conversations'), { recursive: true })
+  mkdirSync(join(spacePath, '.aico-bot'), { recursive: true })
+  mkdirSync(join(spacePath, '.aico-bot', 'conversations'), { recursive: true })
 
   // 确保技能目录存在
   if (!existsSync(skillsDir)) {
@@ -1007,7 +1007,7 @@ export function getOrCreateSkillSpace(): Space {
     claudeSource: 'local'
   }
 
-  writeFileSync(join(spacePath, '.halo', 'meta.json'), JSON.stringify(meta, null, 2))
+  writeFileSync(join(spacePath, '.aico-bot', 'meta.json'), JSON.stringify(meta, null, 2))
 
   // 注册到索引（内存 + 磁盘）
   const entry: SpaceIndexEntry = {

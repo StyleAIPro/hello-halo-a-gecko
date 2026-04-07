@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Halo is an open-source Electron desktop application that wraps Claude Code's AI agent capabilities in a visual, cross-platform interface. It enables users to interact with AI agents without using the terminal. Version 2.x includes a Digital Humans automation platform.
+AICO-Bot is an open-source Electron desktop application that wraps Claude Code's AI agent capabilities in a visual, cross-platform interface. It enables users to interact with AI agents without using the terminal. Version 2.x includes a Digital Humans automation platform.
 
 ## Build/Test Commands
 
 ```bash
 # Development
-npm run dev              # Start dev server (uses ~/.halo-dev data dir, port 8081)
+npm run dev              # Start dev server (uses ~/.aico-bot-dev data dir, port 8081)
 
 # Build
 npm run build            # Build proxy + electron-vite build (outputs to out/)
@@ -33,7 +33,7 @@ npx vitest run --config tests/vitest.config.ts tests/unit/services/config.test.t
 npx vitest run --config tests/vitest.config.ts -t "should return default config"
 
 # Internationalization (run before committing new user-facing text)
-npm run i18n             # Extract + translate (requires HALO_TEST_* env vars in .env.local)
+npm run i18n             # Extract + translate (requires AICO_BOT_TEST_* env vars in .env.local)
 npm run i18n:extract     # Extract keys only
 npm run i18n:translate   # AI-translate only
 
@@ -52,7 +52,7 @@ E2E tests require `npm run build` first and API credentials in `.env.local` (see
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          Halo Desktop                           │
+│                          AICO-Bot Desktop                           │
 │  ┌─────────────┐    ┌─────────────┐    ┌───────────────────┐   │
 │  │   React UI  │◄──►│    Main     │◄──►│  Claude Code SDK  │   │
 │  │  (Renderer) │IPC │   Process   │    │   (Agent Loop)    │   │
@@ -61,7 +61,7 @@ E2E tests require `npm run build` first and API credentials in `.env.local` (see
 │                            ▼                                    │
 │                    ┌───────────────┐                           │
 │                    │  Local Files  │                           │
-│                    │  ~/.halo/     │                           │
+│                    │  ~/.aico-bot/     │                           │
 │                    └───────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -93,7 +93,7 @@ The app boots in two phases via `src/main/bootstrap/`:
 
 - **`/src/shared/types/`** - Shared types (must NOT import Node.js or Electron modules)
 
-- **`/src/preload/`** - Preload scripts exposing `window.halo`
+- **`/src/preload/`** - Preload scripts exposing `window.aicoBot`
 
 - **`/src/worker/`** - File watcher (runs as separate child process)
 
@@ -102,15 +102,15 @@ The app boots in two phases via `src/main/bootstrap/`:
 ### Dual-Mode Renderer API
 
 The renderer API layer (`src/renderer/api/`) works in two modes:
-- **Electron**: Methods call `window.halo.xxx()` via IPC preload bridge
+- **Electron**: Methods call `window.aicoBot.xxx()` via IPC preload bridge
 - **Remote web**: Methods call HTTP endpoints + WebSocket events
 
-`transport.ts` auto-detects mode via `isElectron()` (checks `window.halo`). `api/index.ts` re-exports a unified `api` object.
+`transport.ts` auto-detects mode via `isElectron()` (checks `window.aicoBot`). `api/index.ts` re-exports a unified `api` object.
 
 ### Adding IPC Endpoints
 
 When adding a new IPC channel, update these 3 files:
-1. `src/preload/index.ts` - Expose to `window.halo`
+1. `src/preload/index.ts` - Expose to `window.aicoBot`
 2. `src/renderer/api/transport.ts` - Add to `methodMap` in `onEvent()`
 3. `src/renderer/api/index.ts` - Export as `api.xxx`
 
@@ -215,14 +215,14 @@ Uses `@anthropic-ai/claude-agent-sdk` with V2 sessions:
 ## Environment Variables
 
 Copy `.env.example` to `.env.local`. Key variables:
-- `HALO_TEST_API_KEY`, `HALO_TEST_API_URL`, `HALO_TEST_MODEL`, `HALO_TEST_PROVIDER` — E2E tests and i18n translation
+- `AICO_BOT_TEST_API_KEY`, `AICO_BOT_TEST_API_URL`, `AICO_BOT_TEST_MODEL`, `AICO_BOT_TEST_PROVIDER` — E2E tests and i18n translation
 - `GH_TOKEN` — Publishing releases
-- Analytics vars (`HALO_GA_*`, `HALO_BAIDU_*`) — optional, disabled by default
+- Analytics vars (`AICO_BOT_GA_*`, `AICO_BOT_BAIDU_*`) — optional, disabled by default
 
 ## Configuration Files
 
 - **`product.json`** - Build config and auth provider definitions
-- **`~/.halo/`** - User data directory (conversations, settings, spaces)
-- **`~/.halo-dev/`** - Dev mode data directory (used by `npm run dev`)
+- **`~/.aico-bot/`** - User data directory (conversations, settings, spaces)
+- **`~/.aico-bot-dev/`** - Dev mode data directory (used by `npm run dev`)
 - **`.env.local`** - Local env overrides (gitignored)
 - **`electron.vite.config.ts`** - Build configuration (main/preload/renderer entries)

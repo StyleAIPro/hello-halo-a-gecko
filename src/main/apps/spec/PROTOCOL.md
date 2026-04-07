@@ -1,4 +1,4 @@
-# Halo App Spec Protocol — Complete Field Reference
+# AICO-Bot App Spec Protocol — Complete Field Reference
 
 > **Authoritative source**: This document is derived directly from `src/main/apps/spec/schema.ts` (Zod schema) and is fully consistent with the runtime.
 > This document must be updated in sync with every change to `schema.ts`.
@@ -448,7 +448,7 @@ memory_schema:
 | `type` | `string` (non-empty) | **Yes** | Data type description, e.g. `"string"`, `"number"`, `"array"`, `"date"`, `"boolean"`, `"object"`. Purely descriptive — no runtime validation is performed. |
 | `description` | `string` | No | Field description to help the AI understand the field's purpose. |
 
-> **Runtime behavior**: The memory file is stored at `{space.path}/.halo/apps/{appId}/memory/memory.md`.
+> **Runtime behavior**: The memory file is stored at `{space.path}/.aico-bot/apps/{appId}/memory/memory.md`.
 > The AI reads this file before each run and writes a summary after the run.
 
 ---
@@ -486,7 +486,7 @@ output:
 
 > **Runtime behavior**: `output.notify` is only sent when the run result is not `error`.
 > The content is taken from the `summary` field of the most recent `run_complete` activity entry.
-> The AI can also call `mcp__halo-notify__send_notification` during a run to send immediate
+> The AI can also call `mcp__aico-bot-notify__send_notification` during a run to send immediate
 > notifications.
 
 ### `output.format`
@@ -575,7 +575,7 @@ store:
 | `category` | `string` | No | Category. Recommended values: `shopping`, `news`, `content`, `dev-tools`, `productivity`, `data`, `social`, `other`. |
 | `tags` | `string[]` | No | Free-form tags for search/discovery. Defaults to `[]`. |
 | `locale` | `string` | No | BCP 47 language tag, e.g. `"en-US"`, `"zh-CN"`. |
-| `min_app_version` | `string` | No | Minimum Halo client version required to run this App. |
+| `min_app_version` | `string` | No | Minimum AICO-Bot client version required to run this App. |
 | `license` | `string` | No | SPDX license identifier, e.g. `"MIT"`, `"Apache-2.0"`. |
 | `homepage` | `string` (URL) | No | Product homepage URL. |
 | `repository` | `string` (URL) | No | Source repository URL. |
@@ -632,7 +632,7 @@ i18n:
 
 ### Locale Resolution (Runtime)
 
-Halo resolves display text using this priority order:
+AICO-Bot resolves display text using this priority order:
 
 1. **Exact locale match** — e.g. `i18n["zh-CN"]` for a user with locale `zh-CN`
 2. **Language-prefix match** — e.g. `i18n["zh-CN"]` also applied for `zh-TW` when no `zh-TW`
@@ -905,7 +905,7 @@ store:
 ```yaml
 name: "Code Reviewer"
 version: "2.1.0"
-author: "halo-official"
+author: "aico-bot-official"
 description: "Code review skill with security and performance analysis"
 type: skill
 icon: "code-review"

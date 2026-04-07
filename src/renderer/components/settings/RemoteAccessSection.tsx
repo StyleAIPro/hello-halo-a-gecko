@@ -125,7 +125,7 @@ export function RemoteAccessSection() {
           <div>
             <p className="font-medium">{t('Enable Remote Access')}</p>
             <p className="text-sm text-muted-foreground">
-              {t('Allow access to Halo from other devices')}
+              {t('Allow access to AICO-Bot from other devices')}
             </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">

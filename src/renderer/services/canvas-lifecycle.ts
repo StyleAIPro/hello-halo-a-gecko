@@ -12,11 +12,11 @@
  *
  * Content types and rendering:
  * - code/markdown/json/csv/text: Load content via IPC, render in React
- * - image: Use halo-file:// protocol (bypasses CSP in renderer)
+ * - image: Use aico-bot-file:// protocol (bypasses CSP in renderer)
  * - pdf: Use BrowserView with file:// (BrowserView has no cross-origin restrictions)
  * - browser: Use BrowserView with https:// URLs
  *
- * Protocol: halo-file://
+ * Protocol: aico-bot-file://
  * - Custom protocol registered in main process (protocol.service.ts)
  * - Used by <img> tags in renderer to bypass CSP restrictions
  * - NOT used for BrowserView (BrowserView can access file:// directly)
@@ -499,7 +499,7 @@ class CanvasLifecycle {
 
   /**
    * Open a PDF file using BrowserView (Chromium native PDF renderer)
-   * Note: BrowserView can access file:// directly, no need for halo-file://
+   * Note: BrowserView can access file:// directly, no need for aico-bot-file://
    */
   private async openPdf(path: string, title?: string): Promise<string> {
     const tabId = generateTabId()
@@ -539,7 +539,7 @@ class CanvasLifecycle {
     const tab = this.tabs.get(tabId)
     if (!tab) return
 
-    // Images use halo-file:// protocol directly (no content loading needed)
+    // Images use aico-bot-file:// protocol directly (no content loading needed)
     if (type === 'image') {
       tab.isLoading = false
       this.notifyTabsChange()

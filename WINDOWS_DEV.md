@@ -1,6 +1,6 @@
 # Windows 本地开发指南
 
-以下是在 Windows 环境下进行 Halo 本地开发、构建和打包的详细步骤。
+以下是在 Windows 环境下进行 AICO-Bot 本地开发、构建和打包的详细步骤。
 
 ## 目录
 
@@ -48,8 +48,8 @@ python --version
 
 ```powershell
 # 克隆仓库
-git clone https://github.com/openkursar/hello-halo.git
-cd hello-halo
+git clone https://github.com/openkursar/hello-aico-bot.git
+cd hello-aico-bot
 
 # 安装依赖（项目 .npmrc 已配置 legacy-peer-deps=true）
 npm install
@@ -59,7 +59,7 @@ npm install
 
 ## 下载二进制依赖
 
-Halo 依赖一些平台特定的二进制文件（cloudflared、gh CLI、better-sqlite3 prebuild、@parcel/watcher），需要手动下载：
+AICO-Bot 依赖一些平台特定的二进制文件（cloudflared、gh CLI、better-sqlite3 prebuild、@parcel/watcher），需要手动下载：
 
 ```powershell
 # 自动检测当前平台并下载（Windows 下自动识别为 win）
@@ -90,17 +90,17 @@ copy .env.example .env.local
 
 | 变量 | 说明 | 是否必须 |
 |------|------|---------|
-| `HALO_TEST_API_KEY` | 测试用 API Key（E2E 测试、i18n 翻译） | 否 |
-| `HALO_TEST_API_URL` | API 地址 | 否 |
-| `HALO_TEST_MODEL` | 测试用模型名 | 否 |
+| `AICO_BOT_TEST_API_KEY` | 测试用 API Key（E2E 测试、i18n 翻译） | 否 |
+| `AICO_BOT_TEST_API_URL` | API 地址 | 否 |
+| `AICO_BOT_TEST_MODEL` | 测试用模型名 | 否 |
 | `GH_TOKEN` | GitHub Token（发布 Release 时需要） | 仅发布时 |
-| `HALO_GA_MEASUREMENT_ID` | Google Analytics（可留空） | 否 |
-| `HALO_BAIDU_SITE_ID` | 百度统计（可留空） | 否 |
+| `AICO_BOT_GA_MEASUREMENT_ID` | Google Analytics（可留空） | 否 |
+| `AICO_BOT_BAIDU_SITE_ID` | 百度统计（可留空） | 否 |
 
 ## 启动开发服务器
 
 ```powershell
-# 启动开发模式（使用独立的 ~/.halo-dev 数据目录，避免污染正式数据）
+# 启动开发模式（使用独立的 ~/.aico-bot-dev 数据目录，避免污染正式数据）
 npm run dev
 # 或
 npm run dev:win
@@ -109,7 +109,7 @@ npm run dev:win
 开发模式特点：
 
 - 开发服务器端口：`8081`
-- 用户数据目录：`~/.halo-dev`（与正式版 `~/.halo` 隔离）
+- 用户数据目录：`~/.aico-bot-dev`（与正式版 `~/.aico-bot` 隔离）
 - 支持 HMR（热模块替换），修改 React 代码后页面自动刷新
 - 主进程代码修改后会自动重启 Electron
 
@@ -206,7 +206,7 @@ Windows 打包使用 NSIS 安装程序（`.exe`），配置说明：
 # 提取所有 t() 调用中的新文本
 npm run i18n:extract
 
-# 使用 AI 翻译（需要 .env.local 中配置 HALO_TEST_* 变量）
+# 使用 AI 翻译（需要 .env.local 中配置 AICO_BOT_TEST_* 变量）
 npm run i18n:translate
 
 # 一步完成提取 + 翻译
@@ -230,10 +230,10 @@ npm install
 
 ### Q: 如何清理开发数据？
 
-开发模式使用 `~/.halo-dev` 目录存储数据。删除该目录即可重置：
+开发模式使用 `~/.aico-bot-dev` 目录存储数据。删除该目录即可重置：
 
 ```powershell
-Remove-Item -Recurse -Force "$env:USERPROFILE\.halo-dev"
+Remove-Item -Recurse -Force "$env:USERPROFILE\.aico-bot-dev"
 ```
 
 ### Q: 端口 8081 被占用？

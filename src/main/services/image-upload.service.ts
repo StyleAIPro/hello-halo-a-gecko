@@ -79,7 +79,7 @@ export async function uploadImagesForMcp(
  * Upload a single image and return its accessible URL
  */
 async function uploadSingleImage(image: ImageAttachment, spaceId: string): Promise<string> {
-  // Create uploads directory in Halo data dir
+  // Create uploads directory in AICO-Bot data dir
   const uploadsDir = join(getUploadsDir(), spaceId)
   if (!existsSync(uploadsDir)) {
     mkdirSync(uploadsDir, { recursive: true })
@@ -118,9 +118,9 @@ async function uploadSingleImage(image: ImageAttachment, spaceId: string): Promi
  * Get the uploads directory path
  */
 function getUploadsDir(): string {
-  // Use Halo data directory
-  const haloDir = app.getPath('userData')
-  return join(haloDir, 'uploads')
+  // Use AICO-Bot data directory
+  const spaceDataDir = app.getPath('userData')
+  return join(spaceDataDir, 'uploads')
 }
 
 /**

@@ -334,10 +334,10 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
     // Save to file using IPC
     try {
-      const result = await window.halo?.saveFile?.(spaceId, fileName, markdownContent)
+      const result = await window.aicoBot?.saveFile?.(spaceId, fileName, markdownContent)
       if (result?.success) {
         console.log(`[AgentCommandStore] Exported ${commands.length} commands to ${fileName}`)
-        window.halo?.showMessage?.('info', `Exported ${commands.length} commands to ${fileName}`)
+        window.aicoBot?.showMessage?.('info', `Exported ${commands.length} commands to ${fileName}`)
       } else {
         // Fallback: download directly
         downloadMarkdown(markdownContent, fileName)

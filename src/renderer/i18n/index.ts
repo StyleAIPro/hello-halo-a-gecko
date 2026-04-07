@@ -1,5 +1,5 @@
 /**
- * i18n Configuration for Halo
+ * i18n Configuration for AICO-Bot
  *
  * Supports 7 languages with automatic system language detection.
  * English is the source language, translations maintained by AI.
@@ -38,7 +38,7 @@ export const SUPPORTED_LOCALES = {
 export type LocaleCode = keyof typeof SUPPORTED_LOCALES
 
 // Storage key for persisting language preference
-const LOCALE_STORAGE_KEY = 'halo-locale'
+const LOCALE_STORAGE_KEY = 'aico-bot-locale'
 
 /**
  * Detect system language and map to supported locale

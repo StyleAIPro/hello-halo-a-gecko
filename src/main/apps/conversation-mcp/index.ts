@@ -1,5 +1,5 @@
 /**
- * Halo Apps Conversation MCP Server
+ * AICO-Bot Apps Conversation MCP Server
  *
  * Creates an in-process MCP server using Claude Agent SDK's
  * tool() and createSdkMcpServer() functions.
@@ -40,18 +40,18 @@ async function waitForAppManager(maxMs = 5000, intervalMs = 200) {
   const manager = getAppManager()
   if (manager) return manager
 
-  console.log('[HaloAppsMcp] AppManager not ready, waiting...')
+  console.log('[AicoBotAppsMcp] AppManager not ready, waiting...')
   let waited = 0
   while (waited < maxMs) {
     await new Promise(r => setTimeout(r, intervalMs))
     waited += intervalMs
     const m = getAppManager()
     if (m) {
-      console.log(`[HaloAppsMcp] AppManager ready after ${waited}ms`)
+      console.log(`[AicoBotAppsMcp] AppManager ready after ${waited}ms`)
       return m
     }
   }
-  console.error(`[HaloAppsMcp] AppManager still null after ${maxMs}ms — initPlatformAndApps may have failed`)
+  console.error(`[AicoBotAppsMcp] AppManager still null after ${maxMs}ms — initPlatformAndApps may have failed`)
   return null
 }
 
@@ -60,7 +60,7 @@ async function waitForAppManager(maxMs = 5000, intervalMs = 200) {
 // ============================================
 
 /**
- * Build tool definitions for halo-apps MCP server.
+ * Build tool definitions for aico-bot-apps MCP server.
  * Tools are closed over spaceId for space-scoped operations.
  *
  * @param spaceId - The current space ID
@@ -105,7 +105,7 @@ export function buildTools(spaceId: string) {
     '  3. User-specific values — if the task requires URLs, keywords, API endpoints, or other dynamic inputs, define them as config_schema fields so the user can fill them in, rather than hardcoding guessed values.\n' +
     'Do NOT call this tool until you have the user\'s answers to the above. Guessing these values leads to a poor experience.\n\n' +
     'CRITICAL — config_schema restrictions:\n' +
-    '  - NEVER create config fields for cookies, session tokens, or any login credentials. The App runs inside the user\'s Halo browser with shared session — authentication is automatic.\n\n' +
+    '  - NEVER create config fields for cookies, session tokens, or any login credentials. The App runs inside the user\'s AICO-Bot browser with shared session — authentication is automatic.\n\n' +
     'spec schema (JSON object):\n' +
     '  name*: string — Short descriptive name\n' +
     '  description*: string — One sentence describing what this automation does\n' +
@@ -126,11 +126,11 @@ export function buildTools(spaceId: string) {
     '  memory_schema?: Record<string, { type: string, description?: string }> — Persistent memory fields\n' +
     '  escalation?: { enabled?: boolean, timeout_hours?: number }\n' +
     '  version?: string (default "1.0")\n' +
-    '  author?: string (default "Halo")',
+    '  author?: string (default "AICO-Bot")',
     {
       spec: z.string().describe(
         'JSON string of the App Spec object. Must include name, description, system_prompt, and subscriptions. ' +
-        'type is always "automation". version defaults to "1.0", author defaults to "Halo".'
+        'type is always "automation". version defaults to "1.0", author defaults to "AICO-Bot".'
       )
     },
     async (args) => {
@@ -151,7 +151,7 @@ export function buildTools(spaceId: string) {
         // Force automation type and apply defaults
         parsedSpec.type = 'automation'
         if (!parsedSpec.version) parsedSpec.version = '1.0'
-        if (!parsedSpec.author) parsedSpec.author = 'Halo'
+        if (!parsedSpec.author) parsedSpec.author = 'AICO-Bot'
 
         // Validate using the canonical schema
         let validatedSpec
@@ -282,7 +282,7 @@ export function buildTools(spaceId: string) {
         try {
           await runtime.deactivate(args.app_id)
         } catch (e) {
-          console.warn(`[HaloAppsMcp] deactivate best-effort failed for ${args.app_id}:`, e)
+          console.warn(`[AicoBotAppsMcp] deactivate best-effort failed for ${args.app_id}:`, e)
         }
 
         return textResult(`Successfully paused app ${args.app_id}. It will not run again until resumed.`)
@@ -313,7 +313,7 @@ export function buildTools(spaceId: string) {
         try {
           await runtime.activate(args.app_id)
         } catch (e) {
-          console.warn(`[HaloAppsMcp] activate best-effort failed for ${args.app_id}:`, e)
+          console.warn(`[AicoBotAppsMcp] activate best-effort failed for ${args.app_id}:`, e)
         }
 
         return textResult(`Successfully resumed app ${args.app_id}. It is now active and will run on schedule.`)
@@ -515,16 +515,16 @@ export function buildTools(spaceId: string) {
 // ============================================
 
 /**
- * Create Halo Apps SDK MCP Server.
+ * Create AICO-Bot Apps SDK MCP Server.
  * Runs in-process and handles all automation app management tools.
  *
  * @param spaceId - The current space ID (captured via closure by all tools)
  */
-export function createHaloAppsMcpServer(spaceId: string) {
+export function createAicoBotAppsMcpServer(spaceId: string) {
   const allTools = buildTools(spaceId)
 
   return createSdkMcpServer({
-    name: 'halo-apps',
+    name: 'aico-bot-apps',
     version: '1.0.0',
     tools: allTools
   })

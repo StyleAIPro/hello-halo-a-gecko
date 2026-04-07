@@ -66,7 +66,7 @@ function loadConfig(): RemoteServerConfig {
 /**
  * Migrate skills from ~/.claude/skills/ to ~/.agents/skills/ if not already present.
  * This runs on every startup so that skills placed in Claude's default directory
- * are automatically picked up by Halo.
+ * are automatically picked up by AICO-Bot.
  */
 function migrateClaudeSkills(): void {
   const home = process.env.HOME || '/root'

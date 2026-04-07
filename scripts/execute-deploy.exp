@@ -7,7 +7,7 @@ set timeout 300
 set password "Huawei@234"
 
 # Spawn the deployment script
-spawn /Users/zhaoyinqi/zyq_workspace/hello-halo/scripts/deploy-remote-simple.sh root@124.71.177.25 22 7d9d6f744dea44ca89413025d1cf9250.T4asr8unnrVz5QCt https://open.bigmodel.cn/api/anthropic /root
+spawn /Users/zhaoyinqi/zyq_workspace/hello-aico-bot/scripts/deploy-remote-simple.sh root@124.71.177.25 22 7d9d6f744dea44ca89413025d1cf9250.T4asr8unnrVz5QCt https://open.bigmodel.cn/api/anthropic /root
 
 # Handle password prompts
 expect {

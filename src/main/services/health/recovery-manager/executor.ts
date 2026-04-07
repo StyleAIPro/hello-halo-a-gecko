@@ -286,7 +286,7 @@ async function executeS4(): Promise<RecoveryResult> {
 
     // Note: We don't actually delete config here
     // The config.service handles defaults on next startup
-    // A true factory reset would need to clear ~/.halo/config.json
+    // A true factory reset would need to clear ~/.aico-bot/config.json
 
     emitRecoverySuccess('S4', 'Factory reset completed')
 

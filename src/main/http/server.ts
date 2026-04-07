@@ -1,5 +1,5 @@
 /**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
- * HTTP Server - Remote access server for Halo
+ * HTTP Server - Remote access server for AICO-Bot
  * Exposes REST API and serves the frontend for remote access
  */
 
@@ -142,7 +142,7 @@ export async function startHttpServer(
       if (req.path === '/' && !urlToken && !headerToken) {
         // Check cookie for token
         const cookies = req.headers.cookie || ''
-        const hasToken = cookies.includes('halo_authenticated=true')
+        const hasToken = cookies.includes('aico-bot_authenticated=true')
         if (!hasToken) {
           return res.send(getRemoteLoginPage())
         }
@@ -200,7 +200,7 @@ export async function startHttpServer(
 
       // Check if authenticated via cookie
       const cookies = req.headers.cookie || ''
-      const hasToken = cookies.includes('halo_authenticated=true')
+      const hasToken = cookies.includes('aico-bot_authenticated=true')
 
       // If not authenticated, show login page
       if (!hasToken) {
@@ -222,7 +222,7 @@ export async function startHttpServer(
   // Create HTTP server
   httpServer = createServer(expressApp)
 
-  // Initialize WebSocket (for Halo communication on /ws path)
+  // Initialize WebSocket (for AICO-Bot communication on /ws path)
   initWebSocket(httpServer)
 
   // In dev mode, proxy Vite HMR WebSocket connections
@@ -230,7 +230,7 @@ export async function startHttpServer(
     httpServer.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url || '/', `http://${req.headers.host}`)
 
-      // Don't intercept Halo's WebSocket connections
+      // Don't intercept AICO-Bot's WebSocket connections
       if (url.pathname === '/ws') {
         // Let the wss server handle it (already done by initWebSocket)
         return
@@ -362,7 +362,7 @@ function getRemoteLoginPage(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Halo Remote Access</title>
+  <title>AICO-Bot Remote Access</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -428,7 +428,7 @@ function getRemoteLoginPage(): string {
 <body>
   <div class="container">
     <div class="logo">◯</div>
-    <h1>Halo Remote Access</h1>
+    <h1>AICO-Bot Remote Access</h1>
 
     <p>Enter access code to connect to your desktop</p>
     <div class="input-group">
@@ -455,9 +455,9 @@ function getRemoteLoginPage(): string {
         });
 
         if (res.ok) {
-          localStorage.setItem('halo_remote_token', token);
+          localStorage.setItem('aico-bot_remote_token', token);
           // Set cookie for server-side auth check
-          document.cookie = 'halo_authenticated=true; path=/';
+          document.cookie = 'aico-bot_authenticated=true; path=/';
           error.textContent = '';
           error.classList.remove('error');
           error.classList.add('success');

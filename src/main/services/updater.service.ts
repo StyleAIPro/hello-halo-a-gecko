@@ -1,5 +1,5 @@
 /**
- * Halo Auto-Updater Service
+ * AICO-Bot Auto-Updater Service
  * Handles automatic updates via GitHub Releases
  *
  * Update Strategy:

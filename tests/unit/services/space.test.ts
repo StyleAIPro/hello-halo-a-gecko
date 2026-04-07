@@ -10,7 +10,7 @@ import fs from 'fs'
 import path from 'path'
 
 import {
-  getHaloSpace,
+  getAicoBotSpace,
   listSpaces,
   createSpace,
   getSpace,
@@ -27,21 +27,21 @@ describe('Space Service', () => {
     await initializeApp()
   })
 
-  describe('getHaloSpace', () => {
-    it('should return the Halo temp space', () => {
-      const haloSpace = getHaloSpace()
+  describe('getAicoBotSpace', () => {
+    it('should return the AICO-Bot temp space', () => {
+      const aicoBotSpace = getAicoBotSpace()
 
-      expect(haloSpace.id).toBe('halo-temp')
-      expect(haloSpace.name).toBe('Halo')
-      expect(haloSpace.isTemp).toBe(true)
-      expect(haloSpace.icon).toBe('sparkles')
+      expect(aicoBotSpace.id).toBe('aico-bot-temp')
+      expect(aicoBotSpace.name).toBe('AICO-Bot')
+      expect(aicoBotSpace.isTemp).toBe(true)
+      expect(aicoBotSpace.icon).toBe('sparkles')
     })
 
     it('should have valid path', () => {
-      const haloSpace = getHaloSpace()
+      const aicoBotSpace = getAicoBotSpace()
 
-      expect(haloSpace.path).toBeTruthy()
-      expect(fs.existsSync(haloSpace.path)).toBe(true)
+      expect(aicoBotSpace.path).toBeTruthy()
+      expect(fs.existsSync(aicoBotSpace.path)).toBe(true)
     })
 
   })
@@ -82,14 +82,14 @@ describe('Space Service', () => {
       expect(fs.existsSync(space.path)).toBe(true)
     })
 
-    it('should create .halo directory inside space', async () => {
+    it('should create .aico-bot directory inside space', async () => {
       const space = await createSpace({
         name: 'Test Space',
         icon: 'folder'
       })
 
-      const haloDir = path.join(space.path, '.halo')
-      expect(fs.existsSync(haloDir)).toBe(true)
+      const aicoBotDir = path.join(space.path, '.aico-bot')
+      expect(fs.existsSync(aicoBotDir)).toBe(true)
     })
 
     it('should create meta.json with space info', async () => {
@@ -98,7 +98,7 @@ describe('Space Service', () => {
         icon: 'star'
       })
 
-      const metaPath = path.join(space.path, '.halo', 'meta.json')
+      const metaPath = path.join(space.path, '.aico-bot', 'meta.json')
       expect(fs.existsSync(metaPath)).toBe(true)
 
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
@@ -121,7 +121,7 @@ describe('Space Service', () => {
       // customPath is stored as workingDir (the agent's working directory), not space.path.
       expect(space.path).toContain(getSpacesDir())
       expect((space as any).workingDir).toBe(customPath)
-      expect(fs.existsSync(path.join(space.path, '.halo', 'meta.json'))).toBe(true)
+      expect(fs.existsSync(path.join(space.path, '.aico-bot', 'meta.json'))).toBe(true)
     })
   })
 
@@ -144,34 +144,34 @@ describe('Space Service', () => {
       expect(space).toBeFalsy() // null or undefined
     })
 
-    it('should return Halo space for halo-temp id', () => {
-      const space = getSpace('halo-temp')
+    it('should return AICO-Bot space for aico-bot-temp id', () => {
+      const space = getSpace('aico-bot-temp')
 
       expect(space).toBeDefined()
-      expect(space?.id).toBe('halo-temp')
+      expect(space?.id).toBe('aico-bot-temp')
       expect(space?.isTemp).toBe(true)
     })
   })
 
   describe('deleteSpace', () => {
-    it('should delete space and its .halo directory', async () => {
+    it('should delete space and its .aico-bot directory', async () => {
       const space = await createSpace({
         name: 'Delete Test',
         icon: 'folder'
       })
 
-      const haloDir = path.join(space.path, '.halo')
-      expect(fs.existsSync(haloDir)).toBe(true)
+      const aicoBotDir = path.join(space.path, '.aico-bot')
+      expect(fs.existsSync(aicoBotDir)).toBe(true)
 
       const result = deleteSpace(space.id)
       expect(result.success).toBe(true)
 
-      // .halo should be deleted, but space directory may remain (for custom paths)
-      expect(fs.existsSync(haloDir)).toBe(false)
+      // .aico-bot should be deleted, but space directory may remain (for custom paths)
+      expect(fs.existsSync(aicoBotDir)).toBe(false)
     })
 
-    it('should not allow deleting Halo temp space', async () => {
-      const result = deleteSpace('halo-temp')
+    it('should not allow deleting AICO-Bot temp space', async () => {
+      const result = deleteSpace('aico-bot-temp')
       expect(result.success).toBe(false)
       expect(result.error).toContain('Cannot delete temp space')
     })

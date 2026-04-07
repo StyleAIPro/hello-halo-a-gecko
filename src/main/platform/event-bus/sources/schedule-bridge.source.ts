@@ -2,12 +2,12 @@
  * platform/event-bus -- ScheduleBridgeSource
  *
  * Event source adapter that bridges the scheduler module's "job due"
- * events into the unified event bus as HaloEvent objects.
+ * events into the unified event bus as AicoBotEvent objects.
  *
  * Integration approach:
  * - Accepts a scheduler-like object conforming to a minimal interface.
  * - On start(), registers a callback via scheduler.onJobDue().
- * - When a scheduled job fires, produces a HaloEvent with:
+ * - When a scheduled job fires, produces a AicoBotEvent with:
  *   - type: "schedule.due"
  *   - source: "scheduler"
  *   - payload: { jobId, jobName, metadata, scheduledAt }

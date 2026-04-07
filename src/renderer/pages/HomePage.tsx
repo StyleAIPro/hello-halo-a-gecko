@@ -33,7 +33,7 @@ export function HomePage() {
   const { t } = useTranslation()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
   const { setView } = useAppStore()
-  const { haloSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
+  const { defaultSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
 
   // Dialog state
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -49,7 +49,7 @@ export function HomePage() {
   // Path selection state
   const [useCustomPath, setUseCustomPath] = useState(false)
   const [customPath, setCustomPath] = useState<string | null>(null)
-  const [defaultPath, setDefaultPath] = useState<string>(window.platform.isWindows ? '%USERPROFILE%\\.halo\\spaces' : '~/.halo/spaces')
+  const [defaultPath, setDefaultPath] = useState<string>(window.platform.isWindows ? '%USERPROFILE%\\.aico-bot\\spaces' : '~/.aico-bot/spaces')
 
   // Remote Claude configuration state
   const [claudeSource, setClaudeSource] = useState<'local' | 'remote'>('local')
@@ -229,13 +229,13 @@ export function HomePage() {
     // Check if it's a project-linked space:
     // - New centralized spaces with project: have workingDir
     // - Legacy custom spaces: path doesn't end with /spaces/{uuid}
-    //   (centralized paths are always {haloDir}/spaces/{uuid-v4}, uuid is 36 chars)
+    //   (centralized paths are always {dataDir}/spaces/{uuid-v4}, uuid is 36 chars)
     const lastSegment = space.path.split(/[/\\]/).pop() ?? ''
     const isCentralizedSpace = (space.path.includes('/spaces/') || space.path.includes('\\spaces\\')) && lastSegment.length === 36
     const isProjectSpace = !!space.workingDir || !isCentralizedSpace
 
     const message = isProjectSpace
-      ? t('Are you sure you want to delete this space?\n\nOnly Halo data (conversation history) will be deleted, your project files will be kept.')
+      ? t('Are you sure you want to delete this space?\n\nOnly AICO-Bot data (conversation history) will be deleted, your project files will be kept.')
       : t('Are you sure you want to delete this space?\n\nAll conversations and files in the space will be deleted.')
 
     if (await confirmDialog(message)) {
@@ -308,7 +308,7 @@ export function HomePage() {
             <div className="w-[22px] h-[22px] rounded-full border-2 border-primary/60 flex items-center justify-center">
               <div className="w-3 h-3 rounded-full bg-gradient-to-br from-primary/30 to-transparent" />
             </div>
-            <span className="text-sm font-medium">Halo</span>
+            <span className="text-sm font-medium">AICO-Bot</span>
           </>
         }
         right={
@@ -332,20 +332,20 @@ export function HomePage() {
 
       {/* Content */}
       <main className="flex-1 overflow-auto p-6">
-        {/* Primary entry cards: Halo Space + 技能管理 */}
+        {/* Primary entry cards: AICO-Bot Space + 技能管理 */}
         <div className="grid grid-cols-2 gap-4 mb-8 animate-fade-in">
-          {/* Halo Space card */}
-          {haloSpace && (
+          {/* Default Space card */}
+          {defaultSpace && (
             <div
-              data-onboarding="halo-space"
-              onClick={() => handleSpaceClick(haloSpace)}
-              className="halo-space-card p-5 rounded-xl cursor-pointer flex flex-col gap-3 min-h-[120px]"
+              data-onboarding="default-space"
+              onClick={() => handleSpaceClick(defaultSpace)}
+              className="aico-bot-space-card p-5 rounded-xl cursor-pointer flex flex-col gap-3 min-h-[120px]"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-primary" />
-                  <h2 className="text-sm font-semibold">{t('Halo')}</h2>
-                  {haloSpace.claudeSource === 'remote' ? (
+                  <h2 className="text-sm font-semibold">{defaultSpace.name}</h2>
+                  {defaultSpace.claudeSource === 'remote' ? (
                     <span className="flex items-center gap-1 text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full">
                       <Cloud className="w-3 h-3" />
                       {t('Remote')}
@@ -357,10 +357,10 @@ export function HomePage() {
                     </span>
                   )}
                 </div>
-                {haloSpace.claudeSource === 'remote' && haloSpace.remoteServerId && (
+                {defaultSpace.claudeSource === 'remote' && defaultSpace.remoteServerId && (
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Cloud className="w-3 h-3" />
-                    @{remoteServers.find(s => s.id === haloSpace.remoteServerId)?.name || haloSpace.remoteServerId}
+                    @{remoteServers.find(s => s.id === defaultSpace.remoteServerId)?.name || defaultSpace.remoteServerId}
                   </span>
                 )}
               </div>

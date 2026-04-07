@@ -3,7 +3,7 @@
  */
 
 // 固定的技能空间 ID（与主进程保持一致）
-const SKILL_SPACE_ID = 'halo-skill-creator'
+const SKILL_SPACE_ID = 'aico-bot-skill-creator'
 
 /**
  * 获取技能空间 ID

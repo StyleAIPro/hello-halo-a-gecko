@@ -7,7 +7,7 @@ This deployment script sets up a remote Claude agent with V2 Session capabilitie
 ## Architecture
 
 ```
-Local Halo UI
+Local AICO-Bot UI
      │
      │ sendMessage()
      │     ├─ Local V2 Session
@@ -200,7 +200,7 @@ tail -f /opt/claude-deployment/logs/output.log
 
 After successful deployment:
 
-1. Add the remote server in Halo settings (Remote Servers page)
+1. Add the remote server in AICO-Bot settings (Remote Servers page)
 2. Create a new space with "Remote" Claude source
 3. Specify the remote server and working directory
 4. Start using the remote Claude agent!

@@ -1,7 +1,7 @@
 /**
  * 技能生成器会话服务
  *
- * 使用真正的技能空间 (halo-skill-creator) 进行会话管理，
+ * 使用真正的技能空间 (aico-bot-skill-creator) 进行会话管理，
  * 复用现有的 conversation.service 持久化能力，
  * 实现会话持久化和完整的对话能力。
  *

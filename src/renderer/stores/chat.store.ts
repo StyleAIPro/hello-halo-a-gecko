@@ -1079,9 +1079,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           pendingQuestion: null,
           pendingMessages: [],
           // Clean up completed/failed worker sessions from previous rounds.
-          // Only keep running workers — completed ones will be recreated if needed.
+          // Keep running workers and workers with persisted childConversationId history.
           workerSessions: existingSession?.workerSessions
-            ? new Map([...existingSession.workerSessions].filter(([, ws]) => ws.isRunning))
+            ? new Map([...existingSession.workerSessions].filter(([, ws]) => ws.isRunning || ws.childConversationId))
             : new Map()
         })
         return { sessions: newSessions }
@@ -2439,7 +2439,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 // ==========================================
 
 // Skill Creator space ID - this space's conversations are hidden from Pulse
-const SKILL_CREATOR_SPACE_ID = 'halo-skill-creator'
+const SKILL_CREATOR_SPACE_ID = 'aico-bot-skill-creator'
 
 /**
  * Extract a pulse-relevant fingerprint from sessions.
@@ -2480,7 +2480,7 @@ function _computePulseItems(state: ChatState): PulseItem[] {
   const addedIds = new Set<string>()
 
   const getSpaceName = (spaceId: string): string => {
-    return spaceId === 'halo-temp' ? 'Halo' : spaceId
+    return spaceId === 'aico-bot-temp' ? 'AICO-Bot' : spaceId
   }
 
   // Helper to check if we should skip this space

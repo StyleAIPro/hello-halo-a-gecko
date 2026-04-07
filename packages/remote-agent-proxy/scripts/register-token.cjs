@@ -4,7 +4,7 @@
  *
  * Usage: node register-token.js <token> <clientId> [hostname] [tokensPath]
  *
- * This script is called via SSH from Halo clients to register their auth token
+ * This script is called via SSH from AICO-Bot clients to register their auth token
  * in the remote server's tokens.json whitelist file.
  *
  * Output:

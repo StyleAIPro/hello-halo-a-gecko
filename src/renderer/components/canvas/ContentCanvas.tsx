@@ -1,7 +1,7 @@
 /**
  * Content Canvas - Main content viewing area
  *
- * The Content Canvas transforms Halo from a simple chat interface
+ * The Content Canvas transforms AICO-Bot from a simple chat interface
  * into a rich content browser. It displays code, markdown, images,
  * and embedded browser views.
  *

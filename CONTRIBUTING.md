@@ -1,6 +1,6 @@
-# Contributing to Halo
+# Contributing to AICO-Bot
 
-Thanks for your interest in contributing to Halo! This guide will help you get started.
+Thanks for your interest in contributing to AICO-Bot! This guide will help you get started.
 
 ## About This Project
 
@@ -10,8 +10,8 @@ Thanks for your interest in contributing to Halo! This guide will help you get s
 
 ```bash
 # Clone the repository
-git clone https://github.com/openkursar/hello-halo.git
-cd hello-halo
+git clone https://github.com/openkursar/hello-aico-bot.git
+cd hello-aico-bot
 
 # Install dependencies
 npm install
@@ -84,7 +84,7 @@ Run `npm run i18n` before committing to extract new strings.
 
 When adding a new IPC event, update these 3 files:
 
-1. `src/preload/index.ts` - Expose to `window.halo`
+1. `src/preload/index.ts` - Expose to `window.aicoBot`
 2. `src/renderer/api/transport.ts` - Add to `methodMap`
 3. `src/renderer/api/index.ts` - Export unified API
 
@@ -96,8 +96,8 @@ When adding a new IPC event, update these 3 files:
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/hello-halo.git
-cd hello-halo
+git clone https://github.com/YOUR_USERNAME/hello-aico-bot.git
+cd hello-aico-bot
 npm install
 
 # Create a feature branch from main
@@ -108,13 +108,13 @@ git checkout -b feat/new-feature-name
 
 ### 2. Find or Create an Issue
 
-- Check existing [Issues](https://github.com/openkursar/hello-halo/issues)
+- Check existing [Issues](https://github.com/openkursar/hello-aico-bot/issues)
 - Create a new issue if needed
 - Comment on the issue to let us know you're working on it
 
 ### 3. Development
 
-💡 **Recommended**: Use **Halo + Claude Opus 4.5** for development!
+💡 **Recommended**: Use **AICO-Bot + Claude Opus 4.5** for development!
 
 - Follow the [Code Guidelines](#code-guidelines)
 - Write code and comments in English
@@ -157,11 +157,11 @@ Then create a PR on GitHub:
 - Address any feedback if requested
 - Once approved, maintainers will merge and handle final testing/building
 
-## Extending Halo
+## Extending AICO-Bot
 
 ### Custom AI Providers
 
-Halo supports custom AI source providers through a plugin architecture. You can create your own OAuth or API key-based providers.
+AICO-Bot supports custom AI source providers through a plugin architecture. You can create your own OAuth or API key-based providers.
 
 See **[docs/custom-providers.md](docs/custom-providers.md)** for the complete guide, including:
 - Provider interface definitions
@@ -178,7 +178,7 @@ See **[docs/custom-providers.md](docs/custom-providers.md)** for the complete gu
 
 ## Questions?
 
-- Open a [GitHub Discussion](https://github.com/openkursar/hello-halo/discussions)
-- Check existing [Issues](https://github.com/openkursar/hello-halo/issues)
+- Open a [GitHub Discussion](https://github.com/openkursar/hello-aico-bot/discussions)
+- Check existing [Issues](https://github.com/openkursar/hello-aico-bot/issues)
 
 Thank you for contributing!

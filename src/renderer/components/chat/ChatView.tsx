@@ -474,7 +474,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
         isGenerating={isGenerating}
         isStopping={isStopping}
         pendingCount={pendingCount}
-        placeholder={isCompact ? t('Continue conversation...') : (currentSpace?.isTemp ? t('Say something to Halo...') : t('Continue conversation...'))}
+        placeholder={isCompact ? t('Continue conversation...') : (currentSpace?.isTemp ? t('Say something to AICO-Bot...') : t('Continue conversation...'))}
         isCompact={isCompact}
         spaceId={currentSpace?.id}
         conversationId={currentConversation?.id}
@@ -516,7 +516,7 @@ function EmptyState({ isTemp, isCompact = false }: { isTemp: boolean; isCompact?
 
       {/* Title - concise and warm */}
       <h2 className="mt-6 text-xl font-medium">
-        Halo
+        AICO-Bot
       </h2>
       <p className="mt-2 text-muted-foreground">
         {t('Not just chat, help you get things done')}

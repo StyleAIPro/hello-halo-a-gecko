@@ -5,7 +5,7 @@
  * overlay WebContentsView, ensuring it appears above BrowserViews.
  *
  * Design:
- * - Halo brand color (blue) for high visibility on any background
+ * - AICO-Bot brand color (blue) for high visibility on any background
  * - Circular button with shadow for depth
  * - Fixed position on left edge, vertically centered
  *
@@ -42,7 +42,7 @@ export function ChatCapsuleOverlay({ onClick }: ChatCapsuleOverlayProps) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        // Halo brand blue - visible on both light and dark backgrounds
+        // AICO-Bot brand blue - visible on both light and dark backgrounds
         backgroundColor: '#3b82f6',
         // Strong shadow for visibility and depth
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.2)',

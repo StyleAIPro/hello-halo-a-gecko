@@ -10,7 +10,7 @@
  * - app-chat.ts: Interactive chat triggered by user, real-time streaming
  *
  * The V2 session is keyed by "app-chat:{appId}" for reuse across messages.
- * Messages are persisted to JSONL ({spacePath}/.halo/apps/{appId}/runs/chat.jsonl)
+ * Messages are persisted to JSONL ({spacePath}/.aico-bot/apps/{appId}/runs/chat.jsonl)
  * for reload recovery.
  *
  * Design:
@@ -173,7 +173,7 @@ export async function sendAppChatMessage(
   }
 
   const mcpServers: Record<string, any> = {
-    'halo-memory': memoryMcpServer,
+    'aico-bot-memory': memoryMcpServer,
     ...(usesAIBrowser ? { 'ai-browser': createAIBrowserMcpServer(scopedBrowserCtx) } : {}),
   }
   console.log(`[AppChat][${appId}] MCP servers: [${Object.keys(mcpServers).join(', ')}], aiBrowser=${usesAIBrowser}`)

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://hm.baidu.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: halo-file: https:; connect-src *"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://hm.baidu.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: aico-bot-file: https:; connect-src *"
     />
-  <title>Halo - AI that gets things done</title>
+  <title>AICO-Bot - AI that gets things done</title>
     <style>
       /* Anti-flash: set background before CSS loads (default: light) */
       html, body, #root { background-color: #ffffff; }
@@ -18,7 +18,7 @@
       (function() {
         try {
           document.documentElement.classList.add('light');
-          var theme = localStorage.getItem('halo-theme');
+          var theme = localStorage.getItem('aico-bot-theme');
           if (theme === 'dark') {
             document.documentElement.classList.remove('light');
           } else if (theme === 'system') {
@@ -77,7 +77,7 @@
           margin-bottom: 24px;
         "></div>
         <h1 style="font-size: 20px; font-weight: 500; margin: 0 0 8px 0;">
-          Halo failed to start
+          AICO-Bot failed to start
         </h1>
         <p style="color: #a1a1aa; margin: 0 0 24px 0; font-size: 14px;">
           An error occurred before the application could load. Please copy the error below and report it.
@@ -107,10 +107,10 @@
     <script>
       // Global error handler for fatal errors before React mounts
       (function() {
-        window.__HALO_APP_MOUNTED__ = false;
+        window.__AICO_BOT_APP_MOUNTED__ = false;
 
         function showFatalError(message) {
-          if (window.__HALO_APP_MOUNTED__) return; // React is handling errors
+          if (window.__AICO_BOT_APP_MOUNTED__) return; // React is handling errors
 
           var fallback = document.getElementById('global-error-fallback');
           var errorMsg = document.getElementById('global-error-message');
@@ -128,7 +128,7 @@
           if (url) detail += '\n\nFile: ' + url.split('/').pop() + ':' + line + ':' + col;
           if (error && error.stack) detail += '\n\nStack:\n' + error.stack;
           showFatalError(detail);
-          return !window.__HALO_APP_MOUNTED__; // Suppress only if React not mounted
+          return !window.__AICO_BOT_APP_MOUNTED__; // Suppress only if React not mounted
         };
 
         window.onunhandledrejection = function(event) {

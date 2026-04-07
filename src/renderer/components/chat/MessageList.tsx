@@ -237,7 +237,7 @@ function StreamingBubble({
     <div className="rounded-2xl px-4 py-3 message-assistant message-working w-full overflow-hidden">
       {/* Working indicator */}
       <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/30 working-indicator-fade">
-        <span className="text-xs text-muted-foreground/70">{t('Halo is working')}</span>
+        <span className="text-xs text-muted-foreground/70">{t('AICO-Bot is working')}</span>
       </div>
 
       {/* Viewport - height matches current content only */}

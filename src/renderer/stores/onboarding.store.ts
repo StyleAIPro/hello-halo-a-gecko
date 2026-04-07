@@ -2,7 +2,7 @@
  * Onboarding Store - Manages first-time user guided tour state
  *
  * Flow:
- * 1. step 1: Highlight Halo Space card on HomePage
+ * 1. step 1: Highlight default Space card on HomePage
  * 2. step 2: Pre-fill input with prompt, highlight send button
  * 3. step 3: Show mock AI response, highlight artifact
  * 4. User clicks artifact -> onboarding complete
@@ -14,7 +14,7 @@
 import { create } from 'zustand'
 import { api } from '../api'
 
-export type OnboardingStep = 'halo-space' | 'send-message' | 'view-artifact' | 'completed'
+export type OnboardingStep = 'default-space' | 'send-message' | 'view-artifact' | 'completed'
 
 interface OnboardingState {
   // Whether onboarding is currently active
@@ -46,7 +46,7 @@ interface OnboardingState {
 
 export const useOnboardingStore = create<OnboardingState>((set, get) => ({
   isActive: false,
-  currentStep: 'halo-space',
+  currentStep: 'default-space',
   hasCompleted: false,
   isMockAnimating: false,
   isMockThinking: false,
@@ -69,13 +69,13 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
   },
 
   startOnboarding: () => {
-    set({ isActive: true, currentStep: 'halo-space' })
+    set({ isActive: true, currentStep: 'default-space' })
   },
 
   nextStep: () => {
     const { currentStep } = get()
 
-    const stepOrder: OnboardingStep[] = ['halo-space', 'send-message', 'view-artifact', 'completed']
+    const stepOrder: OnboardingStep[] = ['default-space', 'send-message', 'view-artifact', 'completed']
     const currentIndex = stepOrder.indexOf(currentStep)
 
     if (currentIndex < stepOrder.length - 1) {

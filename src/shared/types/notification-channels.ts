@@ -101,7 +101,7 @@ export interface WebhookChannelConfig {
 // Aggregate Config
 // ============================================
 
-/** All notification channels configuration — stored in HaloConfig */
+/** All notification channels configuration — stored in AicoBotConfig */
 export interface NotificationChannelsConfig {
   email?: EmailChannelConfig
   wecom?: WecomChannelConfig

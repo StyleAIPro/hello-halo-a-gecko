@@ -26,15 +26,15 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
 
   // Spaces
   const currentSpace = useSpaceStore(state => state.currentSpace)
-  const haloSpace = useSpaceStore(state => state.haloSpace)
+  const defaultSpace = useSpaceStore(state => state.defaultSpace)
   const spaces = useSpaceStore(state => state.spaces)
 
   const allSpaces = useMemo(() => {
     const result: Array<{ id: string; name: string; icon: string }> = []
-    if (haloSpace) result.push(haloSpace)
+    if (defaultSpace) result.push(defaultSpace)
     result.push(...spaces)
     return result
-  }, [haloSpace, spaces])
+  }, [defaultSpace, spaces])
 
   const [selectedSpaceId, setSelectedSpaceId] = useState(
     currentSpace?.id ?? allSpaces[0]?.id ?? ''

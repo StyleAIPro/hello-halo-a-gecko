@@ -261,7 +261,7 @@ export function createMemoryStatusMcpServer(caller: MemoryCallerScope) {
   )
 
   return createSdkMcpServer({
-    name: 'halo-memory',
+    name: 'aico-bot-memory',
     version: '1.0.0',
     tools: [memory_status],
   })

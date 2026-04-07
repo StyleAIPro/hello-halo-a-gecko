@@ -1,7 +1,7 @@
 /**
  * Built-in LLM Providers Configuration
  *
- * This module defines all built-in AI providers that Halo supports out of the box.
+ * This module defines all built-in AI providers that AICO-Bot supports out of the box.
  * Users can select these providers and only need to enter their API key.
  *
  * Based on: 2026 Global Top LLM Providers (OpenAI Compatible Version)

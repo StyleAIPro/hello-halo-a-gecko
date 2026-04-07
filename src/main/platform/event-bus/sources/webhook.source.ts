@@ -7,7 +7,7 @@
  * Integration approach:
  * - Accepts an Express Application or Router in the constructor.
  * - On start(), mounts `POST /hooks/*` route handler.
- * - Incoming POST requests are converted to HaloEvent with:
+ * - Incoming POST requests are converted to AicoBotEvent with:
  *   - type: "webhook.received"
  *   - source: "webhook"
  *   - payload: { path, body, headers, query, method, ip }
@@ -15,7 +15,7 @@
  *   `"wh:{path}:{body-hash}"` for idempotency against retries.
  *
  * Security:
- * - The /hooks/* endpoint is NOT behind the Halo auth middleware because
+ * - The /hooks/* endpoint is NOT behind the AICO-Bot auth middleware because
  *   external services (GitHub, Stripe, etc.) need to POST without an
  *   auth token.
  * - Per-hook HMAC signature verification is performed when a secret is

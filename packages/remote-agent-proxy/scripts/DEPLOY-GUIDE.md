@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档说明如何在远端服务器上部署 Remote Agent Proxy 服务，使 Halo 应用能够通过本地 UI 调用远端服务器的 Claude 能力。
+本文档说明如何在远端服务器上部署 Remote Agent Proxy 服务，使 AICO-Bot 应用能够通过本地 UI 调用远端服务器的 Claude 能力。
 
 ## 快速开始
 
@@ -29,7 +29,7 @@ tail -f /opt/claude-deployment/logs/output.log
 # 按 Ctrl+C 停止日志查看
 ```
 
-### 在本地 Halo 中添加服务器
+### 在本地 AICO-Bot 中添加服务器
 
 1. 打开 **Settings** 页面
 2. 进入 **Remote Servers** 页面
@@ -68,8 +68,8 @@ tail -f /opt/claude-deployment/logs/output.log
 ### 步骤 1：本地构建
 
 ```bash
-# 在本地 Halo 项目根目录执行
-cd /Users/zhaoyinqi/zyq_workspace/hello-halo
+# 在本地 AICO-Bot 项目根目录执行
+cd /Users/zhaoyinqi/workspace/hello-halo-a-gecko
 
 # 进入 remote-agent-proxy 目录
 cd packages/remote-agent-proxy
@@ -295,11 +295,11 @@ Claude API Base URL: https://your-api-url.com
 
 ---
 
-## 在本地 Halo 中配置
+## 在本地 AICO-Bot 中配置
 
 ### 添加远程服务器
 
-1. 打开 Halo 应用
+1. 打开 AICO-Bot 应用
 2. 进入 **Settings** > **Remote Servers**
 3. 点击 **Add Server**
 4. 填写服务器信息：
@@ -614,7 +614,7 @@ CLAUDE_WORK_DIR=/root
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    本地 Halo UI                           │
+│                    本地 AICO-Bot UI                           │
 │                                                            │
 │     sendMessage() ──> 检查 space.claudeSource          │
 │                                                            │
@@ -804,4 +804,4 @@ v1.0.0 - 2025-02-27
 
 ---
 
-*本文档存放在 `/Users/zhaoyinqi/zyq_workspace/hello-halo/packages/remote-agent-proxy/scripts/DEPLOY-GUIDE.md`*
+*本文档存放在 `/Users/zhaoyinqi/workspace/hello-halo-a-gecko/packages/remote-agent-proxy/scripts/DEPLOY-GUIDE.md`*

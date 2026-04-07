@@ -42,9 +42,9 @@ const envLocal = loadEnvLocal()
  * In open-source builds without .env.local, these will be empty strings (analytics disabled)
  */
 const analyticsDefine = {
-  '__HALO_GA_MEASUREMENT_ID__': JSON.stringify(envLocal.HALO_GA_MEASUREMENT_ID || ''),
-  '__HALO_GA_API_SECRET__': JSON.stringify(envLocal.HALO_GA_API_SECRET || ''),
-  '__HALO_BAIDU_SITE_ID__': JSON.stringify(envLocal.HALO_BAIDU_SITE_ID || ''),
+  '__AICO_BOT_GA_MEASUREMENT_ID__': JSON.stringify(envLocal.AICO_BOT_GA_MEASUREMENT_ID || ''),
+  '__AICO_BOT_GA_API_SECRET__': JSON.stringify(envLocal.AICO_BOT_GA_API_SECRET || ''),
+  '__AICO_BOT_BAIDU_SITE_ID__': JSON.stringify(envLocal.AICO_BOT_BAIDU_SITE_ID || ''),
 }
 
 /**

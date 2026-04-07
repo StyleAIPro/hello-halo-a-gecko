@@ -164,7 +164,7 @@ export class SkillStoreService {
       const data = await this.httpGet(url, {
         headers: {
           'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Halo-Skill-Manager'
+          'User-Agent': 'AICO-Bot-Skill-Manager'
         }
       });
 
@@ -204,7 +204,7 @@ export class SkillStoreService {
         `https://api.github.com/repos/${repo}/contents/${skillName}`,
         {
           'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Halo-Skill-Manager'
+          'User-Agent': 'AICO-Bot-Skill-Manager'
         }
       );
 

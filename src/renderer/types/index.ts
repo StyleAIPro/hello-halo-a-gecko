@@ -1,5 +1,5 @@
 // ============================================		      	    				  	  	  	 		 		       	 	 	         	 	    					 
-// Halo Type Definitions
+// AICO-Bot Type Definitions
 // ============================================
 
 // Import values needed in this file's scope
@@ -133,7 +133,7 @@ export interface McpStdioServerConfig {
   args?: string[];
   env?: Record<string, string>;
   timeout?: number;  // milliseconds
-  disabled?: boolean;  // Halo extension: temporarily disable this server
+  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
 }
 
 // MCP HTTP server (REST API)
@@ -141,7 +141,7 @@ export interface McpHttpServerConfig {
   type: 'http';
   url: string;
   headers?: Record<string, string>;
-  disabled?: boolean;  // Halo extension: temporarily disable this server
+  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
 }
 
 // MCP SSE server (Server-Sent Events)
@@ -149,7 +149,7 @@ export interface McpSseServerConfig {
   type: 'sse';
   url: string;
   headers?: Record<string, string>;
-  disabled?: boolean;  // Halo extension: temporarily disable this server
+  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
 }
 
 // Union type for all MCP server configs
@@ -182,7 +182,7 @@ export interface LayoutConfig {
   artifactRailWidth?: number;     // Artifact rail panel width (px)
 }
 
-export interface HaloConfig {
+export interface AicoBotConfig {
   api: ApiConfig;  // Legacy, kept for backward compatibility
   aiSources: AISourcesConfig;  // v2 format: { version: 2, currentId, sources: [] }
   permissions: PermissionConfig;
@@ -650,7 +650,7 @@ export interface AppState {
   view: AppView;
   isLoading: boolean;
   error: string | null;
-  config: HaloConfig | null;
+  config: AicoBotConfig | null;
 }
 
 // ============================================
@@ -674,7 +674,7 @@ export interface ValidationResult {
 }
 
 // Default values
-export const DEFAULT_CONFIG: HaloConfig = {
+export const DEFAULT_CONFIG: AicoBotConfig = {
   api: {
     provider: 'anthropic',
     apiKey: '',
@@ -709,13 +709,13 @@ export const DEFAULT_CONFIG: HaloConfig = {
 
 // Helper functions hasAnyAISource and getCurrentModelName are now imported from shared module
 
-// Helper function wrapper for HaloConfig (uses v2 format)
-export function hasAnyConfiguredSource(config: HaloConfig): boolean {
+// Helper function wrapper for AicoBotConfig (uses v2 format)
+export function hasAnyConfiguredSource(config: AicoBotConfig): boolean {
   return hasAnyAISource(config.aiSources);
 }
 
-// Helper function wrapper for HaloConfig (uses v2 format)
-export function getConfigCurrentModelName(config: HaloConfig): string {
+// Helper function wrapper for AicoBotConfig (uses v2 format)
+export function getConfigCurrentModelName(config: AicoBotConfig): string {
   return getCurrentModelName(config.aiSources);
 }
 

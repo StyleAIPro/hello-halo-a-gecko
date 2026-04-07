@@ -42,7 +42,7 @@ const FREQUENCY_PRESETS = [
 
 const DEFAULT_YAML_TEMPLATE = `\
 # ============================================
-# Halo Digital Human Spec - Complete Example
+# AICO-Bot Digital Human Spec - Complete Example
 # ============================================
 # This template shows ALL available fields.
 # Delete or modify sections as needed.
@@ -211,16 +211,16 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
 
   // Get all spaces
   const currentSpace = useSpaceStore(state => state.currentSpace)
-  const haloSpace = useSpaceStore(state => state.haloSpace)
+  const defaultSpace = useSpaceStore(state => state.defaultSpace)
   const spaces = useSpaceStore(state => state.spaces)
 
-  // Combine all available spaces (haloSpace + dedicated spaces)
+  // Combine all available spaces (defaultSpace + dedicated spaces)
   const allSpaces = useMemo(() => {
     const result: Array<{ id: string; name: string; icon: string }> = []
-    if (haloSpace) result.push(haloSpace)
+    if (defaultSpace) result.push(defaultSpace)
     result.push(...spaces)
     return result
-  }, [haloSpace, spaces])
+  }, [defaultSpace, spaces])
 
   const [mode, setMode] = useState<InstallMode>('visual')
   const [form, setForm] = useState<VisualFormState>({ ...INITIAL_FORM })
@@ -589,7 +589,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
             /* Import mode */
             <>
               <p className="text-xs text-muted-foreground">
-                {t('Import a digital human from a .yaml spec file exported from Halo.')}
+                {t('Import a digital human from a .yaml spec file exported from AICO-Bot.')}
               </p>
 
               {importYaml === null ? (

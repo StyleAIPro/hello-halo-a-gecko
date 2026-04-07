@@ -5,7 +5,7 @@
  * Each AppType gets a distinct icon, color, and hover tooltip.
  *
  * The `automation` type receives special primary-color styling as it is
- * Halo's signature "Digital Human" feature.
+ * AICO-Bot's signature "Digital Human" feature.
  *
  * Note: all t() calls use string literals so i18next-parser can extract them.
  */
@@ -74,9 +74,9 @@ function useAppTypeMeta(type: AppType): AppTypeMetaResolved | null {
       return {
         Icon: Package,
         label: t('Extension'),
-        tooltipTitle: t('Halo Extension'),
+        tooltipTitle: t('AICO-Bot Extension'),
         tooltipDesc: t(
-          'Enhances the Halo platform with additional UI or system-level functionality.'
+          'Enhances the AICO-Bot platform with additional UI or system-level functionality.'
         ),
         badgeClassName: 'bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15',
         iconClassName: 'text-amber-500',

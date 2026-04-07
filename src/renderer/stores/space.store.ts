@@ -8,7 +8,7 @@ import type { Space, CreateSpaceInput, SpacePreferences } from '../types'
 
 interface SpaceState {
   // Spaces data
-  haloSpace: Space | null
+  defaultSpace: Space | null
   spaces: Space[]
   currentSpace: Space | null
 
@@ -18,7 +18,7 @@ interface SpaceState {
 
   // Actions
   loadSpaces: () => Promise<void>
-  loadHaloSpace: () => Promise<void>
+  loadDefaultSpace: () => Promise<void>
   setCurrentSpace: (space: Space | null) => void
   createSpace: (input: CreateSpaceInput) => Promise<Space | null>
   updateSpace: (spaceId: string, updates: { name?: string; icon?: string }) => Promise<Space | null>
@@ -33,23 +33,23 @@ interface SpaceState {
 
 export const useSpaceStore = create<SpaceState>((set, get) => ({
   // Initial state
-  haloSpace: null,
+  defaultSpace: null,
   spaces: [],
   currentSpace: null,
   isLoading: false,
   error: null,
 
-  // Load Halo temp space
-  loadHaloSpace: async () => {
+  // Load default temp space
+  loadDefaultSpace: async () => {
     try {
-      const response = await api.getHaloSpace()
-      console.log('[SpaceStore] getHaloSpace: success=%s id=%s', response.success, (response.data as Space)?.id)
+      const response = await api.getAicoBotSpace()
+      console.log('[SpaceStore] getDefaultSpace: success=%s id=%s', response.success, (response.data as Space)?.id)
 
       if (response.success && response.data) {
-        set({ haloSpace: response.data as Space })
+        set({ defaultSpace: response.data as Space })
       }
     } catch (error) {
-      console.error('[SpaceStore] Failed to load Halo space:', error)
+      console.error('[SpaceStore] Failed to load default space:', error)
     }
   },
 
@@ -58,8 +58,8 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
     try {
       set({ isLoading: true, error: null })
 
-      // Load both Halo space and user spaces
-      await get().loadHaloSpace()
+      // Load both default space and user spaces
+      await get().loadDefaultSpace()
 
       const response = await api.listSpaces()
       console.log('[SpaceStore] listSpaces: success=%s count=%d', response.success, Array.isArray(response.data) ? (response.data as Space[]).length : 0)
@@ -199,7 +199,7 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
             )
           }))
         } else {
-          set({ haloSpace: response.data as Space })
+          set({ defaultSpace: response.data as Space })
         }
       }
     } catch (error) {
@@ -221,9 +221,9 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
           set({ currentSpace: updatedSpace })
         }
 
-        // Update in spaces list or halo space
+        // Update in spaces list or default space
         if (updatedSpace.isTemp) {
-          set({ haloSpace: updatedSpace })
+          set({ defaultSpace: updatedSpace })
         } else {
           set((state) => ({
             spaces: state.spaces.map((s) =>
@@ -239,16 +239,16 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
 
   // Get space preferences from state (sync, for UI reads)
   getSpacePreferences: (spaceId) => {
-    const { haloSpace, spaces, currentSpace } = get()
+    const { defaultSpace, spaces, currentSpace } = get()
 
     // Check current space first (most likely case)
     if (currentSpace?.id === spaceId) {
       return currentSpace.preferences
     }
 
-    // Check halo space
-    if (haloSpace?.id === spaceId) {
-      return haloSpace.preferences
+    // Check default space
+    if (defaultSpace?.id === spaceId) {
+      return defaultSpace.preferences
     }
 
     // Search in spaces list

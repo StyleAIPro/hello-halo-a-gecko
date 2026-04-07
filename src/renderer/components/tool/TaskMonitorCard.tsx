@@ -56,7 +56,7 @@ interface TaskMonitorCardProps {
 // ============================================
 
 const TASK_MONITOR_TOOL_NAMES = [
-  'mcp__halo-apps__create_automation_app',
+  'mcp__aico-bot-apps__create_automation_app',
   'create_task_monitor',
 ]
 

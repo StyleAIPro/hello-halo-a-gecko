@@ -7,10 +7,10 @@
  *   npm run i18n:translate -- --force  # Full translation
  *
  * Environment variables (from .env.local):
- *   HALO_TEST_API_KEY    - API Key
- *   HALO_TEST_API_URL    - API URL
- *   HALO_TEST_MODEL      - Model name
- *   HALO_TEST_API_FORMAT - API format: 'anthropic' or 'openai' (default: auto-detect)
+ *   AICO_BOT_TEST_API_KEY    - API Key
+ *   AICO_BOT_TEST_API_URL    - API URL
+ *   AICO_BOT_TEST_MODEL      - Model name
+ *   AICO_BOT_TEST_API_FORMAT - API format: 'anthropic' or 'openai' (default: auto-detect)
  */
 
 import fs from 'node:fs'
@@ -72,7 +72,7 @@ const TRANSLATION_GUIDELINES = {
 // Product context
 const APP_CONTEXT = `
 ## Product Context
-Halo is a desktop AI assistant application (similar to Cursor/Claude Desktop).
+AICO-Bot is a desktop AI assistant application (similar to Cursor/Claude Desktop).
 
 Key concepts:
 - "Space" = A workspace/project folder where AI can read/write files (NOT outer space)
@@ -117,7 +117,7 @@ function getKeysToTranslate(sourceJson, targetJson, force = false) {
 
 // Detect API format based on URL or explicit config
 function detectApiFormat(apiUrl) {
-  const explicit = process.env.HALO_TEST_API_FORMAT?.toLowerCase()
+  const explicit = process.env.AICO_BOT_TEST_API_FORMAT?.toLowerCase()
   if (explicit === 'anthropic' || explicit === 'openai') {
     return explicit
   }
@@ -132,12 +132,12 @@ function detectApiFormat(apiUrl) {
 
 // Call LLM API for translation (supports both Anthropic and OpenAI formats)
 async function translateBatch(texts, targetLocale) {
-  const apiKey = process.env.HALO_TEST_API_KEY
-  const apiUrl = process.env.HALO_TEST_API_URL
-  const model = process.env.HALO_TEST_MODEL
+  const apiKey = process.env.AICO_BOT_TEST_API_KEY
+  const apiUrl = process.env.AICO_BOT_TEST_API_URL
+  const model = process.env.AICO_BOT_TEST_MODEL
 
   if (!apiKey || !apiUrl) {
-    throw new Error('Missing HALO_TEST_API_KEY or HALO_TEST_API_URL in .env.local')
+    throw new Error('Missing AICO_BOT_TEST_API_KEY or AICO_BOT_TEST_API_URL in .env.local')
   }
 
   const apiFormat = detectApiFormat(apiUrl)
@@ -162,7 +162,7 @@ Translate the following JSON from English to ${LANG_NAMES[targetLocale]}.
 ## Rules
 1. Keep JSON keys unchanged, only translate values
 2. Keep {{variables}} placeholders exactly as-is (e.g., {{count}}, {{name}})
-3. Keep brand name "Halo" untranslated
+3. Keep brand name "AICO-Bot" untranslated
 4. Keep technical terms like "MCP", "API", "JSON" untranslated
 5. ${TRANSLATION_GUIDELINES[targetLocale]}
 
@@ -331,9 +331,9 @@ async function main() {
 
   console.log('\n🌍 i18n Auto Translator\n')
   console.log(`   Mode: ${force ? 'Force (translate all)' : 'Incremental (empty values only)'}`)
-  console.log(`   API: ${process.env.HALO_TEST_API_URL}`)
-  console.log(`   Model: ${process.env.HALO_TEST_MODEL}`)
-  console.log(`   Format: ${detectApiFormat(process.env.HALO_TEST_API_URL)}\n`)
+  console.log(`   API: ${process.env.AICO_BOT_TEST_API_URL}`)
+  console.log(`   Model: ${process.env.AICO_BOT_TEST_MODEL}`)
+  console.log(`   Format: ${detectApiFormat(process.env.AICO_BOT_TEST_API_URL)}\n`)
 
   // Read source file
   const sourceFile = path.join(CONFIG.localesDir, `${CONFIG.sourceLocale}.json`)

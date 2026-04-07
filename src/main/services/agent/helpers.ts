@@ -38,7 +38,7 @@ let headlessElectronPath: string | null = null
  * - Copying just the binary breaks the framework loading
  * - Symlinks preserve the framework resolution because the real binary is still in .app
  *
- * This is a novel solution discovered while building Halo - most Electron apps
+ * This is a novel solution discovered while building AICO-Bot - most Electron apps
  * that spawn child processes suffer from this Dock icon flashing issue.
  */
 export function getHeadlessElectronPath(): string {
@@ -127,7 +127,7 @@ export function getHeadlessElectronPath(): string {
 export function getWorkingDir(spaceId: string): string {
   console.log(`[Agent] getWorkingDir called with spaceId: ${spaceId}`)
 
-  if (spaceId === 'halo-temp') {
+  if (spaceId === 'aico-bot-temp') {
     const artifactsDir = join(getTempSpacePath(), 'artifacts')
     if (!existsSync(artifactsDir)) {
       mkdirSync(artifactsDir, { recursive: true })
@@ -328,7 +328,7 @@ export function getEnabledMcpServers(mcpServers: Record<string, any>): Record<st
   const enabled: Record<string, any> = {}
   for (const [name, config] of Object.entries(mcpServers)) {
     if (!config.disabled) {
-      // Remove the 'disabled' field before passing to SDK (it's a Halo extension)
+      // Remove the 'disabled' field before passing to SDK (it's an AICO-Bot extension)
       const { disabled, ...sdkConfig } = config as any
       enabled[name] = sdkConfig
     }

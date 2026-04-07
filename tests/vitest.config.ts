@@ -1,7 +1,7 @@
 /**
  * Vitest Configuration
  *
- * Unit test configuration for Halo's main process services.
+ * Unit test configuration for AICO-Bot's main process services.
  * Tests run in Node.js environment with Electron APIs mocked.
  */
 

@@ -28,9 +28,9 @@ import { getConfig, saveConfig } from '../config.service'
  * These are defined in electron.vite.config.ts and loaded from .env.local
  * In open-source builds without .env.local, these will be empty strings
  */
-declare const __HALO_GA_MEASUREMENT_ID__: string
-declare const __HALO_GA_API_SECRET__: string
-declare const __HALO_BAIDU_SITE_ID__: string
+declare const __AICO_BOT_GA_MEASUREMENT_ID__: string
+declare const __AICO_BOT_GA_API_SECRET__: string
+declare const __AICO_BOT_BAIDU_SITE_ID__: string
 
 /**
  * Provider configuration (injected at build time)
@@ -38,11 +38,11 @@ declare const __HALO_BAIDU_SITE_ID__: string
  */
 const PROVIDER_CONFIG = {
   baidu: {
-    siteId: __HALO_BAIDU_SITE_ID__
+    siteId: __AICO_BOT_BAIDU_SITE_ID__
   },
   ga: {
-    measurementId: __HALO_GA_MEASUREMENT_ID__,
-    apiSecret: __HALO_GA_API_SECRET__
+    measurementId: __AICO_BOT_GA_MEASUREMENT_ID__,
+    apiSecret: __AICO_BOT_GA_API_SECRET__
   }
 }
 

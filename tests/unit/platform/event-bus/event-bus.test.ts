@@ -18,7 +18,7 @@ import {
 } from '../../../../src/main/platform/event-bus'
 import { applyOperator, evaluateRule } from '../../../../src/main/platform/event-bus/filter'
 import { createEventBus } from '../../../../src/main/platform/event-bus/event-bus'
-import type { HaloEvent, EventFilter, FilterRule, EventSourceAdapter, EventEmitFn } from '../../../../src/main/platform/event-bus/types'
+import type { AicoBotEvent, EventFilter, FilterRule, EventSourceAdapter, EventEmitFn } from '../../../../src/main/platform/event-bus/types'
 
 // ============================================================================
 // matchTypeGlob
@@ -140,7 +140,7 @@ describe('applyOperator', () => {
 // ============================================================================
 
 describe('matchesFilter', () => {
-  function makeEvent(overrides?: Partial<HaloEvent>): HaloEvent {
+  function makeEvent(overrides?: Partial<AicoBotEvent>): AicoBotEvent {
     return {
       id: 'evt-1',
       type: 'file.changed',

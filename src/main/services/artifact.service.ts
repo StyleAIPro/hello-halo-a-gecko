@@ -40,7 +40,7 @@ export interface Artifact {
 
 // Get working directory for a space
 function getWorkingDir(spaceId: string): string {
-  if (spaceId === 'halo-temp') {
+  if (spaceId === 'aico-bot-temp') {
     const artifactsDir = join(getTempSpacePath(), 'artifacts')
     return artifactsDir
   }

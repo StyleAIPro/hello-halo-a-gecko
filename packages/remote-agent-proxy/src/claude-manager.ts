@@ -12,7 +12,7 @@ import http from 'http'
 import * as fs from 'fs'
 import path from 'path'
 import os from 'os'
-import type { HaloMcpToolDef } from './types.js'
+import type { AicoBotMcpToolDef } from './types.js'
 
 // ============================================
 // Types
@@ -61,12 +61,8 @@ export interface ChatOptions {
   maxThinkingTokens?: number
   workDir?: string  // Per-session working directory override
   hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
-  haloMcpUrl?: string   // Halo MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
-  haloMcpToken?: string // Auth token for Halo MCP proxy
-}
-
-/**
- * Tool call from V2 Session
+  aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
+  aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
  */
 export interface ToolCall {
   id: string
@@ -290,7 +286,7 @@ function buildSystemPrompt(workDir: string, modelInfo?: string): string {
   // Fallback to simplified prompt (should not happen if sync worked)
   // This matches the structure of SYSTEM_PROMPT_TEMPLATE but is more concise
   const osVersion = `${os.type()} ${os.release()}`
-  return `You are Halo, an AI assistant built with Claude Code. You help users with software engineering tasks.
+  return `You are AICO-Bot, an AI assistant built with Claude Code. You help users with software engineering tasks.
 
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming.
 
@@ -508,8 +504,8 @@ export class ClaudeManager {
   private workDir?: string
   private model?: string
   private contextWindow?: number  // Context window size for compression threshold
-  private haloMcpUrl?: string    // Halo MCP proxy base URL
-  private haloMcpToken?: string  // Auth token for Halo MCP proxy
+  private aicoBotMcpUrl?: string    // AICO-Bot MCP proxy base URL
+  private aicoBotMcpToken?: string  // Auth token for AICO-Bot MCP proxy
 
   // Config generation for change detection
   private configGeneration = 0
@@ -563,8 +559,8 @@ export class ClaudeManager {
 
   /**
    * Hyper-space MCP server creation.
-   * Delegates tool execution back to Halo via WebSocket (tool:call / tool:approve).
-   * Kept for backward compatibility with old Halo clients that don't support proxy orchestrator.
+   * Delegates tool execution back to AICO-Bot via WebSocket (tool:call / tool:approve).
+   * Kept for backward compatibility with old AICO-Bot clients that don't support proxy orchestrator.
    */
   private createHyperSpaceMcpServerLegacy(
     config: HyperSpaceToolsConfig,
@@ -644,17 +640,17 @@ export class ClaudeManager {
   }
 
   /**
-   * Create halo-builtin MCP server for tools from the Halo client.
-   * Tools delegate execution to the Halo client via WebSocket (mcp:tool:call).
+   * Create aico-bot-builtin MCP server for tools from the AICO-Bot client.
+   * Tools delegate execution to the AICO-Bot client via WebSocket (mcp:tool:call).
    *
    * This replaces the HTTP MCP proxy approach for multi-PC isolation.
    * Each PC's WebSocket connection provides its own set of tools.
    *
-   * @param toolDefs - Serialized tool definitions from the Halo client
-   * @param executeTool - Callback to execute a tool on the Halo client via WebSocket
+   * @param toolDefs - Serialized tool definitions from the AICO-Bot client
+   * @param executeTool - Callback to execute a tool on the AICO-Bot client via WebSocket
    */
-  private createHaloBuiltinMcpServer(
-    toolDefs: HaloMcpToolDef[],
+  private createAicoBotBuiltinMcpServer(
+    toolDefs: AicoBotMcpToolDef[],
     executeTool: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>
   ): any {
     const textResult = (text: string, isError = false) => ({
@@ -664,7 +660,7 @@ export class ClaudeManager {
 
     const generateCallId = () => `mcp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
-    // Build tool definitions from the serialized Halo tool definitions
+    // Build tool definitions from the serialized AICO-Bot tool definitions
     // Each tool delegates to the executeTool callback via WebSocket
     const tools = toolDefs.map(def =>
       tool(
@@ -674,7 +670,7 @@ export class ClaudeManager {
         async (args: any) => {
           try {
             const callId = generateCallId()
-            console.log(`[HaloMcpBridge] Tool called: ${def.serverName}:${def.name}`)
+            console.log(`[AicoBotMcpBridge] Tool called: ${def.serverName}:${def.name}`)
             const result = await executeTool(callId, def.name, args)
             // Handle result shape — could be CallToolResult or raw string
             if (typeof result === 'string') {
@@ -689,7 +685,7 @@ export class ClaudeManager {
     )
 
     return createSdkMcpServer({
-      name: 'halo-builtin',
+      name: 'aico-bot-builtin',
       version: '1.0.0',
       tools
     })
@@ -859,7 +855,7 @@ export class ClaudeManager {
     options.env.DISABLE_TELEMETRY = '1'
     options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
-    // Use ~/.agents/claude-config/ for SDK config (consistent with local Halo)
+    // Use ~/.agents/claude-config/ for SDK config (consistent with local AICO-Bot)
     // This ensures session files are stored in a predictable location
     const agentsDir = path.join(os.homedir(), '.agents')
     const configDir = path.join(agentsDir, 'claude-config')
@@ -970,7 +966,7 @@ export class ClaudeManager {
     maxThinkingTokens?: number,
     hyperSpaceMcpServer?: any,
     customSystemPrompt?: string,
-    haloBuiltinMcpServer?: any,
+    aicoBotBuiltinMcpServer?: any,
     bgTasksMcpServer?: any
   ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
@@ -1081,11 +1077,11 @@ export class ClaudeManager {
       console.log(`[ClaudeManager][${conversationId}] Injecting hyper-space MCP proxy server`)
     }
 
-    // Add Halo MCP proxy for built-in tools (halo-apps, gh-search, ai-browser)
+    // Add AICO-Bot MCP proxy for built-in tools (aico-bot-apps, gh-search, ai-browser)
     // Prefer WebSocket MCP Bridge over HTTP MCP proxy
-    if (haloBuiltinMcpServer) {
+    if (aicoBotBuiltinMcpServer) {
       // WebSocket MCP Bridge (preferred): in-process MCP server that delegates via WebSocket
-      const obj = haloBuiltinMcpServer as any
+      const obj = aicoBotBuiltinMcpServer as any
       if (obj.instance != null && typeof obj.toJSON !== 'function') {
         obj.toJSON = () => {
           const { instance, ...rest } = obj
@@ -1094,9 +1090,9 @@ export class ClaudeManager {
       }
       options.mcpServers = {
         ...(options.mcpServers || {}),
-        'halo-builtin': haloBuiltinMcpServer,
+        'aico-bot-builtin': aicoBotBuiltinMcpServer,
       }
-      console.log(`[ClaudeManager][${conversationId}] Injecting halo-builtin MCP server (WebSocket bridge)`)
+      console.log(`[ClaudeManager][${conversationId}] Injecting aico-bot-builtin MCP server (WebSocket bridge)`)
     }
 
     // Add background-tasks MCP server
@@ -1113,20 +1109,20 @@ export class ClaudeManager {
         'background-tasks': bgTasksMcpServer,
       }
       console.log(`[ClaudeManager][${conversationId}] Injecting background-tasks MCP server`)
-    } else if (this.haloMcpUrl) {
+    } else if (this.aicoBotMcpUrl) {
       // Fallback: HTTP MCP proxy (legacy, for backward compatibility)
       const mcpConfig: any = {
         type: 'http',
-        url: this.haloMcpUrl,
+        url: this.aicoBotMcpUrl,
       }
-      if (this.haloMcpToken) {
-        mcpConfig.headers = { Authorization: `Bearer ${this.haloMcpToken}` }
+      if (this.aicoBotMcpToken) {
+        mcpConfig.headers = { Authorization: `Bearer ${this.aicoBotMcpToken}` }
       }
       options.mcpServers = {
         ...(options.mcpServers || {}),
-        'halo-builtin': mcpConfig,
+        'aico-bot-builtin': mcpConfig,
       }
-      console.log(`[ClaudeManager][${conversationId}] Injecting Halo MCP proxy (HTTP fallback): ${this.haloMcpUrl}`)
+      console.log(`[ClaudeManager][${conversationId}] Injecting AICO-Bot MCP proxy (HTTP fallback): ${this.aicoBotMcpUrl}`)
     }
 
     // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
@@ -1294,17 +1290,17 @@ export class ClaudeManager {
     onMcpStatus?: (data: McpStatusEvent) => void,
     onCompact?: (data: CompactBoundaryEvent) => void,
     hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>,
-    haloMcpToolExecutor?: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>,
-    haloMcpToolDefs?: HaloMcpToolDef[]
+    aicoBotMcpToolExecutor?: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>,
+    aicoBotMcpToolDefs?: AicoBotMcpToolDef[]
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
 
-    // Update Halo MCP proxy URL from chat options (per-request, may change across turns)
-    if (options.haloMcpUrl) {
-      this.haloMcpUrl = options.haloMcpUrl
-      this.haloMcpToken = options.haloMcpToken
+    // Update AICO-Bot MCP proxy URL from chat options (per-request, may change across turns)
+    if (options.aicoBotMcpUrl) {
+      this.aicoBotMcpUrl = options.aicoBotMcpUrl
+      this.aicoBotMcpToken = options.aicoBotMcpToken
     }
 
     // Create hyper-space MCP server if configured
@@ -1314,18 +1310,18 @@ export class ClaudeManager {
       hyperSpaceMcpServer = this.createHyperSpaceMcpServerLegacy(options.hyperSpaceTools, hyperSpaceToolExecutor)
     }
 
-    // Create halo-builtin MCP server if tools are available from the Halo client
-    // This is the WebSocket MCP Bridge — tools delegate to the Halo client via WebSocket
-    let haloBuiltinMcpServer: any = undefined
-    if (haloMcpToolDefs && haloMcpToolDefs.length > 0 && haloMcpToolExecutor) {
-      console.log(`[ClaudeManager] Creating halo-builtin MCP server (WebSocket bridge) with ${haloMcpToolDefs.length} tools from Halo client`)
-      haloBuiltinMcpServer = this.createHaloBuiltinMcpServer(haloMcpToolDefs, haloMcpToolExecutor)
+    // Create aico-bot-builtin MCP server if tools are available from the AICO-Bot client
+    // This is the WebSocket MCP Bridge — tools delegate to the AICO-Bot client via WebSocket
+    let aicoBotBuiltinMcpServer: any = undefined
+    if (aicoBotMcpToolDefs && aicoBotMcpToolDefs.length > 0 && aicoBotMcpToolExecutor) {
+      console.log(`[ClaudeManager] Creating aico-bot-builtin MCP server (WebSocket bridge) with ${aicoBotMcpToolDefs.length} tools from AICO-Bot client`)
+      aicoBotBuiltinMcpServer = this.createAicoBotBuiltinMcpServer(aicoBotMcpToolDefs, aicoBotMcpToolExecutor)
     }
 
     // Background-tasks MCP server — passed through options from server.ts
     const bgTasksMcpServer = (options as any).proxyAppsMcpServer
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, haloBuiltinMcpServer, bgTasksMcpServer)
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, bgTasksMcpServer)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -2425,7 +2421,7 @@ export class ClaudeManager {
    * @param sessionId - Unique session ID for this app run
    * @param messages - Chat messages to send
    * @param options - Chat options (system prompt, max tokens)
-   * @param mcpServers - MCP servers to inject (e.g., halo-report)
+   * @param mcpServers - MCP servers to inject (e.g., aico-bot-report)
    * @returns AsyncGenerator yielding stream chunks
    */
   async *streamChatForApp(

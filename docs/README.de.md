@@ -1,20 +1,20 @@
 <div align="center">
 
-<img src="../resources/icon.png" alt="Halo Logo" width="120" height="120">
+<img src="../resources/icon.png" alt="AICO-Bot Logo" width="120" height="120">
 
-# Halo
+# AICO-Bot
 
 ### Open Source Cowork for Everyone
 
 
-Erlebe die volle Kraft eines AI Agents, ohne das Terminal zu berühren. Halo bietet allen eine visuelle, plattformübergreifende Desktop-Erfahrung—open source und kostenlos.
+Erlebe die volle Kraft eines AI Agents, ohne das Terminal zu berühren. AICO-Bot bietet allen eine visuelle, plattformübergreifende Desktop-Erfahrung—open source und kostenlos.
 
 > **Unsere Philosophie:** Komplexe Technologie in intuitive menschliche Interaktion verpacken.
 
-[![GitHub Stars](https://img.shields.io/github/stars/openkursar/hello-halo?style=social)](https://github.com/openkursar/hello-halo/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/openkursar/hello-aico-bot?style=social)](https://github.com/openkursar/hello-aico-bot/stargazers)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-lightgrey.svg)](#installation)
-[![Downloads](https://img.shields.io/github/downloads/openkursar/hello-halo/total.svg)](https://github.com/openkursar/hello-halo/releases)
+[![Downloads](https://img.shields.io/github/downloads/openkursar/hello-aico-bot/total.svg)](https://github.com/openkursar/hello-aico-bot/releases)
 
 [Download](#installation) · [Dokumentation](#dokumentation) · [Mitwirken](#mitwirken)
 
@@ -32,7 +32,7 @@ Erlebe die volle Kraft eines AI Agents, ohne das Terminal zu berühren. Halo bie
 
 ---
 
-## Warum Halo?
+## Warum AICO-Bot?
 
 **Claude Code ist der leistungsfähigste verfügbare KI-Programmieragent.** Aber es gibt ein Problem:
 
@@ -40,11 +40,11 @@ Erlebe die volle Kraft eines AI Agents, ohne das Terminal zu berühren. Halo bie
 
 Für Entwickler, die sich mit CLI wohlfühlen, ist das in Ordnung. Aber für Designer, PMs, Studenten und alle, die einfach wollen, dass KI *Dinge erledigt* — das Terminal ist eine Hürde.
 
-**Halo ist der erste, der diese Hürde überwindet.**
+**AICO-Bot ist der erste, der diese Hürde überwindet.**
 
 Wir haben 100% der Agent-Fähigkeiten von Claude Code genommen und sie in eine visuelle Oberfläche verpackt, die jeder nutzen kann. Gleiche Leistung, null Reibung.
 
-| | Claude Code CLI | Halo |
+| | Claude Code CLI | AICO-Bot |
 |---|:---:|:---:|
 | Volle Agent-Fähigkeiten | ✅ | ✅ |
 | Visuelle Oberfläche | ❌ | ✅ |
@@ -55,7 +55,7 @@ Wir haben 100% der Agent-Fähigkeiten von Claude Code genommen und sie in eine v
 
 > Stell es dir so vor:
 > **Windows** verwandelte DOS in visuelle Desktops.
-> **Halo** verwandelt Claude Code CLI in einen visuellen KI-Begleiter.
+> **AICO-Bot** verwandelt Claude Code CLI in einen visuellen KI-Begleiter.
 
 ---
 
@@ -66,7 +66,7 @@ Wir haben 100% der Agent-Fähigkeiten von Claude Code genommen und sie in eine v
 <td width="50%">
 
 ### Echter Agent-Loop
-Nicht nur Chat. Halo kann **wirklich Dinge tun** — Code schreiben, Dateien erstellen, Befehle ausführen und iterieren, bis die Aufgabe erledigt ist.
+Nicht nur Chat. AICO-Bot kann **wirklich Dinge tun** — Code schreiben, Dateien erstellen, Befehle ausführen und iterieren, bis die Aufgabe erledigt ist.
 
 ### Space-System
 Isolierte Arbeitsbereiche halten deine Projekte organisiert. Jeder Space hat seine eigenen Dateien, Konversationen und Kontext.
@@ -78,7 +78,7 @@ Sieh jede Datei, die die KI erstellt, in Echtzeit. Vorschau von Code, HTML, Bild
 <td width="50%">
 
 ### Fernzugriff
-Steuere dein Desktop-Halo von deinem Handy oder jedem Browser. Arbeite von überall — sogar von einem Krankenhausbett (wahre Geschichte).
+Steuere dein Desktop-AICO-Bot von deinem Handy oder jedem Browser. Arbeite von überall — sogar von einem Krankenhausbett (wahre Geschichte).
 
 ### KI-Browser
 Lass die KI einen echten eingebetteten Browser steuern. Web-Scraping, Formularausfüllung, Tests — alles automatisiert.
@@ -108,7 +108,7 @@ Erweitere Fähigkeiten mit Model Context Protocol. Kompatibel mit Claude Desktop
 ![Chat Todo](./assets/chat_todo.jpg)
 
 
-*Fernzugriff: Steuere Halo von überall*
+*Fernzugriff: Steuere AICO-Bot von überall*
 
 ![Remote Settings](./assets/remote_setting.jpg)
 <p align="center">
@@ -135,10 +135,10 @@ https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
 
 | Plattform | Download | Anforderungen |
 |----------|----------|--------------|
-| **macOS** (Apple Silicon) | [Download .dmg](https://github.com/openkursar/hello-halo/releases/latest) | macOS 11+ |
-| **macOS** (Intel) | [Download .dmg](https://github.com/openkursar/hello-halo/releases/latest) | macOS 11+ |
-| **Windows** | [Download .exe](https://github.com/openkursar/hello-halo/releases/latest) | Windows 10+ |
-| **Linux** | [Download .AppImage](https://github.com/openkursar/hello-halo/releases/latest) | Ubuntu 20.04+ |
+| **macOS** (Apple Silicon) | [Download .dmg](https://github.com/openkursar/hello-aico-bot/releases/latest) | macOS 11+ |
+| **macOS** (Intel) | [Download .dmg](https://github.com/openkursar/hello-aico-bot/releases/latest) | macOS 11+ |
+| **Windows** | [Download .exe](https://github.com/openkursar/hello-aico-bot/releases/latest) | Windows 10+ |
+| **Linux** | [Download .AppImage](https://github.com/openkursar/hello-aico-bot/releases/latest) | Ubuntu 20.04+ |
 | **Web** (PC/Mobil) | Aktiviere Fernzugriff in der Desktop-App | Jeder moderne Browser |
 
 **Das ist alles.** Herunterladen, installieren, ausführen. Kein Node.js. Kein npm. Keine Terminal-Befehle.
@@ -148,8 +148,8 @@ https://github.com/user-attachments/assets/2d4d2f3e-d27c-44b0-8f1d-9059c8372003
 Für Entwickler, die beitragen oder anpassen möchten:
 
 ```bash
-git clone https://github.com/openkursar/hello-halo.git
-cd hello-halo
+git clone https://github.com/openkursar/hello-aico-bot.git
+cd hello-aico-bot
 npm install
 npm run dev
 ```
@@ -158,7 +158,7 @@ npm run dev
 
 ## Schnellstart
 
-1. **Starte Halo** und gib deinen API-Schlüssel ein (Anthropic empfohlen)
+1. **Starte AICO-Bot** und gib deinen API-Schlüssel ein (Anthropic empfohlen)
 2. **Beginne zu chatten** — probiere "Erstelle eine einfache Todo-App mit React"
 3. **Beobachte die Magie** — sieh Dateien in der Artefakt-Leiste erscheinen
 4. **Vorschau & Iteration** — klicke auf jede Datei zur Vorschau, bitte um Änderungen
@@ -171,7 +171,7 @@ npm run dev
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Halo Desktop                             │
+│                         AICO-Bot Desktop                             │
 │  ┌─────────────┐    ┌─────────────┐    ┌───────────────────┐   │
 │  │   React UI  │◄──►│    Haupt-   │◄──►│  Claude Code SDK  │   │
 │  │  (Renderer) │IPC │   prozess   │    │   (Agent-Loop)    │   │
@@ -180,7 +180,7 @@ npm run dev
 │                            ▼                                    │
 │                    ┌───────────────┐                           │
 │                    │ Lokale Dateien│                           │
-│                    │   ~/.halo/    │                           │
+│                    │   ~/.aico-bot/    │                           │
 │                    └───────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -195,14 +195,14 @@ npm run dev
 
 ## Was Leute Bauen
 
-Halo ist nicht nur für Entwickler. Wir haben gesehen:
+AICO-Bot ist nicht nur für Entwickler. Wir haben gesehen:
 
 - **Finanzteams** bauen Full-Stack-Apps von Grund auf — ohne Programmiererfahrung
 - **Designer** prototypen interaktive Mockups
 - **Studenten** lernen Programmieren mit KI als Pair-Programming-Partner
 - **Entwickler** liefern Features schneller als je zuvor
 
-Die Hürde ist nicht mehr die KI-Fähigkeit. **Es ist die Zugänglichkeit.** Halo beseitigt diese Hürde.
+Die Hürde ist nicht mehr die KI-Fähigkeit. **Es ist die Zugänglichkeit.** AICO-Bot beseitigt diese Hürde.
 
 ---
 
@@ -222,19 +222,19 @@ Die Hürde ist nicht mehr die KI-Fähigkeit. **Es ist die Zugänglichkeit.** Hal
 
 ## Mitwirken
 
-Halo ist Open Source, weil KI für alle zugänglich sein sollte.
+AICO-Bot ist Open Source, weil KI für alle zugänglich sein sollte.
 
 Wir begrüßen Beiträge aller Art:
 
 - **Übersetzungen** — Hilf uns, mehr Nutzer zu erreichen (siehe `src/renderer/i18n/`)
 - **Bug-Reports** — Etwas Kaputtes gefunden? Lass es uns wissen
-- **Feature-Ideen** — Was würde Halo für dich besser machen?
+- **Feature-Ideen** — Was würde AICO-Bot für dich besser machen?
 - **Code-Beiträge** — PRs willkommen!
 
 ```bash
 # Entwicklungsumgebung einrichten
-git clone https://github.com/openkursar/hello-halo.git
-cd hello-halo
+git clone https://github.com/openkursar/hello-aico-bot.git
+cd hello-aico-bot
 npm install
 npm run dev
 ```
@@ -245,8 +245,8 @@ Siehe [CONTRIBUTING.md](../CONTRIBUTING.md) für Richtlinien.
 
 ## Community
 
-- [GitHub Discussions](https://github.com/openkursar/hello-halo/discussions) — Fragen & Ideen
-- [Issues](https://github.com/openkursar/hello-halo/issues) — Bug-Reports & Feature-Anfragen
+- [GitHub Discussions](https://github.com/openkursar/hello-aico-bot/discussions) — Fragen & Ideen
+- [Issues](https://github.com/openkursar/hello-aico-bot/issues) — Bug-Reports & Feature-Anfragen
 
 ---
 
@@ -256,17 +256,17 @@ MIT-Lizenz — siehe [LICENSE](../LICENSE) für Details.
 
 ---
 
-## Von Halo Inspiriert?
+## Von AICO-Bot Inspiriert?
 
 Wenn dieses Projekt eine Idee geweckt oder dir beim Bauen von etwas Coolem geholfen hat:
 
-- **Gib uns einen Stern** — es hilft anderen, Halo zu finden
+- **Gib uns einen Stern** — es hilft anderen, AICO-Bot zu finden
 - **Teile deine Geschichte** — wir hören gerne, was du gebaut hast
-- **Verlinke uns** — z.B. `Inspired by [Halo](https://github.com/openkursar/hello-halo)`
+- **Verlinke uns** — z.B. `Inspired by [AICO-Bot](https://github.com/openkursar/hello-aico-bot)`
 
 ---
 
-## Die Geschichte Hinter Halo
+## Die Geschichte Hinter AICO-Bot
 
 Vor ein paar Monaten begann es mit einer einfachen Frustration: **Ich wollte Claude Code nutzen, aber ich steckte den ganzen Tag in Meetings.**
 
@@ -274,12 +274,12 @@ Während langweiliger Meetings (wir kennen das alle) dachte ich: *Was wenn ich C
 
 Dann kam ein anderes Problem — meine nicht-technischen Kollegen wollten Claude Code ausprobieren, nachdem sie gesehen hatten, was es kann. Aber sie blieben bei der Installation hängen. *"Was ist npm? Wie installiere ich Node.js?"* Manche verbrachten Tage damit, es herauszufinden.
 
-Also baute ich Halo für mich und meine Freunde:
+Also baute ich AICO-Bot für mich und meine Freunde:
 - **Visuelle Oberfläche** — kein Starren auf Terminal-Ausgaben mehr
 - **Ein-Klick-Installation** — kein Node.js, kein npm, einfach herunterladen und ausführen
 - **Fernzugriff** — steuern vom Handy, Tablet oder jedem Browser
 
-Die erste Version dauerte ein paar Stunden. Alles danach? **100% von Halo selbst gebaut.** Wir nutzen es seit Monaten täglich.
+Die erste Version dauerte ein paar Stunden. Alles danach? **100% von AICO-Bot selbst gebaut.** Wir nutzen es seit Monaten täglich.
 
 KI baut KI. Jetzt in jedermanns Händen.
 
@@ -287,8 +287,8 @@ KI baut KI. Jetzt in jedermanns Händen.
 
 ## Mitwirkende
 
-<a href="https://github.com/openkursar/hello-halo/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=openkursar/hello-halo" />
+<a href="https://github.com/openkursar/hello-aico-bot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=openkursar/hello-aico-bot" />
 </a>
 
 Made with ❤️ by our contributors.
@@ -297,12 +297,12 @@ Made with ❤️ by our contributors.
 
 ### Von KI gebaut, für Menschen.
 
-Wenn Halo dir hilft, etwas Großartiges zu bauen, würden wir gerne davon hören.
+Wenn AICO-Bot dir hilft, etwas Großartiges zu bauen, würden wir gerne davon hören.
 
-**Gib diesem Repo einen Star** um anderen zu helfen, Halo zu entdecken.
+**Gib diesem Repo einen Star** um anderen zu helfen, AICO-Bot zu entdecken.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=openkursar/hello-halo&type=Date)](https://star-history.com/#openkursar/hello-halo&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=openkursar/hello-aico-bot&type=Date)](https://star-history.com/#openkursar/hello-aico-bot&Date)
 
-[⬆ Zurück nach Oben](#halo)
+[⬆ Zurück nach Oben](#aico-bot)
 
 </div>

@@ -1,5 +1,5 @@
 {
-  "name": "@halo/remote-agent-proxy",
+  "name": "@aico-bot/remote-agent-proxy",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",

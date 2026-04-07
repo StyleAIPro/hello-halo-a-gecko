@@ -98,8 +98,8 @@ export function DiffModal({
   const handleOpenFolder = useCallback(() => {
     if (!file) return
     // This will be handled by the preload bridge
-    if (window.halo?.openFolder) {
-      window.halo.openFolder(file.file)
+    if (window.aicoBot?.openFolder) {
+      window.aicoBot.openFolder(file.file)
     }
   }, [file])
 
@@ -221,7 +221,7 @@ export function DiffModal({
             </button>
 
             {/* Open folder button (only in Electron) */}
-            {typeof window !== 'undefined' && window.halo?.openFolder && (
+            {typeof window !== 'undefined' && window.aicoBot?.openFolder && (
               <button
                 onClick={handleOpenFolder}
                 className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"

@@ -95,7 +95,7 @@ const AUTO_CONTINUE_MESSAGE =
 const AUTO_CONTINUE_FINAL_MESSAGE =
   'FINAL REMINDER: You must call report_to_user NOW. ' +
   'This is your last chance to report results. Summarize whatever you have accomplished ' +
-  'and call mcp__halo-report__report_to_user immediately. ' +
+  'and call mcp__aico-bot-report__report_to_user immediately. ' +
   'If you do not call it, this run will be marked as failed.'
 
 /** Session key prefix for automation runs */
@@ -159,7 +159,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     type: 'app',
     spaceId: app.spaceId,
     // Use space.path (not workingDir) to match the directory layout that
-    // AppManager creates: {space.path}/.halo/apps/{appId}/memory/
+    // AppManager creates: {space.path}/.aico-bot/apps/{appId}/memory/
     spacePath: getSpace(app.spaceId)?.path ?? '',
     appId: app.id,
   }
@@ -267,7 +267,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       }
     )
 
-    // Create halo-notify MCP server for AI autonomous notifications
+    // Create aico-bot-notify MCP server for AI autonomous notifications
     const notifyMcpServer = createNotifyToolServer({
       appId: app.id,
       appName: app.spec.name,
@@ -298,9 +298,9 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         console.error(`[Runtime][${app.id}] CLI stderr:`, data)
       },
       mcpServers: {
-        'halo-memory': memoryMcpServer,
-        'halo-report': reportMcpServer,
-        'halo-notify': notifyMcpServer,
+        'aico-bot-memory': memoryMcpServer,
+        'aico-bot-report': reportMcpServer,
+        'aico-bot-notify': notifyMcpServer,
         ...(usesAIBrowser ? { 'ai-browser': createAIBrowserMcpServer(scopedBrowserCtx) } : {}),
       },
     })
@@ -647,7 +647,7 @@ async function processStream(
             }
             if (block.type === 'tool_use') {
               toolUseCount++
-              // Detect report_to_user calls (MCP name: mcp__halo-report__report_to_user)
+              // Detect report_to_user calls (MCP name: mcp__aico-bot-report__report_to_user)
               if (typeof block.name === 'string' && block.name.includes('report_to_user')) {
                 result.reportToolCalled = true
               }

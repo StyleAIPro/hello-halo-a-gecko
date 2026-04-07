@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
 import * as fs from 'fs'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry, HaloMcpToolDef } from './types.js'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry, AicoBotMcpToolDef } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 import { BackgroundTaskManager } from './background-tasks.js'
 
@@ -14,9 +14,9 @@ export class RemoteAgentServer {
     authenticated: boolean
     sessionId?: string  // Conversation ID
     sdkSessionId?: string  // SDK's real session ID for resumption
-    // WebSocket MCP Bridge: tools registered by the Halo client
-    haloMcpTools?: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>
-    haloMcpCapabilities?: { aiBrowser: boolean; ghSearch: boolean; version?: number }
+    // WebSocket MCP Bridge: tools registered by the AICO-Bot client
+    aicoBotMcpTools?: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>
+    aicoBotMcpCapabilities?: { aiBrowser: boolean; ghSearch: boolean; version?: number }
   }> = new Map()
   private claudeManager: ClaudeManager
   private bgTaskManager: BackgroundTaskManager
@@ -299,7 +299,7 @@ export class RemoteAgentServer {
     } else if (message.type === 'tool:approve' || message.type === 'tool:reject') {
       // Tool approval/rejection — used by Hyper Space MCP proxy tools.
       // When remote Claude calls a hyper-space tool (e.g., report_to_leader),
-      // the proxy sends tool:call to Halo, Halo executes it, then sends
+      // the proxy sends tool:call to AICO-Bot, AICO-Bot executes it, then sends
       // tool:approve back with the result. The pending promise is resolved here.
       const toolId = message.payload?.toolId
       if (!toolId) {
@@ -332,15 +332,15 @@ export class RemoteAgentServer {
       await this.handleRegisterToken(message.payload)
       this.sendMessage(ws, { type: 'register-token:success' })
     } else if (message.type === 'mcp:tools:register') {
-      // WebSocket MCP Bridge: Halo client registers its available MCP tools
+      // WebSocket MCP Bridge: AICO-Bot client registers its available MCP tools
       const client = this.clients.get(ws)
       if (client) {
-        client.haloMcpTools = message.payload?.tools
-        client.haloMcpCapabilities = message.payload?.haloMcpCapabilities
-        console.log(`[MCP Bridge] Halo client registered ${client.haloMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.haloMcpCapabilities)}`)
+        client.aicoBotMcpTools = message.payload?.tools
+        client.aicoBotMcpCapabilities = message.payload?.aicoBotMcpCapabilities
+        console.log(`[MCP Bridge] AICO-Bot client registered ${client.aicoBotMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.aicoBotMcpCapabilities)}`)
       }
     } else if (message.type === 'mcp:tool:call') {
-      // WebSocket MCP Bridge: Halo client returns tool execution result
+      // WebSocket MCP Bridge: AICO-Bot client returns tool execution result
       const callId = message.payload?.callId
       if (callId) {
         const pending = this.pendingMcpToolCalls.get(callId)
@@ -352,7 +352,7 @@ export class RemoteAgentServer {
         }
       }
     } else if (message.type === 'mcp:tool:error') {
-      // WebSocket MCP Bridge: Halo client returns tool execution error
+      // WebSocket MCP Bridge: AICO-Bot client returns tool execution error
       const callId = message.payload?.callId
       if (callId) {
         const pending = this.pendingMcpToolCalls.get(callId)
@@ -660,7 +660,7 @@ export class RemoteAgentServer {
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
         let wasInterrupted = false
 
-        // Hyper Space tool execution — legacy bridge mode for old Halo clients
+        // Hyper Space tool execution — legacy bridge mode for old AICO-Bot clients
         const hyperSpaceToolExecutor = options.hyperSpaceTools
           ? (toolId: string, toolName: string, toolInput: Record<string, unknown>) =>
               this.executeHyperSpaceTool(ws, sessionId, toolId, toolName, toolInput)
@@ -668,10 +668,10 @@ export class RemoteAgentServer {
 
         // WebSocket MCP Bridge tool execution callback
         const clientState = this.clients.get(ws)
-        const haloMcpToolDefs = clientState?.haloMcpTools
-        const haloMcpToolExecutor = haloMcpToolDefs && haloMcpToolDefs.length > 0
+        const aicoBotMcpToolDefs = clientState?.aicoBotMcpTools
+        const aicoBotMcpToolExecutor = aicoBotMcpToolDefs && aicoBotMcpToolDefs.length > 0
           ? (callId: string, toolName: string, args: Record<string, unknown>) =>
-              this.executeHaloMcpTool(ws, sessionId, callId, toolName, args)
+              this.executeAicoBotMcpTool(ws, sessionId, callId, toolName, args)
           : undefined
 
         try {
@@ -692,8 +692,8 @@ export class RemoteAgentServer {
             onMcpStatus,
             onCompact,
             hyperSpaceToolExecutor,
-            haloMcpToolExecutor,
-            haloMcpToolDefs
+            aicoBotMcpToolExecutor,
+            aicoBotMcpToolDefs
           )) {
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
@@ -857,14 +857,14 @@ export class RemoteAgentServer {
   }
 
   /**
-   * Send a hyper-space tool invocation request to the Halo client and wait for the response.
+   * Send a hyper-space tool invocation request to the AICO-Bot client and wait for the response.
    * Used by the MCP proxy tool handlers in ClaudeManager.
    *
    * Flow:
    * 1. MCP handler calls this with tool name + input
-   * 2. This sends a tool:call event to the Halo client via WebSocket
+   * 2. This sends a tool:call event to the AICO-Bot client via WebSocket
    * 3. Registers a pending promise keyed by toolId
-   * 4. Waits for Halo to respond via tool:approve (with result) or tool:reject
+   * 4. Waits for AICO-Bot to respond via tool:approve (with result) or tool:reject
    * 5. Returns the result to the MCP handler, which returns it to Claude SDK
    */
   async executeHyperSpaceTool(
@@ -893,7 +893,7 @@ export class RemoteAgentServer {
         }
       })
 
-      // Send tool:call to Halo client — same format as regular tool events
+      // Send tool:call to AICO-Bot client — same format as regular tool events
       this.sendMessage(ws, {
         type: 'tool:call',
         sessionId,
@@ -911,18 +911,18 @@ export class RemoteAgentServer {
   }
 
   /**
-   * Execute an MCP tool call on the Halo client via WebSocket.
+   * Execute an MCP tool call on the AICO-Bot client via WebSocket.
    * Follows the same promise pattern as executeHyperSpaceTool but for
    * general MCP tool routing through the WebSocket MCP Bridge.
    *
-   * @param ws - WebSocket connection to the Halo client
+   * @param ws - WebSocket connection to the AICO-Bot client
    * @param sessionId - Session ID for routing
    * @param callId - Unique call ID for matching response
    * @param toolName - Tool name (e.g. 'browser_click')
    * @param args - Tool input arguments
    * @returns Promise resolving to CallToolResult
    */
-  async executeHaloMcpTool(
+  async executeAicoBotMcpTool(
     ws: WebSocket,
     sessionId: string,
     callId: string,
@@ -934,7 +934,7 @@ export class RemoteAgentServer {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingMcpToolCalls.delete(callId)
-        reject(new Error(`Halo MCP tool ${toolName} timed out after ${timeoutMs}ms`))
+        reject(new Error(`AICO-Bot MCP tool ${toolName} timed out after ${timeoutMs}ms`))
       }, timeoutMs)
 
       this.pendingMcpToolCalls.set(callId, {
@@ -958,7 +958,7 @@ export class RemoteAgentServer {
         }
       })
 
-      console.log(`[MCP Bridge] Sent tool call to Halo: ${toolName} (callId=${callId})`)
+      console.log(`[MCP Bridge] Sent tool call to AICO-Bot: ${toolName} (callId=${callId})`)
     })
   }
 

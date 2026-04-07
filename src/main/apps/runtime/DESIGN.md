@@ -80,7 +80,7 @@ records the escalation and ends. User response triggers a new run.
 and `services/ai-browser/sdk-mcp-server.ts`.
 
 **Rationale**:
-- Consistent with existing Halo patterns for injecting custom tools.
+- Consistent with existing AICO-Bot patterns for injecting custom tools.
 - SDK MCP servers are first-class citizens in V2 sessions.
 - The tool handler has direct access to the Activity store (closure capture).
 

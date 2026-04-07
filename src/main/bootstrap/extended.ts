@@ -62,7 +62,7 @@ let platformDb: DatabaseManager | null = null
 
 /**
  * Start the MCP Proxy Server.
- * Exposes halo-apps and gh-search tools via HTTP for remote Claude sessions.
+ * Exposes aico-bot-apps and gh-search tools via HTTP for remote Claude sessions.
  */
 async function startMcpProxy(): Promise<void> {
   const token = getAccessToken()
@@ -255,7 +255,7 @@ export function initializeExtendedServices(): void {
     console.error('[Bootstrap] Platform+Apps initialization failed:', err)
   })
 
-  // MCP Proxy Server: Exposes built-in MCP tools (halo-apps, gh-search) via HTTP
+  // MCP Proxy Server: Exposes built-in MCP tools (aico-bot-apps, gh-search) via HTTP
   // for remote Claude sessions to connect through SSH tunnels.
   // Non-blocking startup -- starts in background.
   startMcpProxy().catch((err) => {

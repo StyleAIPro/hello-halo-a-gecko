@@ -43,9 +43,9 @@ export async function sendEmail(
     const timestamp = new Date(payload.timestamp).toLocaleString()
 
     await transporter.sendMail({
-      from: `"Halo" <${config.smtp.user}>`,
+      from: `"AICO-Bot" <${config.smtp.user}>`,
       to: config.defaultTo,
-      subject: `[Halo] ${payload.title}`,
+      subject: `[AICO-Bot] ${payload.title}`,
       text: `${payload.body}\n\n---\n${payload.appName ? `App: ${payload.appName}\n` : ''}Time: ${timestamp}`,
       html: buildEmailHtml(payload, timestamp),
     })
@@ -89,7 +89,7 @@ function buildEmailHtml(payload: NotificationPayload, timestamp: string): string
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
       <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:16px 20px;border-radius:8px 8px 0 0;">
-        <h2 style="margin:0;font-size:18px;">Halo</h2>
+        <h2 style="margin:0;font-size:18px;">AICO-Bot</h2>
       </div>
       <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
         <h3 style="margin:0 0 12px;color:#111827;">${escapeHtml(payload.title)}</h3>

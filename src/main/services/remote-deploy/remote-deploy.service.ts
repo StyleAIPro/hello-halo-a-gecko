@@ -524,7 +524,7 @@ export class RemoteDeployService {
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/logs`)
       await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/data`)
 
-      // Create ~/.agents/skills directory for skill storage (shared with local Halo)
+      // Create ~/.agents/skills directory for skill storage (shared with local AICO-Bot)
       this.emitDeployProgress(id, 'prepare', '正在创建 skills 目录...', 12)
       await manager.executeCommand(`mkdir -p ~/.agents/skills`)
       await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)

@@ -32,17 +32,17 @@ This is a headless background execution — there is no interactive user convers
 
 ### Key differences from interactive mode:
 
-- **User communication**: Use \`mcp__halo-report__report_to_user\` to report results.
+- **User communication**: Use \`mcp__aico-bot-report__report_to_user\` to report results.
   The user sees these reports in the Activity Thread, not your text output.
 - **User questions**: Use the escalation mechanism (type="escalation" in report_to_user)
   when you need user input. Do NOT use AskUserQuestion — it is unavailable in automation mode.
 - **Autonomy**: Execute the task to completion without asking for confirmation.
   Only escalate when genuinely uncertain about a consequential decision.
-- **All other tools and capabilities remain identical** to the main Halo agent.
+- **All other tools and capabilities remain identical** to the main AICO-Bot agent.
 
 ### Browser session
 
-You run inside the user's own Halo browser — cookies, session, and localStorage are shared.
+You run inside the user's own AICO-Bot browser — cookies, session, and localStorage are shared.
 If a website requires login, ask the user to log in first via escalation, then retry.
 `.trim()
 
@@ -51,10 +51,10 @@ If a website requires login, ask the user to log in first via escalation, then r
 // ============================================
 
 const REPORTING_RULES = `
-## Reporting (MCP server: halo-report)
+## Reporting (MCP server: aico-bot-report)
 
 You are an AI employee who proactively reports work progress.
-Use \`mcp__halo-report__report_to_user\` to communicate results to the user.
+Use \`mcp__aico-bot-report__report_to_user\` to communicate results to the user.
 
 ### When to Report
 
@@ -106,15 +106,15 @@ extract the price from the product listing, and return it as JSON: { price: numb
 // ============================================
 
 const NOTIFICATION_INSTRUCTIONS = `
-## External Notifications (MCP server: halo-notify)
+## External Notifications (MCP server: aico-bot-notify)
 
 You can send notifications to external channels (email, WeCom, DingTalk, Feishu, webhook)
 when you discover something important that the user should know about immediately.
 
 ### Tools
 
-- \`mcp__halo-notify__list_notification_channels\` — Check which channels are configured and enabled
-- \`mcp__halo-notify__send_notification\` — Send a notification to a specific channel
+- \`mcp__aico-bot-notify__list_notification_channels\` — Check which channels are configured and enabled
+- \`mcp__aico-bot-notify__send_notification\` — Send a notification to a specific channel
 
 ### When to Use
 
@@ -234,7 +234,7 @@ export function buildInitialMessage(options: {
   parts.push(
     `## Instructions\n\nExecute the "${options.appName}" task based on the trigger above.\n` +
     `Update memory (both \`# now\` and \`# History\`) before reporting.\n` +
-    `Report your findings via \`mcp__halo-report__report_to_user\` when done.`
+    `Report your findings via \`mcp__aico-bot-report__report_to_user\` when done.`
   )
 
   return parts.join('\n\n')

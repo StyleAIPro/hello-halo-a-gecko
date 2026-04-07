@@ -58,7 +58,7 @@ export function ChatHistoryPanel() {
     return spaceState?.currentConversationId ?? undefined
   })
   const currentSpace = useSpaceStore(state => state.currentSpace)
-  const spaceName = currentSpace?.isTemp ? t('Halo Space') : (currentSpace?.name ?? '')
+  const spaceName = currentSpace?.isTemp ? t('AICO-Bot Space') : (currentSpace?.name ?? '')
 
   // Single batch subscription for all conversation statuses (replaces N individual hooks)
   const conversationStatuses = useAllConversationStatuses()

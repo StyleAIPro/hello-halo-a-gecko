@@ -12,9 +12,9 @@
 /**
  * Memory scope determines which memory file is targeted.
  *
- * - 'user':  Global user preferences, stored at {haloDir}/user-memory.md
- * - 'space': Per-space knowledge, stored at {spacePath}/.halo/memory.md
- * - 'app':   Per-app private memory, stored at {spacePath}/.halo/apps/{appId}/memory.md
+ * - 'user':  Global user preferences, stored at {spaceDataDir}/user-memory.md
+ * - 'space': Per-space knowledge, stored at {spacePath}/.aico-bot/memory.md
+ * - 'app':   Per-app private memory, stored at {spacePath}/.aico-bot/apps/{appId}/memory.md
  */
 export type MemoryScopeType = 'user' | 'space' | 'app'
 

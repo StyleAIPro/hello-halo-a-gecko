@@ -54,7 +54,7 @@ function textResult(text: string, isError = false) {
  * Create an MCP server with the `send_notification` tool.
  *
  * The tool lets the AI send notifications to any configured and enabled channel.
- * It reads the current channel configuration from HaloConfig at send time,
+ * It reads the current channel configuration from AicoBotConfig at send time,
  * so it always uses the latest credentials.
  *
  * @param context - The current run's identity
@@ -65,7 +65,7 @@ export function createNotifyToolServer(context: NotifyToolContext): SdkMcpServer
     'send_notification',
     'Send a notification to an external channel (email, WeCom, DingTalk, Feishu, or webhook). ' +
     'Use this when you want to proactively notify the user on an external platform about something important.\n\n' +
-    'The user must have configured the channel in Halo Settings first. ' +
+    'The user must have configured the channel in AICO-Bot Settings first. ' +
     'Use list_notification_channels to check which channels are available before sending.\n\n' +
     'Example: { "channel": "wecom", "title": "Price Alert", "body": "AirPods Pro price dropped to ¥1199" }',
     {
@@ -90,7 +90,7 @@ export function createNotifyToolServer(context: NotifyToolContext): SdkMcpServer
       try {
         config = getConfig()
       } catch {
-        return textResult('Failed to read notification configuration. Ensure Halo is properly initialized.', true)
+        return textResult('Failed to read notification configuration. Ensure AICO-Bot is properly initialized.', true)
       }
 
       const channelsConfig = config.notificationChannels
@@ -168,7 +168,7 @@ export function createNotifyToolServer(context: NotifyToolContext): SdkMcpServer
   )
 
   return createSdkMcpServer({
-    name: 'halo-notify',
+    name: 'aico-bot-notify',
     version: '1.0.0',
     tools: [sendNotification, listChannels],
   })

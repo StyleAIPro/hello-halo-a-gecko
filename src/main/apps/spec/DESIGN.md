@@ -126,7 +126,7 @@ change is needed, bump `spec_version` and the parser can dispatch to the right s
 ### 2.8 `type=mcp` compatibility with Claude Code MCP server format
 
 **Decision**: `type=mcp` specs include a `mcp_server` field that holds the standard Claude
-Code MCP server config (command, args, env). This allows Halo to pass the config directly
+Code MCP server config (command, args, env). This allows AICO-Bot to pass the config directly
 to the Claude Code SDK's `mcpServers` option.
 
 ```yaml

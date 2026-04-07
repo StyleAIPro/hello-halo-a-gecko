@@ -1,7 +1,7 @@
 /**
  * Playwright Configuration for Electron E2E Tests
  *
- * Configures Playwright to test the Halo Electron application.
+ * Configures Playwright to test the AICO-Bot Electron application.
  * Uses the _electron module for native Electron testing.
  */
 
@@ -22,8 +22,8 @@ function getAppPath(): string {
 
   if (platform === 'darwin') {
     // macOS: Check for arm64 first, then x64
-    const arm64Path = path.join(projectRoot, 'dist/mac-arm64/Halo.app/Contents/MacOS/Halo')
-    const x64Path = path.join(projectRoot, 'dist/mac/Halo.app/Contents/MacOS/Halo')
+    const arm64Path = path.join(projectRoot, 'dist/mac-arm64/AICO-Bot.app/Contents/MacOS/AICO-Bot')
+    const x64Path = path.join(projectRoot, 'dist/mac/AICO-Bot.app/Contents/MacOS/AICO-Bot')
 
     // Prefer arm64 on Apple Silicon
     if (process.arch === 'arm64') {
@@ -31,10 +31,10 @@ function getAppPath(): string {
     }
     return x64Path
   } else if (platform === 'win32') {
-    return path.join(projectRoot, 'dist/win-unpacked/Halo.exe')
+    return path.join(projectRoot, 'dist/win-unpacked/AICO-Bot.exe')
   } else {
     // Linux
-    return path.join(projectRoot, 'dist/linux-unpacked/halo')
+    return path.join(projectRoot, 'dist/linux-unpacked/aico-bot')
   }
 }
 

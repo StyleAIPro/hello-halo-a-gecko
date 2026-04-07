@@ -21,7 +21,7 @@ const LOAD_THROTTLE_MS = 5_000
 export function SpaceSelector() {
   const { t } = useTranslation()
   const { setView } = useAppStore()
-  const { haloSpace, spaces, currentSpace, setCurrentSpace, refreshCurrentSpace, loadSpaces, isLoading } = useSpaceStore()
+  const { defaultSpace, spaces, currentSpace, setCurrentSpace, refreshCurrentSpace, loadSpaces, isLoading } = useSpaceStore()
   const [isOpen, setIsOpen] = useState(false)
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -110,10 +110,10 @@ export function SpaceSelector() {
     setView('home')
   }
 
-  // Build space list: Halo Space first, then dedicated spaces
+  // Build space list: default Space first, then dedicated spaces
   // Fallback: if store hasn't loaded yet, at least show currentSpace
   const storeSpaces: Space[] = [
-    ...(haloSpace ? [haloSpace] : []),
+    ...(defaultSpace ? [defaultSpace] : []),
     ...spaces
   ]
   const allSpaces: Space[] = storeSpaces.length > 0
@@ -127,8 +127,8 @@ export function SpaceSelector() {
   }
 
   const displayName = currentSpace
-    ? (currentSpace.isTemp ? t('Halo') : currentSpace.name)
-    : t('Halo')
+    ? (currentSpace.isTemp ? t('AICO-Bot') : currentSpace.name)
+    : t('AICO-Bot')
 
   const displayIcon = currentSpace?.icon || 'sparkles'
 
@@ -172,7 +172,7 @@ export function SpaceSelector() {
           )}
           {allSpaces.map(space => {
             const isActive = space.id === currentSpace?.id
-            const name = space.isTemp ? t('Halo Space') : space.name
+            const name = space.isTemp ? t('AICO-Bot Space') : space.name
             const remoteServerName = space.claudeSource === 'remote' && space.remoteServerId
               ? getRemoteServerName(space.remoteServerId)
               : null

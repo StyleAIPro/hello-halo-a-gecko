@@ -225,7 +225,7 @@ export class SkillMarketService {
       const response = await fetch('https://skills.sh', {
         headers: {
           'Accept': 'text/html',
-          'User-Agent': 'Halo-App'
+          'User-Agent': 'AICO-Bot-App'
         }
       });
 
@@ -319,7 +319,7 @@ export class SkillMarketService {
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Halo-App'
+          'User-Agent': 'AICO-Bot-App'
         }
       });
 

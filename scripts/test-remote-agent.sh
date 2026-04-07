@@ -5,7 +5,7 @@
 
 set -e
 
-HALO_DATA_DIR=${HALO_DATA_DIR:-~/.halo-dev}
+AICO_BOT_DATA_DIR=${AICO_BOT_DATA_DIR:-~/.aico-bot-dev}
 
 echo "==================================="
 echo "远程 Claude 执行测试"
@@ -13,7 +13,7 @@ echo "==================================="
 echo ""
 
 # 检查数据目录
-echo "[1] 检查数据目录: $HALO_DATA_DIR"
+echo "[1] 检查数据目录: $AICO_BOT_DATA_DIR"
 
 # 测试用的空间 ID 和服务器 ID
 # 使用配置中已有的远程服务器
@@ -28,7 +28,7 @@ echo ""
 
 # 查看配置文件
 echo "[3] 当前远程服务器配置:"
-cat "$HALO_DATA_DIR/config.json" | jq '.remoteServers[] | {id, name, host, status}' 2>/dev/null || echo "  (无法读取配置)"
+cat "$AICO_BOT_DATA_DIR/config.json" | jq '.remoteServers[] | {id, name, host, status}' 2>/dev/null || echo "  (无法读取配置)"
 echo ""
 
 echo "[4] 测试用例："
@@ -70,9 +70,9 @@ echo "测试说明："
 echo "==================================="
 echo ""
 echo "这个脚本只是用于查看配置和准备测试信息。"
-echo "实际的远程执行需要在 Halo 应用内进行。"
+echo "实际的远程执行需要在 AICO-Bot 应用内进行。"
 echo ""
-echo "请在 Halo 应用中："
+echo "请在 AICO-Bot 应用中："
 echo "1. 打开远程空间 '222'"
 echo "2. 发送消息: hello"
 echo "3. 查看 F12 控制台输出"

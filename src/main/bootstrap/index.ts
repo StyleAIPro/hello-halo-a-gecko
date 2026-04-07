@@ -1,7 +1,7 @@
 /**
  * Bootstrap Module - Application Startup Initialization
  *
- * This module manages the phased initialization of Halo services.
+ * This module manages the phased initialization of AICO-Bot services.
  * All service registration is organized into two phases to optimize startup time.
  *
  * ========================================

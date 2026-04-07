@@ -29,7 +29,7 @@ import {
   GH_SEARCH_SYSTEM_PROMPT,
   createGhSearchMcpServer
 } from '../gh-search'
-import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
+import { createAicoBotAppsMcpServer } from '../../apps/conversation-mcp'
 import { createHyperSpaceMcpServer } from './hyper-space-mcp'
 import { getMcpProxyInstance } from '../mcp-proxy'
 import { getAccessToken } from '../../http/auth'
@@ -64,7 +64,7 @@ import {
 import { uploadImagesForMcp } from '../image-upload.service'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
 import { processStream, getAndClearInjection, type PendingInjection } from './stream-processor'
-import { HaloMcpBridge } from '../remote-ws/halo-mcp-bridge'
+import { AicoBotMcpBridge } from '../remote-ws/aico-bot-mcp-bridge'
 import { terminalGateway } from '../terminal/terminal-gateway'
 import { agentOrchestrator } from './orchestrator'
 
@@ -371,9 +371,9 @@ export async function sendMessage(
       console.log(`[Agent][${conversationId}] AI Browser MCP server added`)
     }
 
-    // Always add halo-apps MCP for automation control
-    mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
-    console.log(`[Agent][${conversationId}] Halo Apps MCP server added`)
+    // Always add aico-bot-apps MCP for automation control
+    mcpServers['aico-bot-apps'] = createAicoBotAppsMcpServer(spaceId)
+    console.log(`[Agent][${conversationId}] AICO-Bot Apps MCP server added`)
 
     // Always add gh-search MCP for GitHub search capabilities
     mcpServers['gh-search'] = createGhSearchMcpServer()
@@ -796,7 +796,7 @@ async function executeRemoteMessage(
   const toolCalls: any[] = []
 
   // WebSocket MCP Bridge — initialized early so it's accessible in catch block for cleanup
-  let mcpBridge: HaloMcpBridge | null = null
+  let mcpBridge: AicoBotMcpBridge | null = null
 
   try {
     // Ensure local auth token is registered in the remote whitelist (tokens.json)
@@ -860,7 +860,7 @@ async function executeRemoteMessage(
       }
     }
 
-    // Establish reverse SSH tunnel for MCP proxy (remote -> Halo)
+    // Establish reverse SSH tunnel for MCP proxy (remote -> AICO-Bot)
     // NOTE: This is the legacy fallback path. The preferred path is WebSocket MCP Bridge
     // (mcp:tools:register), which doesn't need a reverse tunnel and supports multi-PC isolation.
     // The reverse tunnel is skipped when useSshTunnel is true (WebSocket bridge is preferred).
@@ -981,7 +981,7 @@ async function executeRemoteMessage(
     // WebSocket MCP Bridge Setup
     // Register local MCP tools so remote Claude can call them
     // ============================================
-    mcpBridge = new HaloMcpBridge()
+    mcpBridge = new AicoBotMcpBridge()
     const mcpToolDefs = mcpBridge.collectTools(spaceId, !!aiBrowserEnabled)
     const mcpCapabilities = mcpBridge.getCapabilities()
     console.log(`[Agent][Remote] MCP Bridge: ${mcpToolDefs.length} tools, capabilities: ${JSON.stringify(mcpCapabilities)}`)
@@ -1491,8 +1491,8 @@ async function executeRemoteMessage(
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
         workDir: remotePath,  // CRITICAL: Pass workDir from Space config
         sdkSessionId: sdkSessionIdForResume,  // Pass SDK session ID for resumption
-        haloMcpUrl: mcpProxyRemotePort ? `http://127.0.0.1:${mcpProxyRemotePort}/mcp` : undefined,
-        haloMcpToken: mcpProxyRemotePort ? (await getAccessToken()) : undefined,
+        aicoBotMcpUrl: mcpProxyRemotePort ? `http://127.0.0.1:${mcpProxyRemotePort}/mcp` : undefined,
+        aicoBotMcpToken: mcpProxyRemotePort ? (await getAccessToken()) : undefined,
       }
     )
 

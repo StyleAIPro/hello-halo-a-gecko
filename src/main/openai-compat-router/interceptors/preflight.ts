@@ -7,7 +7,7 @@
  * potentially slow models (e.g., DeepSeek Reasoner), causing severe performance
  * degradation (~30-60s per bash command).
  *
- * In Halo's architecture (permissionMode: 'bypassPermissions'), these safety
+ * In AICO-Bot's architecture (permissionMode: 'bypassPermissions'), these safety
  * analysis results are unused -- commands are auto-approved regardless. This
  * interceptor detects and short-circuits these requests with instant mock
  * responses, eliminating the latency without affecting functionality.

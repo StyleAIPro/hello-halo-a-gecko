@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# Halo App Icon Generator
+# AICO-Bot App Icon Generator
 # Generates platform-specific icons from a source SVG
 # =============================================================================
 
@@ -13,7 +13,7 @@ RESOURCES_DIR="$PROJECT_ROOT/resources"
 SOURCE_SVG="$RESOURCES_DIR/icon.svg"
 ICONSET_DIR="$RESOURCES_DIR/icon.iconset"
 
-echo "🎨 Halo Icon Generator"
+echo "🎨 AICO-Bot Icon Generator"
 echo "======================"
 echo ""
 

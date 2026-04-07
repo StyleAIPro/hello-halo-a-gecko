@@ -24,7 +24,7 @@ interface DiffContentProps {
   editChunks?: EditChunk[]  // Multiple edit chunks for same file
 }
 
-// Custom styles for the diff viewer to match Halo's dark theme
+// Custom styles for the diff viewer to match AICO-Bot's dark theme
 const customStyles = {
   variables: {
     dark: {

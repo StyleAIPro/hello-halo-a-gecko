@@ -30,7 +30,7 @@ import {
 } from './helpers'
 import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../health'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
-import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
+import { createAicoBotAppsMcpServer } from '../../apps/conversation-mcp'
 
 // ============================================
 // Session Maps
@@ -441,8 +441,8 @@ export function stopSessionCleanup(): void {
  * Migrate session file from old config directory to new config directory on demand.
  *
  * Background: We changed CLI config directory from ~/.claude/ to
- * ~/Library/Application Support/halo/claude-config/ (via CLAUDE_CONFIG_DIR env)
- * to isolate Halo from user's own Claude Code configuration.
+ * ~/Library/Application Support/aico-bot/claude-config/ (via CLAUDE_CONFIG_DIR env)
+ * to isolate AICO-Bot from user's own Claude Code configuration.
  *
  * This causes historical conversations to fail because their sessionId points to
  * session files in the old directory. This function migrates session files on demand
@@ -473,7 +473,7 @@ function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
   // Note: CLAUDE_CONFIG_DIR is set to ~/.agents/claude-config/ in sdk-config.ts
   // This is the actual path where SDK writes session files
   const newConfigDir = path.join(os.homedir(), '.agents', 'claude-config')
-  // Legacy path (used by original Claude Code CLI before Halo's isolation)
+  // Legacy path (used by original Claude Code CLI before AICO-Bot's isolation)
   const oldConfigDir = path.join(os.homedir(), '.claude')
 
   const newPath = path.join(newConfigDir, 'projects', projectDir, sessionFile)
@@ -738,7 +738,7 @@ export async function ensureSessionWarm(
 
   // Build MCP servers config (must match sendMessage to avoid session rebuild)
   const mcpServers: Record<string, any> = enabledMcpServers ? { ...enabledMcpServers } : {}
-  mcpServers['halo-apps'] = createHaloAppsMcpServer(spaceId)
+  mcpServers['aico-bot-apps'] = createAicoBotAppsMcpServer(spaceId)
 
   // Build SDK options using shared configuration
   const sdkOptions = buildBaseSdkOptions({

@@ -1,14 +1,14 @@
 {
-  "name": "halo",
+  "name": "aico-bot",
   "version": "2.0.2",
   "description": "AI that gets things done",
   "type": "module",
   "main": "./out/main/index.mjs",
-  "author": "Halo Team",
+  "author": "AICO-Bot Team",
   "license": "MIT",
   "scripts": {
-    "dev": "cross-env HALO_DATA_DIR=~/.halo-dev electron-vite dev",
-    "dev:win": "cross-env HALO_DATA_DIR=~/.halo-dev electron-vite dev",
+    "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
+    "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build": "npm run build:proxy && electron-vite build",
     "start": "electron-vite preview",
@@ -145,8 +145,8 @@
     "@parcel/watcher-win32-x64": "^2.5.6"
   },
   "build": {
-    "appId": "com.halo.app",
-    "productName": "Halo",
+    "appId": "com.aico-bot.app",
+    "productName": "AICO-Bot",
     "npmRebuild": false,
     "beforePack": "./scripts/beforePack.cjs",
     "afterPack": "./scripts/afterPack.cjs",
@@ -157,7 +157,7 @@
       "out/**/*",
       "resources/**/*",
       "product.json",
-      "halo-local/dist/**/*",
+      "aico-bot-local/dist/**/*",
       "packages/remote-agent-proxy/dist/**/*",
       "packages/remote-agent-proxy/package.json",
       "!node_modules/better-sqlite3/prebuilds"
@@ -171,7 +171,7 @@
     "publish": {
       "provider": "github",
       "owner": "openkursar",
-      "repo": "hello-halo",
+      "repo": "hello-aico-bot",
       "releaseType": "release"
     },
     "mac": {

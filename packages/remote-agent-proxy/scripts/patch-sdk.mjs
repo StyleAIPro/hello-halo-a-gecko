@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Patch @anthropic-ai/claude-agent-sdk for Halo remote agent usage.
+ * Patch @anthropic-ai/claude-agent-sdk for AICO-Bot remote agent usage.
  *
  * Why: The SDK's unstable_v2_createSession (Tz class) hardcodes many options
- * instead of forwarding them from the caller. This prevents Halo from setting
+ * instead of forwarding them from the caller. This prevents AICO-Bot from setting
  * cwd, systemPrompt, maxThinkingTokens, etc. This script patches the minified
  * SDK to forward these options.
  *
@@ -39,7 +39,7 @@ if (!sdkPath) {
 let sdk = readFileSync(sdkPath, 'utf-8')
 
 // Check if already patched
-if (sdk.includes('[PATCHED] Halo SDK patch applied')) {
+if (sdk.includes('[PATCHED] AICO-Bot SDK patch applied')) {
   console.log('[patch-sdk] Already patched, skipping')
   process.exit(0)
 }
@@ -175,9 +175,9 @@ if (sdk.includes(queryEntryPattern)) {
 // CJS require() of this .mjs file fails with SyntaxError on the "!" in "#!")
 const shebangAndSdk = sdk.match(/^#!\/usr\/bin\/env node\n([\s\S]*)/)
 if (shebangAndSdk) {
-  sdk = '#!/usr/bin/env node\n// [PATCHED] Halo SDK patch applied\n' + shebangAndSdk[1]
+  sdk = '#!/usr/bin/env node\n// [PATCHED] AICO-Bot SDK patch applied\n' + shebangAndSdk[1]
 } else {
-  sdk = '// [PATCHED] Halo SDK patch applied\n' + sdk
+  sdk = '// [PATCHED] AICO-Bot SDK patch applied\n' + sdk
 }
 
 writeFileSync(sdkPath, sdk)

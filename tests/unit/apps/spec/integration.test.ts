@@ -441,7 +441,7 @@ type: automation
 const fullSkillYaml = `
 name: "Code Review Expert"
 version: "2.1.0"
-author: "halo-official"
+author: "aico-bot-official"
 description: "Expert code review with security and performance analysis"
 type: skill
 icon: "code-review"
@@ -501,7 +501,7 @@ const extensionYaml = `
 name: "Dark Theme"
 version: "1.0"
 author: "themes-community"
-description: "Dark color theme for Halo"
+description: "Dark color theme for AICO-Bot"
 type: extension
 icon: "moon"
 `

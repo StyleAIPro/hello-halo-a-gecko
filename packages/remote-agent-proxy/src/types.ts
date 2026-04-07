@@ -53,10 +53,10 @@ export interface ClientMessage {
     agentId?: string
     instruction?: string
     // WebSocket MCP Bridge payloads
-    tools?: HaloMcpToolDef[]                    // Tool definitions for mcp:tools:register
-    haloMcpCapabilities?: HaloMcpCapabilities     // Capability flags for mcp:tools:register
+    tools?: AicoBotMcpToolDef[]                    // Tool definitions for mcp:tools:register
+    aicoBotMcpCapabilities?: AicoBotMcpCapabilities     // Capability flags for mcp:tools:register
     callId?: string                    // MCP tool call ID for mcp:tool:call / mcp:tool:error
-    toolResult?: HaloMcpToolResult     // Tool execution result for mcp:tool:call
+    toolResult?: AicoBotMcpToolResult     // Tool execution result for mcp:tool:call
     toolError?: string                 // Tool execution error for mcp:tool:error
     // Background task payloads
     id?: string                        // Task ID for task:get / task:cancel
@@ -77,14 +77,14 @@ export interface ChatOptions {
   maxThinkingTokens?: number
   workDir?: string  // Dynamic working directory from client
   hyperSpaceTools?: HyperSpaceToolsConfig  // Enable Hyper Space MCP tools for remote workers
-  haloMcpUrl?: string   // Halo MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
-  haloMcpToken?: string // Auth token for Halo MCP proxy
+  aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
+  aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
 }
 
 /**
  * Hyper Space tools configuration for remote workers.
  * When present, the proxy creates an MCP server with proxy tools
- * that delegate execution to the Halo client via WebSocket.
+ * that delegate execution to the AICO-Bot client via WebSocket.
  */
 export interface HyperSpaceToolsConfig {
   spaceId: string
@@ -107,7 +107,7 @@ export interface ServerMessage {
          'worker:started' | 'worker:completed' |  // Subagent worker lifecycle
          'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error' |  // Hyper Space agent management
          'register-token:success' | 'register-token:error' |  // Token whitelist registration
-         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks Halo to execute a tool
+         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks AICO-Bot to execute a tool
          'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background task management
   sessionId?: string
   data?: any
@@ -236,9 +236,9 @@ export interface ThoughtDeltaData {
 
 /**
  * Serialized MCP tool definition for transmission over WebSocket.
- * The handler function is NOT included — it stays on the Halo side.
+ * The handler function is NOT included — it stays on the AICO-Bot side.
  */
-export interface HaloMcpToolDef {
+export interface AicoBotMcpToolDef {
   name: string
   description: string
   /** Zod raw shape, serialized as plain object (Zod types erased at runtime) */
@@ -248,18 +248,18 @@ export interface HaloMcpToolDef {
 }
 
 /**
- * MCP capability flags advertised by the Halo client.
+ * MCP capability flags advertised by the AICO-Bot client.
  */
-export interface HaloMcpCapabilities {
+export interface AicoBotMcpCapabilities {
   aiBrowser: boolean
   ghSearch: boolean
   version?: number
 }
 
 /**
- * MCP tool call request from remote proxy to Halo.
+ * MCP tool call request from remote proxy to AICO-Bot.
  */
-export interface HaloMcpToolCallData {
+export interface AicoBotMcpToolCallData {
   /** Unique ID for matching request/response */
   callId: string
   /** Source MCP server name */
@@ -271,10 +271,10 @@ export interface HaloMcpToolCallData {
 }
 
 /**
- * MCP tool call result from Halo to remote proxy.
+ * MCP tool call result from AICO-Bot to remote proxy.
  * Matches the MCP CallToolResult shape.
  */
-export interface HaloMcpToolResult {
+export interface AicoBotMcpToolResult {
   content: Array<{ type: 'text' | 'image'; text?: string; data?: string; mimeType?: string }>
   isError?: boolean
 }

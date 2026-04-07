@@ -28,7 +28,7 @@ export interface Migration {
 }
 
 /**
- * Central database manager for the Halo application.
+ * Central database manager for the AICO-Bot application.
  *
  * Provides access to SQLite databases and handles schema migrations.
  * Each consuming module (scheduler, app manager, etc.) obtains a database
@@ -41,7 +41,7 @@ export interface DatabaseManager {
   /**
    * Get the application-level database instance.
    *
-   * Returns the shared SQLite database at `~/.halo/halo.db`.
+   * Returns the shared SQLite database at `~/.aico-bot/aico-bot.db`.
    * The database is opened lazily on first call and cached for reuse.
    * WAL mode and performance PRAGMAs are applied automatically.
    *

@@ -2,7 +2,7 @@
 
 ## 当前问题
 
-从本地 Halo UI 发送消息到远程服务器时出现 `ECONNRESET` 错误。
+从本地 AICO-Bot UI 发送消息到远程服务器时出现 `ECONNRESET` 错误。
 
 ```
 Error: read ECONNRESET at TCP.onStreamRead
@@ -234,15 +234,15 @@ chmod +x /opt/claude-deployment/start.sh
 nc -zv 124.71.177.25 8080
 ```
 
-2. **在 Halo 中测试**：
-   - 打开 Halo 应用
+2. **在 AICO-Bot 中测试**：
+   - 打开 AICO-Bot 应用
    - 进入远程空间（例如 "test" 空间）
    - 发送消息 "hello"
    - 查看是否收到响应
 
 3. **查看本地日志**：
 ```bash
-tail -f /Users/zhaoyinqi/Library/Logs/halo/main.log
+tail -f /Users/zhaoyinqi/Library/Logs/aico-bot/main.log
 ```
 
 ## 获取帮助
@@ -250,6 +250,6 @@ tail -f /Users/zhaoyinqi/Library/Logs/halo/main.log
 如果以上步骤都无法解决问题，请提供以下信息：
 
 1. 远程服务器的完整日志：`tail -100 /opt/claude-deployment/logs/output.log`
-2. 本地 Halo 的错误日志：`tail -100 /Users/zhaoyinqi/Library/Logs/halo/main.log`
+2. 本地 AICO-Bot 的错误日志：`tail -100 /Users/zhaoyinqi/Library/Logs/aico-bot/main.log`
 3. 进程状态：`ps aux | grep '[n]ode.*dist/index.js'`
 4. 端口状态：`netstat -tlnp | grep 8080`

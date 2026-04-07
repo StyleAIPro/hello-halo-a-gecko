@@ -420,10 +420,10 @@ export class SSHManager {
   /**
    * Create a reverse (remote) port forward.
    * Makes the remote machine listen on remotePort, forwarding connections
-   * back to a local service on Halo's machine.
+   * back to a local service on AICO-Bot's machine.
    *
    * @param remotePort - Port to listen on the remote machine
-   * @param localPort - Port on the local (Halo) machine to forward to
+   * @param localPort - Port on the local (AICO-Bot) machine to forward to
    * @param localHost - Local host to forward to (default '127.0.0.1')
    * @returns The remote port that was bound (may differ if 0 is passed)
    */

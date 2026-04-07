@@ -84,7 +84,7 @@ log_step "Uploading files to remote server..."
 ssh -p $SSH_PORT "$DEPLOY_HOST" "mkdir -p $REMOTE_DEPLOY_PATH/dist" 2>/dev/null
 
 # Upload dist files from local
-LOCAL_DIST_DIR="/Users/zhaoyinqi/zyq_workspace/hello-halo/packages/remote-agent-proxy/dist"
+LOCAL_DIST_DIR="/Users/zhaoyinqi/zyq_workspace/hello-aico-bot/packages/remote-agent-proxy/dist"
 if [ -d "$LOCAL_DIST_DIR" ]; then
     for file in "$LOCAL_DIST_DIR"/*.js; do
         if [ -f "$file" ]; then

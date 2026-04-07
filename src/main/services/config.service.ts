@@ -300,7 +300,7 @@ export function onApiConfigChange(handler: ApiConfigChangeHandler): () => void {
 }
 
 // Types (shared with renderer)
-interface HaloConfig {
+interface AicoBotConfig {
   api: {
     provider: 'anthropic' | 'openai' | 'custom'
     apiKey: string
@@ -390,31 +390,35 @@ interface McpStdioServerConfig {
   args?: string[]
   env?: Record<string, string>
   timeout?: number
-  disabled?: boolean  // Halo extension: temporarily disable this server
+  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
 }
 
 interface McpHttpServerConfig {
   type: 'http'
   url: string
   headers?: Record<string, string>
-  disabled?: boolean  // Halo extension: temporarily disable this server
+  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
 }
 
 interface McpSseServerConfig {
   type: 'sse'
   url: string
   headers?: Record<string, string>
-  disabled?: boolean  // Halo extension: temporarily disable this server
+  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
 }
 
 // Paths
 // Use os.homedir() instead of app.getPath('home') to respect HOME environment variable
 // This is essential for E2E tests to run in isolated test directories
-export function getHaloDir(): string {
+export function getAicoBotDirLegacy(): string {
+  return getAicoBotDir()
+}
+
+export function getAicoBotDir(): string {
   // 1. Support custom data directory via environment variable
   //    Useful for development to avoid conflicts with production data
-  if (process.env.HALO_DATA_DIR) {
-    let dir = process.env.HALO_DATA_DIR
+  if (process.env.AICO_BOT_DATA_DIR) {
+    let dir = process.env.AICO_BOT_DATA_DIR
     // Expand ~ to home directory (shell doesn't expand in env vars)
     if (dir.startsWith('~')) {
       dir = join(homedir(), dir.slice(1))
@@ -425,23 +429,23 @@ export function getHaloDir(): string {
   // 2. Auto-detect development mode: use separate directory
   //    app.isPackaged is false when running via electron-vite dev
   if (!app.isPackaged) {
-    return join(homedir(), '.halo-dev')
+    return join(homedir(), '.aico-bot-dev')
   }
 
   // 3. Production: use default directory
-  return join(homedir(), '.halo')
+  return join(homedir(), '.aico-bot')
 }
 
 export function getConfigPath(): string {
-  return join(getHaloDir(), 'config.json')
+  return join(getAicoBotDir(), 'config.json')
 }
 
 export function getTempSpacePath(): string {
-  return join(getHaloDir(), 'temp')
+  return join(getAicoBotDir(), 'temp')
 }
 
 export function getSpacesDir(): string {
-  return join(getHaloDir(), 'spaces')
+  return join(getAicoBotDir(), 'spaces')
 }
 
 /**
@@ -463,7 +467,7 @@ export function getAgentsSkillsDir(): string {
 const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
 
 // Default configuration
-const DEFAULT_CONFIG: HaloConfig = {
+const DEFAULT_CONFIG: AicoBotConfig = {
   api: {
     provider: 'anthropic',
     apiKey: '',
@@ -754,7 +758,7 @@ function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
 
 // Initialize app directories
 export async function initializeApp(): Promise<void> {
-  const haloDir = getHaloDir()
+  const aicoBotDir = getAicoBotDir()
   const tempDir = getTempSpacePath()
   const spacesDir = getSpacesDir()
   const tempArtifactsDir = join(tempDir, 'artifacts')
@@ -762,7 +766,7 @@ export async function initializeApp(): Promise<void> {
   const agentsSkillsDir = getAgentsSkillsDir()
 
   // Create directories if they don't exist
-  const dirs = [haloDir, tempDir, spacesDir, tempArtifactsDir, tempConversationsDir, agentsSkillsDir]
+  const dirs = [aicoBotDir, tempDir, spacesDir, tempArtifactsDir, tempConversationsDir, agentsSkillsDir]
   for (const dir of dirs) {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
@@ -791,7 +795,7 @@ export async function initializeApp(): Promise<void> {
 }
 
 /**
- * Migrate existing skills from ~/.halo/skills/ and space-level skills to ~/.agents/skills/
+ * Migrate existing skills from ~/.aico-bot/skills/ and space-level skills to ~/.agents/skills/
  */
 function migrateSkillsToAgentsDir(): void {
   const agentsSkillsDir = getAgentsSkillsDir()
@@ -821,8 +825,8 @@ function migrateSkillsToAgentsDir(): void {
     }
   }
 
-  // Migrate global skills from ~/.halo/skills/
-  const oldGlobalSkillsDir = join(getHaloDir(), 'skills')
+  // Migrate global skills from ~/.aico-bot/skills/
+  const oldGlobalSkillsDir = join(getAicoBotDir(), 'skills')
   if (existsSync(oldGlobalSkillsDir)) {
     try {
       const entries = readdirSync(oldGlobalSkillsDir, { withFileTypes: true })
@@ -848,7 +852,7 @@ function migrateSkillsToAgentsDir(): void {
       const spaces = readdirSync(spacesDir, { withFileTypes: true })
       for (const space of spaces) {
         if (space.isDirectory()) {
-          const spaceSkillsDir = join(spacesDir, space.name, '.halo', 'skills')
+          const spaceSkillsDir = join(spacesDir, space.name, '.aico-bot', 'skills')
           if (existsSync(spaceSkillsDir)) {
             const skills = readdirSync(spaceSkillsDir, { withFileTypes: true })
             for (const skill of skills) {
@@ -873,7 +877,7 @@ function migrateSkillsToAgentsDir(): void {
 }
 
 // Get configuration
-export function getConfig(): HaloConfig {
+export function getConfig(): AicoBotConfig {
   const configPath = getConfigPath()
 
   if (!existsSync(configPath)) {
@@ -909,7 +913,7 @@ export function getConfig(): HaloConfig {
 }
 
 // Save configuration
-export function saveConfig(config: Partial<HaloConfig>): HaloConfig {
+export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   const currentConfig = getConfig()
   const newConfig = { ...currentConfig, ...config }
   const previousAiSourcesSignature = getAiSourcesSignature(currentConfig.aiSources)

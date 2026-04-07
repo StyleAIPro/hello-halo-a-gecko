@@ -10,9 +10,9 @@ const { Client: SSHClient } = require('ssh2')
 // 读取配置
 function loadRemoteServers() {
   const fs = require('fs')
-  const configPath = process.env.HALO_DATA_DIR
-    ? `${process.env.HALO_DATA_DIR}/config.json`
-    : `${process.env.HOME}/.halo-dev/config.json`
+  const configPath = process.env.AICO_BOT_DATA_DIR
+    ? `${process.env.AICO_BOT_DATA_DIR}/config.json`
+    : `${process.env.HOME}/.aico-bot-dev/config.json`
 
   if (!fs.existsSync(configPath)) {
     console.error('配置文件不存在:', configPath)
@@ -115,7 +115,7 @@ async function main() {
   const servers = loadRemoteServers()
   if (servers.length === 0) {
     console.error('没有配置远程服务器')
-    console.log('请先在 Halo 应用中添加远程服务器')
+    console.log('请先在 AICO-Bot 应用中添加远程服务器')
     process.exit(1)
   }
 
