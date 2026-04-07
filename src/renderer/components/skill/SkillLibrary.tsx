@@ -2,6 +2,7 @@
  * SkillLibrary - 已安装技能库
  *
  * 显示已安装的技能列表，支持启用/禁用、卸载、导出等操作
+ * 支持查看本地技能和远程服务器上的技能
  * 同时支持抽屉式文件浏览器
  */
 
@@ -18,12 +19,14 @@ import {
   FolderOpen,
   Folder,
   ChevronRight,
+  ChevronDown,
   FileText,
   X,
   Loader2,
   CloudUpload,
   RefreshCw,
   Server,
+  HardDrive,
   GripVertical
 } from 'lucide-react'
 import type { InstalledSkill, SkillFileNode } from '../../../shared/skill/skill-types'
@@ -40,6 +43,11 @@ interface FileNode {
   children?: FileNode[]
 }
 
+// 技能来源类型
+type SkillSource =
+  | { type: 'local' }
+  | { type: 'remote'; serverId: string; serverName: string }
+
 export function SkillLibrary() {
   const { t } = useTranslation()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
@@ -52,7 +60,15 @@ export function SkillLibrary() {
     exportSkill,
     refreshSkills,
     syncSkillsToRemote,
+    remoteSkills,
+    remoteSkillsLoading,
+    remoteSkillsError,
+    loadRemoteSkills,
   } = useSkillStore()
+
+  // 技能来源选择
+  const [selectedSource, setSelectedSource] = useState<SkillSource>({ type: 'local' })
+  const [showSourceDropdown, setShowSourceDropdown] = useState(false)
 
   // 组件挂载时不再自动刷新，由 SkillPage 统一管理
   // 用户可通过刷新按钮手动刷新
@@ -109,25 +125,79 @@ export function SkillLibrary() {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
-  // 按名称排序的技能列表
+  // 按名称排序的本地技能列表
   const sortedSkills = useMemo(() => {
     return [...installedSkills].sort((a, b) =>
       a.spec.name.localeCompare(b.spec.name)
     )
   }, [installedSkills])
 
-  // 加载远程服务器列表
-  useEffect(() => {
-    if (showSyncModal) {
-      loadRemoteServers()
+  // 当前来源对应的技能列表
+  const activeSkills = useMemo(() => {
+    if (selectedSource.type === 'local') {
+      return sortedSkills
     }
-  }, [showSyncModal])
+    return (remoteSkills[selectedSource.serverId] || []).sort((a, b) =>
+      a.spec.name.localeCompare(b.spec.name)
+    )
+  }, [selectedSource, sortedSkills, remoteSkills])
+
+  const activeLoading = selectedSource.type === 'remote'
+    ? remoteSkillsLoading[selectedSource.serverId] || false
+    : false
+
+  const activeError = selectedSource.type === 'remote'
+    ? remoteSkillsError[selectedSource.serverId] || null
+    : null
+
+  // 加载远程服务器列表（组件挂载时 + 打开同步模态框时）
+  const loadRemoteServers = async () => {
+    try {
+      const result = await api.remoteServerList()
+      if (result.success && result.data) {
+        setRemoteServers(result.data.map(s => ({
+          id: s.id,
+          name: s.name,
+          status: s.status || 'disconnected'
+        })))
+      }
+    } catch (error) {
+      console.error('Failed to load remote servers:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadRemoteServers()
+  }, [])
+
+  // 选择远程服务器时加载远程技能
+  useEffect(() => {
+    if (selectedSource.type === 'remote') {
+      const { serverId } = selectedSource
+      if (!remoteSkills[serverId] && !remoteSkillsLoading[serverId]) {
+        loadRemoteSkills(serverId)
+      }
+    }
+  }, [selectedSource])
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    if (!showSourceDropdown) return
+    const handleClickOutside = () => setShowSourceDropdown(false)
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [showSourceDropdown])
 
   // 加载文件树
   const loadFileTree = async (skillId: string) => {
     setLoadingFiles(true)
     try {
-      const result = await api.skillFiles(skillId)
+      let result
+      if (selectedSource.type === 'remote') {
+        result = await api.remoteServerListSkillFiles(selectedSource.serverId, skillId)
+      } else {
+        result = await api.skillFiles(skillId)
+      }
       if (result.success && result.data) {
         setFileTree(result.data)
       } else {
@@ -144,7 +214,12 @@ export function SkillLibrary() {
   // 加载文件内容
   const loadFileContent = async (skillId: string, filePath: string) => {
     try {
-      const result = await api.skillFileContent(skillId, filePath)
+      let result
+      if (selectedSource.type === 'remote') {
+        result = await api.remoteServerReadSkillFile(selectedSource.serverId, skillId, filePath)
+      } else {
+        result = await api.skillFileContent(skillId, filePath)
+      }
       if (result.success && result.data !== undefined) {
         setFileContent(result.data)
         setSelectedFilePath(filePath)
@@ -192,22 +267,6 @@ export function SkillLibrary() {
     }
   }
 
-  // 加载远程服务器列表
-  const loadRemoteServers = async () => {
-    try {
-      const result = await api.remoteServerList()
-      if (result.success && result.data) {
-        setRemoteServers(result.data.map(s => ({
-          id: s.id,
-          name: s.name,
-          status: s.status || 'disconnected'
-        })))
-      }
-    } catch (error) {
-      console.error('Failed to load remote servers:', error)
-    }
-  }
-
   // 打开同步模态框
   const handleOpenSyncModal = async () => {
     await loadRemoteServers()
@@ -236,7 +295,19 @@ export function SkillLibrary() {
     }
   }
 
-  if (sortedSkills.length === 0) {
+  // 刷新当前来源的技能列表
+  const handleRefresh = () => {
+    if (selectedSource.type === 'local') {
+      refreshSkills()
+    } else {
+      loadRemoteSkills(selectedSource.serverId)
+    }
+  }
+
+  const isLocal = selectedSource.type === 'local'
+
+  // 空状态：本地无技能
+  if (isLocal && sortedSkills.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-8">
         <Book className="w-16 h-16 text-muted-foreground/50 mb-4" />
@@ -253,22 +324,109 @@ export function SkillLibrary() {
       {ConfirmDialogElement}
     <div className="flex h-full">
       {/* 左侧：技能列表 */}
-      <div className="w-80 border-r border-border overflow-y-auto">
-        <div className="p-4 border-b border-border">
+      <div className="w-80 border-r border-border overflow-y-auto flex flex-col">
+        <div className="p-4 border-b border-border shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">
-              {t('Installed Skills')} ({sortedSkills.length})
-            </h2>
-            <div className="flex items-center gap-2">
+            {/* 来源选择下拉 */}
+            <div className="relative">
               <button
-                onClick={() => setShowSyncModal(true)}
-                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowSourceDropdown(!showSourceDropdown)
+                }}
+                className="flex items-center gap-1.5 text-sm font-semibold text-foreground hover:text-primary/80 transition-colors"
               >
-                <CloudUpload className="w-3 h-3" />
-                {t('Sync')}
+                {isLocal ? (
+                  <HardDrive className="w-3.5 h-3.5" />
+                ) : (
+                  <Server className="w-3.5 h-3.5" />
+                )}
+                <span className="max-w-[120px] truncate">
+                  {isLocal
+                    ? t('Local')
+                    : selectedSource.serverName}
+                </span>
+                <span className="text-muted-foreground">({activeSkills.length})</span>
+                <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${showSourceDropdown ? 'rotate-180' : ''}`} />
               </button>
+
+              {showSourceDropdown && (
+                <div
+                  className="absolute top-full left-0 mt-1 w-60 bg-popover border border-border rounded-lg shadow-lg z-50 py-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* 本地选项 */}
+                  <div
+                    onClick={() => {
+                      setSelectedSource({ type: 'local' })
+                      setSelectedSkillId(null)
+                      setShowSourceDropdown(false)
+                    }}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${isLocal ? 'bg-accent' : 'hover:bg-accent/50'}`}
+                  >
+                    <HardDrive className="w-4 h-4 text-muted-foreground" />
+                    <div className="flex-1">
+                      <span className="text-sm">{t('Local')}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{sortedSkills.length}</span>
+                  </div>
+
+                  {remoteServers.length > 0 && <div className="border-t border-border my-1" />}
+
+                  {/* 远程服务器选项 */}
+                  {remoteServers.map((server) => {
+                    const isSelected = selectedSource.type === 'remote' && selectedSource.serverId === server.id
+                    const skillCount = remoteSkills[server.id]?.length
+                    return (
+                      <div
+                        key={server.id}
+                        onClick={() => {
+                          setSelectedSource({ type: 'remote', serverId: server.id, serverName: server.name })
+                          setSelectedSkillId(null)
+                          setShowSourceDropdown(false)
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-accent' : 'hover:bg-accent/50'}`}
+                      >
+                        <Server className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm truncate block">{server.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {server.status === 'connected' ? t('Connected') : t('Disconnected')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {server.status === 'connected' && (
+                            <span className="w-2 h-2 rounded-full bg-green-500" />
+                          )}
+                          {skillCount !== undefined && (
+                            <span className="text-xs text-muted-foreground">{skillCount}</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {remoteServers.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                      {t('No remote servers')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {isLocal && (
+                <button
+                  onClick={handleOpenSyncModal}
+                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                >
+                  <CloudUpload className="w-3 h-3" />
+                  {t('Sync')}
+                </button>
+              )}
               <button
-                onClick={() => refreshSkills()}
+                onClick={handleRefresh}
                 className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
               >
                 <RefreshCw className="w-3 h-3" />
@@ -278,8 +436,40 @@ export function SkillLibrary() {
           </div>
         </div>
 
-        <div className="divide-y divide-border">
-          {sortedSkills.map((skill) => (
+        {/* 技能列表内容 */}
+        <div className="flex-1 divide-y divide-border">
+          {/* 加载状态 */}
+          {activeLoading && (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              <span className="mt-2 text-xs text-muted-foreground">{t('Loading remote skills...')}</span>
+            </div>
+          )}
+
+          {/* 错误状态 */}
+          {activeError && !activeLoading && (
+            <div className="p-3 mx-2 mt-2 text-xs text-red-400 bg-red-500/10 rounded">
+              {activeError}
+              <button
+                onClick={handleRefresh}
+                className="ml-2 underline hover:text-red-300"
+              >
+                {t('Retry')}
+              </button>
+            </div>
+          )}
+
+          {/* 空状态（远程） */}
+          {!activeLoading && !activeError && activeSkills.length === 0 && !isLocal && (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Server className="w-10 h-10 mb-3 opacity-50" />
+              <p className="text-sm">{t('No skills on this server')}</p>
+              <p className="text-xs mt-1">{t('Use Sync to upload local skills.')}</p>
+            </div>
+          )}
+
+          {/* 技能卡片列表 */}
+          {activeSkills.map((skill) => (
             <div
               key={skill.appId}
               onClick={() => setSelectedSkillId(skill.appId)}
@@ -298,19 +488,21 @@ export function SkillLibrary() {
                     {skill.spec.description}
                   </p>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    toggleSkill(skill.appId, !skill.enabled)
-                  }}
-                  className="ml-2"
-                >
-                  {skill.enabled ? (
-                    <ToggleRight className="w-5 h-5 text-green-500" />
-                  ) : (
-                    <ToggleLeft className="w-5 h-5 text-muted-foreground" />
-                  )}
-                </button>
+                {isLocal && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleSkill(skill.appId, !skill.enabled)
+                    }}
+                    className="ml-2"
+                  >
+                    {skill.enabled ? (
+                      <ToggleRight className="w-5 h-5 text-green-500" />
+                    ) : (
+                      <ToggleLeft className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* 技能元数据 */}
@@ -335,10 +527,12 @@ export function SkillLibrary() {
         <div className={`flex-1 overflow-y-auto p-6 ${showFilesDrawer ? 'pr-0' : ''}`}>
           {selectedSkillId ? (
             <SkillDetail
-              skill={sortedSkills.find(s => s.appId === selectedSkillId)!}
-              onToggle={() => toggleSkill(selectedSkillId, !sortedSkills.find(s => s.appId === selectedSkillId)!.enabled)}
-              onExport={(e) => handleExport(selectedSkillId, e)}
-              onUninstall={(e) => handleUninstall(selectedSkillId, e)}
+              skill={activeSkills.find(s => s.appId === selectedSkillId)!}
+              isRemote={!isLocal}
+              remoteServerName={selectedSource.type === 'remote' ? selectedSource.serverName : undefined}
+              onToggle={isLocal ? () => toggleSkill(selectedSkillId, !sortedSkills.find(s => s.appId === selectedSkillId)!.enabled) : undefined}
+              onExport={isLocal ? (e) => handleExport(selectedSkillId, e) : undefined}
+              onUninstall={isLocal ? (e) => handleUninstall(selectedSkillId, e) : undefined}
               onOpenFiles={() => handleOpenFiles(selectedSkillId)}
             />
           ) : (
@@ -561,16 +755,20 @@ export function SkillLibrary() {
 // 技能详情组件
 function SkillDetail({
   skill,
+  isRemote,
+  remoteServerName,
   onToggle,
   onExport,
   onUninstall,
   onOpenFiles
 }: {
   skill: InstalledSkill
-  onToggle: () => void
-  onExport: (e: React.MouseEvent) => void
-  onUninstall: (e: React.MouseEvent) => void
-  onOpenFiles: () => void
+  isRemote?: boolean
+  remoteServerName?: string
+  onToggle?: () => void
+  onExport?: (e: React.MouseEvent) => void
+  onUninstall?: (e: React.MouseEvent) => void
+  onOpenFiles?: () => void
 }) {
   const { t } = useTranslation()
 
@@ -578,8 +776,16 @@ function SkillDetail({
     <div className="max-w-2xl space-y-6">
       {/* 头部 */}
       <div>
-        <h2 className="text-xl font-semibold text-foreground">{skill.spec.name}</h2>
-        <p className="text-sm text-muted-foreground mt-1">{skill.spec.description}</p>
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-xl font-semibold text-foreground">{skill.spec.name}</h2>
+          {isRemote && remoteServerName && (
+            <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded flex items-center gap-1">
+              <Server className="w-3 h-3" />
+              {remoteServerName}
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">{skill.spec.description}</p>
       </div>
 
       {/* 状态和版本 */}
@@ -638,55 +844,78 @@ function SkillDetail({
         </div>
       )}
 
-      {/* 文件浏览器按钮 */}
-      <div className="space-y-2">
-        <button
-          onClick={onOpenFiles}
-          className="flex items-center gap-2 w-full px-4 py-2 bg-secondary/50 hover:bg-secondary text-secondary-foreground hover:text-foreground rounded-lg text-sm font-medium transition-colors"
-        >
-          <FolderOpen className="w-4 h-4" />
-          {t('View Skill Files')}
-          <ChevronRight className="w-4 h-4 ml-auto" />
-        </button>
-      </div>
+      {/* 文件浏览器按钮（本地技能） */}
+      {!isRemote && onOpenFiles && (
+        <div className="space-y-2">
+          <button
+            onClick={onOpenFiles}
+            className="flex items-center gap-2 w-full px-4 py-2 bg-secondary/50 hover:bg-secondary text-secondary-foreground hover:text-foreground rounded-lg text-sm font-medium transition-colors"
+          >
+            <FolderOpen className="w-4 h-4" />
+            {t('View Skill Files')}
+            <ChevronRight className="w-4 h-4 ml-auto" />
+          </button>
+        </div>
+      )}
 
       {/* 安装时间 */}
-      <div className="text-xs text-muted-foreground">
-        {t('Installed at')}: {new Date(skill.installedAt).toLocaleString()}
-      </div>
+      {skill.installedAt && (
+        <div className="text-xs text-muted-foreground">
+          {t('Installed at')}: {new Date(skill.installedAt).toLocaleString()}
+        </div>
+      )}
 
-      {/* 操作按钮 */}
-      <div className="flex gap-2 pt-4 border-t border-border">
-        <button
-          onClick={onToggle}
-          className={`
-            flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
-            ${skill.enabled
-              ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
-              : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-            }
-          `}
-        >
-          {skill.enabled ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
-          {skill.enabled ? t('Disable') : t('Enable')}
-        </button>
+      {/* 操作按钮（仅本地） */}
+      {!isRemote && onToggle && onExport && onUninstall && (
+        <div className="flex gap-2 pt-4 border-t border-border">
+          <button
+            onClick={onToggle}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              ${skill.enabled
+                ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+              }
+            `}
+          >
+            {skill.enabled ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+            {skill.enabled ? t('Disable') : t('Enable')}
+          </button>
 
-        <button
-          onClick={onExport}
-          className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-sm font-medium transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          {t('Export')}
-        </button>
+          <button
+            onClick={onExport}
+            className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            {t('Export')}
+          </button>
 
-        <button
-          onClick={onUninstall}
-          className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors"
-        >
-          <Trash2 className="w-4 h-4" />
-          {t('Uninstall')}
-        </button>
-      </div>
+          <button
+            onClick={onUninstall}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            {t('Uninstall')}
+          </button>
+        </div>
+      )}
+
+      {/* 远程只读提示 */}
+      {isRemote && (
+        <div className="pt-4 border-t border-border">
+          <p className="text-xs text-muted-foreground">
+            {t('Remote skills are read-only. Use Sync to manage skills on this server.')}
+          </p>
+          <button
+            onClick={onOpenFiles}
+            className="flex items-center gap-2 w-full px-4 py-2 mt-2 bg-secondary/50 hover:bg-secondary text-secondary-foreground hover:text-foreground rounded-lg text-sm font-medium transition-colors"
+          >
+            <FolderOpen className="w-4 h-4" />
+            {t('View Skill Files')}
+            <ChevronRight className="w-4 h-4 ml-auto" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

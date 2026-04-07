@@ -16,6 +16,7 @@ export interface RemoteWsClientConfig {
 
 export interface ClientMessage {
   type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:download' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject'
+        | 'mcp:tools:register' | 'mcp:tool:call' | 'mcp:tool:error'  // WebSocket MCP Bridge
   sessionId?: string
   payload?: any
 }
@@ -29,7 +30,9 @@ export interface ServerMessage {
          'thought' | 'thought:delta' |  // Streaming thought events
          'mcp:status' |  // MCP server status
          'compact:boundary' |  // Context compression notification
-         'text:block-start'  // Text block start signal
+         'text:block-start' |  // Text block start signal
+         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks Halo to execute a tool
+         'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background tasks
   sessionId?: string
   data?: any
 }
@@ -200,7 +203,7 @@ export class RemoteWsClient extends EventEmitter {
           'tool:error',
           'terminal:output',
           'mcp:status',
-          'compact:boundary',
+          'mcp:tool:call',  // WebSocket MCP Bridge
           'text:block-start'
         ]
         if (blockedTypes.includes(message.type as string)) {
@@ -279,6 +282,11 @@ export class RemoteWsClient extends EventEmitter {
           this.emit('mcp:status', { sessionId: message.sessionId, data: message.data })
           break
 
+        case 'mcp:tool:call':
+          // WebSocket MCP Bridge: remote proxy asks Halo to execute a tool
+          this.emit('mcp:tool:call', { sessionId: message.sessionId, data: message.data })
+          break
+
         case 'compact:boundary':
           this.emit('compact:boundary', { sessionId: message.sessionId, data: message.data })
           break
@@ -298,6 +306,26 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'pong':
           this.lastPongTime = Date.now()
+          break
+
+        case 'task:update':
+          this.emit('task:update', message.data)
+          break
+
+        case 'task:list':
+          this.emit('task:list', message.data)
+          break
+
+        case 'task:get':
+          this.emit('task:get', message.data)
+          break
+
+        case 'task:cancel':
+          this.emit('task:cancel', message.data)
+          break
+
+        case 'task:spawn':
+          this.emit('task:spawn', message.data)
           break
 
         default:
@@ -586,6 +614,62 @@ export class RemoteWsClient extends EventEmitter {
       sessionId,
       payload: { toolId, reason }
     })
+  }
+
+  // ============================================
+  // WebSocket MCP Bridge Methods
+  // ============================================
+
+  /**
+   * Register MCP tools available on this Halo instance.
+   * Called after authentication succeeds to advertise local tool capabilities.
+   */
+  registerMcpTools(tools: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>, capabilities: { aiBrowser: boolean; ghSearch: boolean; version?: number }): boolean {
+    return this.send({
+      type: 'mcp:tools:register',
+      payload: { tools, capabilities }
+    })
+  }
+
+  /**
+   * Send MCP tool result back to remote proxy.
+   */
+  sendMcpToolResult(sessionId: string, callId: string, result: any): boolean {
+    return this.send({
+      type: 'mcp:tool:call',
+      sessionId,
+      payload: { callId, toolResult: result }
+    })
+  }
+
+  /**
+   * Send MCP tool error back to remote proxy.
+   */
+  sendMcpToolError(sessionId: string, callId: string, error: string): boolean {
+    return this.send({
+      type: 'mcp:tool:error',
+      sessionId,
+      payload: { callId, toolError: error }
+    })
+  }
+
+  // ============================================
+  // Background Task Methods
+  // ============================================
+
+  /** Request list of all background tasks */
+  listTasks(): boolean {
+    return this.send({ type: 'task:list', payload: {} })
+  }
+
+  /** Cancel a background task */
+  cancelTask(taskId: string): boolean {
+    return this.send({ type: 'task:cancel', payload: { id: taskId } })
+  }
+
+  /** Spawn a background task */
+  spawnTask(command: string, cwd?: string): boolean {
+    return this.send({ type: 'task:spawn', payload: { command, cwd } })
   }
 
   /**

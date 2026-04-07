@@ -27,6 +27,7 @@ import type {
 } from '../../shared/types/hyper-space'
 import { createOrchestrationConfig } from '../../shared/types/hyper-space'
 import { agentOrchestrator } from './agent/orchestrator'
+import { closeSessionsBySpaceId } from './agent/session-manager'
 
 // Re-export config helper for backward compatibility with existing imports
 export { getSpacesDir } from './config.service'
@@ -523,14 +524,19 @@ export function createSpace({
 
 /**
  * Delete a space. Removes from both memory and disk index.
+ * Returns an object with success status and optional error message.
  */
-export function deleteSpace(spaceId: string): boolean {
+export function deleteSpace(spaceId: string): { success: boolean; error?: string } {
   const entry = getRegistry().get(spaceId)
-  if (!entry || entry.isTemp) return false
+  if (!entry) return { success: false, error: 'Space not found' }
+  if (entry.isTemp) return { success: false, error: 'Cannot delete temp space' }
 
   const spacePath = entry.path
   const spacesDir = getSpacesDir()
   const isCentralized = spacePath.startsWith(spacesDir)
+
+  // Close any active sessions belonging to this space before deleting files
+  closeSessionsBySpaceId(spaceId)
 
   try {
     if (isCentralized) {
@@ -548,10 +554,21 @@ export function deleteSpace(spaceId: string): boolean {
     getRegistry().delete(spaceId)
     persistIndex(getRegistry())
 
-    return true
-  } catch (error) {
+    return { success: true }
+  } catch (error: any) {
+    const code = error?.code || ''
     console.error(`[Space] Failed to delete space ${spaceId}:`, error)
-    return false
+
+    let errorMessage: string
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+      errorMessage = 'Failed to delete space. Some files may be in use. Please close any active sessions and try again.'
+    } else if (code === 'ENOTEMPTY') {
+      errorMessage = 'Failed to delete space. Directory is not empty.'
+    } else {
+      errorMessage = `Failed to delete space: ${error?.message || 'Unknown error'}`
+    }
+
+    return { success: false, error: errorMessage }
   }
 }
 

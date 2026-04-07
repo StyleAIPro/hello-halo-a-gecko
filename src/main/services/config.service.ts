@@ -801,6 +801,26 @@ function migrateSkillsToAgentsDir(): void {
     mkdirSync(agentsSkillsDir, { recursive: true })
   }
 
+  // Migrate skills from ~/.claude/skills/
+  const claudeSkillsDir = join(homedir(), '.claude', 'skills')
+  if (existsSync(claudeSkillsDir)) {
+    try {
+      const entries = readdirSync(claudeSkillsDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const srcPath = join(claudeSkillsDir, entry.name)
+          const destPath = join(agentsSkillsDir, entry.name)
+          if (!existsSync(destPath)) {
+            cpSync(srcPath, destPath, { recursive: true })
+            console.log(`[Migration] Migrated Claude skill: ${entry.name}`)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Migration] Failed to migrate Claude skills:', error)
+    }
+  }
+
   // Migrate global skills from ~/.halo/skills/
   const oldGlobalSkillsDir = join(getHaloDir(), 'skills')
   if (existsSync(oldGlobalSkillsDir)) {

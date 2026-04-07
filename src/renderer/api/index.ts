@@ -2006,6 +2006,56 @@ export const api = {
     return httpRequest('POST', `/api/remote-server/${serverId}/sync-skills`)
   },
 
+  // List skills on a remote server
+  remoteServerListSkills: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.listSkills(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills`)
+  },
+
+  // List files in a remote skill directory
+  remoteServerListSkillFiles: async (serverId: string, skillId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.listSkillFiles(serverId, skillId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files`)
+  },
+
+  // Read a file from a remote skill directory
+  remoteServerReadSkillFile: async (serverId: string, skillId: string, filePath: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.readSkillFile(serverId, skillId, filePath)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files/${filePath}`)
+  },
+
+  // ===== Background Tasks =====
+
+  remoteServerSubscribeTasks: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.subscribeTasks(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/tasks/subscribe`)
+  },
+
+  remoteServerListTasks: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.listTasks(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/tasks`)
+  },
+
+  onRemoteTaskUpdate: (callback: (data: { serverId: string; data: any }) => void) =>
+    onEvent('remote-server:task-update', callback),
+
+  remoteServerCancelTask: async (serverId: string, taskId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.halo.remoteServer.cancelTask(serverId, taskId)
+    }
+    return httpRequest('DELETE', `/api/remote-server/${serverId}/tasks/${taskId}`)
+  },
+
   // ===== Terminal & Skill Generation =====
   getTerminalWebSocketUrl: async (spaceId: string, conversationId: string): Promise<ApiResponse<{ wsUrl: string }>> => {
     if (isElectron()) {
@@ -2105,6 +2155,26 @@ export const api = {
       return window.halo.skillInstall(input)
     }
     return httpRequest('POST', '/api/skills/install', input)
+  },
+
+  skillInstallMulti: async (input: {
+    skillId: string;
+    targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
+  }): Promise<ApiResponse<{ results: Record<string, { success: boolean; error?: string }> }>> => {
+    if (isElectron()) {
+      return window.halo.skillInstallMulti(input)
+    }
+    return httpRequest('POST', '/api/skills/install-multi', input)
+  },
+
+  skillUninstallMulti: async (input: {
+    appId: string;
+    targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
+  }): Promise<ApiResponse<{ results: Record<string, { success: boolean; error?: string }> }>> => {
+    if (isElectron()) {
+      return window.halo.skillUninstallMulti(input)
+    }
+    return httpRequest('POST', '/api/skills/uninstall-multi', input)
   },
 
   skillMarketList: async (page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
@@ -2276,6 +2346,16 @@ export const api = {
       return window.halo.onSkillInstallOutput(callback)
     }
     // 非 Electron 环境暂不支持
+    return () => {}
+  },
+
+  /**
+   * 监听技能卸载输出
+   */
+  onSkillUninstallOutput: (callback: (data: { appId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+    if (isElectron() && window.halo.onSkillUninstallOutput) {
+      return window.halo.onSkillUninstallOutput(callback)
+    }
     return () => {}
   },
 

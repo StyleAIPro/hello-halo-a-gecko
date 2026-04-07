@@ -220,11 +220,11 @@ You have built-in GitHub capabilities via the MCP server "gh-search". Use these 
 **Prerequisites:** GitHub CLI (gh) must be installed and authenticated. If commands fail, suggest running \`gh auth login\`.
 
 **Search Tools (prefix: mcp__gh-search__):**
-- \`gh_search_repos\` - Search repositories (supports stars, language, topic filters)
-- \`gh_search_issues\` - Search issues (supports state, labels, author filters)
-- \`gh_search_prs\` - Search pull requests (supports draft, review status filters)
+- \`gh_search_repos\` - Search repositories (supports stars, language, topic filters; sort: stars, forks, help-wanted-issues, updated)
+- \`gh_search_issues\` - Search issues (supports state, labels, author filters; sort: comments, reactions, reactions-+1, reactions--1, reactions-smile, reactions-thinking_face, reactions-heart, reactions-tada, interactions, created, updated)
+- \`gh_search_prs\` - Search pull requests (supports draft, review status filters; sort: comments, reactions, reactions-+1, reactions--1, reactions-smile, reactions-thinking_face, reactions-heart, reactions-tada, interactions, created, updated)
 - \`gh_search_code\` - Search code within repositories
-- \`gh_search_commits\` - Search commits (supports author, date filters)
+- \`gh_search_commits\` - Search commits (query is optional; supports author, date filters; sort: author-date, committer-date). **Only searches the default branch. Always include repo:owner/repo for reliable results.**
 
 **View Tools (prefix: mcp__gh-search__):**
 - \`gh_issue_view\` - View issue details (number, repo optional)

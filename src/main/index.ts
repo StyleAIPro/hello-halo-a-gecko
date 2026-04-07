@@ -9,7 +9,24 @@
 // Initialize electron-log before any other code to capture all logs
 // This replaces console.log/warn/error globally with electron-log
 // Logs are written to: ~/Library/Logs/Halo/ (macOS), %USERPROFILE%\AppData\Roaming\Halo\logs (Windows)
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
 import log from 'electron-log/main.js'
+
+// ESM compat shims — electron-vite bundles main process as ESM where
+// CJS globals (__dirname, __filename, require) are not available natively.
+// Since all main process code is bundled into a single file, these are available everywhere.
+const _require = createRequire(import.meta.url)
+const _filename = fileURLToPath(import.meta.url)
+const _dirname = dirname(_filename)
+if (typeof __dirname === 'undefined') {
+  ;(globalThis as any).__dirname = _dirname
+  ;(globalThis as any).__filename = _filename
+}
+if (typeof require === 'undefined') {
+  ;(globalThis as any).require = _require
+}
 
 // Initialize for renderer process support (IPC transport)
 log.initialize()

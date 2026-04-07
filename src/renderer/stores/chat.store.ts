@@ -94,6 +94,10 @@ export interface WorkerSessionState {
   pendingQuestion: PendingQuestion | null
   // Child conversation ID for loading persisted message history
   childConversationId?: string
+  // How the worker was triggered:
+  // 'mention': User @mentioned in main conversation; output shows inline in main view
+  // 'delegation': Leader spawned via spawn_subagent; output shows ONLY in worker tab
+  interactionMode?: 'mention' | 'delegation'
 }
 
 // Throttle state for worker streaming updates (avoids excessive set() calls per token delta)
@@ -123,6 +127,7 @@ function applyWorkerStreamUpdate(
     const session = resolveSessionId(newSessions, conversationId)
     if (!session) return state
 
+    const parentConvId = baseConvId(conversationId)
     const newWorkerSessions = new Map(session.workerSessions)
     const ws = newWorkerSessions.get(agentId)
     const workerSession = ws || {
@@ -139,7 +144,8 @@ function applyWorkerStreamUpdate(
       textBlockVersion: 0,
       error: null,
       completedAt: null,
-      pendingQuestion: null
+      pendingQuestion: null,
+      interactionMode: 'delegation'
     }
 
     const newTextBlockVersion = pending.isNewTextBlock
@@ -158,7 +164,21 @@ function applyWorkerStreamUpdate(
       isStreaming: shouldStream,
       textBlockVersion: newTextBlockVersion
     })
-    newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
+    newSessions.set(parentConvId, { ...session, workerSessions: newWorkerSessions })
+
+    // For mention-mode workers, also update the main session's streaming content
+    // so the worker's response appears inline in the main message list
+    if (workerSession.interactionMode === 'mention' && pending.delta) {
+      const mainSession = newSessions.get(parentConvId)
+      if (mainSession) {
+        newSessions.set(parentConvId, {
+          ...mainSession,
+          streamingContent: (mainSession.streamingContent || '') + pending.delta,
+          isStreaming: !pending.isComplete
+        })
+      }
+    }
+
     return { sessions: newSessions }
   })
 }
@@ -361,7 +381,6 @@ interface ChatState {
   // Hyper Space Agent Panel
   activeAgentId: string | null           // Currently selected agent (null = Leader)
   activatedAgentIds: Set<string>          // Agents highlighted by leader activation
-  agentConversations: Map<string, string> // agentId -> conversationId mapping
 
   setActiveAgentId: (agentId: string | null) => void
   activateAgent: (agentId: string) => void
@@ -394,7 +413,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Hyper Space Agent Panel state
   activeAgentId: null,
   activatedAgentIds: new Set<string>(),
-  agentConversations: new Map<string, string>(),
 
   // Get current space state
   getCurrentSpaceState: () => {
@@ -597,6 +615,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Switch terminal state to the new conversation
     useTerminalStore.getState().switchConversation(conversationId)
+
+    // Reset agent view to main when switching conversations
+    set({ activeAgentId: null })
 
     // Update the pointer + move unseen/error items to readAt grace period
     set((state) => {
@@ -1135,16 +1156,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Send to agent (with images, AI Browser state, thinking mode, and canvas context)
       // For Hyper Space: agentId routes to specific agent ('leader' or agent ID)
-      await api.sendMessage({
-        spaceId: currentSpaceId,
-        conversationId,
-        message: content,
-        images: images,  // Pass images to API
-        aiBrowserEnabled,  // Pass AI Browser state to API
-        thinkingEnabled,  // Pass thinking mode to API
-        canvasContext: buildCanvasContext(),  // Pass canvas context for AI awareness
-        agentId: agentId || 'leader'  // Pass target agent for Hyper Space
-      })
+      // Support multi-agent parallel execution when multiple agentIds are comma-separated
+      if (agentId && agentId.includes(',') && agentId !== 'leader') {
+        const agentIds = agentId.split(',').filter(Boolean)
+        // Send to all mentioned agents in parallel
+        await Promise.all(agentIds.map(id =>
+          api.sendMessage({
+            spaceId: currentSpaceId,
+            conversationId,
+            message: content,
+            images: images,
+            aiBrowserEnabled,
+            thinkingEnabled,
+            canvasContext: buildCanvasContext(),
+            agentId: id
+          })
+        ))
+      } else {
+        await api.sendMessage({
+          spaceId: currentSpaceId,
+          conversationId,
+          message: content,
+          images: images,  // Pass images to API
+          aiBrowserEnabled,  // Pass AI Browser state to API
+          thinkingEnabled,  // Pass thinking mode to API
+          canvasContext: buildCanvasContext(),  // Pass canvas context for AI awareness
+          agentId: agentId || 'leader'  // Pass target agent for Hyper Space
+        })
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
       // Update session error state
@@ -2123,7 +2162,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Handle worker started — creates a new worker session state
   handleWorkerStarted: (data) => {
     console.log('[ChatStore] handleWorkerStarted called, raw data:', JSON.stringify(data))
-    const { conversationId, agentId, agentName, taskId, task, type, serverName } = data
+    const { conversationId, agentId, agentName, taskId, task, type, serverName, interactionMode } = data
     if (!conversationId) {
       console.error('[ChatStore] handleWorkerStarted: missing conversationId in data!')
       return
@@ -2166,7 +2205,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         type: type || existing?.type || 'local',
         serverName: serverName || existing?.serverName,
         pendingQuestion: null,
-        childConversationId: childConvId
+        childConversationId: childConvId,
+        interactionMode: interactionMode || 'delegation'
       })
       newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
       return { sessions: newSessions }
@@ -2370,38 +2410,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ===== Hyper Space Agent Panel Actions =====
 
   setActiveAgentId: (agentId: string | null) => {
-    const { currentSpaceId, spaceStates, agentConversations } = get()
-    if (!currentSpaceId) return
-
     set({ activeAgentId: agentId })
-
-    // For leader (null), use the current conversation
-    if (!agentId) {
-      const spaceState = spaceStates.get(currentSpaceId)
-      if (spaceState?.currentConversationId) {
-        get().selectConversation(spaceState.currentConversationId)
-      }
-      return
-    }
-
-    // For worker: get or create their independent conversation
-    let convId = agentConversations.get(agentId)
-    if (convId) {
-      get().selectConversation(convId)
-      return
-    }
-
-    // Create a new conversation for this agent
-    get().createConversation(currentSpaceId).then(conv => {
-      if (conv) {
-        set((state) => {
-          const newAgentConvs = new Map(state.agentConversations)
-          newAgentConvs.set(agentId, conv.id)
-          return { agentConversations: newAgentConvs }
-        })
-        get().selectConversation(conv.id)
-      }
-    })
   },
 
   activateAgent: (agentId: string) => {

@@ -24,6 +24,8 @@ import { CompactNotice } from './CompactNotice'
 import { InterruptedBubble } from './InterruptedBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { BrowserTaskCard, isBrowserTool } from '../tool/BrowserTaskCard'
+import { TaskMonitorCard, filterStreamingTaskMonitors } from '../tool/TaskMonitorCard'
+import type { TaskMonitorInfo } from '../tool/TaskMonitorCard'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { Message, Thought, CompactInfo, AgentErrorType, PendingQuestion } from '../../types'
 import type { WorkerSessionState } from '../../stores/chat.store'
@@ -295,6 +297,7 @@ interface StreamingRevision {
   isThinking: boolean
   textBlockVersion: number
   streamingBrowserToolCalls: { id: string; name: string; status: 'running' | 'success'; input: any }[]
+  streamingTaskMonitors: TaskMonitorInfo[]
   pendingQuestion: PendingQuestion | null
   onAnswerQuestion?: (answers: Record<string, string>) => void
   workerSessions?: Map<string, WorkerSessionState>
@@ -322,6 +325,15 @@ function StreamingFooterContent({ revisionRef }: { revisionRef: React.RefObject<
               browserToolCalls={rev.streamingBrowserToolCalls}
               isActive={rev.isThinking}
             />
+          </div>
+        )}
+
+        {/* Real-time task monitor cards - shows background digital humans created during this turn */}
+        {rev.streamingTaskMonitors.length > 0 && (
+          <div className="mb-4 space-y-3">
+            {rev.streamingTaskMonitors.map(monitor => (
+              <TaskMonitorCard key={monitor.appId} monitor={monitor} isActive={rev.isThinking} />
+            ))}
           </div>
         )}
 
@@ -437,6 +449,12 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       }))
   }, [thoughts])
 
+  // Extract real-time task monitors from streaming thoughts
+  // This enables TaskMonitorCard to show background digital humans as they are created
+  const streamingTaskMonitors = useMemo(() => {
+    return filterStreamingTaskMonitors(thoughts)
+  }, [thoughts])
+
   // Track at-bottom state via native DOM scroll events (independent of Virtuoso).
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom
@@ -535,10 +553,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   // the store to trigger re-renders when streaming state changes.
   const streamingRevision = useMemo(() => {
     return { streamingContent, isStreaming, thoughts, isThinking, textBlockVersion,
-             streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion,
+             streamingBrowserToolCalls, streamingTaskMonitors, pendingQuestion, onAnswerQuestion,
              workerSessions, onAnswerWorkerQuestion }
   }, [streamingContent, isStreaming, thoughts, isThinking, textBlockVersion,
-      streamingBrowserToolCalls, pendingQuestion, onAnswerQuestion, workerSessions, onAnswerWorkerQuestion])
+      streamingBrowserToolCalls, streamingTaskMonitors, pendingQuestion, onAnswerQuestion, workerSessions, onAnswerWorkerQuestion])
   const streamingRevisionRef = useRef(streamingRevision)
   streamingRevisionRef.current = streamingRevision
 

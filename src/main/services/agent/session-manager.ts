@@ -197,8 +197,13 @@ export function markSessionActivity(conversationId: string): void {
 
 /**
  * Check if a session is stuck (no activity for too long)
- * Uses lastActivityAt instead of lastRequestStart to avoid killing long-running tasks
- * that are still making progress (receiving streaming data, executing tools, etc.)
+ *
+ * Only considers idle duration (time since last activity), NOT cumulative request duration.
+ * This ensures long-running tasks (large refactors, builds, etc.) are never killed
+ * as long as they keep producing activity (streaming data, tool calls, etc.).
+ *
+ * A session is only considered stuck when it has been running for at least 5 minutes
+ * AND has had no activity for the configured idle threshold (45 minutes).
  */
 function isSessionStuck(conversationId: string): boolean {
   const health = sessionHealthMap.get(conversationId)
@@ -208,24 +213,18 @@ function isSessionStuck(conversationId: string): boolean {
   const requestDuration = now - health.lastRequestStart
   const timeSinceActivity = now - health.lastActivityAt
 
-  // Session is stuck if:
+  // Session is stuck only if:
   // 1. Request has been running for a while (> 5 minutes) AND
-  // 2. No activity received for the timeout threshold
-  const isLongRunning = requestDuration > 5 * 60 * 1000
+  // 2. No activity received for the idle threshold
+  // We intentionally do NOT check cumulative duration — long-running tasks
+  // (builds, deployments, large refactors) may legitimately run for hours.
+  const hasStarted = requestDuration > 5 * 60 * 1000
   const isIdle = timeSinceActivity > HEALTH_CHECK_CONFIG.requestTimeout
 
-  if (isLongRunning && isIdle) {
+  if (hasStarted && isIdle) {
     console.log(
       `[Agent][${conversationId}] Session stuck: request=${Math.round(requestDuration/60000)}m, ` +
       `idle=${Math.round(timeSinceActivity/60000)}m`
-    )
-    return true
-  }
-
-  // Also check for absolute timeout (45 minutes total)
-  if (requestDuration > HEALTH_CHECK_CONFIG.requestTimeout) {
-    console.log(
-      `[Agent][${conversationId}] Session timeout: total duration=${Math.round(requestDuration/60000)}m`
     )
     return true
   }
@@ -776,6 +775,27 @@ export async function ensureSessionWarm(
  */
 export function closeV2Session(conversationId: string): void {
   cleanupSession(conversationId, 'explicit close')
+}
+
+/**
+ * Close all V2 sessions belonging to a specific space (for space deletion).
+ */
+export function closeSessionsBySpaceId(spaceId: string): void {
+  const toClose: string[] = []
+
+  for (const [convId, info] of v2Sessions) {
+    if (info.spaceId === spaceId) {
+      toClose.push(convId)
+    }
+  }
+
+  if (toClose.length > 0) {
+    console.log(`[Agent] Closing ${toClose.length} session(s) for space ${spaceId}`)
+    for (const convId of toClose) {
+      cleanupSession(convId, 'space deletion')
+      activeSessions.delete(convId)
+    }
+  }
 }
 
 /**

@@ -396,6 +396,68 @@ class SshTunnelService extends EventEmitter {
   }
 
   /**
+   * Create a reverse SSH tunnel (-R).
+   * Makes the remote machine listen on remotePort, forwarding connections
+   * back to a local (Halo) service on localPort.
+   *
+   * Unlike regular tunnels, reverse tunnels reuse the existing SSH connection
+   * for a server to avoid creating extra connections.
+   *
+   * @returns The actual remote port bound (useful if remotePort was 0)
+   */
+  async createReverseTunnel(config: SshTunnelConfig & { remoteListenPort: number; localTargetPort: number }): Promise<number> {
+    const tunnelKey = config.serverId
+    const tunnel = this.tunnels.get(tunnelKey)
+
+    if (!tunnel || !isClientConnected(tunnel.client)) {
+      throw new Error(`[SshTunnel] No active tunnel for server ${tunnelKey}. Call establishTunnel first.`)
+    }
+
+    const client = tunnel.client
+    const { remoteListenPort, localTargetPort } = config
+
+    return new Promise((resolve, reject) => {
+      client.forwardIn('127.0.0.1', remoteListenPort, (err, actualRemotePort) => {
+        if (err) {
+          console.error(`[SshTunnel] forwardIn failed for remote port ${remoteListenPort}:`, err)
+          reject(err)
+          return
+        }
+
+        console.log(`[SshTunnel] Reverse tunnel established: remote:${actualRemotePort} -> 127.0.0.1:${localTargetPort}`)
+
+        // Handle incoming connections from the remote side
+        const handler = (info: { destPort: number; destIP: string; srcPort: number; srcIP: string }, accept: () => any, rejectConn: () => any) => {
+          if (info.destPort !== actualRemotePort) return
+
+          try {
+            const channel = accept()
+            const socket = net.connect(localTargetPort, '127.0.0.1', () => {
+              // Connection established
+            })
+
+            channel.pipe(socket).pipe(channel)
+
+            socket.on('error', () => channel.close())
+            channel.on('error', () => socket.destroy())
+            socket.on('close', () => channel.close())
+            channel.on('close', () => socket.destroy())
+          } catch {
+            try { rejectConn() } catch { /* ignore */ }
+          }
+        }
+
+        // Store handler reference for cleanup
+        client.on('tcpip', handler)
+        ;(tunnel as any).reverseTunnelHandler = handler
+        ;(tunnel as any).reverseTunnelPort = actualRemotePort
+
+        resolve(actualRemotePort)
+      })
+    })
+  }
+
+  /**
    * Internal: Clean up a tunnel
    */
   private cleanupTunnel(tunnelKey: string): boolean {

@@ -414,8 +414,78 @@ export class SSHManager {
     if (server) {
       server.close()
       this.localForwardServers.delete(localPort)
-      console.log(`[SSHManager] Closed local port forward on ${localPort}`)
     }
+  }
+
+  /**
+   * Create a reverse (remote) port forward.
+   * Makes the remote machine listen on remotePort, forwarding connections
+   * back to a local service on Halo's machine.
+   *
+   * @param remotePort - Port to listen on the remote machine
+   * @param localPort - Port on the local (Halo) machine to forward to
+   * @param localHost - Local host to forward to (default '127.0.0.1')
+   * @returns The remote port that was bound (may differ if 0 is passed)
+   */
+  async createReversePortForward(
+    remotePort: number,
+    localPort: number,
+    localHost: string = '127.0.0.1'
+  ): Promise<number> {
+    if (!this._ready || !this.client) {
+      throw new Error('Not connected')
+    }
+
+    return new Promise((resolve, reject) => {
+      this.client!.forwardIn('127.0.0.1', remotePort, (err, remotePortBound) => {
+        if (err) {
+          console.error(`[SSHManager] forwardIn failed for remote port ${remotePort}:`, err)
+          reject(err)
+          return
+        }
+
+        console.log(`[SSHManager] Reverse port forward established: remote:${remotePortBound} -> ${localHost}:${localPort}`)
+
+        // Handle incoming connections from the remote side
+        this.client!.on('tcpip', (info: { destPort: number; destIP: string; srcPort: number; srcIP: string }, accept: () => any, reject: () => any) => {
+          // Only handle connections to our reverse forward port
+          if (info.destPort !== remotePortBound) return
+
+          try {
+            const channel = accept()
+            const net = require('net')
+            const socket = net.connect(localPort, localHost, () => {
+              console.log(`[SSHManager] Reverse forward connection: remote:${info.srcPort} -> ${localHost}:${localPort}`)
+            })
+
+            channel.pipe(socket).pipe(channel)
+
+            socket.on('error', (err: Error) => {
+              console.error('[SSHManager] Reverse forward socket error:', err)
+              channel.close()
+            })
+
+            channel.on('error', (err: Error) => {
+              console.error('[SSHManager] Reverse forward channel error:', err)
+              socket.destroy()
+            })
+
+            socket.on('close', () => {
+              channel.close()
+            })
+
+            channel.on('close', () => {
+              socket.destroy()
+            })
+          } catch (err) {
+            console.error('[SSHManager] Error accepting reverse forward connection:', err)
+            try { reject() } catch { /* ignore */ }
+          }
+        })
+
+        resolve(remotePortBound)
+      })
+    })
   }
 
   /**

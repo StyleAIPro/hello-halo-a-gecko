@@ -81,7 +81,7 @@ function InputAreaInternal(
   const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
   const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
   const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
-  const [targetAgentId, setTargetAgentId] = useState<string | undefined>(undefined)  // Target agent for Hyper Space
+  const [targetAgentIds, setTargetAgentIds] = useState<string[]>([])  // Target agents for Hyper Space (multi-mention)
 
   // @ Mention state
   const [agentMembers, setAgentMembers] = useState<AgentMember[]>([])
@@ -367,12 +367,13 @@ function InputAreaInternal(
 
     // Only check isProcessingImages, not isGenerating (queuing is handled in store)
     if (hasContent && !isProcessingImages) {
-      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled, targetAgentId)
+      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled,
+        targetAgentIds.length > 0 ? targetAgentIds.join(',') : undefined)
 
       if (!isOnboardingSendStep) {
         setContent('')
         setImages([])  // Clear images after send
-        setTargetAgentId(undefined)  // Clear target agent
+        setTargetAgentIds([])  // Clear target agents
         // Don't reset thinkingEnabled - user might want to keep it on
         // Reset height
         if (textareaRef.current) {
@@ -402,7 +403,7 @@ function InputAreaInternal(
     }
   }, [])
 
-  // Handle text change - check for @ mention
+  // Handle text change - check for @ mention and sync targetAgentIds
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value
     const cursorPosition = e.target.selectionStart
@@ -422,8 +423,18 @@ function InputAreaInternal(
         setMentionQuery('')
         setMentionPosition(null)
       }
+
+      // Sync targetAgentIds with remaining @mentions in text
+      // Find all @AgentName patterns that match known agents
+      const remainingIds: string[] = []
+      for (const agent of agentMembers) {
+        if (newValue.includes(`@${agent.name}`)) {
+          remainingIds.push(agent.id)
+        }
+      }
+      setTargetAgentIds(remainingIds)
     }
-  }, [parseMentionPosition, agentMembers.length, isHyperSpace])
+  }, [parseMentionPosition, agentMembers.length, isHyperSpace, agentMembers])
 
   // Select agent from mention popup
   const selectAgent = useCallback((agent: AgentMember) => {
@@ -438,8 +449,10 @@ function InputAreaInternal(
 
     setContent(newValue)
 
-    // Set target agent for sending
-    setTargetAgentId(agent.id)
+    // Add to target agent list (avoid duplicates)
+    setTargetAgentIds(prev =>
+      prev.includes(agent.id) ? prev : [...prev, agent.id]
+    )
 
     // Update cursor position after the mention
     const newCursorPos = mentionPosition.start + mentionText.length

@@ -33,7 +33,9 @@ export interface RemoteServerConfig {
 export interface ClientMessage {
   type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
         'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list' |  // Hyper Space agent management
-        'register-token'  // Auth token whitelist registration
+        'register-token' |  // Auth token whitelist registration
+        'mcp:tools:register' | 'mcp:tool:call' | 'mcp:tool:error' |  // WebSocket MCP Bridge
+        'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background task management
   sessionId?: string
   payload?: {
     messages?: any[]
@@ -47,9 +49,19 @@ export interface ClientMessage {
     result?: string   // Tool execution result (for tool:approve with hyper-space tools)
     // Agent management payloads
     task?: string
-    capabilities?: string[]
+    capabilities?: string[]            // Agent capabilities (for agent:spawn)
     agentId?: string
     instruction?: string
+    // WebSocket MCP Bridge payloads
+    tools?: HaloMcpToolDef[]                    // Tool definitions for mcp:tools:register
+    haloMcpCapabilities?: HaloMcpCapabilities     // Capability flags for mcp:tools:register
+    callId?: string                    // MCP tool call ID for mcp:tool:call / mcp:tool:error
+    toolResult?: HaloMcpToolResult     // Tool execution result for mcp:tool:call
+    toolError?: string                 // Tool execution error for mcp:tool:error
+    // Background task payloads
+    id?: string                        // Task ID for task:get / task:cancel
+    command?: string                   // Command for task:spawn
+    cwd?: string                       // Working directory for task:spawn
   }
 }
 
@@ -65,6 +77,8 @@ export interface ChatOptions {
   maxThinkingTokens?: number
   workDir?: string  // Dynamic working directory from client
   hyperSpaceTools?: HyperSpaceToolsConfig  // Enable Hyper Space MCP tools for remote workers
+  haloMcpUrl?: string   // Halo MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
+  haloMcpToken?: string // Auth token for Halo MCP proxy
 }
 
 /**
@@ -92,7 +106,9 @@ export interface ServerMessage {
          'text:block-start' |  // Text block start signal
          'worker:started' | 'worker:completed' |  // Subagent worker lifecycle
          'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error' |  // Hyper Space agent management
-         'register-token:success' | 'register-token:error'  // Token whitelist registration
+         'register-token:success' | 'register-token:error' |  // Token whitelist registration
+         'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks Halo to execute a tool
+         'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background task management
   sessionId?: string
   data?: any
 }
@@ -212,4 +228,53 @@ export interface ThoughtDeltaData {
   isReady?: boolean
   isToolInput?: boolean
   isToolResult?: boolean
+}
+
+// ============================================
+// WebSocket MCP Bridge Types
+// ============================================
+
+/**
+ * Serialized MCP tool definition for transmission over WebSocket.
+ * The handler function is NOT included — it stays on the Halo side.
+ */
+export interface HaloMcpToolDef {
+  name: string
+  description: string
+  /** Zod raw shape, serialized as plain object (Zod types erased at runtime) */
+  inputSchema: Record<string, any>
+  /** Source MCP server name: 'ai-browser' | 'gh-search' | user-configured server name */
+  serverName: string
+}
+
+/**
+ * MCP capability flags advertised by the Halo client.
+ */
+export interface HaloMcpCapabilities {
+  aiBrowser: boolean
+  ghSearch: boolean
+  version?: number
+}
+
+/**
+ * MCP tool call request from remote proxy to Halo.
+ */
+export interface HaloMcpToolCallData {
+  /** Unique ID for matching request/response */
+  callId: string
+  /** Source MCP server name */
+  serverName: string
+  /** Tool name (e.g. 'browser_click') */
+  toolName: string
+  /** Tool input arguments */
+  arguments: Record<string, unknown>
+}
+
+/**
+ * MCP tool call result from Halo to remote proxy.
+ * Matches the MCP CallToolResult shape.
+ */
+export interface HaloMcpToolResult {
+  content: Array<{ type: 'text' | 'image'; text?: string; data?: string; mimeType?: string }>
+  isError?: boolean
 }

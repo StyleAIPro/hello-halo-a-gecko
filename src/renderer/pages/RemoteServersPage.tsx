@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, Plus, Server, Trash2, Edit, Globe, FolderOpen, Terminal, AlertCircle, CheckCircle, Loader2, MessageSquare, Rocket, Link as LinkIcon, Info, X } from 'lucide-react'
+import { ArrowLeft, Plus, Server, Trash2, Edit, Globe, FolderOpen, Terminal, AlertCircle, CheckCircle, Loader2, MessageSquare, Rocket, Link as LinkIcon, Info, X, Cpu } from 'lucide-react'
 import { Header } from '../components/layout/Header'
 import { api } from '../api'
 import { useConfirm } from '../components/ui/ConfirmDialog'
@@ -475,6 +475,21 @@ export function RemoteServersPage() {
                           <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
                             <FolderOpen className="w-3.5 h-3.5" />
                             <span className="truncate">{server.workDir}</span>
+                          </div>
+                        )}
+                        {server.aiSourceId && (() => {
+                          const source = aiSources.find(s => s.id === server.aiSourceId)
+                          return source ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
+                              <Cpu className="w-3.5 h-3.5" />
+                              <span>{source.provider} / {source.model}</span>
+                            </div>
+                          ) : null
+                        })()}
+                        {!server.aiSourceId && server.claudeModel && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
+                            <Cpu className="w-3.5 h-3.5" />
+                            <span>{server.claudeModel}</span>
                           </div>
                         )}
                         {/* Status badge */}

@@ -413,6 +413,8 @@ export interface HaloAPI {
     stopAgent: (serverId: string) => Promise<IpcResponse>
     getAgentLogs: (serverId: string, lines?: number) => Promise<IpcResponse>
     isAgentRunning: (serverId: string) => Promise<IpcResponse>
+    listTasks: (serverId: string) => Promise<IpcResponse>
+    cancelTask: (serverId: string, taskId: string) => Promise<IpcResponse>
   }
 
   // Remote Agent
@@ -431,6 +433,7 @@ export interface HaloAPI {
   onRemoteAgentComplete: (callback: (data: unknown) => void) => () => void
   onRemoteAgentError: (callback: (data: unknown) => void) => () => void
   onRemoteAgentFsResult: (callback: (data: unknown) => void) => () => void
+  onRemoteTaskUpdate: (callback: (data: unknown) => void) => () => void
 
   // Store (App Registry)
   storeListApps: (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
@@ -862,6 +865,12 @@ const api: HaloAPI = {
     isAgentRunning: (serverId) => ipcRenderer.invoke('remote-server:is-agent-running', serverId),
     updateAgent: (serverId) => ipcRenderer.invoke('remote-server:update-agent', serverId),
     syncSkills: (serverId) => ipcRenderer.invoke('remote-server:sync-skills', serverId),
+    listSkills: (serverId) => ipcRenderer.invoke('remote-server:list-skills', serverId),
+    listSkillFiles: (serverId, skillId) => ipcRenderer.invoke('remote-server:list-skill-files', serverId, skillId),
+    readSkillFile: (serverId, skillId, filePath) => ipcRenderer.invoke('remote-server:read-skill-file', serverId, skillId, filePath),
+    listTasks: (serverId) => ipcRenderer.invoke('remote-server:list-tasks', serverId),
+    subscribeTasks: (serverId) => ipcRenderer.invoke('remote-server:subscribe-tasks', serverId),
+    cancelTask: (serverId, taskId) => ipcRenderer.invoke('remote-server:cancel-task', serverId, taskId),
   },
 
   // Remote Agent
@@ -880,6 +889,7 @@ const api: HaloAPI = {
   onRemoteAgentComplete: (callback) => createEventListener('remote-agent:complete', callback),
   onRemoteAgentError: (callback) => createEventListener('remote-agent:error', callback),
   onRemoteAgentFsResult: (callback) => createEventListener('remote-agent:fs:result', callback),
+  onRemoteTaskUpdate: (callback) => createEventListener('remote-server:task-update', callback),
 
   // Store (App Registry)
   storeListApps: (query) => ipcRenderer.invoke('store:list-apps', query),
@@ -898,6 +908,8 @@ const api: HaloAPI = {
   skillUninstall: (skillId) => ipcRenderer.invoke('skill:uninstall', skillId),
   skillExport: (skillId) => ipcRenderer.invoke('skill:export', skillId),
   skillInstall: (input) => ipcRenderer.invoke('skill:install', input),
+  skillInstallMulti: (input) => ipcRenderer.invoke('skill:install-multi', input),
+  skillUninstallMulti: (input) => ipcRenderer.invoke('skill:uninstall-multi', input),
   skillMarketList: (sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:list', sourceId, page, pageSize),
   skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:search', query, sourceId, page, pageSize),
   skillMarketSources: () => ipcRenderer.invoke('skill:market:sources'),
@@ -930,12 +942,21 @@ const api: HaloAPI = {
     }
   },
   onSkillInstallOutput: (callback) => {
-    const handler = (_event: Electron.IpcRendererEvent, skillId: string, output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+    const handler = (_event: Electron.IpcRendererEvent, skillId: string, output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string; targetKey?: string }) => {
       callback({ skillId, output })
     }
     ipcRenderer.on('skill:install-output', handler)
     return () => {
       ipcRenderer.removeListener('skill:install-output', handler)
+    }
+  },
+  onSkillUninstallOutput: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, appId: string, output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string; targetKey?: string }) => {
+      callback({ appId, output })
+    }
+    ipcRenderer.on('skill:uninstall-output', handler)
+    return () => {
+      ipcRenderer.removeListener('skill:uninstall-output', handler)
     }
   },
 

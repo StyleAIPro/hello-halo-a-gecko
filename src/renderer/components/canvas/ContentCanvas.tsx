@@ -40,6 +40,7 @@ import { BrowserViewer, BrowserViewerFallback } from './viewers/BrowserViewer'
 import { api } from '../../api'
 import { useTranslation } from '../../i18n'
 import { SharedTerminalPanel } from '../layout/SharedTerminalPanel'
+import { RemoteTaskPanel } from '../remote-task-panel'
 
 // Default URL for new browser tabs
 const DEFAULT_NEW_TAB_URL = 'https://www.bing.com'
@@ -292,6 +293,10 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
       // Terminal view - embedded shared terminal
       return <TerminalView />
 
+    case 'tasks':
+      // Background tasks view
+      return <TasksView />
+
     default:
       return <TextViewer tab={tab} onScrollChange={onScrollChange} />
   }
@@ -319,6 +324,27 @@ function TerminalView() {
         conversationId={conversationId}
         isVisible={true}
       />
+    </div>
+  )
+}
+
+/**
+ * Tasks View - Background tasks for remote spaces
+ */
+function TasksView() {
+  const currentSpace = useSpaceStore(state => state.currentSpace)
+
+  if (!currentSpace?.remoteServerId) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">No remote server connected</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full w-full">
+      <RemoteTaskPanel serverId={currentSpace.remoteServerId} visible={true} />
     </div>
   )
 }

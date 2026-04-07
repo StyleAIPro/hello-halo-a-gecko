@@ -63,7 +63,41 @@ function loadConfig(): RemoteServerConfig {
   return config
 }
 
+/**
+ * Migrate skills from ~/.claude/skills/ to ~/.agents/skills/ if not already present.
+ * This runs on every startup so that skills placed in Claude's default directory
+ * are automatically picked up by Halo.
+ */
+function migrateClaudeSkills(): void {
+  const home = process.env.HOME || '/root'
+  const claudeSkillsDir = path.join(home, '.claude', 'skills')
+  const agentsSkillsDir = path.join(home, '.agents', 'skills')
+
+  if (!fs.existsSync(claudeSkillsDir)) return
+
+  if (!fs.existsSync(agentsSkillsDir)) {
+    fs.mkdirSync(agentsSkillsDir, { recursive: true })
+  }
+
+  try {
+    const entries = fs.readdirSync(claudeSkillsDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const srcPath = path.join(claudeSkillsDir, entry.name)
+        const destPath = path.join(agentsSkillsDir, entry.name)
+        if (!fs.existsSync(destPath)) {
+          fs.cpSync(srcPath, destPath, { recursive: true })
+          console.log(`[Migration] Migrated Claude skill: ${entry.name}`)
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Migration] Failed to migrate Claude skills:', error)
+  }
+}
+
 function main(): void {
+  migrateClaudeSkills()
   const config = loadConfig()
   const server = new RemoteAgentServer(config)
 

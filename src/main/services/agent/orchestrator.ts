@@ -132,6 +132,9 @@ class AgentOrchestrator extends EventEmitter {
   /** Pending announcements waiting to be processed */
   private pendingAnnouncements: Map<string, Set<string>> = new Map()
 
+  /** Per-worker SDK session IDs for remote session resumption. Key: childConversationId */
+  private workerSessionIds: Map<string, string> = new Map()
+
   /** Maximum depth for nested subagents (per spawn chain, not global counter) */
   private readonly maxSpawnDepth = 50
 
@@ -419,11 +422,12 @@ class AgentOrchestrator extends EventEmitter {
     }
 
     // Get or create session
+    const workerSdkSessionId = this.workerSessionIds.get(childConversationId)
     const session = await getOrCreateV2Session(
       spaceId,
       childConversationId,
       sdkOptions,
-      undefined,
+      workerSdkSessionId,
       undefined,
       workDir
     )
@@ -468,6 +472,8 @@ class AgentOrchestrator extends EventEmitter {
               // Save session ID
               if (r.capturedSessionId) {
                 saveSessionId(spaceId, conversationId, r.capturedSessionId)
+                // Also save for worker session resumption
+                this.workerSessionIds.set(childConversationId, r.capturedSessionId)
               }
 
               // Extract file changes summary from thoughts
@@ -763,6 +769,7 @@ class AgentOrchestrator extends EventEmitter {
           const receivedSdkSessionId = data.data?.sdkSessionId
           if (receivedSdkSessionId) {
             console.log(`[Orchestrator] Captured SDK session_id: ${receivedSdkSessionId}`)
+            this.workerSessionIds.set(childConversationId, receivedSdkSessionId)
           }
         }
       })
@@ -886,6 +893,7 @@ class AgentOrchestrator extends EventEmitter {
 
       // Send chat request via WebSocket with streaming
       console.log(`[Orchestrator] Sending chat request to remote Claude...`)
+      const workerSdkSessionId = this.workerSessionIds.get(childConversationId)
       const response = await client.sendChatWithStream(
         childConversationId,
         [{ role: 'user', content: task }],
@@ -895,7 +903,8 @@ class AgentOrchestrator extends EventEmitter {
           model,
           maxTokens: config.agent?.maxTokens || 8192,
           system: systemPrompt,
-          workDir: agent.config.remotePath || '/home'
+          workDir: agent.config.remotePath || '/home',
+          sdkSessionId: workerSdkSessionId || undefined
         }
       )
 
@@ -1710,11 +1719,12 @@ just complete the task normally — the orchestrator will collect your results a
 
       sdkOptions.systemPrompt = systemPrompt
 
+      const workerSdkSessionId = this.workerSessionIds.get(childConversationId)
       const session = await getOrCreateV2Session(
         team.spaceId,
         childConversationId,
         sdkOptions,
-        undefined,
+        workerSdkSessionId,
         undefined,
         workDir
       )
@@ -1732,7 +1742,8 @@ just complete the task normally — the orchestrator will collect your results a
         agentName: agent.config.name || agent.id,
         taskId: subtask.id,
         task: subtask.task,
-        type: 'local'
+        type: 'local',
+        interactionMode: 'delegation'
       })
 
       // Process stream with events forwarded to parent conversation
@@ -1753,6 +1764,10 @@ just complete the task normally — the orchestrator will collect your results a
             // Accumulate worker thoughts into team for batch persistence
             if (result.thoughts.length > 0) {
               team.turnThoughts.push(...result.thoughts)
+            }
+            // Save SDK session ID for future session resumption
+            if (result.capturedSessionId) {
+              this.workerSessionIds.set(childConversationId, result.capturedSessionId)
             }
           }
         }
@@ -1895,7 +1910,19 @@ just complete the task normally — the orchestrator will collect your results a
       taskId: subtask.id,
       task: subtask.task,
       type: 'remote',
-      serverName: serverInfo.name || undefined
+      serverName: serverInfo.name || undefined,
+      interactionMode: 'delegation'
+    })
+
+    // SDK session ID event - for session resumption
+    client.on('claude:session', (data: any) => {
+      if (data.sessionId === childConversationId) {
+        const receivedSdkSessionId = data.data?.sdkSessionId
+        if (receivedSdkSessionId) {
+          console.log(`[Orchestrator] Captured SDK session_id for subtask: ${receivedSdkSessionId}`)
+          this.workerSessionIds.set(childConversationId, receivedSdkSessionId)
+        }
+      }
     })
 
     client.on('claude:stream', (data: any) => {
@@ -1995,6 +2022,7 @@ just complete the task normally — the orchestrator will collect your results a
 
       // Send the task with full configuration (API key, model, maxTokens, system prompt)
       // Include hyperSpaceTools config so the remote proxy creates MCP proxy tools
+      const workerSdkSessionId = this.workerSessionIds.get(childConversationId)
       const response = await client.sendChatWithStream(
         childConversationId,
         [{ role: 'user', content: subtask.task }],
@@ -2005,6 +2033,7 @@ just complete the task normally — the orchestrator will collect your results a
           maxTokens: config.agent?.maxTokens || 8192,
           system: systemPrompt,
           workDir: agent.config.remotePath || '/home',
+          sdkSessionId: workerSdkSessionId || undefined,
           hyperSpaceTools: {
             spaceId: team.spaceId,
             conversationId: subtask.parentConversationId,
@@ -2519,15 +2548,15 @@ just complete the task normally — the orchestrator will collect your results a
     // ====================================================================
     context += '### CRITICAL: When to use spawn_subagent vs Agent Tool\n\n'
     context += 'You have TWO ways to delegate work:\n\n'
-    context += '1. **`spawn_subagent` (MCP tool)** — Assigns a task to a **team Worker** running on their own machine (local or remote server). Use this when the task:\n'
-    context += '   - Requires execution on a specific server (e.g., checking NPU status, running training, deploying models)\n'
-    context += '   - Matches a Worker\'s **capabilities** (see Team Context above)\n'
-    context += '   - Needs access to remote server\'s file system, GPU, or other hardware\n\n'
+    context += '1. **`spawn_subagent` (MCP tool)** — Assigns a task to a **team Worker**. The worker executes the task in its own Claude Code session on its own machine.\n'
+    context += '   - For **remote** workers: the task runs directly on the remote server. The worker does NOT need SSH — it is already there.\n'
+    context += '   - For **local** workers: the task runs on this machine as a separate Claude Code session.\n'
+    context += '   - Use when the task matches a Worker\'s **capabilities** or needs to run on a specific machine.\n\n'
     context += '2. **Agent tool (built-in)** — Spawns a sub-agent on YOUR OWN machine. Use this ONLY when the task:\n'
     context += '   - Is purely analytical/planning work on local files\n'
     context += '   - Does NOT require any Worker\'s special capabilities\n'
     context += '   - Is a simple local operation like reading code, writing documentation, etc.\n\n'
-    context += '**RULE: If a task involves remote servers, hardware (NPU/GPU), or matches a Worker\'s capabilities, you MUST use `spawn_subagent`. NEVER use the Agent tool for tasks that should run on a remote server.**\n\n'
+    context += '**RULE: If a task should run on a specific machine or matches a Worker\'s capabilities, use `spawn_subagent`. NEVER use the Agent tool for tasks that belong to a Worker.**\n\n'
 
     // ====================================================================
     // CRITICAL: Capability-based routing
@@ -2602,17 +2631,18 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Important rules
     context += '### Important Rules:\n\n'
-    context += '1. **NEVER use Agent tool for remote tasks** — If a task must run on a remote server, use `spawn_subagent` with the matching Worker\'s `targetAgentId`. The Agent tool runs on YOUR local machine and CANNOT access remote servers.\n'
-    context += '2. **Match tasks to Worker capabilities** — Always check Worker capabilities before delegating. Use `list_team_members` to see available Workers and their capabilities.\n'
-    context += '3. **Plan first, then execute** — Always show the user your plan before dispatching any tasks\n'
-    context += '4. **DO NOT poll** - Do NOT use sessions_list, sessions_history, or sleep to check status\n'
-    context += '5. **Automatic result collection** - Workers will automatically announce completion to you. You do NOT need to call `wait_for_team` — worker results will be delivered to you automatically even if you stop generating.\n'
-    context += '6. **Incremental delegation** - Dispatch one step at a time unless tasks are truly parallel\n'
-    context += '7. **Verify results** - Check worker output quality before proceeding to the next step\n'
-    context += '8. **Adapt the plan** - If a step fails or produces unexpected results, adjust the plan\n'
-    context += '9. **Handle failures** - If a worker fails, you can retry or report the issue\n'
-    context += '10. **Use `wait_for_team` optionally** - If you want to collect all results at once before processing, use `wait_for_team`. But it is not required — results will be delivered to you automatically.\n'
-    context += '11. **Workers can report proactively** - Workers may send intermediate progress updates via `report_to_leader`. These will be delivered to you as messages.\n\n'
+    context += '1. **NEVER use Agent tool for tasks that belong to Workers** — If a task should run on a specific machine or matches a Worker\'s capabilities, use `spawn_subagent` with the matching `targetAgentId`. The Agent tool runs on YOUR local machine only.\n'
+    context += '2. **Remote workers execute directly on their server** — A remote worker is already running on its server. When you assign a task to it, the worker executes commands directly there. Do NOT instruct workers to SSH anywhere.\n'
+    context += '3. **Match tasks to Worker capabilities** — Always check Worker capabilities before delegating. Use `list_team_members` to see available Workers and their capabilities.\n'
+    context += '4. **Plan first, then execute** — Always show the user your plan before dispatching any tasks\n'
+    context += '5. **DO NOT poll** - Do NOT use sessions_list, sessions_history, or sleep to check status\n'
+    context += '6. **Automatic result collection** - Workers will automatically announce completion to you. You do NOT need to call `wait_for_team` — worker results will be delivered to you automatically even if you stop generating.\n'
+    context += '7. **Incremental delegation** - Dispatch one step at a time unless tasks are truly parallel\n'
+    context += '8. **Verify results** - Check worker output quality before proceeding to the next step\n'
+    context += '9. **Adapt the plan** - If a step fails or produces unexpected results, adjust the plan\n'
+    context += '10. **Handle failures** - If a worker fails, you can retry or report the issue\n'
+    context += '11. **Use `wait_for_team` optionally** - If you want to collect all results at once before processing, use `wait_for_team`. But it is not required — results will be delivered to you automatically.\n'
+    context += '12. **Workers can reach out to you** - Workers may send progress updates via `report_to_leader`, ask questions via `ask_question`, or contact other workers via `send_message`. Respond promptly when they need help.\n\n'
 
     // Communication tools
     context += '### Communication Tools:\n\n'
@@ -2648,21 +2678,6 @@ just complete the task normally — the orchestrator will collect your results a
     context += `- Capabilities: ${leaderCaps}\n\n`
 
     // Workers info
-    let deployService: any = null
-    for (const worker of team.workers) {
-      if (worker.config.type === 'remote' && worker.config.remoteServerId && !deployService) {
-        try {
-          const mod = await import('../../ipc/remote-server')
-          deployService = mod.getRemoteDeployService()
-        } catch {
-          // Remote deploy service not available
-        }
-      }
-    }
-    const { decryptString } = await import('../secure-storage.service')
-
-    const remoteServersMap = new Map<string, { name: string; host: string; sshPort: number; username: string; password: string; workDir: string }>()
-
     if (team.workers.length > 0) {
       for (const worker of team.workers) {
         const capabilities = worker.config.capabilities?.length
@@ -2674,64 +2689,23 @@ just complete the task normally — the orchestrator will collect your results a
         context += `- ID: \`${worker.id}\`\n`
         context += `- Capabilities: ${capabilities}\n`
 
-        // Include environment credentials
-        if (worker.config.type === 'remote') {
-          // Prefer pre-configured environment from AgentConfig
-          if (worker.config.environment) {
-            const env = worker.config.environment
-            context += `- Server: ${env.ip}${env.port && env.port !== 22 ? `:${env.port}` : ''}\n`
-            context += `- Username: ${env.username}\n`
-            context += `- Password: ${env.password}\n`
-          } else if (worker.config.remoteServerId && deployService) {
-            // Fallback: resolve from remote server config
-            const serverInfo = deployService.getServer(worker.config.remoteServerId)
-            if (serverInfo) {
-              const decryptedPassword = decryptString(serverInfo.password || '')
-              context += `- Server: ${serverInfo.host}\n`
-              context += `- SSH Port: ${serverInfo.sshPort}\n`
-              context += `- Username: ${serverInfo.username}\n`
-              context += `- Password: ${decryptedPassword}\n`
-              context += `- Working Dir: ${serverInfo.workDir || '/root'}\n`
-              remoteServersMap.set(worker.config.remoteServerId, {
-                name: serverInfo.name,
-                host: serverInfo.host,
-                sshPort: serverInfo.sshPort,
-                username: serverInfo.username,
-                password: decryptedPassword,
-                workDir: serverInfo.workDir || '/root'
-              })
-            }
-          }
+        if (worker.config.type === 'remote' && worker.config.environment) {
+          const env = worker.config.environment
+          context += `- Server: ${env.ip}${env.port && env.port !== 22 ? `:${env.port}` : ''}\n`
+        } else if (worker.config.type === 'remote' && worker.config.remoteServerId) {
+          // Fallback: show server ID if environment not configured
+          context += `- Remote Server: ${worker.config.remoteServerId}\n`
         }
         context += '\n'
       }
     }
 
-    // Cross-server file transfer guidance
-    if (remoteServersMap.size >= 2) {
-      context += '### Cross-Server File Transfer:\n\n'
-      context += 'You have workers on multiple remote servers. When coordinating file transfers between servers (e.g., model weights, Docker images, config files), provide workers with explicit `scp` commands.\n\n'
-      context += '**Example** — copy a file from Server A to Server B:\n'
-      context += '```\n'
-      context += 'sshpass -p \'<password_B>\' scp -P <port_B> -o StrictHostKeyChecking=no /path/to/file <username_B>@<host_B>:/target/path\n'
-      context += '```\n\n'
-      context += '**Available servers for transfer:**\n'
-      for (const [serverId, info] of remoteServersMap) {
-        context += `- **${info.name}**: ${info.username}@${info.host} (SSH port: ${info.sshPort}, password: ${info.password}, workDir: ${info.workDir})\n`
-      }
-      context += '\nUse `sshpass -p` to automate password input in non-interactive commands.\n\n'
-    } else if (remoteServersMap.size === 1) {
-      const [serverId, info] = remoteServersMap.entries().next().value!
-      context += '### Remote Server Access:\n\n'
-      context += `Remote worker runs on server **${info.name}**. When instructing it to transfer files to/from the local machine, provide explicit commands.\n\n`
-      context += `**Server**: ${info.name} (${info.host})\n`
-      context += `**SSH**: ${info.username}@${info.host} -p ${info.sshPort} (password: ${info.password})\n`
-      context += `**Work Dir**: ${info.workDir}\n\n`
-      context += '**Example** — copy from local to remote:\n'
-      context += '```\n'
-      context += `sshpass -p '${info.password}' scp -P ${info.sshPort} -o StrictHostKeyChecking=no /local/path/file ${info.username}@${info.host}:${info.workDir}/\n`
-      context += '```\n\n'
-    }
+    // Execution model explanation
+    context += '### Execution Model:\n\n'
+    context += '**IMPORTANT — Understand how workers execute tasks:**\n\n'
+    context += '- A **Local** worker runs on this machine. When you assign a task to a local worker, it executes commands directly on this machine using its own Claude Code session.\n'
+    context += '- A **Remote** worker already lives on its designated remote server. When you assign a task to a remote worker, it executes commands **directly on that remote server** — it does NOT need to SSH into anything. The remote worker has its own Claude Code session running on that server.\n'
+    context += '- Workers can communicate with each other and with you via `send_message`, `ask_question`, and `report_to_leader`. Workers may proactively reach out when they need help.\n\n'
 
     context += '='.repeat(60) + '\n\n'
 
@@ -2755,10 +2729,11 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Worker responsibilities
     context += '### Your Responsibilities:\n\n'
-    context += '1. Execute tasks assigned by the leader\n'
+    context += '1. Execute tasks assigned by the leader — if you are a remote worker, execute directly on this server; if you are a local worker, execute on this local machine\n'
     context += '2. Report completion using `announce_completion` when done\n'
     context += '3. Proactively report progress, findings, or questions to the leader using `report_to_leader`\n'
-    context += '4. Communicate progress or issues to the leader\n\n'
+    context += '4. If you encounter problems you cannot solve, ask the leader for help using `ask_question`\n'
+    context += '5. You can also contact other workers directly via `send_message` if needed\n\n'
 
     // Communication tools
     context += '### Communication Tools:\n\n'

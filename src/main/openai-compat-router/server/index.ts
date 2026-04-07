@@ -14,7 +14,7 @@ let server: Server | null = null
 let info: RouterServerInfo | null = null
 let starting: Promise<RouterServerInfo> | null = null
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 /**
  * Ensure the router server is running

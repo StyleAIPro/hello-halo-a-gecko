@@ -22,7 +22,7 @@ interface SpaceState {
   setCurrentSpace: (space: Space | null) => void
   createSpace: (input: CreateSpaceInput) => Promise<Space | null>
   updateSpace: (spaceId: string, updates: { name?: string; icon?: string }) => Promise<Space | null>
-  deleteSpace: (spaceId: string) => Promise<boolean>
+  deleteSpace: (spaceId: string) => Promise<{ success: boolean; error?: string }>
   openSpaceFolder: (spaceId: string) => Promise<void>
   refreshCurrentSpace: () => Promise<void>
 
@@ -160,13 +160,13 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
           set({ currentSpace: null })
         }
 
-        return true
+        return { success: true }
       }
 
-      return false
+      return { success: false, error: response.error }
     } catch (error) {
       console.error('Failed to delete space:', error)
-      return false
+      return { success: false, error: String(error) }
     }
   },
 

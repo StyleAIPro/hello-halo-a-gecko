@@ -1,8 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
 import * as fs from 'fs'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry } from './types.js'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry, HaloMcpToolDef } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
+import { BackgroundTaskManager } from './background-tasks.js'
 
 export class RemoteAgentServer {
   private config: RemoteServerConfig
@@ -13,8 +14,13 @@ export class RemoteAgentServer {
     authenticated: boolean
     sessionId?: string  // Conversation ID
     sdkSessionId?: string  // SDK's real session ID for resumption
+    // WebSocket MCP Bridge: tools registered by the Halo client
+    haloMcpTools?: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>
+    haloMcpCapabilities?: { aiBrowser: boolean; ghSearch: boolean; version?: number }
   }> = new Map()
   private claudeManager: ClaudeManager
+  private bgTaskManager: BackgroundTaskManager
+  private bgTasksMcpServer: any
 
   // Token whitelist: merged from tokens.json and bootstrap env var
   private authTokens: Set<string> = new Set()
@@ -22,6 +28,12 @@ export class RemoteAgentServer {
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
   private pendingHyperSpaceTools = new Map<string, {
     resolve: (result: string) => void
+    reject: (error: Error) => void
+  }>()
+
+  // Pending MCP tool calls: callId -> { resolve, reject }
+  private pendingMcpToolCalls = new Map<string, {
+    resolve: (result: any) => void
     reject: (error: Error) => void
   }>()
 
@@ -56,6 +68,20 @@ export class RemoteAgentServer {
       config.workDir,
       config.model
     )
+
+    // Initialize background task manager for long-running commands
+    this.bgTaskManager = new BackgroundTaskManager()
+    this.bgTaskManager.on('update', (event) => {
+      this.broadcastToAllClients({
+        type: 'task:update',
+        data: event,
+      })
+    })
+
+    // Create background-tasks MCP server for Claude SDK integration
+    const bgTasksMcpServer = this.claudeManager.createBackgroundTasksMcpServer(this.bgTaskManager)
+    // Store for injection into streamChat
+    this.bgTasksMcpServer = bgTasksMcpServer
 
     this.setupServer()
   }
@@ -106,6 +132,11 @@ export class RemoteAgentServer {
           console.log(`Client disconnected, keeping SDK session ${client.sessionId} alive for future reconnection`)
         }
         this.clients.delete(ws)
+        // Reject all pending MCP tool calls for this connection
+        for (const [callId, pending] of this.pendingMcpToolCalls) {
+          pending.reject(new Error('WebSocket disconnected'))
+          this.pendingMcpToolCalls.delete(callId)
+        }
         console.log('Client disconnected')
       })
 
@@ -155,12 +186,20 @@ export class RemoteAgentServer {
           totalSessions: stats.totalSessions,
           timestamp: new Date().toISOString()
         }))
+      } else if (req.url === '/tasks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(this.bgTaskManager.list()))
+      } else if (req.url?.startsWith('/tasks/') && req.method === 'DELETE') {
+        const taskId = req.url.split('/tasks/')[1]
+        const ok = this.bgTaskManager.cancel(taskId)
+        res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: ok }))
       } else if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
           name: 'remote-agent-proxy',
           version: '1.0.0',
-          endpoints: ['/health', '/healthz']
+          endpoints: ['/health', '/healthz', '/tasks']
         }))
       } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -292,6 +331,49 @@ export class RemoteAgentServer {
       }
       await this.handleRegisterToken(message.payload)
       this.sendMessage(ws, { type: 'register-token:success' })
+    } else if (message.type === 'mcp:tools:register') {
+      // WebSocket MCP Bridge: Halo client registers its available MCP tools
+      const client = this.clients.get(ws)
+      if (client) {
+        client.haloMcpTools = message.payload?.tools
+        client.haloMcpCapabilities = message.payload?.haloMcpCapabilities
+        console.log(`[MCP Bridge] Halo client registered ${client.haloMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.haloMcpCapabilities)}`)
+      }
+    } else if (message.type === 'mcp:tool:call') {
+      // WebSocket MCP Bridge: Halo client returns tool execution result
+      const callId = message.payload?.callId
+      if (callId) {
+        const pending = this.pendingMcpToolCalls.get(callId)
+        if (pending) {
+          this.pendingMcpToolCalls.delete(callId)
+          pending.resolve(message.payload?.toolResult)
+        } else {
+          console.warn(`[MCP Bridge] No pending tool call found for callId: ${callId}`)
+        }
+      }
+    } else if (message.type === 'mcp:tool:error') {
+      // WebSocket MCP Bridge: Halo client returns tool execution error
+      const callId = message.payload?.callId
+      if (callId) {
+        const pending = this.pendingMcpToolCalls.get(callId)
+        if (pending) {
+          this.pendingMcpToolCalls.delete(callId)
+          pending.reject(new Error(message.payload?.toolError || 'MCP tool error'))
+        } else {
+          console.warn(`[MCP Bridge] No pending tool call found for callId: ${callId} (error)`)
+        }
+      }
+    } else if (message.type === 'task:list') {
+      this.sendMessage(ws, { type: 'task:list', data: this.bgTaskManager.list() })
+    } else if (message.type === 'task:get') {
+      const task = this.bgTaskManager.get(message.payload?.id || '')
+      this.sendMessage(ws, { type: 'task:get', data: task || null })
+    } else if (message.type === 'task:cancel') {
+      const ok = this.bgTaskManager.cancel(message.payload?.id || '')
+      this.sendMessage(ws, { type: 'task:cancel', data: { success: ok } })
+    } else if (message.type === 'task:spawn') {
+      const task = this.bgTaskManager.spawn(message.payload?.command || '', message.payload?.cwd)
+      this.sendMessage(ws, { type: 'task:spawn', data: task })
     } else {
       this.sendError(ws, 'Unknown message type', sessionId)
     }
@@ -578,30 +660,40 @@ export class RemoteAgentServer {
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
         let wasInterrupted = false
 
-        // Hyper Space tool execution callback — if hyperSpaceTools config is present,
-        // create a callback that proxy tool handlers can use to delegate to Halo
+        // Hyper Space tool execution — legacy bridge mode for old Halo clients
         const hyperSpaceToolExecutor = options.hyperSpaceTools
           ? (toolId: string, toolName: string, toolInput: Record<string, unknown>) =>
               this.executeHyperSpaceTool(ws, sessionId, toolId, toolName, toolInput)
           : undefined
 
+        // WebSocket MCP Bridge tool execution callback
+        const clientState = this.clients.get(ws)
+        const haloMcpToolDefs = clientState?.haloMcpTools
+        const haloMcpToolExecutor = haloMcpToolDefs && haloMcpToolDefs.length > 0
+          ? (callId: string, toolName: string, args: Record<string, unknown>) =>
+              this.executeHaloMcpTool(ws, sessionId, callId, toolName, args)
+          : undefined
+
         try {
-          // Use sdkSessionId from client request for session resumption
-          // This enables multi-turn conversations by resuming the SDK session
-          const sdkSessionIdToUse = sdkSessionIdForResume
+          const sdkSessionIdToUse = sdkSessionIdForResume;
+
+          // Inject background-tasks MCP server into options
+          (options as any).proxyAppsMcpServer = this.bgTasksMcpServer;
 
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
             chatMessages,
             options,
-            sdkSessionIdToUse,  // Pass SDK session ID for resumption
+            sdkSessionIdToUse,
             onToolCall,
             onTerminalOutput,
             onThought,
             onThoughtDelta,
             onMcpStatus,
             onCompact,
-            hyperSpaceToolExecutor
+            hyperSpaceToolExecutor,
+            haloMcpToolExecutor,
+            haloMcpToolDefs
           )) {
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
@@ -818,6 +910,58 @@ export class RemoteAgentServer {
     })
   }
 
+  /**
+   * Execute an MCP tool call on the Halo client via WebSocket.
+   * Follows the same promise pattern as executeHyperSpaceTool but for
+   * general MCP tool routing through the WebSocket MCP Bridge.
+   *
+   * @param ws - WebSocket connection to the Halo client
+   * @param sessionId - Session ID for routing
+   * @param callId - Unique call ID for matching response
+   * @param toolName - Tool name (e.g. 'browser_click')
+   * @param args - Tool input arguments
+   * @returns Promise resolving to CallToolResult
+   */
+  async executeHaloMcpTool(
+    ws: WebSocket,
+    sessionId: string,
+    callId: string,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<any> {
+    const timeoutMs = 120000 // 2min timeout for browser operations
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingMcpToolCalls.delete(callId)
+        reject(new Error(`Halo MCP tool ${toolName} timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
+
+      this.pendingMcpToolCalls.set(callId, {
+        resolve: (result: any) => {
+          clearTimeout(timer)
+          resolve(result)
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer)
+          reject(error)
+        }
+      })
+
+      this.sendMessage(ws, {
+        type: 'mcp:tool:call',
+        sessionId,
+        data: {
+          callId,
+          toolName,
+          arguments: args
+        }
+      })
+
+      console.log(`[MCP Bridge] Sent tool call to Halo: ${toolName} (callId=${callId})`)
+    })
+  }
+
   close(): void {
     this.clients.forEach((client, ws) => {
       if (client.sessionId) {
@@ -828,9 +972,21 @@ export class RemoteAgentServer {
     this.clients.clear()
     this.server.close()
     this.claudeManager.closeAllSessions()
+    this.bgTaskManager.dispose()
     if (this.httpServer) {
       this.httpServer.close()
     }
     console.log('Server closed')
+  }
+
+  /**
+   * Broadcast a message to all connected, authenticated clients.
+   */
+  private broadcastToAllClients(message: ServerMessage): void {
+    for (const [ws, client] of this.clients) {
+      if (client.authenticated && ws.readyState === WebSocket.OPEN) {
+        this.sendMessage(ws, message)
+      }
+    }
   }
 }

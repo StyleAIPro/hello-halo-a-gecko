@@ -68,7 +68,7 @@ export function createSpace(input: {
 export function deleteSpace(spaceId: string): ControllerResponse {
   try {
     const result = serviceDeleteSpace(spaceId)
-    return { success: result }
+    return { success: result.success, error: result.error }
   } catch (error: unknown) {
     const err = error as Error
     return { success: false, error: err.message }

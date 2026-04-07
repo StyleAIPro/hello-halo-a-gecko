@@ -135,23 +135,28 @@ You have access to GitHub search and view capabilities via the MCP server "gh-se
 
 - \`gh_search_repos\` - Search GitHub repositories
   - Supports: stars, language, topic, created/updated date filters
+  - Sort options: stars, forks, help-wanted-issues, updated
   - Example: "stars:>1000 language:typescript topic:cli"
 
 - \`gh_search_issues\` - Search GitHub issues
   - Supports: state, labels, author, assignee filters
+  - Sort options: comments, reactions, reactions-+1, reactions--1, reactions-smile, reactions-thinking_face, reactions-heart, reactions-tada, interactions, created, updated
   - Example: "is:open label:bug author:octocat"
 
 - \`gh_search_prs\` - Search GitHub pull requests
   - Supports: state, draft, review status, merge status filters
+  - Sort options: comments, reactions, reactions-+1, reactions--1, reactions-smile, reactions-thinking_face, reactions-heart, reactions-tada, interactions, created, updated
   - Example: "is:open is:pr draft:false review:required"
 
 - \`gh_search_code\` - Search code within repositories
   - Supports: language, path, filename, extension filters
   - Example: "function language:typescript repo:owner/repo"
 
-- \`gh_search_commits\` - Search GitHub commits
+- \`gh_search_commits\` - Search GitHub commits (query is optional)
   - Supports: author, committer, date range filters
-  - Example: "author:octocat committer-date:>2024-01-01"
+  - Sort options: author-date, committer-date
+  - **Important**: Only searches the default branch of repositories. Always include \`repo:owner/repo\` for reliable results.
+  - Example: "author:octocat committer-date:>2024-01-01 repo:owner/repo"
 
 ### View Tools (prefix: mcp__gh-search__)
 
@@ -185,6 +190,7 @@ You have access to GitHub search and view capabilities via the MCP server "gh-se
 3. Combine multiple qualifiers for precise results
 4. Default limit is 30 results, max is 100
 5. Use view tools to get detailed info after finding items via search
+6. For commit searches, always specify \`repo:owner/repo\` to avoid timeout or scope errors
 `
 
 // Re-export types

@@ -37,15 +37,8 @@ interface AppState {
   gitBashInstallProgress: GitBashInstallProgress
   gitBashCheckPending: boolean  // True when git-bash check was deferred due to IPC not ready
 
-  // Page transition animation (skill card -> book icon)
-  pageTransition: {
-    isAnimating: boolean
-    sourceRect: { top: number; left: number; width: number; height: number } | null
-  }
-
   // Actions
   setView: (view: AppView) => void
-  setPageTransition: (t: Partial<AppState['pageTransition']>) => void
   setViewWithServer: (view: AppView, serverId: string) => void  // Set view and remote server ID
   goBack: () => void  // Navigate back to previous view
   setLoading: (loading: boolean) => void
@@ -80,7 +73,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   mockBashMode: false,
   gitBashInstallProgress: { phase: 'idle', progress: 0, message: '' },
   gitBashCheckPending: false,
-  pageTransition: { isAnimating: false, sourceRect: null },
 
   // Actions
   setView: (view) => {
@@ -91,10 +83,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       set({ view })
     }
-  },
-
-  setPageTransition: (t) => {
-    set({ pageTransition: { ...get().pageTransition, ...t } })
   },
 
   setViewWithServer: (view, serverId) => {

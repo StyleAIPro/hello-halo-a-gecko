@@ -203,8 +203,10 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const pendingCount = pendingMessages?.length || 0
 
   // ===== Hyper Space Worker Tab System =====
-  // Active tab: 'main' (group chat view) or a worker agentId
-  const [activeTabId, setActiveTabId] = useState<string>('main')
+  // Active tab: 'main' (group chat view) or a worker agentId — driven by store (AgentPanel)
+  const activeAgentId = useChatStore((s) => s.activeAgentId)
+  const activeTabId = activeAgentId || 'main'
+  const setActiveAgentId = useChatStore((s) => s.setActiveAgentId)
 
   // Track which workers had unread results while user was on another tab
   const [unreadWorkers, setUnreadWorkers] = useState<Set<string>>(new Set())
@@ -255,7 +257,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
   // Clear unread when user clicks on a worker tab
   const handleTabChange = useCallback((tabId: string) => {
-    setActiveTabId(tabId)
+    setActiveAgentId(tabId === 'main' ? null : tabId)
     if (tabId !== 'main') {
       setUnreadWorkers(prev => {
         const next = new Set(prev)
@@ -263,7 +265,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
         return next
       })
     }
-  }, [])
+  }, [setActiveAgentId])
 
   // Get the currently active worker session (if viewing a worker)
   const activeWorkerSession = useMemo(() => {
@@ -462,7 +464,8 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
       {/* Worker Tab Bar — shown between messages and input when workers are active */}
       <WorkerTabBar tabs={tabs} activeTabId={activeTabId} onTabChange={handleTabChange} unreadWorkers={unreadWorkers} />
 
-      {/* Input area */}
+      {/* Input area — available on both main tab and worker tabs */}
+      {/* On worker tabs: handleSend auto-injects activeAgentId so messages route to the selected worker */}
       <InputArea
         ref={inputAreaRef}
         onSend={handleSend}

@@ -25,6 +25,8 @@ import {
 } from 'lucide-react'
 import { getToolIcon } from '../icons/ToolIcons'
 import { BrowserTaskCard, isBrowserTool } from '../tool/BrowserTaskCard'
+import { TaskMonitorCard, filterTaskMonitorThoughts } from '../tool/TaskMonitorCard'
+import type { TaskMonitorInfo } from '../tool/TaskMonitorCard'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { FileChangesFooter } from '../diff'
 import { MessageImages } from './ImageAttachmentPreview'
@@ -289,6 +291,13 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
       }))
   }, [message.thoughts])
 
+  // Extract task monitors from thoughts (tool_use type with create_automation_app)
+  // These are digital humans created to monitor long-running background tasks
+  const taskMonitors = useMemo(() => {
+    if (!Array.isArray(message.thoughts)) return []
+    return filterTaskMonitorThoughts(message.thoughts)
+  }, [message.thoughts])
+
   // Check if there are running browser tools (based on isWorking state)
   const hasBrowserActivity = isWorking && browserToolCalls.length > 0
 
@@ -402,6 +411,15 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
           browserToolCalls={browserToolCalls}
           isActive={isWorking || hasBrowserActivity}
         />
+      )}
+
+      {/* Task monitor cards - background digital humans displayed separately */}
+      {taskMonitors.length > 0 && (
+        <div className="space-y-3">
+          {taskMonitors.map(monitor => (
+            <TaskMonitorCard key={monitor.appId} monitor={monitor} />
+          ))}
+        </div>
       )}
 
       {/* Tool call display - for remote execution with tool calls */}

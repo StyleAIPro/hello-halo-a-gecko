@@ -115,6 +115,12 @@ interface SkillState {
   // Actions - Remote sync
   syncSkillsToRemote: (serverId: string) => Promise<{ success: boolean; syncedCount: number; message: string }>
 
+  // Actions - Remote skill listing
+  remoteSkills: Record<string, InstalledSkill[]>
+  remoteSkillsLoading: Record<string, boolean>
+  remoteSkillsError: Record<string, string | null>
+  loadRemoteSkills: (serverId: string) => Promise<void>
+
   // Actions - 文件操作
   loadSkillFiles: (skillId: string) => Promise<SkillFileNode[] | null>
   loadSkillFileContent: (skillId: string, filePath: string) => Promise<string | null>
@@ -152,6 +158,10 @@ const initialState = {
   generatedSkillSpec: null,
   // Agent 面板状态
   agentPanelOpen: false,
+  // 远程技能状态
+  remoteSkills: {} as Record<string, InstalledSkill[]>,
+  remoteSkillsLoading: {} as Record<string, boolean>,
+  remoteSkillsError: {} as Record<string, string | null>,
 }
 
 // ============================================
@@ -479,6 +489,36 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     } catch (error) {
       console.error('Failed to sync skills to remote:', error)
       return { success: false, syncedCount: 0, message: error instanceof Error ? error.message : 'Failed to sync skills' }
+    }
+  },
+
+  // ==========================================
+  // Remote skill listing
+  // ==========================================
+
+  loadRemoteSkills: async (serverId: string) => {
+    set((state) => ({
+      remoteSkillsLoading: { ...state.remoteSkillsLoading, [serverId]: true },
+      remoteSkillsError: { ...state.remoteSkillsError, [serverId]: null },
+    }))
+    try {
+      const result = await api.remoteServerListSkills(serverId)
+      if (result.success && result.data) {
+        set((state) => ({
+          remoteSkills: { ...state.remoteSkills, [serverId]: result.data },
+          remoteSkillsLoading: { ...state.remoteSkillsLoading, [serverId]: false },
+        }))
+      } else {
+        set((state) => ({
+          remoteSkillsLoading: { ...state.remoteSkillsLoading, [serverId]: false },
+          remoteSkillsError: { ...state.remoteSkillsError, [serverId]: result.error || 'Failed to load remote skills' },
+        }))
+      }
+    } catch (error) {
+      set((state) => ({
+        remoteSkillsLoading: { ...state.remoteSkillsLoading, [serverId]: false },
+        remoteSkillsError: { ...state.remoteSkillsError, [serverId]: error instanceof Error ? error.message : 'Failed to load remote skills' },
+      }))
     }
   },
 }))

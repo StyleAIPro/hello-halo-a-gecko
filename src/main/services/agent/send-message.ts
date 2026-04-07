@@ -31,6 +31,8 @@ import {
 } from '../gh-search'
 import { createHaloAppsMcpServer } from '../../apps/conversation-mcp'
 import { createHyperSpaceMcpServer } from './hyper-space-mcp'
+import { getMcpProxyInstance } from '../mcp-proxy'
+import { getAccessToken } from '../../http/auth'
 import type {
   AgentRequest,
   SessionConfig,
@@ -62,6 +64,7 @@ import {
 import { uploadImagesForMcp } from '../image-upload.service'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
 import { processStream, getAndClearInjection, type PendingInjection } from './stream-processor'
+import { HaloMcpBridge } from '../remote-ws/halo-mcp-bridge'
 import { terminalGateway } from '../terminal/terminal-gateway'
 import { agentOrchestrator } from './orchestrator'
 
@@ -253,14 +256,40 @@ export async function sendMessage(
         ? `${routingPrompt}${teamContext}\n\n${targetAgent.config.systemPromptAddition}`
         : `${routingPrompt}${teamContext}`
 
-      // Execute on the target agent's session
-      await agentOrchestrator.executeOnSingleAgent({
-        team,
-        agent: targetAgent,
-        task: message,
-        conversationId,
-        systemPrompt: combinedSystemPrompt
-      })
+      // For @mention mode: emit worker:started so frontend creates a WorkerSessionState
+      // with interactionMode: 'mention' — this causes worker output to display inline in main conversation
+      const mentionTaskId = `mention-${Date.now()}`
+      if (isDirectMention) {
+        sendToRenderer('worker:started', spaceId, conversationId, {
+          agentId: targetAgent.id,
+          agentName: targetAgent.config.name || targetAgent.id,
+          taskId: mentionTaskId,
+          task: message,
+          type: targetAgent.config.type || 'local',
+          interactionMode: 'mention'
+        })
+      }
+
+      try {
+        // Execute on the target agent's session
+        await agentOrchestrator.executeOnSingleAgent({
+          team,
+          agent: targetAgent,
+          task: message,
+          conversationId,
+          systemPrompt: combinedSystemPrompt
+        })
+      } finally {
+        if (isDirectMention) {
+          // Emit worker:completed for mention mode
+          sendToRenderer('worker:completed', spaceId, conversationId, {
+            agentId: targetAgent.id,
+            agentName: targetAgent.config.name || targetAgent.id,
+            taskId: mentionTaskId,
+            status: 'completed'
+          })
+        }
+      }
 
       // Notify task complete
       notifyTaskComplete(space.name || 'Hyper Space')
@@ -724,6 +753,7 @@ async function executeRemoteMessage(
     message,
     images,
     thinkingEnabled,
+    aiBrowserEnabled,
     resumeSessionId
   } = request
 
@@ -764,6 +794,9 @@ async function executeRemoteMessage(
   const thoughts: any[] = []
   const terminalOutputs: any[] = []
   const toolCalls: any[] = []
+
+  // WebSocket MCP Bridge — initialized early so it's accessible in catch block for cleanup
+  let mcpBridge: HaloMcpBridge | null = null
 
   try {
     // Ensure local auth token is registered in the remote whitelist (tokens.json)
@@ -825,6 +858,38 @@ async function executeRemoteMessage(
         console.error('[Agent][Remote] Failed to establish SSH tunnel:', tunnelError)
         throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
       }
+    }
+
+    // Establish reverse SSH tunnel for MCP proxy (remote -> Halo)
+    // NOTE: This is the legacy fallback path. The preferred path is WebSocket MCP Bridge
+    // (mcp:tools:register), which doesn't need a reverse tunnel and supports multi-PC isolation.
+    // The reverse tunnel is skipped when useSshTunnel is true (WebSocket bridge is preferred).
+    let mcpProxyRemotePort: number | null = null
+    const useWebSocketMcpBridge = true  // Always prefer WebSocket MCP Bridge
+    if (useSshTunnel && !useWebSocketMcpBridge) {
+      const mcpProxyInstance = getMcpProxyInstance()
+      if (mcpProxyInstance) {
+        try {
+          mcpProxyRemotePort = await sshTunnelService.createReverseTunnel({
+            serverId,
+            spaceId,
+            host: server.host,
+            port: server.sshPort || 22,
+            username: server.username,
+            password: decryptString(server.password || ''),
+            localPort: server.wsPort || 8080,
+            remotePort: server.wsPort || 8080,
+            remoteListenPort: 3848,
+            localTargetPort: mcpProxyInstance.getPort(),
+          })
+          console.log(`[Agent][Remote] MCP proxy reverse tunnel established: remote:${mcpProxyRemotePort} -> local:${mcpProxyInstance.getPort()}`)
+        } catch (mcpTunnelError) {
+          console.warn(`[Agent][Remote] Failed to establish MCP proxy reverse tunnel (non-fatal):`, mcpTunnelError)
+          mcpProxyRemotePort = null
+        }
+      }
+    } else if (useSshTunnel && useWebSocketMcpBridge) {
+      console.log(`[Agent][Remote] Using WebSocket MCP Bridge (skipping reverse tunnel)`)
     }
 
     // Check if remote agent is running before connecting
@@ -911,6 +976,31 @@ async function executeRemoteMessage(
     sessionState.isRemote = true  // Mark this as a remote session
     registerActiveSession(conversationId, sessionState)
     console.log(`[Agent][Remote] Registered remote session to activeSessions for: ${conversationId}`)
+
+    // ============================================
+    // WebSocket MCP Bridge Setup
+    // Register local MCP tools so remote Claude can call them
+    // ============================================
+    mcpBridge = new HaloMcpBridge()
+    const mcpToolDefs = mcpBridge.collectTools(spaceId, !!aiBrowserEnabled)
+    const mcpCapabilities = mcpBridge.getCapabilities()
+    console.log(`[Agent][Remote] MCP Bridge: ${mcpToolDefs.length} tools, capabilities: ${JSON.stringify(mcpCapabilities)}`)
+
+    // Handle incoming MCP tool calls from remote proxy
+    client.on('mcp:tool:call', async (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const { callId, toolName, arguments: toolArgs } = data.data
+        console.log(`[Agent][Remote] MCP tool call received: ${toolName} (callId=${callId})`)
+        try {
+          const result = await mcpBridge.handleToolCall(toolName, toolArgs)
+          client.sendMcpToolResult(effectiveSessionId, callId, result)
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          console.error(`[Agent][Remote] MCP tool call error (${toolName}):`, errorMessage)
+          client.sendMcpToolError(effectiveSessionId, callId, errorMessage)
+        }
+      }
+    })
 
     // Register event handlers for streaming response
     // Variables already declared above
@@ -1221,6 +1311,84 @@ async function executeRemoteMessage(
       }
     })
 
+    // ============================================
+    // Proxy Orchestrator Events (Phase 2)
+    // These events come from the remote proxy's independent Hyper-Space orchestrator.
+    // They are forwarded to the local agent orchestrator for injection into leader sessions.
+    // ============================================
+
+    client.on('proxy:report', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const eventData = data.data
+        console.log(`[Agent][Remote] Proxy report: from=${eventData.workerName}, type=${eventData.reportType}`)
+        // Forward to local orchestrator for injection into the leader's session
+        import('./orchestrator').then(({ getAgentOrchestrator }) => {
+          const orchestrator = getAgentOrchestrator()
+          orchestrator.reportToLeader(eventData)
+        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:report:', err))
+      }
+    })
+
+    client.on('proxy:announce', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const eventData = data.data
+        console.log(`[Agent][Remote] Proxy announce: worker=${eventData.workerName}, status=${eventData.status}`)
+        import('./orchestrator').then(({ getAgentOrchestrator }) => {
+          const orchestrator = getAgentOrchestrator()
+          orchestrator.sendAnnouncement(eventData)
+        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:announce:', err))
+      }
+    })
+
+    client.on('proxy:question', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const eventData = data.data
+        console.log(`[Agent][Remote] Proxy question: from=${eventData.workerName}, target=${eventData.target}`)
+        import('./orchestrator').then(({ getAgentOrchestrator }) => {
+          const orchestrator = getAgentOrchestrator()
+          orchestrator.sendAgentMessage(eventData)
+        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:question:', err))
+      }
+    })
+
+    client.on('proxy:message', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        const eventData = data.data
+        console.log(`[Agent][Remote] Proxy message: from=${eventData.workerName}, to=${eventData.recipient}`)
+        import('./orchestrator').then(({ getAgentOrchestrator }) => {
+          const orchestrator = getAgentOrchestrator()
+          orchestrator.broadcastAgentMessage(eventData)
+        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:message:', err))
+      }
+    })
+
+    // ============================================
+    // Proxy App Status Events (Phase 3/4)
+    // Remote proxy sends app status changes when a digital human is
+    // created, triggered, paused, or completes a run.
+    // ============================================
+
+    client.on('proxy:app:status', (data) => {
+      const eventData = data.data
+      if (eventData._eventType === 'app:status') {
+        console.log(`[Agent][Remote] Proxy app status: ${eventData.name} -> ${eventData.status}`)
+        // Forward to renderer for UI display (status card in chat)
+        sendToRenderer('app:status_changed', spaceId, conversationId, {
+          appId: eventData.appId,
+          name: eventData.name,
+          status: eventData.status,
+          lastRunAt: eventData.lastRunAt,
+          lastRunOutcome: eventData.lastRunOutcome,
+          lastErrorMessage: eventData.lastErrorMessage,
+          activityEntries: eventData.activityEntries,
+          isRemote: true
+        })
+      } else {
+        // Regular proxy:report event that contains app data
+        // Already handled by proxy:report handler above
+      }
+    })
+
     // Connect if not already connected
     if (!client.isConnected()) {
       const connectionUrl = `ws://${wsConfig.host}:${wsConfig.port}/agent`
@@ -1228,6 +1396,11 @@ async function executeRemoteMessage(
       try {
         await client.connect()
         console.log(`[Agent][Remote] Client connected, ready to send`)
+        // Register MCP tools with remote proxy after connection
+        if (mcpToolDefs.length > 0) {
+          client.registerMcpTools(mcpToolDefs, mcpCapabilities)
+          console.log(`[Agent][Remote] Registered ${mcpToolDefs.length} MCP tools with remote proxy`)
+        }
       } catch (connectError) {
         console.error(`[Agent][Remote] Failed to connect WebSocket:`, connectError)
         throw connectError
@@ -1317,7 +1490,9 @@ async function executeRemoteMessage(
         system: systemPrompt || undefined,  // Custom system prompt from space config
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
         workDir: remotePath,  // CRITICAL: Pass workDir from Space config
-        sdkSessionId: sdkSessionIdForResume  // Pass SDK session ID for resumption
+        sdkSessionId: sdkSessionIdForResume,  // Pass SDK session ID for resumption
+        haloMcpUrl: mcpProxyRemotePort ? `http://127.0.0.1:${mcpProxyRemotePort}/mcp` : undefined,
+        haloMcpToken: mcpProxyRemotePort ? (await getAccessToken()) : undefined,
       }
     )
 
@@ -1429,6 +1604,9 @@ async function executeRemoteMessage(
     // preventing frontend from incorrectly restoring isGenerating state on refresh
     unregisterActiveSession(conversationId)
     console.log(`[Agent][Remote] Unregistered active session on error: ${conversationId}`)
+
+    // Clean up MCP bridge
+    mcpBridge?.dispose()
 
     // Don't throw if user intentionally stopped
     if (!isAbort) {

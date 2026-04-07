@@ -5,6 +5,8 @@
  * - 无限滚动加载
  * - 全局搜索
  * - 使用 npx 命令安装技能
+ * - 支持选择本地/远程服务器安装/卸载
+ * - 详情面板按已安装/未安装分区显示各环境
  */
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
@@ -12,7 +14,6 @@ import { useSkillStore } from '../../stores/skill/skill.store'
 import { useTranslation } from '../../i18n'
 import {
   Search,
-  Plus,
   Trash2,
   ExternalLink,
   Loader2,
@@ -21,7 +22,9 @@ import {
   Store,
   Check,
   RefreshCw,
-  Terminal
+  Terminal,
+  Monitor,
+  Server
 } from 'lucide-react'
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
@@ -43,6 +46,25 @@ function extractAppId(skillId: string): string {
 interface InstallOutput {
   type: 'stdout' | 'stderr' | 'complete' | 'error'
   content: string
+  targetKey: string
+}
+
+interface ServerInfo {
+  id: string
+  name: string
+  host: string
+  status: string
+}
+
+/** 每个环境（本地/远程服务器）的安装状态 */
+interface EnvStatus {
+  targetKey: string        // 'local' | 'remote:<serverId>'
+  name: string             // 显示名称
+  host: string             // 主机地址（远程时显示）
+  type: 'local' | 'remote'
+  serverId?: string
+  installed: boolean       // 是否已安装
+  checking: boolean        // 是否正在查询状态
 }
 
 export function SkillMarket() {
@@ -63,16 +85,25 @@ export function SkillMarket() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
-  // 安装中的技能 ID
-  const [installingSkillId, setInstallingSkillId] = useState<string | null>(null)
+  // 操作状态：正在操作的 skill ID 集合（支持同时操作多个环境）
+  const [operatingTargets, setOperatingTargets] = useState<Set<string>>(new Set())
 
-  // 安装输出
+  // 安装输出 - 按目标分组的输出
   const [installOutputs, setInstallOutputs] = useState<InstallOutput[]>([])
-  const outputRef = useRef<HTMLDivElement>(null)
+  const outputRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   // 滚动容器引用
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
+
+  // 远程服务器列表
+  const [servers, setServers] = useState<ServerInfo[]>([])
+
+  // 当前选中技能的各环境安装状态
+  const [envStatuses, setEnvStatuses] = useState<EnvStatus[]>([])
+
+  // 激活的终端输出标签页
+  const [activeOutputTab, setActiveOutputTab] = useState<string>('local')
 
   // 搜索防抖
   useEffect(() => {
@@ -89,30 +120,160 @@ export function SkillMarket() {
     setHasMore(true)
   }, [debouncedQuery])
 
-  // 监听安装输出
-  useEffect(() => {
-    const cleanup = api.onSkillInstallOutput((data) => {
-      setInstallOutputs(prev => [...prev, data.output])
-      // 滚动到底部
-      setTimeout(() => {
-        if (outputRef.current) {
-          outputRef.current.scrollTop = outputRef.current.scrollHeight
-        }
-      }, 0)
-    })
-    return cleanup
+  // 加载远程服务器列表
+  const loadServers = useCallback(async () => {
+    try {
+      const result = await api.remoteServerList()
+      if (result.success && result.data) {
+        setServers(result.data as ServerInfo[])
+      }
+    } catch (error) {
+      console.error('Failed to load servers:', error)
+    }
   }, [])
 
-  // 加载已安装的技能列表 - 只在组件挂载时执行一次
+  // 初始化加载
   useEffect(() => {
     loadInstalledSkills()
+    loadServers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 已安装的技能 ID 集合
+  // 监听安装/卸载输出
+  useEffect(() => {
+    const cleanupInstall = api.onSkillInstallOutput((data) => {
+      setInstallOutputs(prev => [...prev, {
+        ...data.output,
+        targetKey: (data.output as any).targetKey || 'local'
+      }])
+    })
+
+    const cleanupUninstall = api.onSkillUninstallOutput((data) => {
+      setInstallOutputs(prev => [...prev, {
+        ...data.output,
+        targetKey: (data.output as any).targetKey || 'local'
+      }])
+    })
+
+    return () => {
+      cleanupInstall()
+      cleanupUninstall()
+    }
+  }, [activeOutputTab])
+
+  // 新输出时自动滚到底部（仅当用户已在底部时）
+  const lastOutputLength = useRef(0)
+  useEffect(() => {
+    if (installOutputs.length <= lastOutputLength.current) {
+      lastOutputLength.current = installOutputs.length
+      return
+    }
+    lastOutputLength.current = installOutputs.length
+    const el = outputRefs.current[activeOutputTab]
+    if (el) {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+      if (atBottom) {
+        el.scrollTop = el.scrollHeight
+      }
+    }
+  }, [installOutputs, activeOutputTab])
+
+  // 已安装的技能 ID 集合（本地）
   const installedSkillIds = useMemo(() => {
     return new Set(installedSkills.map(s => s.appId))
   }, [installedSkills])
+
+  // 当选中技能变化时，查询所有环境的安装状态
+  useEffect(() => {
+    if (!selectedSkill) {
+      setEnvStatuses([])
+      return
+    }
+
+    const appId = extractAppId(selectedSkill.id)
+    const localInstalled = installedSkillIds.has(appId)
+
+    // 构建初始状态列表
+    const statuses: EnvStatus[] = [
+      {
+        targetKey: 'local',
+        name: t('Local Machine'),
+        host: '',
+        type: 'local',
+        installed: localInstalled,
+        checking: false
+      }
+    ]
+
+    // 对每个远程服务器，异步查询安装状态
+    setEnvStatuses(statuses)
+
+    servers.forEach(server => {
+      const targetKey = `remote:${server.id}`
+      // 先添加 checking 状态
+      setEnvStatuses(prev => [
+        ...prev,
+        {
+          targetKey,
+          name: server.name,
+          host: server.host,
+          type: 'remote',
+          serverId: server.id,
+          installed: false,
+          checking: true
+        }
+      ])
+
+      // 异步查询
+      api.remoteServerListSkills(server.id).then(result => {
+        if (result.success && result.data) {
+          const remoteSkills = result.data as Array<{ appId: string }>
+          const installed = remoteSkills.some(s => s.appId === appId)
+          setEnvStatuses(prev =>
+            prev.map(env =>
+              env.targetKey === targetKey
+                ? { ...env, installed, checking: false }
+                : env
+            )
+          )
+        } else {
+          setEnvStatuses(prev =>
+            prev.map(env =>
+              env.targetKey === targetKey
+                ? { ...env, checking: false }
+                : env
+            )
+          )
+        }
+      }).catch(() => {
+        setEnvStatuses(prev =>
+          prev.map(env =>
+            env.targetKey === targetKey
+              ? { ...env, checking: false }
+              : env
+          )
+        )
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSkill, installedSkills, servers])
+
+  // 分区：已安装 / 未安装
+  const { installedEnvs, notInstalledEnvs } = useMemo(() => {
+    const installed: EnvStatus[] = []
+    const notInstalled: EnvStatus[] = []
+    envStatuses.forEach(env => {
+      if (env.checking) {
+        // 查询中的归入未安装
+        notInstalled.push(env)
+      } else if (env.installed) {
+        installed.push(env)
+      } else {
+        notInstalled.push(env)
+      }
+    })
+    return { installedEnvs: installed, notInstalledEnvs: notInstalled }
+  }, [envStatuses])
 
   // 加载技能
   const loadSkills = useCallback(async (pageNum: number, reset: boolean = false) => {
@@ -159,47 +320,217 @@ export function SkillMarket() {
     const container = e.currentTarget
     const { scrollTop, scrollHeight, clientHeight } = container
 
-    // 距离底部 100px 时加载更多
     if (scrollHeight - scrollTop - clientHeight < 100 && hasMore && !loading && !loadingRef.current) {
       loadSkills(page + 1)
     }
   }, [hasMore, loading, page, loadSkills])
 
-  // 安装技能
-  const handleInstall = async (skill: RemoteSkillItem) => {
-    // 打开右侧详情面板
-    setSelectedSkill(skill)
-    // 清空之前的输出
+  // 安装到单个目标
+  const handleInstallToTarget = async (skill: RemoteSkillItem, env: EnvStatus) => {
+    const target = env.type === 'local'
+      ? { type: 'local' as const }
+      : { type: 'remote' as const, serverId: env.serverId! }
+
+    const targetKey = env.targetKey
+    setOperatingTargets(prev => new Set(prev).add(targetKey))
     setInstallOutputs([])
-    setInstallingSkillId(skill.id)
+    setActiveOutputTab(targetKey)
 
     try {
-      const result = await api.skillInstall({ mode: 'market', skillId: skill.id })
-      if (result.success) {
-        await loadInstalledSkills()
-      } else {
-        console.error('Failed to install skill:', result.error)
-        setInstallOutputs(prev => [...prev, { type: 'error', content: `\n✗ ${result.error || 'Unknown error'}\n` }])
-      }
+      await api.skillInstallMulti({ skillId: skill.id, targets: [target] })
+      await loadInstalledSkills()
+      // 刷新该环境的安装状态
+      refreshEnvStatus(skill, env)
     } catch (error) {
       console.error('Failed to install skill:', error)
-      setInstallOutputs(prev => [...prev, { type: 'error', content: `\n✗ ${error instanceof Error ? error.message : 'Unknown error'}\n` }])
     } finally {
-      setInstallingSkillId(null)
+      setOperatingTargets(prev => {
+        const next = new Set(prev)
+        next.delete(targetKey)
+        return next
+      })
     }
   }
 
-  // 卸载技能
-  const handleUninstall = async (skill: RemoteSkillItem) => {
+  // 从单个目标卸载
+  const handleUninstallFromTarget = async (skill: RemoteSkillItem, env: EnvStatus) => {
     const appId = extractAppId(skill.id)
+    const target = env.type === 'local'
+      ? { type: 'local' as const }
+      : { type: 'remote' as const, serverId: env.serverId! }
+
+    const targetKey = env.targetKey
+    setOperatingTargets(prev => new Set(prev).add(targetKey))
+    setInstallOutputs([])
+    setActiveOutputTab(targetKey)
+
     try {
-      const result = await api.skillUninstall(appId)
-      if (result.success) {
-        await loadInstalledSkills()
-      }
+      await api.skillUninstallMulti({ appId, targets: [target] })
+      await loadInstalledSkills()
+      refreshEnvStatus(skill, env)
     } catch (error) {
       console.error('Failed to uninstall skill:', error)
+    } finally {
+      setOperatingTargets(prev => {
+        const next = new Set(prev)
+        next.delete(targetKey)
+        return next
+      })
     }
+  }
+
+  // 刷新单个环境的状态
+  const refreshEnvStatus = async (skill: RemoteSkillItem, env: EnvStatus) => {
+    const appId = extractAppId(skill.id)
+
+    if (env.type === 'local') {
+      // 本地状态通过 installedSkills 刷新
+      setEnvStatuses(prev =>
+        prev.map(e =>
+          e.targetKey === 'local'
+            ? { ...e, installed: installedSkillIds.has(appId) }
+            : e
+        )
+      )
+    } else if (env.serverId) {
+      // 远程：重新查询
+      setEnvStatuses(prev =>
+        prev.map(e =>
+          e.targetKey === env.targetKey
+            ? { ...e, checking: true }
+            : e
+        )
+      )
+      api.remoteServerListSkills(env.serverId).then(result => {
+        if (result.success && result.data) {
+          const remoteSkills = result.data as Array<{ appId: string }>
+          const installed = remoteSkills.some(s => s.appId === appId)
+          setEnvStatuses(prev =>
+            prev.map(e =>
+              e.targetKey === env.targetKey
+                ? { ...e, installed, checking: false }
+                : e
+            )
+          )
+        } else {
+          setEnvStatuses(prev =>
+            prev.map(e =>
+              e.targetKey === env.targetKey
+                ? { ...e, checking: false }
+                : e
+            )
+          )
+        }
+      }).catch(() => {
+        setEnvStatuses(prev =>
+          prev.map(e =>
+            e.targetKey === env.targetKey
+              ? { ...e, checking: false }
+              : e
+          )
+        )
+      })
+    }
+  }
+
+  // 获取目标名称
+  const getTargetName = (targetKey: string): string => {
+    if (targetKey === 'local') return t('Local')
+    const env = envStatuses.find(e => e.targetKey === targetKey)
+    return env?.name || targetKey.replace('remote:', '')
+  }
+
+  // 获取目标图标
+  const getTargetIcon = (targetKey: string) => {
+    if (targetKey === 'local') return <Monitor className="w-3 h-3" />
+    return <Server className="w-3 h-3" />
+  }
+
+  // 可用的输出标签页
+  const activeOutputTabs = useMemo(() => {
+    const keys = new Set(installOutputs.map(o => o.targetKey))
+    return Array.from(keys)
+  }, [installOutputs])
+
+  // 按目标筛选输出
+  const filteredOutputs = useMemo(() => {
+    if (!activeOutputTab || installOutputs.length === 0) return installOutputs
+    return installOutputs.filter(o => o.targetKey === activeOutputTab)
+  }, [installOutputs, activeOutputTab])
+
+  // 某个目标是否正在操作
+  const isOperating = (targetKey: string) => operatingTargets.has(targetKey)
+
+  // 渲染单个环境行
+  const renderEnvRow = (env: EnvStatus, skill: RemoteSkillItem) => {
+    const operating = isOperating(env.targetKey)
+
+    return (
+      <div
+        key={env.targetKey}
+        className={`
+          flex items-center gap-2 px-2 py-2 rounded text-xs transition-colors
+          ${env.installed ? 'bg-green-500/5' : ''}
+        `}
+      >
+        {env.type === 'local' ? (
+          <Monitor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        ) : (
+          <Server className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate font-medium text-foreground">{env.name}</span>
+            {env.checking && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground shrink-0" />}
+          </div>
+          {env.host && (
+            <span className="text-[10px] text-muted-foreground truncate block">{env.host}</span>
+          )}
+        </div>
+        {env.installed && !env.checking ? (
+          <span className="flex items-center gap-1 text-[10px] text-green-500 shrink-0 mr-1">
+            <Check className="w-3 h-3" />
+          </span>
+        ) : null}
+        {env.checking ? (
+          <span className="text-[10px] text-muted-foreground shrink-0">{t('Checking...')}</span>
+        ) : env.installed ? (
+          <button
+            onClick={() => handleUninstallFromTarget(skill, env)}
+            disabled={operating}
+            className={`
+              flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors shrink-0
+              text-red-500 hover:bg-red-500/10
+              ${operating ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+          >
+            {operating ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Trash2 className="w-3 h-3" />
+            )}
+            {operating ? t('Removing...') : t('Remove')}
+          </button>
+        ) : (
+          <button
+            onClick={() => handleInstallToTarget(skill, env)}
+            disabled={operating}
+            className={`
+              flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors shrink-0
+              bg-primary text-primary-foreground hover:bg-primary/90
+              ${operating ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+          >
+            {operating ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            {operating ? t('Installing...') : t('Install')}
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -258,12 +589,14 @@ export function SkillMarket() {
               {skills.map((skill) => {
                 const appId = extractAppId(skill.id)
                 const isInstalled = installedSkillIds.has(appId)
-                const isInstalling = installingSkillId === skill.id
 
                 return (
                   <div
                     key={skill.id}
-                    onClick={() => setSelectedSkill(skill)}
+                    onClick={() => {
+                      setSelectedSkill(skill)
+                      setInstallOutputs([])
+                    }}
                     className={`
                       bg-secondary rounded-lg p-3 cursor-pointer transition-all
                       hover:bg-secondary/80
@@ -276,48 +609,30 @@ export function SkillMarket() {
                         <p className="text-xs text-muted-foreground">by {skill.author}</p>
                       </div>
                       {isInstalled && (
-                        <span className="text-xs text-green-500 px-1.5 py-0.5 bg-green-500/10 rounded flex items-center gap-1">
+                        <span className="text-xs text-green-500 px-1.5 py-0.5 bg-green-500/10 rounded flex items-center gap-1 shrink-0">
                           <Check className="w-3 h-3" />
                           {t('Installed')}
                         </span>
                       )}
                     </div>
 
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                    <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
                       {skill.description}
                     </p>
 
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
+                    <div className="flex items-center justify-end">
+                      <span className="text-xs text-muted-foreground mr-2">
                         {skill.installs?.toLocaleString()} {t('installs')}
                       </span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (isInstalled) {
-                            handleUninstall(skill)
-                          } else {
-                            handleInstall(skill)
-                          }
+                          setSelectedSkill(skill)
+                          setInstallOutputs([])
                         }}
-                        disabled={isInstalling}
-                        className={`
-                          flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors
-                          ${isInstalled
-                            ? 'text-red-500 hover:bg-red-500/10'
-                            : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                          }
-                          ${isInstalling ? 'opacity-50 cursor-not-allowed' : ''}
-                        `}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
                       >
-                        {isInstalling ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : isInstalled ? (
-                          <Trash2 className="w-3 h-3" />
-                        ) : (
-                          <Download className="w-3 h-3" />
-                        )}
-                        {isInstalling ? t('Installing...') : isInstalled ? t('Uninstall') : t('Install')}
+                        {t('Details')}
                       </button>
                     </div>
                   </div>
@@ -342,7 +657,7 @@ export function SkillMarket() {
         </div>
       </div>
 
-      {/* 右侧：技能详情 */}
+      {/* 右侧：技能详情 + 环境列表 + 终端输出 */}
       {selectedSkill && (
         <div className="w-96 border-l border-border flex flex-col">
           <div className="p-3 border-b border-border flex items-center justify-between">
@@ -358,115 +673,144 @@ export function SkillMarket() {
             </button>
           </div>
 
-          <div className="p-3 space-y-3">
-            <div>
-              <h3 className="text-base font-semibold text-foreground">{selectedSkill.name}</h3>
-              <p className="text-xs text-muted-foreground">by {selectedSkill.author}</p>
-            </div>
-
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {selectedSkill.installs && (
-                <span>{selectedSkill.installs.toLocaleString()} {t('installs')}</span>
-              )}
-              <span>v{selectedSkill.version}</span>
-            </div>
-
-            <div>
-              <h4 className="text-xs font-medium text-foreground mb-1">{t('Description')}</h4>
-              <p className="text-xs text-muted-foreground">
-                {selectedSkill.description}
-              </p>
-            </div>
-
-            {selectedSkill.fullDescription && (
+          {/* 可滚动的详情区域 */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-3 space-y-3">
               <div>
-                <h4 className="text-xs font-medium text-foreground mb-1">{t('Full Description')}</h4>
-                <div
-                  className="text-xs text-muted-foreground prose prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: selectedSkill.fullDescription.slice(0, 1000) + '...' }}
-                />
+                <h3 className="text-base font-semibold text-foreground">{selectedSkill.name}</h3>
+                <p className="text-xs text-muted-foreground">by {selectedSkill.author}</p>
               </div>
-            )}
 
-            {selectedSkill.tags && selectedSkill.tags.length > 0 && (
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {selectedSkill.installs && (
+                  <span>{selectedSkill.installs.toLocaleString()} {t('installs')}</span>
+                )}
+                <span>v{selectedSkill.version}</span>
+              </div>
+
               <div>
-                <h4 className="text-xs font-medium text-foreground mb-1">{t('Tags')}</h4>
-                <div className="flex flex-wrap gap-1">
-                  {selectedSkill.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="text-xs px-2 py-0.5 bg-accent/50 rounded"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                <h4 className="text-xs font-medium text-foreground mb-1">{t('Description')}</h4>
+                <p className="text-xs text-muted-foreground">
+                  {selectedSkill.description}
+                </p>
+              </div>
+
+              {selectedSkill.fullDescription && (
+                <div>
+                  <h4 className="text-xs font-medium text-foreground mb-1">{t('Full Description')}</h4>
+                  <div
+                    className="text-xs text-muted-foreground prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selectedSkill.fullDescription.slice(0, 1000) + '...' }}
+                  />
+                </div>
+              )}
+
+              {selectedSkill.tags && selectedSkill.tags.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-medium text-foreground mb-1">{t('Tags')}</h4>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedSkill.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-xs px-2 py-0.5 bg-accent/50 rounded"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedSkill.githubRepo && (
+                <a
+                  href={`https://github.com/${selectedSkill.githubRepo}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-xs text-primary hover:text-primary/80"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  {t('View on GitHub')}
+                </a>
+              )}
+
+              {/* 环境安装状态 */}
+              <div className="pt-3 border-t border-border">
+                <h4 className="text-xs font-medium text-foreground mb-2">
+                  {t('Environments')}
+                  <span className="text-muted-foreground font-normal ml-1">
+                    ({envStatuses.length})
+                  </span>
+                </h4>
+                <div className="space-y-1">
+                  {/* 已安装的环境 */}
+                  {installedEnvs.length > 0 && (
+                    <>
+                      <div className="text-[10px] text-green-500 font-medium uppercase tracking-wider px-2 pt-1 pb-0.5">
+                        {t('Installed')} ({installedEnvs.length})
+                      </div>
+                      {installedEnvs.map(env => renderEnvRow(env, selectedSkill))}
+                    </>
+                  )}
+
+                  {/* 未安装的环境 */}
+                  {notInstalledEnvs.length > 0 && (
+                    <>
+                      {installedEnvs.length > 0 && <div className="h-2" />}
+                      <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider px-2 pt-1 pb-0.5">
+                        {t('Not Installed')} ({notInstalledEnvs.length})
+                      </div>
+                      {notInstalledEnvs.map(env => renderEnvRow(env, selectedSkill))}
+                    </>
+                  )}
+
+                  {envStatuses.length === 0 && (
+                    <div className="text-xs text-muted-foreground text-center py-4">
+                      {t('No environments available')}
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
-
-            {selectedSkill.githubRepo && (
-              <a
-                href={`https://github.com/${selectedSkill.githubRepo}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 text-xs text-primary hover:text-primary/80"
-              >
-                <ExternalLink className="w-3 h-3" />
-                {t('View on GitHub')}
-              </a>
-            )}
-
-            <div className="pt-3 border-t border-border">
-              {(() => {
-                const appId = extractAppId(selectedSkill.id)
-                const isInstalled = installedSkillIds.has(appId)
-                const isInstalling = installingSkillId === selectedSkill.id
-
-                return (
-                  <button
-                    onClick={() => {
-                      if (isInstalled) {
-                        handleUninstall(selectedSkill)
-                      } else {
-                        handleInstall(selectedSkill)
-                      }
-                    }}
-                    disabled={isInstalling}
-                    className={`
-                      w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors
-                      ${isInstalled
-                        ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                        : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      }
-                      ${isInstalling ? 'opacity-50 cursor-not-allowed' : ''}
-                    `}
-                  >
-                    {isInstalling ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : isInstalled ? (
-                      <Trash2 className="w-4 h-4" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isInstalling ? t('Installing...') : isInstalled ? t('Uninstall') : t('Install')}
-                  </button>
-                )
-              })()}
             </div>
           </div>
 
           {/* 终端输出区域 */}
           {installOutputs.length > 0 && (
-            <div className="flex-1 border-t border-border flex flex-col min-h-0">
-              <div className="px-3 py-2 border-b border-border flex items-center gap-2 bg-secondary/50">
+            <div className="border-t border-border flex flex-col min-h-[200px] max-h-[300px]">
+              {/* 输出标签页 */}
+              {activeOutputTabs.length > 1 && (
+                <div className="flex border-b border-border bg-secondary/30 overflow-x-auto">
+                  {activeOutputTabs.map(key => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveOutputTab(key)}
+                      className={`
+                        flex items-center gap-1 px-3 py-1.5 text-xs whitespace-nowrap transition-colors
+                        ${activeOutputTab === key
+                          ? 'text-foreground border-b-2 border-primary bg-secondary/50'
+                          : 'text-muted-foreground hover:text-foreground'
+                        }
+                      `}
+                    >
+                      {getTargetIcon(key)}
+                      {getTargetName(key)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="px-3 py-1.5 border-b border-border flex items-center gap-2 bg-secondary/50">
                 <Terminal className="w-4 h-4 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">{t('Terminal Output')}</span>
+                <span className="text-xs font-medium text-foreground">
+                  {t('Terminal Output')}
+                  {activeOutputTabs.length > 0 && (
+                    <span className="text-muted-foreground ml-1">- {getTargetName(activeOutputTab)}</span>
+                  )}
+                </span>
               </div>
               <div
-                ref={outputRef}
+                ref={el => { outputRefs.current[activeOutputTab] = el }}
                 className="flex-1 overflow-y-auto bg-black p-3 font-mono text-xs leading-relaxed"
               >
-                {installOutputs.map((output, index) => (
+                {filteredOutputs.map((output, index) => (
                   <div
                     key={index}
                     className={`whitespace-pre-wrap ${

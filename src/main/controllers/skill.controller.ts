@@ -7,6 +7,7 @@ import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
 import { ConversationService } from '../services/conversation.service';
+import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
 import { SkillGenerateOptions } from '../../shared/skill/skill-types';
 
 let skillManager: SkillManager;
@@ -179,6 +180,134 @@ export async function uninstallSkill(skillId: string) {
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to uninstall skill' };
   }
+}
+
+/**
+ * Install skill on local and/or specified remote servers.
+ * Returns a map of target -> result status.
+ */
+export async function installSkillMultiTarget(
+  skillId: string,
+  targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>,
+  onOutput?: (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
+  const results: Record<string, { success: boolean; error?: string }> = {};
+
+  // Step 1: Get skill info from market (needed for remote install)
+  let githubRepo: string | undefined;
+  let skillName: string | undefined;
+
+  try {
+    await ensureInitialized();
+    const downloadResult = await skillMarket.downloadSkill(skillId);
+    if (downloadResult.success && downloadResult.githubRepo && downloadResult.skillName) {
+      githubRepo = downloadResult.githubRepo;
+      skillName = downloadResult.skillName;
+    }
+  } catch (e) {
+    console.warn('[SkillController] Failed to download skill info for multi-target install:', e);
+  }
+
+  // Step 2: Execute installations in parallel
+  const tasks = targets.map(async (target) => {
+    const key = target.type === 'local' ? 'local' : `remote:${target.serverId}`;
+
+    if (target.type === 'local') {
+      // Local install - use existing market install logic
+      const localOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        onOutput(key, data);
+      } : undefined;
+
+      const result = await installSkillFromMarket(skillId, localOnOutput);
+      results[key] = result;
+    } else {
+      // Remote install
+      if (!githubRepo || !skillName) {
+        onOutput?.(key, { type: 'error', content: 'Failed to get skill info for remote install\n' });
+        results[key] = { success: false, error: 'Failed to get skill info' };
+        return;
+      }
+
+      const remoteOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        onOutput(key, data);
+      } : undefined;
+
+      try {
+        const result = await remoteDeployService.installRemoteSkill(target.serverId, skillId, githubRepo, skillName, remoteOnOutput);
+        results[key] = result;
+      } catch (error) {
+        const err = error instanceof Error ? error.message : 'Remote install failed';
+        onOutput?.(key, { type: 'error', content: `${err}\n` });
+        results[key] = { success: false, error: err };
+      }
+    }
+  });
+
+  await Promise.all(tasks);
+
+  // Refresh local skills if local was a target
+  if (targets.some(t => t.type === 'local')) {
+    try {
+      await skillManager.refresh();
+    } catch (e) {
+      console.warn('[SkillController] Failed to refresh skills after multi-target install:', e);
+    }
+  }
+
+  return { results };
+}
+
+/**
+ * Uninstall skill from local and/or specified remote servers.
+ */
+export async function uninstallSkillMultiTarget(
+  appId: string,
+  targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>,
+  onOutput?: (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
+  const results: Record<string, { success: boolean; error?: string }> = {};
+
+  const tasks = targets.map(async (target) => {
+    const key = target.type === 'local' ? 'local' : `remote:${target.serverId}`;
+
+    if (target.type === 'local') {
+      try {
+        const result = await skillManager.uninstallSkill(appId);
+        results[key] = { success: result };
+        onOutput?.(key, { type: 'complete', content: `✓ Skill "${appId}" uninstalled locally\n` });
+      } catch (error) {
+        const err = error instanceof Error ? error.message : 'Local uninstall failed';
+        onOutput?.(key, { type: 'error', content: `✗ ${err}\n` });
+        results[key] = { success: false, error: err };
+      }
+    } else {
+      const remoteOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        onOutput(key, data);
+      } : undefined;
+
+      try {
+        const result = await remoteDeployService.uninstallRemoteSkill(target.serverId, appId, remoteOnOutput);
+        results[key] = result;
+      } catch (error) {
+        const err = error instanceof Error ? error.message : 'Remote uninstall failed';
+        onOutput?.(key, { type: 'error', content: `[remote] ${err}\n` });
+        results[key] = { success: false, error: err };
+      }
+    }
+  });
+
+  await Promise.all(tasks);
+
+  // Refresh local skills if local was a target
+  if (targets.some(t => t.type === 'local')) {
+    try {
+      await skillManager.refresh();
+    } catch (e) {
+      console.warn('[SkillController] Failed to refresh skills after multi-target uninstall:', e);
+    }
+  }
+
+  return { results };
 }
 
 export async function toggleSkill(skillId: string, enabled: boolean) {

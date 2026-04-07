@@ -317,6 +317,8 @@
   "Delete": "Delete",
   "Delete Permanently": "Delete Permanently",
   "Delete space": "Delete space",
+  "Delete failed": "Delete failed",
+  "Failed to delete space. Some files may be in use. Please close any active sessions and try again.": "Failed to delete space. Some files may be in use. Please close any active sessions and try again.",
   "Delete this conversation?": "Delete this conversation?",
   "Deleting...": "Deleting...",
   "Dependencies": "Dependencies",

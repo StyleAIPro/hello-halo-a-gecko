@@ -41,7 +41,7 @@ export interface RequestHandlerOptions {
   requestModified?: boolean
 }
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 /**
  * Anthropic error type to HTTP status code mapping

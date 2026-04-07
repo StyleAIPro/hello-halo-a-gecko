@@ -163,22 +163,17 @@ describe('Space Service', () => {
       const haloDir = path.join(space.path, '.halo')
       expect(fs.existsSync(haloDir)).toBe(true)
 
-      await deleteSpace(space.id)
+      const result = deleteSpace(space.id)
+      expect(result.success).toBe(true)
 
       // .halo should be deleted, but space directory may remain (for custom paths)
       expect(fs.existsSync(haloDir)).toBe(false)
     })
 
     it('should not allow deleting Halo temp space', async () => {
-      // deleteSpace may return false or throw for temp space
-      try {
-        const result = await deleteSpace('halo-temp')
-        // If it returns without throwing, result should be false
-        expect(result).toBeFalsy()
-      } catch {
-        // Expected to throw for temp space
-        expect(true).toBe(true)
-      }
+      const result = deleteSpace('halo-temp')
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Cannot delete temp space')
     })
   })
 

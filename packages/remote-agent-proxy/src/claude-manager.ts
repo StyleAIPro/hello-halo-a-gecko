@@ -12,6 +12,7 @@ import http from 'http'
 import * as fs from 'fs'
 import path from 'path'
 import os from 'os'
+import type { HaloMcpToolDef } from './types.js'
 
 // ============================================
 // Types
@@ -60,6 +61,8 @@ export interface ChatOptions {
   maxThinkingTokens?: number
   workDir?: string  // Per-session working directory override
   hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
+  haloMcpUrl?: string   // Halo MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
+  haloMcpToken?: string // Auth token for Halo MCP proxy
 }
 
 /**
@@ -505,6 +508,8 @@ export class ClaudeManager {
   private workDir?: string
   private model?: string
   private contextWindow?: number  // Context window size for compression threshold
+  private haloMcpUrl?: string    // Halo MCP proxy base URL
+  private haloMcpToken?: string  // Auth token for Halo MCP proxy
 
   // Config generation for change detection
   private configGeneration = 0
@@ -557,170 +562,229 @@ export class ClaudeManager {
   }
 
   /**
-   * Create hyper-space MCP proxy server.
-   * Tools delegate execution to the Halo client via WebSocket (tool:call / tool:approve).
-   *
-   * The tool executor callback is provided by the WebSocket server layer.
-   * It sends a tool:call to Halo and waits for a tool:approve response with the result.
+   * Hyper-space MCP server creation.
+   * Delegates tool execution back to Halo via WebSocket (tool:call / tool:approve).
+   * Kept for backward compatibility with old Halo clients that don't support proxy orchestrator.
    */
-  private createHyperSpaceMcpServer(
+  private createHyperSpaceMcpServerLegacy(
     config: HyperSpaceToolsConfig,
     toolExecutor: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>
   ): any {
-    // Helper: create a standard text content response
     const textResult = (text: string, isError = false) => ({
       content: [{ type: 'text' as const, text }],
       ...(isError ? { isError: true } : {})
     })
 
-    // Generate unique tool call IDs
     const generateToolId = () => `hs-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+
+    const { workerId, workerName, conversationId } = config
 
     const mcpServer = createSdkMcpServer({
       name: 'hyper-space',
       version: '1.0.0',
       tools: [
-        // report_to_leader: Send intermediate progress update to leader
-        tool(
-          'report_to_leader',
-          'Send an intermediate progress update or message to the team leader. ' +
-          'Use this to report progress, share findings, ask for guidance, or flag issues. ' +
-          'The leader will receive your message in real-time. Continue working after reporting.',
-          {
-            message: z.string().describe('The message to send to the leader'),
-            type: z.string().optional().describe('Report type: progress, finding, question, error, or info')
-          },
+        tool('report_to_leader',
+          'Send an intermediate progress update or message to the team leader.',
+          { message: z.string(), type: z.string().optional() },
           async (args: any) => {
             try {
               const toolId = generateToolId()
-              console.log(`[HyperSpace MCP] report_to_leader called: type=${args.type || 'progress'}`)
-              const result = await toolExecutor(toolId, 'report_to_leader', {
-                workerId: config.workerId,
-                workerName: config.workerName,
-                spaceId: config.spaceId,
-                conversationId: config.conversationId,
-                message: args.message,
-                reportType: args.type || 'progress'
-              })
+              await toolExecutor(toolId, 'report_to_leader', { workerId, workerName, spaceId: config.spaceId, conversationId, message: args.message, reportType: args.type || 'progress' })
               return textResult(`Report sent to leader.\nType: ${args.type || 'progress'}\nContinue working on your task.`)
-            } catch (e) {
-              return textResult(`Error reporting to leader: ${(e as Error).message}`, true)
-            }
+            } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
           }
         ),
-
-        // announce_completion: Signal task completion to leader
-        tool(
-          'announce_completion',
-          'Signal task completion to the team leader. ' +
-          'Use this when you have finished your assigned task and want to report results. ' +
-          'This triggers the announcement system and marks the task as complete.',
-          {
-            taskId: z.string().describe('Your assigned task ID'),
-            status: z.string().describe('Task completion status: completed or failed'),
-            result: z.string().describe('Task result or output'),
-            summary: z.string().describe('Brief summary (max 200 chars)')
-          },
+        tool('announce_completion',
+          'Signal task completion to the team leader.',
+          { taskId: z.string(), status: z.string(), result: z.string(), summary: z.string() },
           async (args: any) => {
             try {
               const toolId = generateToolId()
-              console.log(`[HyperSpace MCP] announce_completion called: taskId=${args.taskId}, status=${args.status}`)
-              const result = await toolExecutor(toolId, 'announce_completion', {
-                workerId: config.workerId,
-                workerName: config.workerName,
-                spaceId: config.spaceId,
-                conversationId: config.conversationId,
-                taskId: args.taskId,
-                status: args.status,
-                result: args.result,
-                summary: args.summary
-              })
+              await toolExecutor(toolId, 'announce_completion', { workerId, workerName, spaceId: config.spaceId, conversationId, taskId: args.taskId, status: args.status, result: args.result, summary: args.summary })
               return textResult(`Task ${args.taskId} marked as ${args.status}.\nAnnouncement sent to leader.`)
-            } catch (e) {
-              return textResult(`Error announcing completion: ${(e as Error).message}`, true)
-            }
+            } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
           }
         ),
-
-        // ask_question: Ask the leader or user a question
-        tool(
-          'ask_question',
-          'Ask the leader or user a question when you need more information. ' +
-          'The question will be shown in the chat UI. Continue working on what you can.',
-          {
-            question: z.string().describe('Your question'),
-            target: z.string().optional().describe('Who to ask: leader or user')
-          },
+        tool('ask_question',
+          'Ask the leader or user a question.',
+          { question: z.string(), target: z.string().optional() },
           async (args: any) => {
             try {
               const toolId = generateToolId()
-              console.log(`[HyperSpace MCP] ask_question called: target=${args.target || 'leader'}`)
-              const result = await toolExecutor(toolId, 'ask_question', {
-                workerId: config.workerId,
-                workerName: config.workerName,
-                spaceId: config.spaceId,
-                conversationId: config.conversationId,
-                question: args.question,
-                target: args.target || 'leader'
-              })
+              await toolExecutor(toolId, 'ask_question', { workerId, workerName, spaceId: config.spaceId, conversationId, question: args.question, target: args.target || 'leader' })
               return textResult(`Question sent to ${args.target || 'leader'}.\nContinue working on other parts of your task.`)
-            } catch (e) {
-              return textResult(`Error sending question: ${(e as Error).message}`, true)
-            }
+            } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
           }
         ),
-
-        // send_message: Send a message to a specific teammate
-        tool(
-          'send_message',
+        tool('send_message',
           'Send a message to another agent in the team.',
-          {
-            recipient: z.string().describe('Agent ID to send message to'),
-            content: z.string().describe('Message content')
-          },
+          { recipient: z.string(), content: z.string() },
           async (args: any) => {
             try {
               const toolId = generateToolId()
-              console.log(`[HyperSpace MCP] send_message called: recipient=${args.recipient}`)
-              const result = await toolExecutor(toolId, 'send_message', {
-                workerId: config.workerId,
-                workerName: config.workerName,
-                spaceId: config.spaceId,
-                conversationId: config.conversationId,
-                recipient: args.recipient,
-                content: args.content
-              })
+              await toolExecutor(toolId, 'send_message', { workerId, workerName, spaceId: config.spaceId, conversationId, recipient: args.recipient, content: args.content })
               return textResult(`Message sent to ${args.recipient}.`)
-            } catch (e) {
-              return textResult(`Error sending message: ${(e as Error).message}`, true)
-            }
+            } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
           }
         ),
-
-        // list_team_members: List all agents in the team
-        tool(
-          'list_team_members',
+        tool('list_team_members',
           'List all agents in the Hyper Space team.',
           {},
           async () => {
             try {
               const toolId = generateToolId()
-              const result = await toolExecutor(toolId, 'list_team_members', {
-                workerId: config.workerId,
-                workerName: config.workerName,
-                spaceId: config.spaceId,
-                conversationId: config.conversationId
-              })
+              const result = await toolExecutor(toolId, 'list_team_members', { workerId, workerName, spaceId: config.spaceId, conversationId })
               return textResult(result)
-            } catch (e) {
-              return textResult(`Error listing team: ${(e as Error).message}`, true)
-            }
+            } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
           }
         )
       ]
     })
-
     return mcpServer
+  }
+
+  /**
+   * Create halo-builtin MCP server for tools from the Halo client.
+   * Tools delegate execution to the Halo client via WebSocket (mcp:tool:call).
+   *
+   * This replaces the HTTP MCP proxy approach for multi-PC isolation.
+   * Each PC's WebSocket connection provides its own set of tools.
+   *
+   * @param toolDefs - Serialized tool definitions from the Halo client
+   * @param executeTool - Callback to execute a tool on the Halo client via WebSocket
+   */
+  private createHaloBuiltinMcpServer(
+    toolDefs: HaloMcpToolDef[],
+    executeTool: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>
+  ): any {
+    const textResult = (text: string, isError = false) => ({
+      content: [{ type: 'text' as const, text }],
+      ...(isError ? { isError: true } : {})
+    })
+
+    const generateCallId = () => `mcp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+
+    // Build tool definitions from the serialized Halo tool definitions
+    // Each tool delegates to the executeTool callback via WebSocket
+    const tools = toolDefs.map(def =>
+      tool(
+        def.name,
+        def.description,
+        def.inputSchema as any,  // Zod raw shape
+        async (args: any) => {
+          try {
+            const callId = generateCallId()
+            console.log(`[HaloMcpBridge] Tool called: ${def.serverName}:${def.name}`)
+            const result = await executeTool(callId, def.name, args)
+            // Handle result shape — could be CallToolResult or raw string
+            if (typeof result === 'string') {
+              return textResult(result)
+            }
+            return result  // Already in CallToolResult shape
+          } catch (e) {
+            return textResult(`Error executing ${def.name}: ${(e as Error).message}`, true)
+          }
+        }
+      )
+    )
+
+    return createSdkMcpServer({
+      name: 'halo-builtin',
+      version: '1.0.0',
+      tools
+    })
+  }
+
+  /**
+   * Create background tasks MCP server.
+   * Lets Claude run long commands (docker pull, model download, etc.) in the background
+   * without blocking the conversation. Tasks are tracked and their output can be queried later.
+   */
+  createBackgroundTasksMcpServer(
+    bgTaskManager: { spawn: (cmd: string, cwd?: string) => any; list: () => any[]; get: (id: string) => any; cancel: (id: string) => boolean }
+  ): any {
+    const textResult = (text: string, isError = false) => ({
+      content: [{ type: 'text' as const, text }],
+      ...(isError ? { isError: true } : {})
+    })
+
+    const tools = [
+      tool(
+        'BackgroundBash',
+        'Run a shell command in the background without blocking. Use this for long-running commands like docker pull, model downloads, training jobs, service startup, etc. The command runs independently and you can check its status later. Returns a task ID immediately.',
+        {
+          command: z.string().describe('The shell command to run in the background'),
+          cwd: z.string().optional().describe('Working directory (defaults to current workDir)')
+        },
+        async (args: any) => {
+          try {
+            const task = bgTaskManager.spawn(args.command, args.cwd)
+            return textResult(`Background task started.\n\nTask ID: ${task.id}\nCommand: ${task.command}\nPID: ${task.pid}\n\nYou can check status later with BackgroundTaskStatus.`)
+          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
+        }
+      ),
+
+      tool(
+        'BackgroundTaskStatus',
+        'Check the status and recent output of a background task.',
+        {
+          task_id: z.string().describe('The task ID returned by BackgroundBash')
+        },
+        async (args: any) => {
+          try {
+            const task = bgTaskManager.get(args.task_id)
+            if (!task) return textResult(`Task not found: ${args.task_id}`, true)
+            const duration = task.completedAt
+              ? `${((task.completedAt - task.startedAt) / 1000).toFixed(0)}s`
+              : `${((Date.now() - task.startedAt) / 1000).toFixed(0)}s (running)`
+            const outputPreview = task.output ? task.output.slice(-2000) : '(no output yet)'
+            return textResult(
+              `Task: ${task.id}\nStatus: ${task.status}\nCommand: ${task.command}\nPID: ${task.pid}\nDuration: ${duration}\nOutput lines: ${task.outputLines}\n\nRecent output:\n${outputPreview}`
+            )
+          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
+        }
+      ),
+
+      tool(
+        'BackgroundTaskList',
+        'List all background tasks and their statuses.',
+        {},
+        async () => {
+          try {
+            const tasks = bgTaskManager.list()
+            if (tasks.length === 0) return textResult('No background tasks.')
+            const lines = tasks.map((t: any) => {
+              const duration = t.completedAt
+                ? `${((t.completedAt - t.startedAt) / 1000).toFixed(0)}s`
+                : `${((Date.now() - t.startedAt) / 1000).toFixed(0)}s`
+              return `[${t.status}] ${t.id} | ${duration} | ${t.command.slice(0, 80)}`
+            })
+            return textResult(`Background tasks (${tasks.length}):\n${lines.join('\n')}`)
+          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
+        }
+      ),
+
+      tool(
+        'BackgroundTaskCancel',
+        'Cancel a running background task.',
+        {
+          task_id: z.string().describe('The task ID to cancel')
+        },
+        async (args: any) => {
+          try {
+            const ok = bgTaskManager.cancel(args.task_id)
+            if (!ok) return textResult(`Cannot cancel task ${args.task_id}. Not found or not running.`, true)
+            return textResult(`Task ${args.task_id} cancelled.`)
+          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
+        }
+      )
+    ]
+
+    return createSdkMcpServer({
+      name: 'background-tasks',
+      version: '1.0.0',
+      tools
+    })
   }
 
   /**
@@ -799,7 +863,23 @@ export class ClaudeManager {
     // This ensures session files are stored in a predictable location
     const agentsDir = path.join(os.homedir(), '.agents')
     const configDir = path.join(agentsDir, 'claude-config')
+    const skillsDir = path.join(agentsDir, 'skills')
+    const configSkillsDir = path.join(configDir, 'skills')
+
+    // Create symlink from claude-config/skills -> agents/skills
+    // SDK looks for skills at $CLAUDE_CONFIG_DIR/skills/, but SkillManager stores them in ~/.agents/skills/
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true })
+    }
+    if (fs.existsSync(skillsDir) && !fs.existsSync(configSkillsDir)) {
+      fs.symlinkSync(skillsDir, configSkillsDir)
+    }
+
     options.env.CLAUDE_CONFIG_DIR = configDir
+
+    // Enable skills loading from $CLAUDE_CONFIG_DIR/skills/ ONLY (no project-level skills)
+    // All skills are managed globally in ~/.agents/skills/ via symlink
+    options.settingSources = ['user']
 
     // CRITICAL: IS_SANDBOX=1 is required for bypass-permissions mode when running as root
     // This must be passed to the Claude CLI subprocess, not just the remote-agent-proxy process
@@ -889,7 +969,9 @@ export class ClaudeManager {
     resumeSessionId?: string,
     maxThinkingTokens?: number,
     hyperSpaceMcpServer?: any,
-    customSystemPrompt?: string
+    customSystemPrompt?: string,
+    haloBuiltinMcpServer?: any,
+    bgTasksMcpServer?: any
   ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
@@ -997,6 +1079,54 @@ export class ClaudeManager {
       }
       options.mcpServers = { 'hyper-space': hyperSpaceMcpServer }
       console.log(`[ClaudeManager][${conversationId}] Injecting hyper-space MCP proxy server`)
+    }
+
+    // Add Halo MCP proxy for built-in tools (halo-apps, gh-search, ai-browser)
+    // Prefer WebSocket MCP Bridge over HTTP MCP proxy
+    if (haloBuiltinMcpServer) {
+      // WebSocket MCP Bridge (preferred): in-process MCP server that delegates via WebSocket
+      const obj = haloBuiltinMcpServer as any
+      if (obj.instance != null && typeof obj.toJSON !== 'function') {
+        obj.toJSON = () => {
+          const { instance, ...rest } = obj
+          return rest
+        }
+      }
+      options.mcpServers = {
+        ...(options.mcpServers || {}),
+        'halo-builtin': haloBuiltinMcpServer,
+      }
+      console.log(`[ClaudeManager][${conversationId}] Injecting halo-builtin MCP server (WebSocket bridge)`)
+    }
+
+    // Add background-tasks MCP server
+    if (bgTasksMcpServer) {
+      const obj = bgTasksMcpServer as any
+      if (obj.instance != null && typeof obj.toJSON !== 'function') {
+        obj.toJSON = () => {
+          const { instance, ...rest } = obj
+          return rest
+        }
+      }
+      options.mcpServers = {
+        ...(options.mcpServers || {}),
+        'background-tasks': bgTasksMcpServer,
+      }
+      console.log(`[ClaudeManager][${conversationId}] Injecting background-tasks MCP server`)
+    } else if (this.haloMcpUrl) {
+      // Fallback: HTTP MCP proxy (legacy, for backward compatibility)
+      const mcpConfig: any = {
+        type: 'http',
+        url: this.haloMcpUrl,
+      }
+      if (this.haloMcpToken) {
+        mcpConfig.headers = { Authorization: `Bearer ${this.haloMcpToken}` }
+      }
+      options.mcpServers = {
+        ...(options.mcpServers || {}),
+        'halo-builtin': mcpConfig,
+      }
+      console.log(`[ClaudeManager][${conversationId}] Injecting Halo MCP proxy (HTTP fallback): ${this.haloMcpUrl}`)
     }
 
     // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
@@ -1163,20 +1293,39 @@ export class ClaudeManager {
     onThoughtDelta?: (delta: ThoughtDeltaEvent) => void,
     onMcpStatus?: (data: McpStatusEvent) => void,
     onCompact?: (data: CompactBoundaryEvent) => void,
-    hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>
+    hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>,
+    haloMcpToolExecutor?: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>,
+    haloMcpToolDefs?: HaloMcpToolDef[]
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
 
-    // Create hyper-space MCP proxy server if configured and executor is provided
-    let hyperSpaceMcpServer: any = undefined
-    if (options.hyperSpaceTools && hyperSpaceToolExecutor) {
-      console.log(`[ClaudeManager] Creating hyper-space MCP proxy server for worker ${options.hyperSpaceTools.workerName}`)
-      hyperSpaceMcpServer = this.createHyperSpaceMcpServer(options.hyperSpaceTools, hyperSpaceToolExecutor)
+    // Update Halo MCP proxy URL from chat options (per-request, may change across turns)
+    if (options.haloMcpUrl) {
+      this.haloMcpUrl = options.haloMcpUrl
+      this.haloMcpToken = options.haloMcpToken
     }
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system)
+    // Create hyper-space MCP server if configured
+    let hyperSpaceMcpServer: any = undefined
+    if (options.hyperSpaceTools && hyperSpaceToolExecutor) {
+      console.log(`[ClaudeManager] Creating hyper-space MCP server (bridge mode) for worker ${options.hyperSpaceTools.workerName}`)
+      hyperSpaceMcpServer = this.createHyperSpaceMcpServerLegacy(options.hyperSpaceTools, hyperSpaceToolExecutor)
+    }
+
+    // Create halo-builtin MCP server if tools are available from the Halo client
+    // This is the WebSocket MCP Bridge — tools delegate to the Halo client via WebSocket
+    let haloBuiltinMcpServer: any = undefined
+    if (haloMcpToolDefs && haloMcpToolDefs.length > 0 && haloMcpToolExecutor) {
+      console.log(`[ClaudeManager] Creating halo-builtin MCP server (WebSocket bridge) with ${haloMcpToolDefs.length} tools from Halo client`)
+      haloBuiltinMcpServer = this.createHaloBuiltinMcpServer(haloMcpToolDefs, haloMcpToolExecutor)
+    }
+
+    // Background-tasks MCP server — passed through options from server.ts
+    const bgTasksMcpServer = (options as any).proxyAppsMcpServer
+
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, haloBuiltinMcpServer, bgTasksMcpServer)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -2265,6 +2414,82 @@ export class ClaudeManager {
     } finally {
       if (pollTimer) clearTimeout(pollTimer)
       console.log(`[ClaudeManager][${sessionId}] Stream wrapper cleanup complete`)
+    }
+  }
+
+  /**
+   * Stream chat for app execution.
+   * Simplified version of streamChat() used by ProxyAppRuntime for background app runs.
+   * Creates a one-shot session with the given MCP servers and system prompt.
+   *
+   * @param sessionId - Unique session ID for this app run
+   * @param messages - Chat messages to send
+   * @param options - Chat options (system prompt, max tokens)
+   * @param mcpServers - MCP servers to inject (e.g., halo-report)
+   * @returns AsyncGenerator yielding stream chunks
+   */
+  async *streamChatForApp(
+    sessionId: string,
+    messages: ChatMessage[],
+    options: ChatOptions = {},
+    mcpServers?: Record<string, any>
+  ): AsyncGenerator<{ type: string; data?: any }> {
+    const workDir = options.workDir || this.workDir || process.cwd()
+
+    // Build SDK options with provided MCP servers
+    const sdkOptions: any = {
+      model: this.model || 'claude-sonnet-4-20250514',
+      cwd: workDir,
+      systemPrompt: options.system || '',
+      permissionMode: 'bypassPermissions',
+      extraArgs: { 'dangerously-skip-permissions': null },
+      allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+      disallowedTools: ['WebFetch', 'WebSearch'],
+      includePartialMessages: true,
+      maxTurns: 10,  // App runs should be focused, fewer turns
+      ...(this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),
+    }
+
+    if (this.pathToClaudeCodeExecutable) {
+      sdkOptions.pathToClaudeCodeExecutable = this.pathToClaudeCodeExecutable
+    }
+
+    // Inject MCP servers if provided
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      sdkOptions.mcpServers = {}
+      for (const [name, config] of Object.entries(mcpServers)) {
+        const obj = config as any
+        if (obj.instance != null && typeof obj.toJSON !== 'function') {
+          obj.toJSON = () => { const { instance, ...rest } = obj; return rest }
+        }
+        sdkOptions.mcpServers[name] = config
+      }
+    }
+
+    // Create a fresh session for this app run
+    try {
+      const session = await unstable_v2_createSession(sdkOptions)
+      this.registerActiveSession(sessionId, new AbortController())
+
+      // Send messages and iterate over stream
+      await session.send(messages.map(m => m.content).join('\n\n'))
+
+      for await (const event of session.stream()) {
+        const evt = event as any
+
+        if (evt.type === 'assistant_message_delta') {
+          yield { type: 'text', data: { text: evt.delta?.text || '' } }
+        } else if (evt.type === 'result') {
+          yield { type: 'complete', data: evt }
+        }
+      }
+
+      // Close the session after app run completes
+      this.unregisterActiveSession(sessionId)
+      await (session as any).close().catch(() => {})
+    } catch (error) {
+      this.unregisterActiveSession(sessionId)
+      throw error
     }
   }
 

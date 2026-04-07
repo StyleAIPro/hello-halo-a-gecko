@@ -632,7 +632,7 @@ export function RemoteServersSection() {
           <button
             onClick={handleBatchCheck}
             disabled={batchChecking || batchUpdating || servers.length === 0}
-            className="px-3 py-2 border border-border rounded-lg flex items-center gap-2 hover:bg-secondary transition-colors disabled:opacity-50 text-sm"
+            className="px-3 py-2 border border-border rounded-lg flex items-center gap-2 hover:bg-secondary transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
             title={t('Batch Check All')}
           >
             {batchChecking ? (
@@ -645,7 +645,7 @@ export function RemoteServersSection() {
           <button
             onClick={handleBatchUpdate}
             disabled={batchChecking || batchUpdating || servers.length === 0}
-            className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm"
+            className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
             title={t('Batch Update All')}
           >
             {batchUpdating ? (
@@ -657,7 +657,7 @@ export function RemoteServersSection() {
           </button>
           <button
             onClick={() => setShowAddDialog(true)}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             {t('Add Server')}
@@ -705,6 +705,19 @@ export function RemoteServersSection() {
                         <p className="text-sm text-muted-foreground">
                           {server.host || ''}:{server.wsPort || ''}
                         </p>
+                        {server.aiSourceId && (() => {
+                          const source = aiSources.find(s => s.id === server.aiSourceId)
+                          return source ? (
+                            <span className="inline-flex items-center text-xs text-muted-foreground mt-0.5">
+                              {source.provider} / {source.model}
+                            </span>
+                          ) : null
+                        })()}
+                        {!server.aiSourceId && server.claudeModel && (
+                          <span className="inline-flex items-center text-xs text-muted-foreground mt-0.5">
+                            {server.claudeModel}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -746,7 +759,7 @@ export function RemoteServersSection() {
                         {checkingAgent === server.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <Terminal className="w-4 h-4" />
+                          <ListChecks className="w-4 h-4" />
                         )}
                       </button>
                       <button

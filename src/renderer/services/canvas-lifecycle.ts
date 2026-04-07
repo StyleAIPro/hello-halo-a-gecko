@@ -45,6 +45,7 @@ export type ContentType =
   | 'csv'
   | 'browser'
   | 'terminal'
+  | 'tasks'
 
 export interface BrowserState {
   isLoading: boolean
@@ -646,6 +647,34 @@ class CanvasLifecycle {
     this.notifyTabsChange()
 
     // Switch to new tab
+    await this.switchTab(tabId)
+
+    return tabId
+  }
+
+  /**
+   * Open or switch to the Tasks tab in canvas.
+   */
+  async openTasks(): Promise<string> {
+    for (const [tabId, tab] of this.tabs) {
+      if (tab.type === 'tasks') {
+        await this.switchTab(tabId)
+        return tabId
+      }
+    }
+
+    const tabId = generateTabId()
+    const tab: TabState = {
+      id: tabId,
+      type: 'tasks',
+      title: 'Tasks',
+      isDirty: false,
+      isLoading: false,
+    }
+
+    this.tabs.set(tabId, tab)
+    this.setOpen(true)
+    this.notifyTabsChange()
     await this.switchTab(tabId)
 
     return tabId

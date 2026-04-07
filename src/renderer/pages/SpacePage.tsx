@@ -59,7 +59,6 @@ export function SpacePage() {
 
   // Precise selectors — only subscribe to what SpacePage needs for layout orchestration
   const setView = useAppStore(state => state.setView)
-  const pageTransition = useAppStore(state => state.pageTransition)
   const mockBashMode = useAppStore(state => state.mockBashMode)
   const gitBashInstallProgress = useAppStore(state => state.gitBashInstallProgress)
   const startGitBashInstall = useAppStore(state => state.startGitBashInstall)
@@ -96,7 +95,7 @@ export function SpacePage() {
   const setCanvasMaximized = useCanvasStore(state => state.setMaximized)
 
   // Canvas lifecycle for opening terminal tab
-  const { openTerminal } = useCanvasLifecycle()
+  const { openTerminal, openTasks } = useCanvasLifecycle()
 
   // Mobile detection
   const isMobile = useIsMobile()
@@ -297,13 +296,6 @@ export function SpacePage() {
     onSearch: (scope) => openSearch(scope)
   })
 
-  // Handle new conversation (still needed for header button)
-  const handleNewConversation = useCallback(async () => {
-    if (currentSpace) {
-      await useChatStore.getState().createConversation(currentSpace.id)
-    }
-  }, [currentSpace])
-
   if (!currentSpace) {
     return (
       <div className="h-full w-full flex items-center justify-center">
@@ -353,30 +345,20 @@ export function SpacePage() {
         }
         right={
           <>
-            {/* New conversation button */}
-            <button
-              onClick={handleNewConversation}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-sm hover:bg-secondary rounded-lg transition-colors"
-              title={t('New conversation')}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span className="hidden sm:inline">{t('New conversation')}</span>
-            </button>
-
             {/* Search Icon - hidden on mobile, accessible via shortcut */}
             <div className="hidden sm:block">
               <SearchIcon onClick={openSearch} isInSpace={true} />
             </div>
 
-            {/* Model Selector */}
-            <ModelSelector />
+            {/* Model Selector - only for local spaces */}
+            {currentSpace?.spaceType !== 'remote' && currentSpace?.spaceType !== 'hyper' && (
+              <ModelSelector />
+            )}
 
             {/* Skills - navigate to Skill management page */}
             <button
               onClick={() => setView('skill')}
-              className={`p-1.5 hover:bg-secondary rounded-lg transition-colors ${pageTransition.isAnimating ? 'animate-icon-catch' : ''}`}
+              className={`p-1.5 hover:bg-secondary rounded-lg transition-colors`}
               title={t('Skill Library')}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -500,6 +482,10 @@ export function SpacePage() {
             onWidthChange={handleArtifactRailWidthChange}
             onToggleTerminal={() => {
               openTerminal()
+              setCanvasOpen(true)
+            }}
+            onToggleTasks={() => {
+              openTasks()
               setCanvasOpen(true)
             }}
           />

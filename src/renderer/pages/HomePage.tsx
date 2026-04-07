@@ -24,6 +24,7 @@ import { Monitor, Blocks, ArrowRight, Cloud, Folder, Bot } from 'lucide-react'
 import { api } from '../api'
 import { useTranslation } from '../i18n'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useNotificationStore } from '../stores/notification.store'
 
 // Check if running in web mode
 const isWebMode = api.isRemoteMode()
@@ -31,7 +32,7 @@ const isWebMode = api.isRemoteMode()
 export function HomePage() {
   const { t } = useTranslation()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm()
-  const { setView, setPageTransition } = useAppStore()
+  const { setView } = useAppStore()
   const { haloSpace, spaces, loadSpaces, setCurrentSpace, refreshCurrentSpace, createSpace, updateSpace, deleteSpace } = useSpaceStore()
 
   // Dialog state
@@ -177,17 +178,6 @@ export function HomePage() {
 
   // Handle space click - no reset needed, SpacePage handles its own state
   const handleSpaceClick = (space: Space) => {
-    // Capture skill card rect for transition animation (single-step: shrink + fly simultaneously)
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const skillCard = document.querySelector('[data-transition-source="skill-card"]')
-    if (skillCard && !prefersReducedMotion) {
-      const rect = skillCard.getBoundingClientRect()
-      setPageTransition({
-        isAnimating: true,
-        sourceRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-      })
-    }
-
     setCurrentSpace(space)
     refreshCurrentSpace()  // Load full space data (preferences) from backend
     setView('space')
@@ -249,7 +239,18 @@ export function HomePage() {
       : t('Are you sure you want to delete this space?\n\nAll conversations and files in the space will be deleted.')
 
     if (await confirmDialog(message)) {
-      await deleteSpace(spaceId)
+      const result = await deleteSpace(spaceId)
+      if (!result.success) {
+        const showToast = useNotificationStore.getState().show
+        showToast({
+          title: t('Delete failed'),
+          body: result.error || t('Failed to delete space. Some files may be in use. Please close any active sessions and try again.'),
+          variant: 'error',
+          duration: 6000
+        })
+        // Reload spaces to re-sync with backend
+        loadSpaces()
+      }
     }
   }
 
@@ -376,12 +377,11 @@ export function HomePage() {
 
           {/* Skill Management card */}
           <div
-            data-transition-source="skill-card"
             onClick={() => setView('skill')}
-            className="p-5 rounded-xl cursor-pointer border border-border hover:border-primary/40 hover:bg-secondary/50 transition-colors flex flex-col gap-3 min-h-[120px]"
+            className="skill-space-card p-5 rounded-xl cursor-pointer flex flex-col gap-3 min-h-[120px]"
           >
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
               <h2 className="text-sm font-semibold">{t('技能管理')}</h2>

@@ -25,6 +25,9 @@ interface HyperSpaceCreationDialogProps {
 
 const DEFAULT_LEADER_CAPABILITIES = ['组织', '管理', '任务规划', '项目管理']
 const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化']
+const DEFAULT_REMOTE_SYSTEM_PROMPT = `1. 你是一个华为昇腾NPU服务器操作高手，精通各种NPU相关操作命令和模型迁移调优分析方法。
+2. 当需要下载模型时，优先使用中国国内的模型网站，如modelscope
+3. 当需要下载模型或者下载超大文件时，要先分析一下目标目录的剩余空间，不要直接下载`
 
 export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSpaceCreationDialogProps) {
   const { t } = useTranslation()
@@ -84,6 +87,7 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
       type: newWorkerType,
       role: 'worker',
       capabilities,
+      ...(newWorkerType === 'remote' ? { systemPromptAddition: DEFAULT_REMOTE_SYSTEM_PROMPT } : {}),
       ...(newWorkerType === 'remote' && newWorkerServerId ? { remoteServerId: newWorkerServerId } : {})
     }
 
@@ -124,6 +128,10 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
         if (!updated.capabilities || updated.capabilities.length === 0) {
           updated.capabilities = [...DEFAULT_REMOTE_CAPABILITIES]
         }
+        // Auto-fill system prompt if currently empty
+        if (!updated.systemPromptAddition) {
+          updated.systemPromptAddition = DEFAULT_REMOTE_SYSTEM_PROMPT
+        }
         if (!updated.remoteServerId) {
           // Auto-select first remote server if available
           if (remoteServers.length > 0) {
@@ -138,9 +146,10 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
           }
         }
       } else {
-        // Switching to local: clear environment
+        // Switching to local: clear environment and system prompt
         updated.remoteServerId = undefined
         updated.environment = undefined
+        updated.systemPromptAddition = undefined
       }
       return updated
     }))
@@ -519,6 +528,25 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                       className="w-full px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg"
                     />
                   </div>
+
+                  {/* System Prompt (only for remote workers) */}
+                  {agent.type === 'remote' && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground">
+                        {t('System Prompt')}
+                      </label>
+                      <textarea
+                        value={agent.systemPromptAddition || ''}
+                        onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? {
+                          ...a,
+                          systemPromptAddition: e.target.value
+                        } : a))}
+                        placeholder={t('Custom instructions for the remote AI agent...')}
+                        rows={3}
+                        className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

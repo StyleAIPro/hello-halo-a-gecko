@@ -7,10 +7,13 @@ import { app } from 'electron'
 import { SSHManager, SSHConfig } from '../remote-ssh/ssh-manager'
 import { getConfig, saveConfig, getAgentsSkillsDir } from '../config.service'
 import type { RemoteServer } from '../../../shared/types'
+import type { InstalledSkill } from '../../../shared/skill/skill-types'
+import type { SkillFileNode } from '../../../shared/skill/skill-types'
 import * as fs from 'fs'
 import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
+import { parse as parseYaml } from 'yaml'
 import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt'
 
 /**
@@ -526,6 +529,20 @@ export class RemoteDeployService {
       await manager.executeCommand(`mkdir -p ~/.agents/skills`)
       await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)
 
+      // Migrate skills from ~/.claude/skills/ on remote server
+      this.emitDeployProgress(id, 'prepare', '正在检查远程 Claude skills...', 12)
+      await manager.executeCommand(`
+        if [ -d ~/.claude/skills ]; then
+          for skill in ~/.claude/skills/*/; do
+            skill_name=$(basename "$skill")
+            if [ ! -d ~/.agents/skills/"$skill_name" ]; then
+              cp -r "$skill" ~/.agents/skills/"$skill_name"
+              echo "[Migration] Migrated remote Claude skill: $skill_name"
+            fi
+          done
+        fi
+      `)
+
       // Get the path to the remote-agent-proxy package
       const packageDir = getRemoteAgentProxyPath()
       const distDir = path.join(packageDir, 'dist')
@@ -542,8 +559,8 @@ export class RemoteDeployService {
         await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
       }
 
-      // Upload all files from dist directory (including version.json and build-info.js)
-      const distFiles = fs.readdirSync(distDir).filter(f => fs.statSync(path.join(distDir, f)).isFile())
+      // Upload all files from dist directory recursively (including subdirectories like proxy-apps/)
+      const distFiles = this.readdirRecursive(distDir)
       let uploadedCount = 0
       for (const file of distFiles) {
         const localPath = path.join(distDir, file)
@@ -551,6 +568,9 @@ export class RemoteDeployService {
         uploadedCount++
         const progress = 15 + Math.round((uploadedCount / distFiles.length) * 20)
         this.emitDeployProgress(id, 'upload', `正在上传 ${file}...`, progress)
+        // Ensure remote subdirectory exists before uploading
+        const remoteDir = path.dirname(remotePath)
+        await manager.executeCommand(`mkdir -p "${remoteDir}"`)
         await manager.uploadFile(localPath, remotePath)
       }
 
@@ -940,9 +960,9 @@ WRAPPER
     const distDir = path.join(packageDir, 'dist')
     const patchesDir = path.join(packageDir, 'patches')
 
-    // 1. Upload changed dist files
+    // 1. Upload changed dist files (recursive to include subdirectories like proxy-apps/)
     let changedFiles = 0
-    const distFiles = fs.readdirSync(distDir).filter(f => fs.statSync(path.join(distDir, f)).isFile())
+    const distFiles = this.readdirRecursive(distDir)
     for (let i = 0; i < distFiles.length; i++) {
       const file = distFiles[i]
       const localPath = path.join(distDir, file)
@@ -956,6 +976,9 @@ WRAPPER
       const remoteMd5 = remoteMd5Result.stdout.trim()
 
       if (localMd5 !== remoteMd5) {
+        // Ensure remote subdirectory exists before uploading
+        const remoteDir = path.dirname(remotePath)
+        await manager.executeCommand(`mkdir -p "${remoteDir}"`)
         await manager.uploadFile(localPath, remotePath)
         changedFiles++
         this.emitCommandOutput(id, 'output', `  ↑ ${file} (已更新)`)
@@ -1184,6 +1207,25 @@ WRAPPER
    */
   private computeMd5(filePath: string): string {
     return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex')
+  }
+
+  /**
+   * Recursively list all files in a directory, returning POSIX-style relative paths.
+   * Always uses forward slashes even on Windows, since remote servers are Linux.
+   * e.g. ['index.js', 'proxy-apps/index.js', 'proxy-apps/manager.js']
+   */
+  private readdirRecursive(dir: string): string[] {
+    const results: string[] = []
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        for (const sub of this.readdirRecursive(path.join(dir, entry.name))) {
+          results.push(`${entry.name}/${sub}`)
+        }
+      } else {
+        results.push(entry.name)
+      }
+    }
+    return results
   }
 
   /**
@@ -1699,6 +1741,56 @@ WRAPPER
       console.error(`[RemoteDeployService] Failed to send chat to agent:`, error)
       throw error
     }
+  }
+
+  /**
+   * Subscribe to real-time task updates from a remote server.
+   * Forwards task:update events to the main window via IPC.
+   */
+  subscribeToTaskUpdates(serverId: string): () => void {
+    const { BrowserWindow } = require('electron')
+    const wsClient = this.getOrCreateWsClient(serverId, this.servers.get(serverId)!)
+    const handler = (data: any) => {
+      const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('remote-server:task-update', { serverId, data })
+      }
+    }
+    wsClient.on('task:update', handler)
+    return () => { wsClient.off('task:update', handler) }
+  }
+
+  /**
+   * List background tasks on a remote server
+   */
+  listRemoteTasks(serverId: string): Promise<any[]> {
+    const wsClient = this.getOrCreateWsClient(serverId, this.servers.get(serverId)!)
+    return new Promise((resolve, reject) => {
+      const handler = (data: any) => {
+        wsClient.off('task:list', handler)
+        resolve(data)
+      }
+      wsClient.on('task:list', handler)
+      wsClient.listTasks()
+      // Timeout after 5s
+      setTimeout(() => { wsClient.off('task:list', handler); resolve([]) }, 5000)
+    })
+  }
+
+  /**
+   * Cancel a background task on a remote server
+   */
+  cancelRemoteTask(serverId: string, taskId: string): Promise<boolean> {
+    const wsClient = this.getOrCreateWsClient(serverId, this.servers.get(serverId)!)
+    return new Promise((resolve, reject) => {
+      const handler = (data: any) => {
+        wsClient.off('task:cancel', handler)
+        resolve(data?.success ?? false)
+      }
+      wsClient.on('task:cancel', handler)
+      wsClient.cancelTask(taskId)
+      setTimeout(() => { wsClient.off('task:cancel', handler); resolve(false) }, 5000)
+    })
   }
 
   /**
@@ -2233,6 +2325,415 @@ WRAPPER
       this.emitDeployProgress(id, 'sync-skills', `Skills 同步失败: ${err.message}`, 0)
       this.emitCommandOutput(id, 'error', `Skills 同步失败: ${err.message}`)
       throw error
+    }
+  }
+
+  /**
+   * List skills installed on a remote server.
+   * Uses a batch SSH command to minimize round-trips.
+   */
+  async listRemoteSkills(id: string): Promise<InstalledSkill[]> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    // Ensure SSH connection (always re-fetch manager after connectServer)
+    if (!this.getSSHManager(id).isConnected()) {
+      await this.connectServer(id)
+    }
+    const manager = this.getSSHManager(id)
+    if (!manager.isConnected()) {
+      throw new Error(`Failed to establish SSH connection to ${server.name}`)
+    }
+
+    // Batch-read all skill metadata in one SSH command
+    // NOTE: Use regular string to avoid JS template literal interpolation of shell $vars
+    // For SKILL.md: output entire file content (frontmatter + body), since system_prompt
+    // lives in the markdown body, not the YAML frontmatter (Claude Code native format)
+    const batchCmd = [
+      'for dir in ~/.agents/skills/*/; do',
+      '  [ -d "$dir" ] || continue',
+      '  skill=$(basename "$dir")',
+      '  echo "===SKILL_START:${skill}==="',
+      '  cat "$dir/META.json" 2>/dev/null || echo \'{}\'',
+      '  echo "===META_END==="',
+      '  echo "===SKILL_CONTENT==="',
+      '  if [ -f "$dir/SKILL.yaml" ]; then cat "$dir/SKILL.yaml";',
+      '  elif [ -f "$dir/SKILL.md" ]; then cat "$dir/SKILL.md";',
+      '  fi',
+      '  echo "===SKILL_CONTENT_END==="',
+      'done',
+    ].join('\n')
+
+    console.log(`[RemoteDeployService] Listing skills on ${server.name}, executing batch command...`)
+    const result = await manager.executeCommandFull(batchCmd)
+    console.log(`[RemoteDeployService] Batch command result: exitCode=${result.exitCode}, stdoutLen=${result.stdout.length}, stderrLen=${result.stderr.length}`)
+    const stdout = result.stdout.trim()
+    console.log(`[RemoteDeployService] Raw stdout (first 500 chars): ${stdout.substring(0, 500)}`)
+
+    if (!stdout) return []
+
+    const skills: InstalledSkill[] = []
+    const blocks = stdout.split('===SKILL_START:')
+
+    for (const block of blocks) {
+      if (!block.trim()) continue
+
+      // Block starts with "skillId===\n...", extract the ID and skip past the header
+      const skillId = block.split('===')[0].trim()
+      if (!skillId) continue
+
+      // Find where the actual content starts (after "skillId===\n")
+      const headerEnd = block.indexOf('===\n')
+      const contentStart = headerEnd === -1 ? 0 : headerEnd + '===\n'.length
+
+      const metaEndIdx = block.indexOf('===META_END===')
+      const contentEndIdx = block.indexOf('===SKILL_CONTENT_END===')
+      if (metaEndIdx === -1 || contentEndIdx === -1) continue
+
+      const metaPart = block.substring(contentStart, metaEndIdx).trim()
+      const contentPart = block.substring(metaEndIdx + '===META_END==='.length, contentEndIdx).trim()
+      // Strip the ===SKILL_CONTENT=== marker line
+      const markerIdx = contentPart.indexOf('===SKILL_CONTENT===')
+      const skillContent = markerIdx === -1 ? contentPart : contentPart.substring(markerIdx + '===SKILL_CONTENT==='.length).trim()
+
+      let enabled = true
+      let installedAt = ''
+      try {
+        const meta = JSON.parse(metaPart)
+        enabled = meta.enabled ?? true
+        installedAt = meta.installedAt ?? ''
+      } catch {
+        // Ignore parse errors
+      }
+
+      if (!skillContent) continue
+
+      try {
+        // Try parsing as SKILL.md format first (frontmatter + body)
+        const frontmatterMatch = skillContent.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+        if (frontmatterMatch) {
+          // SKILL.md format: system_prompt comes from the markdown body
+          const frontmatter = parseYaml(frontmatterMatch[1]) as any
+          const body = skillContent.slice(frontmatterMatch[0].length).trim()
+          skills.push({
+            appId: skillId,
+            spec: {
+              name: frontmatter.name || skillId,
+              description: frontmatter.description || '',
+              version: frontmatter.version || '1.0',
+              author: frontmatter.author || '',
+              system_prompt: body || '',
+              trigger_command: frontmatter.trigger_command || '',
+              tags: frontmatter.tags || [],
+              type: 'skill',
+            },
+            enabled,
+            installedAt,
+          })
+        } else {
+          // Pure YAML format (SKILL.yaml)
+          const spec = parseYaml(skillContent) as any
+          skills.push({
+            appId: skillId,
+            spec: {
+              name: spec.name || skillId,
+              description: spec.description || '',
+              version: spec.version || '1.0',
+              author: spec.author || '',
+              system_prompt: spec.system_prompt || '',
+              trigger_command: spec.trigger_command || '',
+              tags: spec.tags || [],
+              type: 'skill',
+            },
+            enabled,
+            installedAt,
+          })
+        }
+      } catch (e) {
+        console.warn(`[RemoteDeployService] Failed to parse skill content for remote skill: ${skillId}`, e)
+      }
+    }
+
+    return skills
+  }
+
+  /**
+   * List files in a remote skill directory.
+   * Returns a SkillFileNode tree matching the local SkillManager.getSkillFiles() interface.
+   */
+  async listRemoteSkillFiles(id: string, skillId: string): Promise<SkillFileNode[]> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    if (!this.getSSHManager(id).isConnected()) {
+      await this.connectServer(id)
+    }
+    const manager = this.getSSHManager(id)
+    if (!manager.isConnected()) {
+      throw new Error(`Failed to establish SSH connection to ${server.name}`)
+    }
+
+    // Use find to get full recursive listing with file sizes
+    // NOTE: Avoid -print0/read -d '' to prevent shell escaping issues
+    const cmd = [
+      'cd ~/.agents/skills/' + skillId + ' 2>/dev/null || exit 1',
+      'find . -not -path "./.git/*" -not -name "." | sort | while IFS= read -r item; do',
+      '  if [ -z "$item" ]; then continue; fi',
+      '  if [ -d "$item" ]; then',
+      '    echo "DIR:${item:2}"',
+      '  else',
+      '    size=$(stat -c%s "$item" 2>/dev/null || echo 0)',
+      '    echo "FILE:${item:2}:$size"',
+      '  fi',
+      'done',
+    ].join('\n')
+
+    console.log(`[RemoteDeployService] Listing files for remote skill: ${skillId}`)
+    const result = await manager.executeCommandFull(cmd)
+    console.log(`[RemoteDeployService] File list exitCode=${result.exitCode}, stdoutLen=${result.stdout.length}, stderr=${result.stderr.substring(0, 200)}`)
+    if (result.exitCode !== 0 || !result.stdout.trim()) {
+      console.log(`[RemoteDeployService] No files found for skill: ${skillId}`)
+      return []
+    }
+
+    // Build tree from flat listing
+    const nodes: SkillFileNode[] = []
+
+    const ensureDir = (dirPath: string): SkillFileNode => {
+      const parts = dirPath.split('/')
+      let current = nodes
+      let parent: SkillFileNode | undefined
+      for (const part of parts) {
+        let existing = current.find(n => n.name === part && n.type === 'directory')
+        if (!existing) {
+          existing = { name: part, type: 'directory', path: dirPath.split('/').slice(0, parts.indexOf(part) + 1).join('/'), children: [] }
+          if (parent) parent.children!.push(existing)
+          else current.push(existing)
+        }
+        parent = existing
+        current = existing.children!
+      }
+      return parent!
+    }
+
+    for (const line of result.stdout.split('\n')) {
+      if (!line.trim()) continue
+      if (line.startsWith('DIR:')) {
+        const dirPath = line.substring(4)
+        ensureDir(dirPath)
+      } else if (line.startsWith('FILE:')) {
+        const rest = line.substring(5)
+        const lastColon = rest.lastIndexOf(':')
+        const filePath = rest.substring(0, lastColon)
+        const size = parseInt(rest.substring(lastColon + 1)) || 0
+        const name = filePath.split('/').pop()!
+        const ext = name.includes('.') ? name.split('.').pop() : undefined
+
+        // Ensure parent directories exist
+        const dirParts = filePath.split('/')
+        if (dirParts.length > 1) {
+          const parentPath = dirParts.slice(0, -1).join('/')
+          const parent = ensureDir(parentPath)
+          parent.children!.push({ name, type: 'file', path: filePath, size, extension: ext })
+        } else {
+          nodes.push({ name, type: 'file', path: filePath, size, extension: ext })
+        }
+      }
+    }
+
+    // Sort: directories first, then files, alphabetically
+    const sortNodes = (list: SkillFileNode[]) => {
+      list.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+      for (const node of list) {
+        if (node.children) sortNodes(node.children)
+      }
+    }
+    sortNodes(nodes)
+
+    return nodes
+  }
+
+  /**
+   * Read a file from a remote skill directory.
+   */
+  async readRemoteSkillFile(id: string, skillId: string, filePath: string): Promise<string | null> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    if (!this.getSSHManager(id).isConnected()) {
+      await this.connectServer(id)
+    }
+    const manager = this.getSSHManager(id)
+    if (!manager.isConnected()) {
+      throw new Error(`Failed to establish SSH connection to ${server.name}`)
+    }
+
+    const result = await manager.executeCommandFull(
+      'cat ~/.agents/skills/' + skillId + '/' + filePath
+    )
+
+    if (result.exitCode !== 0) return null
+    return result.stdout
+  }
+
+  /**
+   * Ensure a fresh SSH connection for a server.
+   * Always disconnects and reconnects to avoid stale connections.
+   */
+  private async ensureFreshConnection(id: string, serverName: string, onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void): Promise<SSHManager> {
+    onOutput?.({ type: 'stdout', content: `[${serverName}] 正在连接...\n` })
+
+    // Always disconnect first to avoid stale connections
+    const manager = this.getSSHManager(id)
+    if (manager.isConnected()) {
+      manager.disconnect()
+    }
+
+    // Reconnect
+    await this.connectServer(id)
+    const freshManager = this.getSSHManager(id)
+    if (!freshManager.isConnected()) {
+      throw new Error(`Failed to connect to ${serverName}`)
+    }
+    return freshManager
+  }
+
+  /**
+   * Execute a command with timeout protection.
+   * Prevents commands from hanging indefinitely on broken connections.
+   */
+  private async executeWithTimeout(
+    manager: SSHManager,
+    command: string,
+    timeoutMs: number
+  ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Command timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+    )
+    return Promise.race([
+      manager.executeCommandFull(command),
+      timeoutPromise
+    ])
+  }
+
+  /**
+   * Install a skill on a remote server via SSH.
+   * Executes `npx skills add <repo> --skill <name> -y --global` on the remote server.
+   * Streams stdout/stderr back through onOutput callback.
+   */
+  async installRemoteSkill(
+    id: string,
+    skillId: string,
+    githubRepo: string,
+    skillName: string,
+    onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    let manager: SSHManager
+    try {
+      manager = await this.ensureFreshConnection(id, server.name, onOutput)
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+
+    // Ensure remote skills directory exists
+    onOutput?.({ type: 'stdout', content: `[${server.name}] 准备远程环境...\n` })
+    try {
+      const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
+      const remoteSkillsDir = `${remoteHome}/.agents/skills`
+      await manager.executeCommand(`mkdir -p ${remoteSkillsDir}`)
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] 准备远程环境失败: ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+
+    // Execute npx command on remote server
+    const command = `cd ~ && npx --yes skills add https://github.com/${githubRepo} --skill ${skillName} -y --global 2>&1`
+    onOutput?.({ type: 'stdout', content: `[${server.name}] $ npx skills add https://github.com/${githubRepo} --skill ${skillName} -y --global\n` })
+
+    try {
+      const result = await this.executeWithTimeout(manager, command, 180000)
+
+      if (result.stdout) {
+        onOutput?.({ type: 'stdout', content: result.stdout })
+      }
+      if (result.stderr) {
+        // Filter out npm warnings
+        const filtered = result.stderr
+          .split('\n')
+          .filter(line => !line.toLowerCase().includes('npm warn'))
+          .join('\n')
+          .trim()
+        if (filtered) {
+          onOutput?.({ type: 'stderr', content: filtered + '\n' })
+        }
+      }
+
+      if (result.exitCode === 0) {
+        onOutput?.({ type: 'complete', content: `[${server.name}] ✓ Skill installed successfully!\n` })
+        return { success: true }
+      } else {
+        const error = `[${server.name}] Installation failed with exit code ${result.exitCode}`
+        onOutput?.({ type: 'error', content: error + '\n' })
+        return { success: false, error }
+      }
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Uninstall a skill from a remote server via SSH.
+   */
+  async uninstallRemoteSkill(
+    id: string,
+    skillId: string,
+    onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    let manager: SSHManager
+    try {
+      manager = await this.ensureFreshConnection(id, server.name, onOutput)
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+
+    try {
+      const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
+      const remoteSkillPath = `${remoteHome}/.agents/skills/${skillId}`
+
+      onOutput?.({ type: 'stdout', content: `[${server.name}] Removing skill "${skillId}"...\n` })
+
+      const result = await this.executeWithTimeout(manager, `rm -rf ${remoteSkillPath}`, 30000)
+
+      if (result.exitCode === 0) {
+        onOutput?.({ type: 'complete', content: `[${server.name}] ✓ Skill "${skillId}" uninstalled successfully!\n` })
+        return { success: true }
+      } else {
+        const error = `[${server.name}] Failed to uninstall skill (exit code ${result.exitCode})`
+        onOutput?.({ type: 'error', content: error + '\n' })
+        return { success: false, error }
+      }
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` })
+      return { success: false, error: err.message }
     }
   }
 

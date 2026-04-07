@@ -77,6 +77,34 @@ export function registerSkillHandlers(
     }
   );
 
+  // ── skill:install-multi ────────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:install-multi',
+    async (event, input: {
+      skillId: string;
+      targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
+    }) => {
+      const onOutput = (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        event.sender.send('skill:install-output', input.skillId, { ...data, targetKey });
+      };
+      return skillController.installSkillMultiTarget(input.skillId, input.targets, onOutput);
+    }
+  );
+
+  // ── skill:uninstall-multi ──────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:uninstall-multi',
+    async (event, input: {
+      appId: string;
+      targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
+    }) => {
+      const onOutput = (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        event.sender.send('skill:uninstall-output', input.appId, { ...data, targetKey });
+      };
+      return skillController.uninstallSkillMultiTarget(input.appId, input.targets, onOutput);
+    }
+  );
+
   // ── skill:toggle ───────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:toggle',

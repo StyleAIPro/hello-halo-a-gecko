@@ -59,7 +59,14 @@ async function waitForAppManager(maxMs = 5000, intervalMs = 200) {
 // Tool Factories (closed over spaceId)
 // ============================================
 
-function buildTools(spaceId: string) {
+/**
+ * Build tool definitions for halo-apps MCP server.
+ * Tools are closed over spaceId for space-scoped operations.
+ *
+ * @param spaceId - The current space ID
+ * @returns Array of SdkMcpToolDefinition objects
+ */
+export function buildTools(spaceId: string) {
   const list_automation_apps = tool(
     'list_automation_apps',
     'List all automation apps installed in the current space. Returns app ID, name, description, status, and schedule.',

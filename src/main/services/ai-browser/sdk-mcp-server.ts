@@ -166,7 +166,7 @@ async function fillFormElement(ctx: BrowserContext, uid: string, value: string):
  * This allows each MCP server instance to operate on its own context
  * (scoped activeViewId) while sharing the same browserViewManager session.
  */
-function buildAllTools(ctx: BrowserContext) {
+export function buildAllTools(ctx: BrowserContext) {
 
 const browser_list_pages = tool(
   'browser_list_pages',

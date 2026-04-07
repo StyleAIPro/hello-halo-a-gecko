@@ -46,9 +46,6 @@ import { initScheduler, shutdownScheduler } from '../platform/scheduler'
 import { initEventBus, shutdownEventBus, FileWatcherSource, WebhookSource } from '../platform/event-bus'
 import type { WebhookSecretResolver } from '../platform/event-bus'
 import { initMemory } from '../platform/memory'
-import { initAppManager, shutdownAppManager } from '../apps/manager'
-import { initAppRuntime, shutdownAppRuntime } from '../apps/runtime'
-import { registerAppHandlers } from '../ipc/app'
 import { registerNotificationChannelHandlers } from '../ipc/notification-channels'
 import { registerStoreHandlers } from '../ipc/store'
 import { registerSkillHandlers } from '../ipc/skill'
@@ -56,10 +53,26 @@ import { registerHyperSpaceHandlers } from '../ipc/hyper-space'
 import { initRegistryService, shutdownRegistryService } from '../store'
 import * as watcherHost from '../services/watcher-host.service'
 import { getExpressApp } from '../http/server'
+import { getAccessToken } from '../http/auth'
 import { initTerminalGateway, shutdownTerminalGateway } from '../services/terminal'
+import { getMcpProxy, stopMcpProxy } from '../services/mcp-proxy'
 
 // Module-level reference to db for cleanup
 let platformDb: DatabaseManager | null = null
+
+/**
+ * Start the MCP Proxy Server.
+ * Exposes halo-apps and gh-search tools via HTTP for remote Claude sessions.
+ */
+async function startMcpProxy(): Promise<void> {
+  const token = getAccessToken()
+  if (!token) {
+    console.log('[Bootstrap] MCP Proxy: No access token available, skipping startup')
+    return
+  }
+  const proxy = await getMcpProxy(token)
+  console.log(`[Bootstrap] MCP Proxy started on port ${proxy.getPort()}`)
+}
 
 /**
  * Normalize a webhook path for matching.
@@ -112,44 +125,12 @@ async function initPlatformAndApps(): Promise<void> {
   const fileWatcherSource = new FileWatcherSource(watcherHost)
   eventBus.registerSource(fileWatcherSource)
 
-  // ── Phase 2: App Manager ─────────────────────────────────────────────────
-  const appManager = await initAppManager({ db })
-
-  // ── Wire WebhookSource (after AppManager so secret resolver can query apps) ─
-  // WebhookSource: mounts POST /hooks/* on the Express server to receive
-  // inbound webhooks from external services (GitHub, Stripe, etc.).
-  // The secret resolver looks up HMAC secrets from installed Apps' webhook
-  // subscription configs for per-hook signature verification.
-  const webhookSecretResolver: WebhookSecretResolver = (hookPath: string) => {
-    const apps = appManager.listApps({ status: 'active', type: 'automation' })
-    for (const app of apps) {
-      for (const sub of app.spec.subscriptions ?? []) {
-        if (sub.source.type !== 'webhook') continue
-        const config = sub.source.config
-        // Match if the subscription's configured path matches the incoming hook path
-        if (config.path && normalizeWebhookPath(config.path) === normalizeWebhookPath(hookPath)) {
-          if (config.secret) return config.secret
-        }
-      }
-    }
-    return null
-  }
-  const webhookSource = new WebhookSource(getExpressApp(), webhookSecretResolver)
-  eventBus.registerSource(webhookSource)
-
-  // ── Phase 3: App Runtime ─────────────────────────────────────────────────
-  await initAppRuntime({ db, appManager, scheduler, eventBus, memory, background })
-
-  // ── Phase 4: Registry Service (App Store) ─────────────────────────────
-  initRegistryService()
-
   // ── Start timer loops AFTER all wiring is complete ──────────────────────
-  // This ensures no events fire before subscriptions are registered.
   scheduler.start()
   eventBus.start()
 
   const dt = performance.now() - t0
-  console.log(`[Bootstrap] Platform+Apps initialized in ${dt.toFixed(1)}ms`)
+  console.log(`[Bootstrap] Platform initialized in ${dt.toFixed(1)}ms`)
 }
 
 /**
@@ -217,9 +198,6 @@ export function initializeExtendedServices(): void {
   const backgroundService = initBackground()
   backgroundService.initTray()
 
-  // App management IPC handlers (app:install, app:list, etc.)
-  registerAppHandlers()
-
   // Notification channel IPC handlers (notify-channels:test, etc.)
   registerNotificationChannelHandlers()
 
@@ -277,6 +255,13 @@ export function initializeExtendedServices(): void {
     console.error('[Bootstrap] Platform+Apps initialization failed:', err)
   })
 
+  // MCP Proxy Server: Exposes built-in MCP tools (halo-apps, gh-search) via HTTP
+  // for remote Claude sessions to connect through SSH tunnels.
+  // Non-blocking startup -- starts in background.
+  startMcpProxy().catch((err) => {
+    console.error('[Bootstrap] MCP Proxy initialization failed:', err)
+  })
+
   const duration = performance.now() - start
   console.log(`[Bootstrap] Extended services registered in ${duration.toFixed(1)}ms`)
 
@@ -299,12 +284,11 @@ export function initializeExtendedServices(): void {
  * Called during window-all-closed to properly release resources.
  */
 export async function cleanupExtendedServices(): Promise<void> {
-  // Store: Shutdown registry service (before app manager)
+  // Store: Shutdown registry service
   shutdownRegistryService()
 
-  // Apps: Shutdown runtime first (deactivates all apps, cancels runs)
-  await shutdownAppRuntime().catch(err => console.error('[Bootstrap] AppRuntime shutdown error:', err))
-  await shutdownAppManager().catch(err => console.error('[Bootstrap] AppManager shutdown error:', err))
+  // MCP Proxy: Stop the HTTP server
+  await stopMcpProxy()
 
   // Platform: Shutdown event bus and scheduler (stop timers)
   shutdownEventBus()

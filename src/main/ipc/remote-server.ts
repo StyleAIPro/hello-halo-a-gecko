@@ -344,6 +344,42 @@ export function registerRemoteServerHandlers(): void {
       return { success: false, error: err.message }
     }
   })
+
+  // ===== Background Task Handlers =====
+
+  // Subscribe to task updates via WebSocket push (called when entering remote space)
+  ipcMain.handle('remote-server:subscribe-tasks', async (_event, serverId: string) => {
+    try {
+      deployService.subscribeToTaskUpdates(serverId)
+      return { success: true }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-server:subscribe-tasks - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('remote-server:list-tasks', async (_event, serverId: string) => {
+    try {
+      const tasks = await deployService.listRemoteTasks(serverId)
+      return { success: true, data: tasks }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-server:list-tasks - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('remote-server:cancel-task', async (_event, serverId: string, taskId: string) => {
+    try {
+      const ok = await deployService.cancelRemoteTask(serverId, taskId)
+      return { success: true, data: { success: ok } }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-server:cancel-task - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
 }
 
 // Check if claude-agent-sdk is installed on remote server
@@ -436,16 +472,6 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
     console.log('[IPC] remote-server:update-agent - Deploying latest code (incremental)...')
     await deployService.updateAgentCode(serverId)
 
-    // Sync skills from local to remote
-    console.log('[IPC] remote-server:update-agent - Syncing skills...')
-    try {
-      const syncResult = await deployService.syncSkills(serverId)
-      console.log('[IPC] remote-server:update-agent - Skills sync result:', syncResult)
-    } catch (syncError) {
-      // Don't fail the update if skill sync fails
-      console.warn('[IPC] remote-server:update-agent - Skills sync failed:', syncError)
-    }
-
     // Start the agent with new code (will print build info)
     console.log('[IPC] remote-server:update-agent - Starting agent...')
     await deployService.startAgent(serverId)
@@ -489,6 +515,42 @@ ipcMain.handle('remote-server:sync-skills', async (_event, serverId: string) => 
   } catch (error: unknown) {
     const err = error as Error
     console.error('[IPC] remote-server:sync-skills - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:list-skills - Listing skills on server:', serverId)
+  try {
+    const skills = await deployService.listRemoteSkills(serverId)
+    return { success: true, data: skills }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:list-skills - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('remote-server:list-skill-files', async (_event, serverId: string, skillId: string) => {
+  console.log('[IPC] remote-server:list-skill-files - Listing files on server:', serverId, 'skill:', skillId)
+  try {
+    const files = await deployService.listRemoteSkillFiles(serverId, skillId)
+    return { success: true, data: files }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:list-skill-files - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('remote-server:read-skill-file', async (_event, serverId: string, skillId: string, filePath: string) => {
+  console.log('[IPC] remote-server:read-skill-file - Reading file on server:', serverId, 'skill:', skillId, 'file:', filePath)
+  try {
+    const content = await deployService.readRemoteSkillFile(serverId, skillId, filePath)
+    return { success: true, data: content }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:read-skill-file - Failed:', err.message)
     return { success: false, error: err.message }
   }
 })

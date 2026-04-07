@@ -18,7 +18,7 @@ import { useSpaceStore } from '../../stores/space.store'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useCanvasLifecycle } from '../../hooks/useCanvasLifecycle'
 import { useCanvasStore } from '../../stores/canvas.store'
-import { ChevronRight, FolderOpen, Monitor, LayoutGrid, FolderTree, X, Globe, Terminal as TerminalIcon } from 'lucide-react'
+import { ChevronRight, FolderOpen, Monitor, LayoutGrid, FolderTree, X, Globe, Terminal as TerminalIcon, ListTodo } from 'lucide-react'
 import { ONBOARDING_ARTIFACT_NAME } from '../onboarding/onboardingData'
 import { useTranslation } from '../../i18n'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -45,6 +45,8 @@ interface ArtifactRailProps {
   onWidthChange?: (width: number) => void  // Callback when user finishes resizing
   // Terminal toggle
   onToggleTerminal?: () => void  // Callback when user toggles terminal
+  // Tasks toggle (remote spaces only)
+  onToggleTasks?: () => void
 }
 
 // Load initial view mode from storage
@@ -95,7 +97,8 @@ export function ArtifactRail({
   onExpandedChange,
   initialWidth,
   onWidthChange,
-  onToggleTerminal
+  onToggleTerminal,
+  onToggleTasks
 }: ArtifactRailProps) {
   const { t } = useTranslation()
 
@@ -432,6 +435,17 @@ export function ArtifactRail({
             <TerminalIcon className="w-4 h-4 text-green-500" />
             <span>{t('Terminal')}</span>
           </button>
+          {/* Background tasks button - only for remote spaces */}
+          {currentSpace?.remoteServerId && onToggleTasks && (
+            <button
+              onClick={onToggleTasks}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground rounded-lg transition-colors"
+              title={t('Background tasks')}
+            >
+              <ListTodo className="w-4 h-4 text-orange-500" />
+              <span>{t('Tasks')}</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -619,6 +633,15 @@ export function ArtifactRail({
               >
                 <TerminalIcon className="w-5 h-5 text-green-500" />
               </button>
+              {currentSpace?.remoteServerId && onToggleTasks && (
+                <button
+                  onClick={onToggleTasks}
+                  className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                  title={t('Background tasks')}
+                >
+                  <ListTodo className="w-5 h-5 text-orange-500" />
+                </button>
+              )}
             </>
           )}
         </div>

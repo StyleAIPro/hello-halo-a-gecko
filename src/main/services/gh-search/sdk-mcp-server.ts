@@ -341,8 +341,9 @@ function formatRepoView(data: any): string {
 
 /**
  * Build all GitHub tools.
+ * Exported for reuse by the MCP proxy server.
  */
-function buildAllTools() {
+export function buildAllTools() {
 
 // --------------------------------------------
 // gh_search_repos - Search repositories
@@ -398,7 +399,7 @@ const gh_search_issues = tool(
   {
     query: z.string().describe('Search query. Supports GitHub issue search syntax (e.g., "is:open label:bug"). Use repo:owner/repo to search in a specific repo.'),
     limit: z.number().min(1).max(MAX_LIMIT).optional().describe(`Maximum number of results to return (default: ${DEFAULT_LIMIT})`),
-    sort: z.enum(['comments', 'reactions', 'reactions-+1', 'reactions--1', 'reactions-smile', 'reactions-thinking-face', 'reactions-heart', 'reactions-tada', 'interactions', 'created', 'updated']).optional().describe('Sort field'),
+    sort: z.enum(['comments', 'reactions', 'reactions-+1', 'reactions--1', 'reactions-smile', 'reactions-thinking_face', 'reactions-heart', 'reactions-tada', 'interactions', 'created', 'updated']).optional().describe('Sort field'),
     order: z.enum(['asc', 'desc']).optional().describe('Sort order'),
     json: z.boolean().optional().describe('Return raw JSON output')
   },
@@ -448,7 +449,7 @@ const gh_search_prs = tool(
   {
     query: z.string().describe('Search query. Supports GitHub PR search syntax (e.g., "is:open draft:false"). Use repo:owner/repo to search in a specific repo.'),
     limit: z.number().min(1).max(MAX_LIMIT).optional().describe(`Maximum number of results to return (default: ${DEFAULT_LIMIT})`),
-    sort: z.enum(['comments', 'reactions', 'reactions-+1', 'reactions--1', 'reactions-smile', 'reactions-thinking-face', 'reactions-heart', 'reactions-tada', 'interactions', 'created', 'updated']).optional().describe('Sort field'),
+    sort: z.enum(['comments', 'reactions', 'reactions-+1', 'reactions--1', 'reactions-smile', 'reactions-thinking_face', 'reactions-heart', 'reactions-tada', 'interactions', 'created', 'updated']).optional().describe('Sort field'),
     order: z.enum(['asc', 'desc']).optional().describe('Sort order'),
     json: z.boolean().optional().describe('Return raw JSON output')
   },
@@ -539,9 +540,11 @@ const gh_search_code = tool(
 // --------------------------------------------
 const gh_search_commits = tool(
   'gh_search_commits',
-  'Search GitHub commits by query. Supports filtering by author, date, etc.',
+  'Search GitHub commits by query. Supports filtering by author, date, etc. Note: only searches the default branch of repositories.',
   {
-    query: z.string().describe('Search query. Supports GitHub commit search syntax (e.g., "author:octocat committer-date:>2024-01-01"). Use repo:owner/repo to search in a specific repo.'),
+    query: z.string().optional().describe('Search query. Supports GitHub commit search syntax (e.g., "author:octocat committer-date:>2024-01-01"). Use repo:owner/repo to search in a specific repo. Optional - you can omit if using qualifiers only.'),
+    sort: z.enum(['author-date', 'committer-date']).optional().describe('Sort field'),
+    order: z.enum(['asc', 'desc']).optional().describe('Sort order'),
     limit: z.number().min(1).max(MAX_LIMIT).optional().describe(`Maximum number of results to return (default: ${DEFAULT_LIMIT})`),
     json: z.boolean().optional().describe('Return raw JSON output')
   },
@@ -549,15 +552,19 @@ const gh_search_commits = tool(
     const limit = Math.min(args.limit || DEFAULT_LIMIT, MAX_LIMIT)
 
     // Extract repo qualifier and use --repo flag for proper handling
-    const { cleanQuery, repo } = extractRepoQualifier(args.query)
+    const queryStr = args.query || ''
+    const { cleanQuery, repo } = extractRepoQualifier(queryStr)
 
     const cmdArgs = [
       'search commits',
       cleanQuery ? `"${cleanQuery}"` : '',
       repo ? `--repo ${repo}` : '',
       `--limit ${limit}`,
-      '--json sha,message,author,url'
+      '--json sha,commit,author,url'
     ].filter(Boolean)
+
+    if (args.sort) cmdArgs.push(`--sort ${args.sort}`)
+    if (args.order) cmdArgs.push(`--order ${args.order}`)
 
     try {
       const { stdout, stderr } = await execGh(cmdArgs.join(' '))

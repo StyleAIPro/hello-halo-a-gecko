@@ -145,7 +145,13 @@ export function WorkerPanel({ worker, onAnswerQuestion }: WorkerPanelProps) {
 export function WorkerPanelsContainer({ workerSessions, onAnswerQuestion }: { workerSessions: Map<string, WorkerSessionState>; onAnswerQuestion?: (agentId: string, answers: Record<string, string>) => void }) {
   if (workerSessions.size === 0) return null
 
+  // Only show delegation-mode workers inline in main conversation.
+  // Mention-mode workers display their output directly in the main streaming content,
+  // so showing a WorkerPanel would duplicate the content.
   const workers = Array.from(workerSessions.values())
+    .filter(w => w.interactionMode !== 'mention')
+
+  if (workers.length === 0) return null
 
   return (
     <div className="flex flex-col gap-0">

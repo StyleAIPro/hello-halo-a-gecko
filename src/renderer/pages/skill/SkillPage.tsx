@@ -21,7 +21,7 @@ import { Book, Store, FileCode, Settings, ArrowLeft } from 'lucide-react'
 export function SkillPage() {
   const { t } = useTranslation()
   const currentSpace = useSpaceStore(state => state.currentSpace)
-  const { setView } = useAppStore()
+  const { setView, goBack } = useAppStore()
 
   const {
     currentView,
@@ -66,7 +66,7 @@ export function SkillPage() {
         spaceId={currentSpace?.id}
         left={
           <button
-            onClick={() => setView('space')}
+            onClick={() => goBack()}
             className="p-1.5 hover:bg-secondary rounded-lg transition-colors"
             title={t('Back')}
           >
