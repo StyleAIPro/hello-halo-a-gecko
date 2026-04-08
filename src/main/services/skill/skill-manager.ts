@@ -4,27 +4,31 @@
  *
  * 存储结构：
  * - 全局 skills: ~/.agents/skills/
+ * - Claude 原生 skills: ~/.claude/skills/
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { SkillSpec, InstalledSkill, SkillLibraryConfig, SkillFileNode } from '../../shared/skill/skill-types';
-import { getAgentsSkillsDir } from '../config.service';
+import { getAgentsSkillsDir, getClaudeSkillsDir, getAllSkillsDirs } from '../config.service';
 
 export class SkillManager {
   private static instance: SkillManager;
-  private skillsDir: string;
+  private skillsDirs: string[];
   private configPath: string;
 
   // 已安装的技能缓存
   private installedSkills: Map<string, InstalledSkill> = new Map();
 
+  // 技能来源目录映射 (skillId -> skillsDir)
+  private skillDirMap: Map<string, string> = new Map();
+
   // 技能配置
   private config: SkillLibraryConfig = {};
 
   private constructor() {
-    this.skillsDir = getAgentsSkillsDir();
+    this.skillsDirs = getAllSkillsDirs();
     this.configPath = path.join(getAgentsSkillsDir(), '..', 'skill-config.json');
   }
 
@@ -39,8 +43,10 @@ export class SkillManager {
    * 初始化技能管理器
    */
   async initialize(): Promise<void> {
-    // 确保技能目录存在
-    await fs.mkdir(this.skillsDir, { recursive: true });
+    // 确保所有技能目录存在
+    for (const dir of this.skillsDirs) {
+      await fs.mkdir(dir, { recursive: true });
+    }
 
     // 加载配置
     await this.loadConfig();
@@ -48,7 +54,7 @@ export class SkillManager {
     // 加载已安装的 skills
     await this.loadSkills();
 
-    console.log('[SkillManager] Initialized with', this.installedSkills.size, 'skills');
+    console.log('[SkillManager] Initialized with', this.installedSkills.size, 'skills from', this.skillsDirs.length, 'directories');
   }
 
   /**
@@ -76,48 +82,72 @@ export class SkillManager {
   }
 
   /**
-   * 加载已安装的 skills
+   * 加载已安装的 skills（从所有搜索目录）
+   * 同名 skill 取修改时间最新的版本
    */
   private async loadSkills(): Promise<void> {
     this.installedSkills.clear();
+    this.skillDirMap.clear();
 
-    console.log('[SkillManager] Loading skills from:', this.skillsDir);
+    // 临时收集所有候选 skill，按名称分组
+    const candidates = new Map<string, { dir: string; mtime: number; skill: InstalledSkill }>();
 
-    try {
-      const entries = await fs.readdir(this.skillsDir, { withFileTypes: true });
-      console.log('[SkillManager] Found', entries.length, 'entries in skills directory');
+    for (const skillsDir of this.skillsDirs) {
+      console.log('[SkillManager] Loading skills from:', skillsDir);
 
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillDir = path.join(this.skillsDir, entry.name);
-          console.log('[SkillManager] Loading skill from:', skillDir);
+      try {
+        const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+        console.log('[SkillManager] Found', entries.length, 'entries in', skillsDir);
 
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+
+          const skillDir = path.join(skillsDir, entry.name);
           try {
-            // 尝试加载 SKILL.yaml 或 SKILL.md
+            const stat = await fs.stat(skillDir);
+            const mtime = stat.mtimeMs;
+
             const skill = await this.loadSkillFromDir(skillDir, entry.name);
-            if (skill) {
-              this.installedSkills.set(entry.name, skill);
-              console.log('[SkillManager] Successfully loaded skill:', entry.name);
-            } else {
+            if (!skill) {
               console.warn('[SkillManager] Failed to parse skill:', entry.name);
+              continue;
+            }
+
+            const existing = candidates.get(entry.name);
+            if (!existing || mtime > existing.mtime) {
+              candidates.set(entry.name, { dir: skillsDir, mtime, skill });
+              console.log('[SkillManager] Candidate skill:', entry.name,
+                'from', skillsDir, 'mtime:', new Date(mtime).toISOString(),
+                existing ? '(replacing older version)' : '');
+            } else {
+              console.log('[SkillManager] Skipping older duplicate skill:', entry.name,
+                'from', skillsDir, 'mtime:', new Date(mtime).toISOString());
             }
           } catch (error) {
             console.error(`[SkillManager] Failed to load skill ${entry.name}:`, error);
           }
         }
+      } catch (error) {
+        console.error('[SkillManager] Failed to load skills from', skillsDir, ':', error);
       }
-    } catch (error) {
-      console.error('[SkillManager] Failed to load skills:', error);
+    }
+
+    // 将最终候选写入缓存
+    for (const [skillId, candidate] of candidates) {
+      this.installedSkills.set(skillId, candidate.skill);
+      this.skillDirMap.set(skillId, candidate.dir);
+      console.log('[SkillManager] Loaded skill:', skillId, 'from', candidate.dir);
     }
   }
 
   /**
-   * 从目录加载 skill（支持 SKILL.yaml 和 SKILL.md 格式）
+   * 从目录加载 skill（优先 SKILL.md，回退 SKILL.yaml）
+   * SKILL.md 是 Claude Code 原生格式（YAML frontmatter + markdown body）
+   * SKILL.yaml 是 AICO-Bot 自有格式
    */
   private async loadSkillFromDir(skillDir: string, skillId: string): Promise<InstalledSkill | null> {
-    // 先尝试 SKILL.yaml
-    const yamlFile = path.join(skillDir, 'SKILL.yaml');
     const mdFile = path.join(skillDir, 'SKILL.md');
+    const yamlFile = path.join(skillDir, 'SKILL.yaml');
 
     // 读取 META.json
     const metaFile = path.join(skillDir, 'META.json');
@@ -129,21 +159,7 @@ export class SkillManager {
       // meta 文件不存在，使用默认值
     }
 
-    // 尝试加载 SKILL.yaml
-    try {
-      const yamlContent = await fs.readFile(yamlFile, 'utf-8');
-      const spec = parseYaml(yamlContent) as SkillSpec;
-      return {
-        appId: skillId,
-        spec,
-        enabled: meta.enabled ?? true,
-        installedAt: meta.installedAt ?? new Date().toISOString()
-      };
-    } catch {
-      // SKILL.yaml 不存在，尝试 SKILL.md
-    }
-
-    // 尝试加载 SKILL.md (Claude Code 原生格式)
+    // 优先尝试 SKILL.md (Claude Code 原生格式)
     try {
       const mdContent = await fs.readFile(mdFile, 'utf-8');
       const spec = this.parseSkillMd(mdContent, skillId);
@@ -156,7 +172,21 @@ export class SkillManager {
         };
       }
     } catch {
-      // SKILL.md 也不存在
+      // SKILL.md 不存在，尝试 SKILL.yaml
+    }
+
+    // 回退到 SKILL.yaml (AICO-Bot 格式)
+    try {
+      const yamlContent = await fs.readFile(yamlFile, 'utf-8');
+      const spec = parseYaml(yamlContent) as SkillSpec;
+      return {
+        appId: skillId,
+        spec,
+        enabled: meta.enabled ?? true,
+        installedAt: meta.installedAt ?? new Date().toISOString()
+      };
+    } catch {
+      // SKILL.yaml 也不存在
     }
 
     return null;
@@ -213,7 +243,8 @@ export class SkillManager {
    * 获取技能目录下的文件结构
    */
   async getSkillFiles(skillId: string): Promise<SkillFileNode[]> {
-    const skillDir = path.join(this.skillsDir, skillId);
+    const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
+    const skillDir = path.join(baseDir, skillId);
 
     try {
       return await this.buildFileTree(skillDir, '');
@@ -273,12 +304,13 @@ export class SkillManager {
    * 读取技能文件内容
    */
   async getSkillFileContent(skillId: string, filePath: string): Promise<string | null> {
-    const fullPath = path.join(this.skillsDir, skillId, filePath);
+    const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
+    const fullPath = path.join(baseDir, skillId, filePath);
 
     try {
       // 安全检查：确保路径在技能目录内
       const normalizedPath = path.normalize(fullPath);
-      const skillDir = path.join(this.skillsDir, skillId) + path.sep;
+      const skillDir = path.join(baseDir, skillId) + path.sep;
       if (!normalizedPath.startsWith(skillDir)) {
         console.error('[SkillManager] Invalid file path:', filePath);
         return null;
@@ -296,12 +328,13 @@ export class SkillManager {
    * 保存技能文件内容
    */
   async saveSkillFileContent(skillId: string, filePath: string, content: string): Promise<boolean> {
-    const fullPath = path.join(this.skillsDir, skillId, filePath);
+    const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
+    const fullPath = path.join(baseDir, skillId, filePath);
 
     try {
       // 安全检查：确保路径在技能目录内
       const normalizedPath = path.normalize(fullPath);
-      const skillDir = path.join(this.skillsDir, skillId) + path.sep;
+      const skillDir = path.join(baseDir, skillId) + path.sep;
       if (!normalizedPath.startsWith(skillDir)) {
         console.error('[SkillManager] Invalid file path:', filePath);
         return false;
@@ -320,14 +353,15 @@ export class SkillManager {
   }
 
   /**
-   * 安装 skill
+   * 安装 skill（安装到主目录 ~/.agents/skills/）
    */
   async installSkill(spec: SkillSpec, skillData: {
     systemPrompt: string;
     triggerCommand?: string;
   }): Promise<string> {
     const skillId = spec.name.toLowerCase().replace(/\s+/g, '-');
-    const skillDir = path.join(this.skillsDir, skillId);
+    const primaryDir = this.skillsDirs[0];
+    const skillDir = path.join(primaryDir, skillId);
 
     // 创建技能目录
     await fs.mkdir(skillDir, { recursive: true });
@@ -361,6 +395,7 @@ export class SkillManager {
 
     // 更新缓存
     this.installedSkills.set(skillId, meta);
+    this.skillDirMap.set(skillId, primaryDir);
     console.log('[SkillManager] Installed skill:', skillId);
 
     return skillId;
@@ -370,7 +405,8 @@ export class SkillManager {
    * 卸载 skill
    */
   async uninstallSkill(skillId: string): Promise<boolean> {
-    const skillDir = path.join(this.skillsDir, skillId);
+    const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
+    const skillDir = path.join(baseDir, skillId);
 
     try {
       // 删除技能目录
@@ -378,6 +414,7 @@ export class SkillManager {
 
       // 从缓存中移除
       this.installedSkills.delete(skillId);
+      this.skillDirMap.delete(skillId);
       console.log('[SkillManager] Uninstalled skill:', skillId);
       return true;
     } catch (error) {
@@ -399,7 +436,8 @@ export class SkillManager {
     this.installedSkills.set(skillId, skill);
 
     // 更新 META.json
-    const skillDir = path.join(this.skillsDir, skillId);
+    const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
+    const skillDir = path.join(baseDir, skillId);
     const metaFile = path.join(skillDir, 'META.json');
     await fs.writeFile(metaFile, JSON.stringify(skill, null, 2), 'utf-8');
 
@@ -412,6 +450,20 @@ export class SkillManager {
    */
   getSkill(skillId: string): InstalledSkill | undefined {
     return this.installedSkills.get(skillId);
+  }
+
+  /**
+   * 获取 skill 所在的基础目录
+   */
+  getSkillBaseDir(skillId: string): string {
+    return this.skillDirMap.get(skillId) || this.skillsDirs[0];
+  }
+
+  /**
+   * 获取所有 skills 搜索目录
+   */
+  getSkillsDirs(): string[] {
+    return [...this.skillsDirs];
   }
 
   /**

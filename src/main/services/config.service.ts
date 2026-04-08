@@ -463,6 +463,20 @@ export function getAgentsSkillsDir(): string {
   return join(getAgentsDir(), 'skills')
 }
 
+/**
+ * 获取 Claude 原生 skills 目录 (~/.claude/skills)
+ */
+export function getClaudeSkillsDir(): string {
+  return join(homedir(), '.claude', 'skills')
+}
+
+/**
+ * 获取所有 skills 搜索目录列表
+ */
+export function getAllSkillsDirs(): string[] {
+  return [getAgentsSkillsDir(), getClaudeSkillsDir()]
+}
+
 // Default model (Opus 4.5)
 const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
 

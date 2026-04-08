@@ -2351,16 +2351,30 @@ WRAPPER
     // NOTE: Use regular string to avoid JS template literal interpolation of shell $vars
     // For SKILL.md: output entire file content (frontmatter + body), since system_prompt
     // lives in the markdown body, not the YAML frontmatter (Claude Code native format)
+    // Scans both ~/.agents/skills/ and ~/.claude/skills/
+    // For duplicates, keeps the one with the most recent directory modification time
     const batchCmd = [
-      'for dir in ~/.agents/skills/*/; do',
-      '  [ -d "$dir" ] || continue',
-      '  skill=$(basename "$dir")',
+      'declare -A best_mtime best_dir',
+      'for skills_base in ~/.agents/skills ~/.claude/skills; do',
+      '  [ -d "$skills_base" ] || continue',
+      '  for dir in "$skills_base"/*/; do',
+      '    [ -d "$dir" ] || continue',
+      '    skill=$(basename "$dir")',
+      '    mtime=$(stat -c %Y "$dir" 2>/dev/null || stat -f %m "$dir" 2>/dev/null || echo 0)',
+      '    if [ -z "${best_mtime[$skill]}" ] || [ "$mtime" -gt "${best_mtime[$skill]}" ]; then',
+      '      best_mtime[$skill]=$mtime',
+      '      best_dir[$skill]=$dir',
+      '    fi',
+      '  done',
+      'done',
+      'for skill in "${!best_dir[@]}"; do',
+      '  dir="${best_dir[$skill]}"',
       '  echo "===SKILL_START:${skill}==="',
       '  cat "$dir/META.json" 2>/dev/null || echo \'{}\'',
       '  echo "===META_END==="',
       '  echo "===SKILL_CONTENT==="',
-      '  if [ -f "$dir/SKILL.yaml" ]; then cat "$dir/SKILL.yaml";',
-      '  elif [ -f "$dir/SKILL.md" ]; then cat "$dir/SKILL.md";',
+      '  if [ -f "$dir/SKILL.md" ]; then cat "$dir/SKILL.md";',
+      '  elif [ -f "$dir/SKILL.yaml" ]; then cat "$dir/SKILL.yaml";',
       '  fi',
       '  echo "===SKILL_CONTENT_END==="',
       'done',
@@ -2477,8 +2491,14 @@ WRAPPER
 
     // Use find to get full recursive listing with file sizes
     // NOTE: Avoid -print0/read -d '' to prevent shell escaping issues
+    // Look in both ~/.agents/skills/ and ~/.claude/skills/
     const cmd = [
-      'cd ~/.agents/skills/' + skillId + ' 2>/dev/null || exit 1',
+      'skill_dir=""',
+      'for base in ~/.agents/skills ~/.claude/skills; do',
+      '  [ -d "$base/' + skillId + '" ] && skill_dir="$base/' + skillId + '" && break',
+      'done',
+      '[ -z "$skill_dir" ] && exit 1',
+      'cd "$skill_dir"',
       'find . -not -path "./.git/*" -not -name "." | sort | while IFS= read -r item; do',
       '  if [ -z "$item" ]; then continue; fi',
       '  if [ -d "$item" ]; then',
@@ -2574,7 +2594,14 @@ WRAPPER
     }
 
     const result = await manager.executeCommandFull(
-      'cat ~/.agents/skills/' + skillId + '/' + filePath
+      [
+        'skill_dir=""',
+        'for base in ~/.agents/skills ~/.claude/skills; do',
+        '  [ -d "$base/' + skillId + '" ] && skill_dir="$base/' + skillId + '" && break',
+        'done',
+        '[ -z "$skill_dir" ] && exit 1',
+        'cat "$skill_dir/' + filePath + '"',
+      ].join('\n')
     )
 
     if (result.exitCode !== 0) return null
@@ -2716,11 +2743,16 @@ WRAPPER
 
     try {
       const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
-      const remoteSkillPath = `${remoteHome}/.agents/skills/${skillId}`
 
       onOutput?.({ type: 'stdout', content: `[${server.name}] Removing skill "${skillId}"...\n` })
 
-      const result = await this.executeWithTimeout(manager, `rm -rf ${remoteSkillPath}`, 30000)
+      // Remove from both possible locations
+      const removeCmd = [
+        `rm -rf ${remoteHome}/.agents/skills/${skillId}`,
+        `rm -rf ${remoteHome}/.claude/skills/${skillId}`,
+      ].join(' && ')
+
+      const result = await this.executeWithTimeout(manager, removeCmd, 30000)
 
       if (result.exitCode === 0) {
         onOutput?.({ type: 'complete', content: `[${server.name}] ✓ Skill "${skillId}" uninstalled successfully!\n` })

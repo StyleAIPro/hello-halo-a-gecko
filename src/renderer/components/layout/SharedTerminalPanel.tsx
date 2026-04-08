@@ -69,6 +69,10 @@ export function SharedTerminalPanel({
   // WebSocket ref for direct terminal input
   const terminalWebSocketRef = useRef<WebSocket | null>(null)
 
+  // Track if WebSocket is the active channel for agent terminal output
+  // When WebSocket is connected, IPC handlers should NOT write to xterm to avoid duplicates
+  const isWebSocketActiveRef = useRef(false)
+
   // Track if we received history output (to avoid sending extra \r on reconnection)
   const receivedHistoryRef = useRef(false)
 
@@ -78,8 +82,8 @@ export function SharedTerminalPanel({
   // Track the last conversationId that was replayed (to detect conversation switches)
   const lastReplayedConversationIdRef = useRef<string | null>(null)
 
-  // Track which commands have shown "正在执行..." placeholder (shared between IPC and WebSocket handlers)
-  const placeholderShownMap = useRef<Map<string, boolean>>(new Map())
+  // Track which commands have shown "正在执行..." placeholder and line count (shared between IPC and WebSocket handlers)
+  const placeholderShownMap = useRef<Map<string, number>>(new Map())
 
   // Resize handle logic
   useEffect(() => {
@@ -246,9 +250,10 @@ export function SharedTerminalPanel({
         })
         setAgentTerminalStatus('running')
 
-        // Write to Agent Terminal xterm if available
+        // Write to Agent Terminal xterm only if WebSocket is NOT active
+        // (when WebSocket is connected, it handles xterm rendering to avoid duplicates)
         const agentTerm = agentXtermRef.current
-        if (agentTerm) {
+        if (agentTerm && !isWebSocketActiveRef.current) {
           // Format environment label like a real terminal prompt
           // cwdLabel format: "user@host path % "
           const promptText = msg.cwdLabel || msg.pathOnly || '~'
@@ -276,28 +281,30 @@ export function SharedTerminalPanel({
       const { _onAgentCommandOutput } = useAgentCommandViewerStore.getState()
       _onAgentCommandOutput(msg.commandId, msg.output)
 
-      // Write to Agent Terminal xterm if available
+      // Write to Agent Terminal xterm only if WebSocket is NOT active
+      // (when WebSocket is connected, it handles xterm rendering to avoid duplicates)
       const agentTerm = agentXtermRef.current
-      if (agentTerm && msg.output) {
+      if (agentTerm && msg.output && !isWebSocketActiveRef.current) {
         // Check if this is a placeholder output (isStream: true with "正在执行")
         const isPlaceholder = msg.isStream && msg.output.includes('正在执行')
 
         // Check if this is real output after a placeholder was shown
-        const hadPlaceholder = placeholderShownMap.current.get(msg.commandId)
+        const placeholderLines = placeholderShownMap.current.get(msg.commandId)
 
         if (isPlaceholder) {
-          // Mark that we've shown placeholder for this command
-          placeholderShownMap.current.set(msg.commandId, true)
+          // Mark that we've shown placeholder for this command with line count
+          const outputLines = msg.output.split('\n').filter(l => l.length > 0)
+          placeholderShownMap.current.set(msg.commandId, outputLines.length)
           // Write placeholder to terminal
-          const outputLines = msg.output.split('\n')
           outputLines.forEach(line => {
             agentTerm.writeln(line)
           })
           agentTerm.scrollToBottom()
-        } else if (hadPlaceholder && !msg.isStream) {
-          // Real output after placeholder - clear the placeholder line first
-          // Use ANSI escape to move cursor up and clear line
-          agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
+        } else if (placeholderLines != null && !msg.isStream) {
+          // Real output after placeholder - clear the placeholder lines first
+          for (let i = 0; i < placeholderLines; i++) {
+            agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
+          }
           // Then write the real output
           const outputLines = msg.output.split('\n')
           outputLines.forEach(line => {
@@ -333,9 +340,9 @@ export function SharedTerminalPanel({
       _onAgentCommandComplete(msg.commandId, msg.exitCode)
       setAgentTerminalStatus('completed')
 
-      // Write completion to Agent Terminal xterm if available
+      // Write completion to Agent Terminal xterm only if WebSocket is NOT active
       const agentTerm = agentXtermRef.current
-      if (agentTerm) {
+      if (agentTerm && !isWebSocketActiveRef.current) {
         if (msg.exitCode === 0) {
           agentTerm.writeln(`\x1b[90m[Process completed - exit code: ${msg.exitCode}]\x1b[0m`)
         } else {
@@ -647,6 +654,7 @@ export function SharedTerminalPanel({
       ws.onopen = () => {
         console.log('[SharedTerminal] User terminal connected')
         setTerminalStatus('connected')
+        isWebSocketActiveRef.current = true
 
         const term = userXtermRef.current
         if (term) {
@@ -665,6 +673,25 @@ export function SharedTerminalPanel({
                 // User pressed Ctrl+C with text selected - copy to clipboard
                 navigator.clipboard.writeText(term.getSelection()).catch(console.error)
                 term.clearSelection()
+                return
+              }
+
+              // Check if user is trying to paste (Ctrl/Cmd + V)
+              // xterm.js sends '\x16' for Ctrl+V, but we want clipboard paste instead
+              if (data === '\x16') {
+                navigator.clipboard.readText().then(clipboardText => {
+                  if (clipboardText && ws.readyState === WebSocket.OPEN) {
+                    // Normalize line endings: strip \r to avoid double-enter
+                    // Windows clipboard uses \r\n, but terminals only need \n
+                    const normalizedText = clipboardText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+                    ws.send(JSON.stringify({
+                      type: 'terminal:raw-input',
+                      data: { input: normalizedText }
+                    }))
+                  }
+                }).catch(() => {
+                  // Clipboard access denied - ignore
+                })
                 return
               }
 
@@ -711,6 +738,7 @@ export function SharedTerminalPanel({
           wasClean: event.wasClean
         })
         setTerminalStatus('disconnected')
+        isWebSocketActiveRef.current = false
         // Don't set terminalWebSocketRef.current to null - keep it so we know a connection existed
         // The next time the panel opens, we'll detect the closed state and reconnect
       }
@@ -741,6 +769,10 @@ export function SharedTerminalPanel({
 
       case 'terminal:agent-command-start':
         // Agent started executing a command
+        // Only process if it's for our conversation
+        if (message.data?.conversationId && message.data.conversationId !== conversationId) {
+          break
+        }
         console.log('[Terminal] Agent command start:', message.data, 'cwdLabel:', message.data.cwdLabel, 'pathOnly:', message.data.pathOnly)
         _onAgentCommandStart({
           id: message.data.id,
@@ -781,21 +813,22 @@ export function SharedTerminalPanel({
           const isPlaceholder = message.data.isStream && message.data.output.includes('正在执行')
 
           // Check if this is real output after a placeholder was shown
-          const hadPlaceholder = placeholderShownMap.current.get(message.data.commandId)
+          const placeholderLines = placeholderShownMap.current.get(message.data.commandId)
 
           if (isPlaceholder) {
-            // Mark that we've shown placeholder for this command
-            placeholderShownMap.current.set(message.data.commandId, true)
+            // Mark that we've shown placeholder for this command with line count
+            const outputLines = message.data.output.split('\n').filter(l => l.length > 0)
+            placeholderShownMap.current.set(message.data.commandId, outputLines.length)
             // Write placeholder to terminal
-            const outputLines = message.data.output.split('\n')
             outputLines.forEach(line => {
               agentTerm.writeln(line)
             })
             agentTerm.scrollToBottom()
-          } else if (hadPlaceholder && !message.data.isStream) {
-            // Real output after placeholder - clear the placeholder line first
-            // Use ANSI escape to move cursor up and clear line
-            agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
+          } else if (placeholderLines != null && !message.data.isStream) {
+            // Real output after placeholder - clear the placeholder lines first
+            for (let i = 0; i < placeholderLines; i++) {
+              agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
+            }
             // Then write the real output
             const outputLines = message.data.output.split('\n')
             outputLines.forEach(line => {

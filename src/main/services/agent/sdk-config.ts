@@ -8,7 +8,7 @@
 
 import path from 'path'
 import os from 'os'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync, lstatSync, unlinkSync, readdirSync, statSync } from 'fs'
 import { app } from 'electron'
 import { ensureOpenAICompatRouter, encodeBackendConfig } from '../../openai-compat-router'
 import type { ApiCredentials } from './types'
@@ -220,6 +220,77 @@ const SANDBOX_CONFIG = {
 let sandboxSettingsWritten = false
 
 /**
+ * Merge skill directories from multiple sourceDirs into targetDir.
+ * For duplicate skill names, the one with the most recent modification time wins.
+ * Creates individual junctions in targetDir pointing to the winning source directories.
+ */
+function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
+  // Collect candidates: skillName -> { sourcePath, mtime }
+  const candidates = new Map<string, { sourcePath: string; mtime: number }>()
+
+  for (const sourceDir of sourceDirs) {
+    try {
+      if (!existsSync(sourceDir)) continue
+      const entries = readdirSync(sourceDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const sourcePath = path.join(sourceDir, entry.name)
+        try {
+          const stat = statSync(sourcePath)
+          const mtime = stat.mtimeMs
+          const existing = candidates.get(entry.name)
+          if (!existing || mtime > existing.mtime) {
+            candidates.set(entry.name, { sourcePath, mtime })
+          }
+        } catch {
+          // stat failed, skip
+        }
+      }
+    } catch (err) {
+      console.warn('[SDK Config] Failed to read source dir:', sourceDir, err)
+    }
+  }
+
+  // Clean up existing junctions in targetDir that no longer have a source
+  try {
+    if (existsSync(targetDir)) {
+      const existingEntries = readdirSync(targetDir, { withFileTypes: true })
+      for (const entry of existingEntries) {
+        if (!entry.isDirectory()) continue
+        if (!candidates.has(entry.name)) {
+          const targetPath = path.join(targetDir, entry.name)
+          try {
+            unlinkSync(targetPath)
+            console.log(`[SDK Config] Removed stale skill link: ${entry.name}`)
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Create/update junctions for all winning candidates
+  for (const [name, { sourcePath }] of candidates) {
+    const targetPath = path.join(targetDir, name)
+    // Remove existing link/dir to recreate with the winning source
+    try {
+      unlinkSync(targetPath)
+    } catch {
+      // doesn't exist, proceed to create
+    }
+    try {
+      symlinkSync(sourcePath, targetPath, 'junction')
+      console.log(`[SDK Config] Linked skill: ${name} -> ${sourcePath}`)
+    } catch (err) {
+      console.warn(`[SDK Config] Failed to link skill ${name}:`, err)
+    }
+  }
+}
+
+/**
  * Ensure sandbox config exists in CLAUDE_CONFIG_DIR/settings.json.
  *
  * By writing sandbox to the userSettings file, the CLI reads it natively
@@ -308,11 +379,13 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     ANTHROPIC_BASE_URL: params.anthropicBaseUrl,
 
     // AICO-Bot's unified config dir at ~/.agents/
-    // Skills are stored in ~/.agents/skills/ and SDK config in ~/.agents/claude-config/
+    // Skills are stored in ~/.agents/skills/ and ~/.claude/skills/
+    // SDK config in ~/.agents/claude-config/
     CLAUDE_CONFIG_DIR: (() => {
       const agentsDir = path.join(os.homedir(), '.agents')
       const configDir = path.join(agentsDir, 'claude-config')
       const skillsDir = path.join(agentsDir, 'skills')
+      const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills')
       const configSkillsDir = path.join(configDir, 'skills')
 
       // Ensure directories exist
@@ -325,20 +398,34 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
       if (!existsSync(skillsDir)) {
         mkdirSync(skillsDir, { recursive: true })
       }
+      if (!existsSync(claudeSkillsDir)) {
+        mkdirSync(claudeSkillsDir, { recursive: true })
+      }
 
-      // Create symlink from configDir/skills -> agentsDir/skills
+      // Setup configSkillsDir to merge skills from both source directories
       // SDK looks for skills in $CLAUDE_CONFIG_DIR/skills/
-      // But SkillManager stores skills in ~/.agents/skills/
-      // So we create a symlink to bridge this gap
+      // We need to make both ~/.agents/skills/ and ~/.claude/skills/ visible
       if (!existsSync(configSkillsDir)) {
+        // First time: create a real directory and link each skill individually
+        mkdirSync(configSkillsDir, { recursive: true })
+        console.log('[SDK Config] Created skills directory:', configSkillsDir)
+      }
+
+      // If configSkillsDir is a junction (legacy), remove it and recreate as real dir
+      const configSkillsStat = existsSync(configSkillsDir) ? lstatSync(configSkillsDir) : null
+      if (configSkillsStat && configSkillsStat.isSymbolicLink()) {
         try {
-          // Create symlink (relative path for portability)
-          symlinkSync(skillsDir, configSkillsDir, 'junction')
-          console.log('[SDK Config] Created skills symlink:', configSkillsDir, '->', skillsDir)
+          unlinkSync(configSkillsDir)
+          mkdirSync(configSkillsDir, { recursive: true })
+          console.log('[SDK Config] Replaced legacy junction with directory:', configSkillsDir)
         } catch (err) {
-          console.warn('[SDK Config] Failed to create skills symlink:', err)
+          console.warn('[SDK Config] Failed to replace legacy junction:', err)
         }
       }
+
+      // Merge skills from both directories into configSkillsDir
+      // For duplicates, the one with the most recent modification time wins
+      mergeSkillsDirs([skillsDir, claudeSkillsDir], configSkillsDir)
 
       ensureSandboxSettings(configDir)
       return configDir

@@ -456,6 +456,8 @@ export class SharedTerminalSession extends EventEmitter {
  */
 export class SharedTerminalService extends EventEmitter {
   private sessions: Map<string, SharedTerminalSession> = new Map()
+  // Track event forwarding handlers per session for cleanup
+  private sessionForwarders: Map<string, Array<{ event: string; handler: (...args: any[]) => void }>> = new Map()
 
   /**
    * 获取或创建终端会话
@@ -469,8 +471,18 @@ export class SharedTerminalService extends EventEmitter {
       return existing
     }
 
-    // 关闭旧会话
+    // 关闭旧会话并清理其事件转发器
     if (existing) {
+      // Remove old event forwarders from this service
+      const oldForwarders = this.sessionForwarders.get(sessionId)
+      if (oldForwarders) {
+        for (const { handler } of oldForwarders) {
+          this.removeListener('session:data', handler)
+          this.removeListener('session:exit', handler)
+          this.removeListener('session:output', handler)
+        }
+        this.sessionForwarders.delete(sessionId)
+      }
       existing.kill()
       this.sessions.delete(sessionId)
     }
@@ -478,17 +490,21 @@ export class SharedTerminalService extends EventEmitter {
     // 创建新会话
     const session = new SharedTerminalSession(config)
 
-    session.on('data', (data) => {
-      this.emit('session:data', sessionId, data)
-    })
+    // Register event forwarders and track them for cleanup
+    const forwarders: Array<{ event: string; handler: (...args: any[]) => void }> = []
 
-    session.on('exit', (data) => {
-      this.emit('session:exit', sessionId, data)
-    })
+    const dataHandler = (data: string) => this.emit('session:data', sessionId, data)
+    const exitHandler = (data: { exitCode: number }) => this.emit('session:exit', sessionId, data)
+    const outputHandler = (output: any) => this.emit('session:output', sessionId, output)
 
-    session.on('output', (output) => {
-      this.emit('session:output', sessionId, output)
-    })
+    session.on('data', dataHandler)
+    session.on('exit', exitHandler)
+    session.on('output', outputHandler)
+
+    forwarders.push({ event: 'session:data', handler: dataHandler as any })
+    forwarders.push({ event: 'session:exit', handler: exitHandler as any })
+    forwarders.push({ event: 'session:output', handler: outputHandler as any })
+    this.sessionForwarders.set(sessionId, forwarders)
 
     await session.start()
     this.sessions.set(sessionId, session)
@@ -556,6 +572,16 @@ export class SharedTerminalService extends EventEmitter {
    * 关闭会话
    */
   killSession(sessionId: string): void {
+    // Remove event forwarders
+    const forwarders = this.sessionForwarders.get(sessionId)
+    if (forwarders) {
+      for (const { handler } of forwarders) {
+        this.removeListener('session:data', handler)
+        this.removeListener('session:exit', handler)
+        this.removeListener('session:output', handler)
+      }
+      this.sessionForwarders.delete(sessionId)
+    }
     const session = this.sessions.get(sessionId)
     if (session) {
       session.kill()
@@ -567,6 +593,15 @@ export class SharedTerminalService extends EventEmitter {
    * 关闭所有会话
    */
   killAllSessions(): void {
+    // Remove all event forwarders
+    for (const [sessionId, forwarders] of this.sessionForwarders.entries()) {
+      for (const { handler } of forwarders) {
+        this.removeListener('session:data', handler)
+        this.removeListener('session:exit', handler)
+        this.removeListener('session:output', handler)
+      }
+    }
+    this.sessionForwarders.clear()
     for (const session of this.sessions.values()) {
       session.kill()
     }

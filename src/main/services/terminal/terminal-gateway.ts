@@ -93,7 +93,7 @@ function getSpaceCwdInfo(spaceId: string): {
 
     // Extract last part of path for display
     const remotePath = space.remotePath || '/home'
-    const pathParts = remotePath.split('/').filter(Boolean)
+    const pathParts = remotePath.split(/[/\\]/).filter(Boolean)
     const pathName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : '~'
     const displayPath = pathParts.length > 1 ? `${pathParts[pathParts.length - 2]}/${pathName}` : pathName
     return {
@@ -106,7 +106,7 @@ function getSpaceCwdInfo(spaceId: string): {
   // Local space - use workingDir or path
   const dir = space.workingDir || space.path
   if (dir) {
-    const pathParts = dir.split('/').filter(Boolean)
+    const pathParts = dir.split(/[/\\]/).filter(Boolean)
     const pathName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : '~'
     const displayPath = pathParts.length > 1 ? `${pathParts[pathParts.length - 2]}/${pathName}` : pathName
     return {
@@ -145,8 +145,17 @@ export class TerminalGateway extends EventEmitter {
     // Use provided commandId or generate new one
     const id = commandId || `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`
 
-    // Get cwd info from space (or use provided cwd)
-    const spaceCwdInfo = cwd ? getSpaceCwdInfo(spaceId) : getSpaceCwdInfo(spaceId)
+    // Get cwd info from space
+    const spaceCwdInfo = getSpaceCwdInfo(spaceId)
+    // If a specific cwd is provided, override the space default
+    if (cwd) {
+      const pathParts = cwd.split(/[/\\]/).filter(Boolean)
+      const pathName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : '~'
+      const displayPath = pathParts.length > 1 ? `${pathParts[pathParts.length - 2]}/${pathName}` : pathName
+      spaceCwdInfo.cwd = cwd
+      spaceCwdInfo.cwdLabel = `${process.env.USER || process.env.USERNAME || 'user'}@${os.hostname().split('.')[0]} ${displayPath} % `
+      spaceCwdInfo.pathOnly = pathName
+    }
 
     const terminalCommand: TerminalCommand = {
       id,
@@ -190,10 +199,10 @@ export class TerminalGateway extends EventEmitter {
       // existingRecord is guaranteed to exist here because isNewCommand = !existingRecord
       console.log(`[TerminalGateway] Updating command ${commandId}, newOutput.length=${output?.length || 0}`)
 
-      // Merge: keep original command/cwd, update output/status/exitCode
+      // Merge: keep original command/cwd, append output and update status/exitCode
       commandRecord = {
         ...existingRecord,
-        output: output || existingRecord.output,  // Use new output, fallback to existing
+        output: output ? existingRecord.output + output : existingRecord.output,
         exitCode: exitCode ?? existingRecord.exitCode,
         status
       }
@@ -262,13 +271,15 @@ export class TerminalGateway extends EventEmitter {
         cwdLabel: spaceCwdInfo.cwdLabel,
         pathOnly: spaceCwdInfo.pathOnly,
         source: 'agent',
-        timestamp: terminalCommand.timestamp
+        timestamp: terminalCommand.timestamp,
+        conversationId
       })
       // Also send "running" status via IPC
       sendToRenderer('terminal:agent-command-output', spaceId, conversationId, {
         commandId: id,
         output: '\x1b[33m⏳ 正在执行...\x1b[0m',
-        isStream: true
+        isStream: true,
+        conversationId
       })
     }
 
@@ -295,7 +306,8 @@ export class TerminalGateway extends EventEmitter {
       sendToRenderer('terminal:agent-command-output', spaceId, conversationId, {
         commandId: id,
         output: displayOutput,
-        isStream: status === 'running'
+        isStream: status === 'running',
+        conversationId
       })
     }
 
@@ -313,7 +325,8 @@ export class TerminalGateway extends EventEmitter {
       // Also send via IPC
       sendToRenderer('terminal:agent-command-complete', spaceId, conversationId, {
         commandId: id,
-        exitCode: exitCode ?? 0
+        exitCode: exitCode ?? 0,
+        conversationId
       })
     }
   }
@@ -624,6 +637,25 @@ export function initTerminalGateway(): void {
         ;(existingSession as any)._replaced = true
         existingSession.ws.close()
         sessions.delete(conversationId)
+      } else {
+        // No existing WebSocket session - try to recover command history from sharedTerminalService
+        const sessionId = `${spaceId}:${conversationId}`
+        const terminalSession = sharedTerminalService.getSession(sessionId)
+        if (terminalSession) {
+          const terminalCmdHistory = terminalSession.getCommandHistory()
+          existingCommandHistory = terminalCmdHistory.map(cmd => ({
+            id: cmd.id,
+            command: cmd.command,
+            source: cmd.source,
+            output: cmd.output,
+            exitCode: cmd.exitCode,
+            status: cmd.status,
+            timestamp: cmd.timestamp
+          }))
+          if (existingCommandHistory.length > 0) {
+            console.log(`[TerminalGateway] Recovered ${existingCommandHistory.length} commands from sharedTerminalService for ${conversationId}`)
+          }
+        }
       }
 
       sessions.set(conversationId, session)

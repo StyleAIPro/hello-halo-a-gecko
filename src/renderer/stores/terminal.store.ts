@@ -406,19 +406,19 @@ function handleTerminalMessage(message: {
     case 'terminal:ready':
       // Terminal session is ready for input
       console.log('[TerminalStore] Terminal session ready')
-      set({ isConnected: true })
+      useTerminalStore.setState({ isConnected: true })
       break
 
     case 'terminal:exit':
       // Terminal session exited
       console.log('[TerminalStore] Terminal session exited:', message.data)
-      set({ isConnected: false })
+      useTerminalStore.setState({ isConnected: false })
       break
 
     case 'terminal:error':
       // Terminal session error
       console.error('[TerminalStore] Terminal session error:', message.data)
-      set({ error: message.data.error, isConnected: false })
+      useTerminalStore.setState({ error: message.data.error, isConnected: false })
       break
   }
 }
@@ -439,7 +439,7 @@ function attemptReconnect(spaceId: string, conversationId: string) {
 
     if (attempts > MAX_RECONNECT_ATTEMPTS) {
       console.error('[TerminalStore] Max reconnection attempts reached')
-      set({ error: 'Failed to reconnect' })
+      useTerminalStore.setState({ error: 'Failed to reconnect' })
       return
     }
 
