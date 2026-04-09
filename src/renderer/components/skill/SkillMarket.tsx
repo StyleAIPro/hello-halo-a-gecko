@@ -371,9 +371,13 @@ export function SkillMarket() {
 
     try {
       await api.skillInstallMulti({ skillId: skill.id, targets: [target] })
+      // 安装成功后直接标记为已安装，不依赖可能滞后的 installedSkillIds 闭包
+      setEnvStatuses(prev =>
+        prev.map(e =>
+          e.targetKey === targetKey ? { ...e, installed: true } : e
+        )
+      )
       await loadInstalledSkills()
-      // 刷新该环境的安装状态
-      refreshEnvStatus(skill, env)
       // 刷新远程已安装映射（用于卡片标记）
       if (env.type === 'remote' && env.serverId) {
         refreshRemoteInstalledMap(env.serverId)
@@ -403,8 +407,13 @@ export function SkillMarket() {
 
     try {
       await api.skillUninstallMulti({ appId, targets: [target] })
+      // 卸载成功后直接标记为未安装
+      setEnvStatuses(prev =>
+        prev.map(e =>
+          e.targetKey === targetKey ? { ...e, installed: false } : e
+        )
+      )
       await loadInstalledSkills()
-      refreshEnvStatus(skill, env)
       // 刷新远程已安装映射
       if (env.type === 'remote' && env.serverId) {
         refreshRemoteInstalledMap(env.serverId)
@@ -416,60 +425,6 @@ export function SkillMarket() {
         const next = new Set(prev)
         next.delete(targetKey)
         return next
-      })
-    }
-  }
-
-  // 刷新单个环境的状态
-  const refreshEnvStatus = async (skill: RemoteSkillItem, env: EnvStatus) => {
-    const appId = extractAppId(skill.id)
-
-    if (env.type === 'local') {
-      // 本地状态通过 installedSkills 刷新
-      setEnvStatuses(prev =>
-        prev.map(e =>
-          e.targetKey === 'local'
-            ? { ...e, installed: installedSkillIds.has(appId) }
-            : e
-        )
-      )
-    } else if (env.serverId) {
-      // 远程：重新查询
-      setEnvStatuses(prev =>
-        prev.map(e =>
-          e.targetKey === env.targetKey
-            ? { ...e, checking: true }
-            : e
-        )
-      )
-      api.remoteServerListSkills(env.serverId).then(result => {
-        if (result.success && result.data) {
-          const remoteSkills = result.data as Array<{ appId: string }>
-          const installed = remoteSkills.some(s => s.appId === appId)
-          setEnvStatuses(prev =>
-            prev.map(e =>
-              e.targetKey === env.targetKey
-                ? { ...e, installed, checking: false }
-                : e
-            )
-          )
-        } else {
-          setEnvStatuses(prev =>
-            prev.map(e =>
-              e.targetKey === env.targetKey
-                ? { ...e, checking: false }
-                : e
-            )
-          )
-        }
-      }).catch(() => {
-        setEnvStatuses(prev =>
-          prev.map(e =>
-            e.targetKey === env.targetKey
-              ? { ...e, checking: false }
-              : e
-          )
-        )
       })
     }
   }

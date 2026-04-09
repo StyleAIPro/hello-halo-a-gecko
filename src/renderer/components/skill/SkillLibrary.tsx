@@ -23,7 +23,6 @@ import {
   FileText,
   X,
   Loader2,
-  CloudUpload,
   RefreshCw,
   Server,
   HardDrive,
@@ -59,7 +58,6 @@ export function SkillLibrary() {
     uninstallSkill,
     exportSkill,
     refreshSkills,
-    syncSkillsToRemote,
     remoteSkills,
     remoteSkillsLoading,
     remoteSkillsError,
@@ -118,12 +116,8 @@ export function SkillLibrary() {
     }
   }, [isResizing])
 
-  // 同步状态
-  const [showSyncModal, setShowSyncModal] = useState(false)
+  // 远程服务器列表（用于 source dropdown）
   const [remoteServers, setRemoteServers] = useState<{ id: string; name: string; status: string }[]>([])
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
   // 按名称排序的本地技能列表
   const sortedSkills = useMemo(() => {
@@ -267,34 +261,6 @@ export function SkillLibrary() {
     }
   }
 
-  // 打开同步模态框
-  const handleOpenSyncModal = async () => {
-    await loadRemoteServers()
-    setShowSyncModal(true)
-    setSelectedServerId(null)
-    setSyncMessage(null)
-  }
-
-  // 执行同步
-  const handleSync = async () => {
-    if (!selectedServerId) return
-
-    setSyncing(true)
-    setSyncMessage(null)
-    try {
-      const result = await syncSkillsToRemote(selectedServerId)
-      if (result.success) {
-        setSyncMessage(result.message || t('Skills synced successfully'))
-      } else {
-        setSyncMessage(result.message || t('Failed to sync skills'))
-      }
-    } catch (error) {
-      setSyncMessage(error instanceof Error ? error.message : t('Failed to sync skills'))
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   // 刷新当前来源的技能列表
   const handleRefresh = () => {
     if (selectedSource.type === 'local') {
@@ -403,15 +369,6 @@ export function SkillLibrary() {
             </div>
 
             <div className="flex items-center gap-2">
-              {isLocal && (
-                <button
-                  onClick={handleOpenSyncModal}
-                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
-                >
-                  <CloudUpload className="w-3 h-3" />
-                  {t('Sync')}
-                </button>
-              )}
               <button
                 onClick={handleRefresh}
                 className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
@@ -451,7 +408,6 @@ export function SkillLibrary() {
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <Server className="w-10 h-10 mb-3 opacity-50" />
               <p className="text-sm">{t('No skills on this server')}</p>
-              <p className="text-xs mt-1">{t('Use Sync to upload local skills.')}</p>
             </div>
           )}
 
@@ -631,118 +587,6 @@ export function SkillLibrary() {
           </div>
         )}
       </div>
-
-      {/* Sync Modal */}
-      {showSyncModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background border border-border rounded-lg shadow-lg w-96 max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <CloudUpload className="w-4 h-4" />
-                {t('Sync Skills to Remote Server')}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowSyncModal(false)
-                  setSyncMessage(null)
-                  setSelectedServerId(null)
-                }}
-                className="p-1 hover:bg-secondary rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4">
-              <p className="text-xs text-muted-foreground">
-                {t('Select a remote server to sync your local skills to. This will upload all skills from ~/.agents/skills/ to the remote server.')}
-              </p>
-
-              {remoteServers.length === 0 ? (
-                <div className="text-center py-4">
-                  <Server className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
-                  <p className="text-xs text-muted-foreground">{t('No remote servers configured')}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('Add a remote server in Settings first.')}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-foreground">{t('Remote Server')}</label>
-                  <div className="space-y-1">
-                    {remoteServers.map((server) => (
-                      <div
-                        key={server.id}
-                        onClick={() => setSelectedServerId(server.id)}
-                        className={`
-                          flex items-center gap-2 p-2 rounded cursor-pointer border transition-colors
-                          ${selectedServerId === server.id
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border hover:bg-secondary'
-                          }
-                        `}
-                      >
-                        <Server className="w-4 h-4 text-muted-foreground" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{server.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {server.status === 'connected' ? t('Connected') : t('Disconnected')}
-                          </p>
-                        </div>
-                        {server.status === 'connected' && (
-                          <span className="w-2 h-2 rounded-full bg-green-500" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {syncMessage && (
-                <div className={`p-2 rounded text-xs ${syncMessage.includes('成功') || syncMessage.includes('successfully') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {syncMessage}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => {
-                    setShowSyncModal(false)
-                    setSyncMessage(null)
-                    setSelectedServerId(null)
-                  }}
-                  className="px-3 py-1.5 text-xs rounded border border-border hover:bg-secondary transition-colors"
-                >
-                  {t('Close')}
-                </button>
-                <button
-                  onClick={handleSync}
-                  disabled={!selectedServerId || syncing || remoteServers.length === 0}
-                  className={`
-                    flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors
-                    ${(!selectedServerId || syncing || remoteServers.length === 0)
-                      ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    }
-                  `}
-                >
-                  {syncing ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      {t('Syncing...')}
-                    </>
-                  ) : (
-                    <>
-                      <CloudUpload className="w-3 h-3" />
-                      {t('Sync Skills')}
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
     </>
   )
@@ -899,9 +743,6 @@ function SkillDetail({
       {/* 远程只读提示 */}
       {isRemote && (
         <div className="pt-4 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            {t('Remote skills are read-only. Use Sync to manage skills on this server.')}
-          </p>
           <button
             onClick={onOpenFiles}
             className="flex items-center gap-2 w-full px-4 py-2 mt-2 bg-secondary/50 hover:bg-secondary text-secondary-foreground hover:text-foreground rounded-lg text-sm font-medium transition-colors"

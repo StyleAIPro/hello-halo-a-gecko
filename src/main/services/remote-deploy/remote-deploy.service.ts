@@ -5,7 +5,7 @@
 
 import { app } from 'electron'
 import { SSHManager, SSHConfig } from '../remote-ssh/ssh-manager'
-import { getConfig, saveConfig, getAgentsSkillsDir } from '../config.service'
+import { getConfig, saveConfig } from '../config.service'
 import type { RemoteServer } from '../../../shared/types'
 import type { InstalledSkill } from '../../../shared/skill/skill-types'
 import type { SkillFileNode } from '../../../shared/skill/skill-types'
@@ -528,20 +528,6 @@ export class RemoteDeployService {
       this.emitDeployProgress(id, 'prepare', '正在创建 skills 目录...', 12)
       await manager.executeCommand(`mkdir -p ~/.agents/skills`)
       await manager.executeCommand(`mkdir -p ~/.agents/claude-config`)
-
-      // Migrate skills from ~/.claude/skills/ on remote server
-      this.emitDeployProgress(id, 'prepare', '正在检查远程 Claude skills...', 12)
-      await manager.executeCommand(`
-        if [ -d ~/.claude/skills ]; then
-          for skill in ~/.claude/skills/*/; do
-            skill_name=$(basename "$skill")
-            if [ ! -d ~/.agents/skills/"$skill_name" ]; then
-              cp -r "$skill" ~/.agents/skills/"$skill_name"
-              echo "[Migration] Migrated remote Claude skill: $skill_name"
-            fi
-          done
-        fi
-      `)
 
       // Get the path to the remote-agent-proxy package
       const packageDir = getRemoteAgentProxyPath()
@@ -2213,117 +2199,6 @@ WRAPPER
       const err = error as Error
       console.error(`[RemoteDeployService] Failed to deploy agent SDK to ${server.name}:`, error)
       this.emitCommandOutput(id, 'error', err.message)
-      throw error
-    }
-  }
-
-  /**
-   * Sync skills from local ~/.agents/skills/ to remote server
-   * Uploads all skill files and directories to ~/.agents/skills/ on the remote server
-   * @returns Object with sync results including count of skills synced
-   */
-  async syncSkills(id: string): Promise<{ success: boolean; syncedCount: number; message: string }> {
-    const server = this.servers.get(id)
-    if (!server) {
-      throw new Error(`Server not found: ${id}`)
-    }
-
-    const manager = this.getSSHManager(id)
-
-    // Ensure SSH connection
-    if (!manager.isConnected()) {
-      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5)
-      await this.connectServer(id)
-      const connectedManager = this.getSSHManager(id)
-      if (!connectedManager.isConnected()) {
-        throw new Error(`Failed to establish SSH connection to ${server.name}`)
-      }
-    }
-
-    const localSkillsDir = getAgentsSkillsDir()
-
-    try {
-      // Get remote home directory (SFTP doesn't expand ~, we need absolute path)
-      this.emitDeployProgress(id, 'sync-skills', '正在获取远程目录信息...', 5)
-      const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
-      const remoteSkillsDir = `${remoteHome}/.agents/skills`
-      console.log(`[RemoteDeployService] Remote home: ${remoteHome}, skills dir: ${remoteSkillsDir}`)
-
-      // Create remote skills directory if it doesn't exist
-      this.emitDeployProgress(id, 'sync-skills', '正在创建远程 skills 目录...', 10)
-      await manager.executeCommand(`mkdir -p ${remoteSkillsDir}`)
-      await manager.executeCommand(`mkdir -p ${remoteHome}/.agents/claude-config`)
-
-      // Check if local skills directory exists
-      if (!fs.existsSync(localSkillsDir)) {
-        console.log('[RemoteDeployService] Local skills directory does not exist, creating...')
-        fs.mkdirSync(localSkillsDir, { recursive: true })
-      }
-
-      // Get list of local skills (directories in skills folder)
-      const localEntries = fs.readdirSync(localSkillsDir, { withFileTypes: true })
-      const skillDirs = localEntries.filter(entry => entry.isDirectory())
-
-      if (skillDirs.length === 0) {
-        this.emitDeployProgress(id, 'sync-skills', '没有本地 skills 需要同步', 100)
-        this.emitCommandOutput(id, 'output', '没有本地 skills 需要同步')
-        return { success: true, syncedCount: 0, message: 'No local skills to sync' }
-      }
-
-      this.emitCommandOutput(id, 'output', `发现 ${skillDirs.length} 个本地 skills`)
-
-      let syncedCount = 0
-      let failedCount = 0
-      const failedSkills: string[] = []
-
-      // Sync each skill directory
-      for (let i = 0; i < skillDirs.length; i++) {
-        const skillDir = skillDirs[i]
-        const skillName = skillDir.name
-        const localSkillPath = path.join(localSkillsDir, skillName)
-        const remoteSkillPath = `${remoteSkillsDir}/${skillName}`
-
-        const progress = 10 + Math.round((i / skillDirs.length) * 80)
-        this.emitDeployProgress(id, 'sync-skills', `正在同步 skill: ${skillName}...`, progress)
-
-        try {
-          // Create remote skill directory
-          await manager.executeCommand(`mkdir -p ${remoteSkillPath}`)
-
-          // Recursively upload only changed files in the skill directory
-          const uploadStats = { uploaded: 0, skipped: 0 }
-          await this.uploadDirectoryRecursive(manager, localSkillPath, remoteSkillPath, uploadStats)
-
-          syncedCount++
-          this.emitCommandOutput(id, 'output', `✓ Skill "${skillName}" 同步成功 (${uploadStats.uploaded} 更新, ${uploadStats.skipped} 跳过)`)
-          console.log(`[RemoteDeployService] Synced skill: ${skillName}`)
-        } catch (skillError) {
-          failedCount++
-          failedSkills.push(skillName)
-          this.emitCommandOutput(id, 'error', `✗ Skill "${skillName}" 同步失败: ${skillError}`)
-          console.error(`[RemoteDeployService] Failed to sync skill ${skillName}:`, skillError)
-        }
-      }
-
-      this.emitDeployProgress(id, 'sync-skills', 'Skills 同步完成', 100)
-
-      // Summary
-      let summaryMsg = `Skills 同步完成: ${syncedCount}/${skillDirs.length} 成功`
-      if (failedCount > 0) {
-        summaryMsg += `, ${failedCount} 失败 (${failedSkills.join(', ')})`
-      }
-      this.emitCommandOutput(id, syncedCount > 0 ? 'success' : 'output', summaryMsg)
-
-      return {
-        success: true,
-        syncedCount,
-        message: summaryMsg
-      }
-    } catch (error) {
-      const err = error as Error
-      console.error(`[RemoteDeployService] Failed to sync skills to ${server.name}:`, error)
-      this.emitDeployProgress(id, 'sync-skills', `Skills 同步失败: ${err.message}`, 0)
-      this.emitCommandOutput(id, 'error', `Skills 同步失败: ${err.message}`)
       throw error
     }
   }

@@ -506,19 +506,6 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
   }
 })
 
-// Sync skills from local to remote server
-ipcMain.handle('remote-server:sync-skills', async (_event, serverId: string) => {
-  console.log('[IPC] remote-server:sync-skills - Syncing skills to server:', serverId)
-  try {
-    const result = await deployService.syncSkills(serverId)
-    return { success: true, data: result }
-  } catch (error: unknown) {
-    const err = error as Error
-    console.error('[IPC] remote-server:sync-skills - Failed:', err.message)
-    return { success: false, error: err.message }
-  }
-})
-
 ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:list-skills - Listing skills on server:', serverId)
   try {

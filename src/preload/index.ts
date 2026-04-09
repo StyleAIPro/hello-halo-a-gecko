@@ -864,7 +864,6 @@ const api: AicoBotAPI = {
     getAgentLogs: (serverId, lines) => ipcRenderer.invoke('remote-server:get-agent-logs', serverId, lines),
     isAgentRunning: (serverId) => ipcRenderer.invoke('remote-server:is-agent-running', serverId),
     updateAgent: (serverId) => ipcRenderer.invoke('remote-server:update-agent', serverId),
-    syncSkills: (serverId) => ipcRenderer.invoke('remote-server:sync-skills', serverId),
     listSkills: (serverId) => ipcRenderer.invoke('remote-server:list-skills', serverId),
     listSkillFiles: (serverId, skillId) => ipcRenderer.invoke('remote-server:list-skill-files', serverId, skillId),
     readSkillFile: (serverId, skillId, filePath) => ipcRenderer.invoke('remote-server:read-skill-file', serverId, skillId, filePath),

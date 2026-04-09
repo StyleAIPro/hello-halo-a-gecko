@@ -112,9 +112,6 @@ interface SkillState {
   setSelectedSkillId: (id: string | null) => void
   refreshSkills: () => Promise<void>
 
-  // Actions - Remote sync
-  syncSkillsToRemote: (serverId: string) => Promise<{ success: boolean; syncedCount: number; message: string }>
-
   // Actions - Remote skill listing
   remoteSkills: Record<string, InstalledSkill[]>
   remoteSkillsLoading: Record<string, boolean>
@@ -474,23 +471,6 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   // ==========================================
 
   setAgentPanelOpen: (open) => set({ agentPanelOpen: open }),
-
-  // ==========================================
-  // Remote sync
-  // ==========================================
-
-  syncSkillsToRemote: async (serverId: string) => {
-    try {
-      const result = await api.remoteServerSyncSkills(serverId)
-      if (result.success && result.data) {
-        return result.data
-      }
-      return { success: false, syncedCount: 0, message: result.error || 'Failed to sync skills' }
-    } catch (error) {
-      console.error('Failed to sync skills to remote:', error)
-      return { success: false, syncedCount: 0, message: error instanceof Error ? error.message : 'Failed to sync skills' }
-    }
-  },
 
   // ==========================================
   // Remote skill listing

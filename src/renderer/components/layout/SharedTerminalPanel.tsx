@@ -518,7 +518,45 @@ export function SharedTerminalPanel({
       allowProposedApi: true,
       rightClickSelectsWord: true,
       macOptionIsMeta: true,
-      macOptionClickForcesSelection: true
+      macOptionClickForcesSelection: true,
+      // Intercept key events BEFORE xterm.js processes them
+      // This ensures selection is still available when we handle Ctrl+C copy
+      customKeyEventHandler: (event: KeyboardEvent) => {
+        const isCtrlOrCmd = event.ctrlKey || event.metaKey
+        if (!isCtrlOrCmd) return false
+
+        // Ctrl/Cmd + Shift + C: always copy (standard terminal shortcut)
+        if (event.key.toLowerCase() === 'c' && event.shiftKey) {
+          const selection = term.getSelection()
+          if (selection) {
+            navigator.clipboard.writeText(selection).catch(console.error)
+            term.clearSelection()
+            event.preventDefault()
+            return true // prevent xterm.js from processing
+          }
+        }
+
+        // Ctrl/Cmd + C: copy if selection exists, otherwise send SIGINT (\x03) to terminal
+        if (event.key.toLowerCase() === 'c' && !event.shiftKey) {
+          if (term.hasSelection()) {
+            const selection = term.getSelection()
+            navigator.clipboard.writeText(selection).catch(console.error)
+            term.clearSelection()
+            event.preventDefault()
+            return true // prevent xterm.js from processing (don't send \x03 to PTY)
+          }
+          // No selection - let xterm.js send \x03 (SIGINT) to PTY
+          return false
+        }
+
+        // Ctrl/Cmd + V: let onData handler handle paste via clipboard API
+        // (handled below in onData, don't intercept here)
+        if (event.key.toLowerCase() === 'v') {
+          return false
+        }
+
+        return false
+      }
     })
 
     const userFitAddon = new FitAddon()
@@ -664,18 +702,10 @@ export function SharedTerminalPanel({
             ;(term as any)._onDataDisposable.dispose()
           }
 
-          // Register new data handler - handles all user input (keyboard + paste)
+          // Register new data handler - handles keyboard input and paste
+          // Note: Ctrl+C copy is handled by customKeyEventHandler above
           const onDataDisposable = term.onData((data: string) => {
             if (ws.readyState === WebSocket.OPEN) {
-              // Check if user is trying to copy (Ctrl/Cmd + C with selection)
-              // In this case, don't send the data to PTY, let xterm.js handle copy
-              if (data === '\x03' && term.hasSelection()) {
-                // User pressed Ctrl+C with text selected - copy to clipboard
-                navigator.clipboard.writeText(term.getSelection()).catch(console.error)
-                term.clearSelection()
-                return
-              }
-
               // Check if user is trying to paste (Ctrl/Cmd + V)
               // xterm.js sends '\x16' for Ctrl+V, but we want clipboard paste instead
               if (data === '\x16') {

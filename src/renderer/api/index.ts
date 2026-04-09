@@ -1998,14 +1998,6 @@ export const api = {
     return httpRequest('GET', `/api/remote-server/${serverId}/agent-running`)
   },
 
-  // Sync skills from local to remote server
-  remoteServerSyncSkills: async (serverId: string): Promise<ApiResponse<{ success: boolean; syncedCount: number; message: string }>> => {
-    if (isElectron()) {
-      return window.aicoBot.remoteServer.syncSkills(serverId)
-    }
-    return httpRequest('POST', `/api/remote-server/${serverId}/sync-skills`)
-  },
-
   // List skills on a remote server
   remoteServerListSkills: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
