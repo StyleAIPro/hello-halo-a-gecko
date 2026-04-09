@@ -37,6 +37,9 @@ website/
 # Claude Code workspace config
 .claude/
 
+# Misplaced agent config (path concatenation bug)
+User*/.agents*/
+
 # OS files
 .DS_Store
 RELEASE_NOTES.md
