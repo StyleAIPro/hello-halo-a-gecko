@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { Virtuoso } from 'react-virtuoso'
 import { MessageSquare, Plus } from '../icons/ToolIcons'
-import { ChevronLeft, EllipsisVertical, Pin, Pencil, Trash2 } from 'lucide-react'
+import { ChevronLeft, EllipsisVertical, Pin, Pencil, Trash2, Download } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useChatStore, useAllConversationStatuses } from '../../stores/chat.store'
 import { useSpaceStore } from '../../stores/space.store'
@@ -18,6 +18,7 @@ import { TaskStatusDot } from '../pulse/TaskStatusDot'
 import { PulseSidebarSection } from '../pulse/PulseSidebarSection'
 import { AutomationBadge } from '../apps/AutomationBadge'
 import type { ConversationMeta } from '../../types'
+import { exportConversationAsMarkdown } from '../../utils/conversation-export'
 
 // Width constraints (in pixels)
 const MIN_WIDTH = 140
@@ -373,6 +374,19 @@ export const ConversationList = memo(function ConversationList({
           >
             <Pencil className="w-3.5 h-3.5" />
             <span>{t('Rename')}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpenId(null)
+              setMenuPosition(null)
+              const spaceId = useSpaceStore.getState().currentSpace?.id
+              if (spaceId) exportConversationAsMarkdown(spaceId, conv.id).catch(err => console.error('Export failed:', err))
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{t('Export conversation')}</span>
           </button>
           <button
             onClick={(e) => {

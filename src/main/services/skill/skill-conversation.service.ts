@@ -87,6 +87,10 @@ export function ensureSkillSpace() {
  * @param relatedSkillId 可选，按技能 ID 过滤会话
  */
 export function listSkillConversations(relatedSkillId?: string): ConversationMeta[] {
+  // Ensure the skill space exists before listing conversations.
+  // If the space was deleted (e.g. manual cleanup), this will recreate it.
+  ensureSkillSpace()
+
   if (relatedSkillId !== undefined) {
     return listConversations(SKILL_SPACE_ID, { relatedSkillId })
   }
@@ -97,6 +101,7 @@ export function listSkillConversations(relatedSkillId?: string): ConversationMet
  * 获取单个会话详情
  */
 export function getSkillConversation(conversationId: string): Conversation | null {
+  ensureSkillSpace()
   return getConversation(SKILL_SPACE_ID, conversationId)
 }
 

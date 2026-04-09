@@ -65,9 +65,9 @@ export function createSpace(input: {
 /**
  * Delete a space
  */
-export function deleteSpace(spaceId: string): ControllerResponse {
+export async function deleteSpace(spaceId: string): Promise<ControllerResponse> {
   try {
-    const result = serviceDeleteSpace(spaceId)
+    const result = await serviceDeleteSpace(spaceId)
     return { success: result.success, error: result.error }
   } catch (error: unknown) {
     const err = error as Error

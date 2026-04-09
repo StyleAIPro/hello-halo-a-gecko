@@ -259,7 +259,7 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
   })
 
   app.delete('/api/spaces/:spaceId', async (req: Request, res: Response) => {
-    const result = spaceController.deleteSpace(req.params.spaceId)
+    const result = await spaceController.deleteSpace(req.params.spaceId)
     res.json(result)
   })
 

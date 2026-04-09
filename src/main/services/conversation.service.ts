@@ -16,6 +16,7 @@
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, renameSync } from 'fs'
 import { getSpace } from './space.service'
+import { closeV2Session } from './agent/session-manager'
 import { v4 as uuidv4 } from 'uuid'
 import type { FileChangesSummary } from '../../shared/file-changes'
 
@@ -433,6 +434,21 @@ function flushIndexWrites(conversationsDir: string): void {
 export function flushAllPendingIndexWrites(): void {
   for (const conversationsDir of pendingIndexWrites.keys()) {
     flushIndexWrites(conversationsDir)
+  }
+}
+
+/**
+ * Discard any pending debounced index writes for a given space.
+ * Call this before deleting a space's files to prevent stale writes
+ * after the directory has been removed.
+ */
+export function discardPendingWritesForSpace(spaceId: string): void {
+  for (const [conversationsDir, pending] of pendingIndexWrites) {
+    if (pending.spaceId === spaceId) {
+      clearTimeout(pending.timer)
+      pendingIndexWrites.delete(conversationsDir)
+      console.log(`[Conversation] Discarded pending index writes for space ${spaceId}`)
+    }
   }
 }
 
@@ -1021,6 +1037,10 @@ export function getMessageThoughts(
  * Delete a conversation and its associated thoughts file.
  */
 export function deleteConversation(spaceId: string, conversationId: string): boolean {
+  // Close the active V2 session for this conversation before deleting files.
+  // This releases any held file descriptors and stops in-flight SDK processes.
+  closeV2Session(conversationId)
+
   const conversationsDir = getConversationsDir(spaceId)
   const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
 

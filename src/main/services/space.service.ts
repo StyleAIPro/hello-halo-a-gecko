@@ -28,6 +28,7 @@ import type {
 import { createOrchestrationConfig } from '../../shared/types/hyper-space'
 import { agentOrchestrator } from './agent/orchestrator'
 import { closeSessionsBySpaceId } from './agent/session-manager'
+import { destroySpaceCache } from './artifact-cache.service'
 
 // Re-export config helper for backward compatibility with existing imports
 export { getSpacesDir } from './config.service'
@@ -526,7 +527,7 @@ export function createSpace({
  * Delete a space. Removes from both memory and disk index.
  * Returns an object with success status and optional error message.
  */
-export function deleteSpace(spaceId: string): { success: boolean; error?: string } {
+export async function deleteSpace(spaceId: string): Promise<{ success: boolean; error?: string }> {
   const entry = getRegistry().get(spaceId)
   if (!entry) return { success: false, error: 'Space not found' }
   if (entry.isTemp) return { success: false, error: 'Cannot delete temp space' }
@@ -537,6 +538,9 @@ export function deleteSpace(spaceId: string): { success: boolean; error?: string
 
   // Close any active sessions belonging to this space before deleting files
   closeSessionsBySpaceId(spaceId)
+
+  // Stop file watcher to release directory handles (Windows EBUSY fix)
+  await destroySpaceCache(spaceId)
 
   try {
     if (isCentralized) {

@@ -14,7 +14,7 @@ import { existsSync, copyFileSync, mkdirSync } from 'fs'
 import { app } from 'electron'
 import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
 import { getConfig, onApiConfigChange, getCredentialsGeneration } from '../config.service'
-import { getConversation } from '../conversation.service'
+import { getConversation, discardPendingWritesForSpace } from '../conversation.service'
 import type {
   V2SDKSession,
   V2SessionInfo,
@@ -779,13 +779,25 @@ export function closeV2Session(conversationId: string): void {
 
 /**
  * Close all V2 sessions belonging to a specific space (for space deletion).
+ * Also aborts any in-flight requests and cleans up activeSessions entries
+ * that may not have a corresponding v2Session (e.g. transient sessions).
  */
 export function closeSessionsBySpaceId(spaceId: string): void {
   const toClose: string[] = []
 
+  // Collect V2 sessions for this space
   for (const [convId, info] of v2Sessions) {
     if (info.spaceId === spaceId) {
       toClose.push(convId)
+    }
+  }
+
+  // Also collect active sessions (in-flight requests) that belong to this space
+  // but may not have a V2 session entry yet
+  const activeToClean: string[] = []
+  for (const [convId, state] of activeSessions) {
+    if (state.spaceId === spaceId && !toClose.includes(convId)) {
+      activeToClean.push(convId)
     }
   }
 
@@ -796,6 +808,21 @@ export function closeSessionsBySpaceId(spaceId: string): void {
       activeSessions.delete(convId)
     }
   }
+
+  if (activeToClean.length > 0) {
+    console.log(`[Agent] Aborting ${activeToClean.length} active request(s) for space ${spaceId}`)
+    for (const convId of activeToClean) {
+      const state = activeSessions.get(convId)
+      if (state?.abortController && !state.abortController.signal.aborted) {
+        state.abortController.abort()
+      }
+      activeSessions.delete(convId)
+    }
+  }
+
+  // Discard any pending debounced conversation index writes for this space.
+  // This prevents stale writes from firing after the space directory is deleted.
+  discardPendingWritesForSpace(spaceId)
 }
 
 /**

@@ -613,6 +613,26 @@ export function SharedTerminalPanel({
       container.addEventListener('mouseup', handleMouseUp)
     }
 
+    // DOM-level keydown interceptor as fallback for Ctrl+C/Ctrl+V
+    // Runs in capture phase (before xterm.js and Electron menu can intercept)
+    const handleKeyDownCapture = (e: KeyboardEvent) => {
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey
+      if (!isCtrlOrCmd) return
+
+      if (e.key.toLowerCase() === 'c' && !e.shiftKey && term.hasSelection()) {
+        // Ctrl+C with selection: copy to clipboard, prevent all default behavior
+        e.preventDefault()
+        e.stopPropagation()
+        const selection = term.getSelection()
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch(console.error)
+        }
+        term.clearSelection()
+      }
+    }
+    // Use capture phase to intercept before Electron/xterm.js
+    userTerminalRef.current?.addEventListener('keydown', handleKeyDownCapture, true)
+
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       userFitAddon.fit()
@@ -625,6 +645,7 @@ export function SharedTerminalPanel({
       if (container) {
         container.removeEventListener('mouseup', handleMouseUp)
       }
+      userTerminalRef.current?.removeEventListener('keydown', handleKeyDownCapture, true)
       // NOTE: Do NOT dispose the terminal - keep it for re-use when panel reopens
     }
   }, [isVisible, conversationId])

@@ -229,9 +229,25 @@ function createAppMenu(): void {
         { role: 'undo' as const },
         { role: 'redo' as const },
         { type: 'separator' as const },
-        { role: 'cut' as const },
-        { role: 'copy' as const },
-        { role: 'paste' as const },
+        {
+          label: 'Cut',
+          click: (_menuItem, focusedWindow) => {
+            focusedWindow?.webContents?.cut()
+          }
+        },
+        {
+          label: 'Copy',
+          click: (_menuItem, focusedWindow) => {
+            focusedWindow?.webContents?.copy()
+          }
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          click: (_menuItem, focusedWindow) => {
+            focusedWindow?.webContents?.paste()
+          }
+        },
         ...(isMac
           ? [
               { role: 'pasteAndMatchStyle' as const },
