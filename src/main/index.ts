@@ -389,7 +389,7 @@ function createWindow(): void {
 
   // Open DevTools in development (skip during E2E to avoid viewport interference)
   if (is.dev && !process.env.AICO_BOT_E2E_TEST) {
-    mainWindow.webContents.openDevTools()
+    mainWindow.webContents.openDevTools({ mode: 'detach', activate: true })
   }
 }
 
