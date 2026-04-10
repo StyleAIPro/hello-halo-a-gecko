@@ -14,7 +14,7 @@ import { getConfig } from '../config.service'
 import { getConversation, saveSessionId, addMessage, updateLastMessage } from '../conversation.service'
 import { getSpace } from '../space.service'
 import { getRemoteDeployService } from '../../ipc/remote-server'
-import { RemoteWsClient, type RemoteWsClientConfig, registerActiveClient } from '../remote-ws/remote-ws-client'
+import { RemoteWsClient, type RemoteWsClientConfig, registerActiveClient, acquireConnection, releaseConnection } from '../remote-ws/remote-ws-client'
 import { type FileChangesSummary, extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes'
 import { notifyTaskComplete } from '../notification.service'
 import { decryptString } from '../secure-storage.service'
@@ -46,6 +46,9 @@ import {
   setMainWindow
 } from './helpers'
 import { buildSystemPromptWithAIBrowser } from './system-prompt'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('agent:remote')
 import {
   getOrCreateV2Session,
   closeV2Session,
@@ -116,7 +119,7 @@ function setCachedAuthToken(serverId: string, token: string): void {
  */
 export function invalidateAuthTokenCache(serverId: string): void {
   authTokenCache.delete(serverId)
-  console.log(`[Agent][Remote] Auth token cache invalidated for server ${serverId}`)
+  log.debug(`Auth token cache invalidated for server ${serverId}`)
 }
 
 // ============================================
@@ -734,8 +737,8 @@ async function executeRemoteMessage(
   useSshTunnel?: boolean,  // Use SSH port forwarding (localhost:8080) instead of direct connection
   systemPrompt?: string  // Custom system prompt for the space
 ): Promise<void> {
-  console.log('[Agent][Remote] ===== FUNCTION START =====')
-  console.log('[Agent][Remote] serverId=', serverId, 'remotePath=', remotePath, 'useSshTunnel=', useSshTunnel)
+  log.debug(' ===== FUNCTION START =====')
+  log.debug(' serverId=', serverId, 'remotePath=', remotePath, 'useSshTunnel=', useSshTunnel)
   const deployService = getRemoteDeployService()
   const server = deployService.getServer(serverId)
 
@@ -757,14 +760,14 @@ async function executeRemoteMessage(
     resumeSessionId
   } = request
 
-  console.log(`[Agent][Remote] Executing on server: ${serverId}, path: ${remotePath}, useSshTunnel=${useSshTunnel}, message: ${message.substring(0, 50)}...`)
+  log.info(`Executing on server: ${serverId}, path: ${remotePath}, useSshTunnel=${useSshTunnel}, message: ${message.substring(0, 50)}...`)
 
   // Get API key and model config
   const config = getConfig()
   const apiKey = config.api?.apiKey || config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)?.apiKey
   const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
   const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
-  console.log(`[Agent][Remote] Using model: ${model}`)
+  log.info(`Using model: ${model}`)
 
   // Get conversation for message history and session ID
   const conversation = getConversation(spaceId, conversationId)
@@ -791,9 +794,11 @@ async function executeRemoteMessage(
   // CRITICAL: Declare these variables before try block so they're accessible in catch block
   // These need to be accessible in catch block for content persistence on abort
   let streamingContent = ''
+  const streamChunks: string[] = []
   const thoughts: any[] = []
   const terminalOutputs: any[] = []
   const toolCalls: any[] = []
+  const eventCleanups: Array<() => void> = []  // Event handler cleanup for pooled connections
 
   // WebSocket MCP Bridge — initialized early so it's accessible in catch block for cleanup
   let mcpBridge: AicoBotMcpBridge | null = null
@@ -803,20 +808,20 @@ async function executeRemoteMessage(
     // OPTIMIZATION: Use cached token to avoid SSH connection on every message
     const cachedToken = getCachedAuthToken(serverId)
     if (cachedToken && cachedToken === server.authToken) {
-      console.log(`[Agent][Remote] Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
+      log.debug(`Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
     } else {
       // Cache miss - need to register local token on remote
       try {
-        console.log(`[Agent][Remote] Ensuring local token is in remote whitelist (cache ${cachedToken ? 'expired' : 'miss'})...`)
+        log.debug(`Ensuring local token is in remote whitelist (cache ${cachedToken ? 'expired' : 'miss'})...`)
 
         // Use the deploy service's registerTokenOnRemote method
         await deployService.registerTokenOnRemote(serverId)
 
         // Cache the local token (never overwrite with a different token)
         setCachedAuthToken(serverId, server.authToken)
-        console.log(`[Agent][Remote] Local token registered/cached for server ${serverId}`)
+        log.debug(`Local token registered/cached for server ${serverId}`)
       } catch (syncError) {
-        console.warn(`[Agent][Remote] Failed to register token on remote (non-fatal):`, syncError)
+        log.warn(`Failed to register token on remote (non-fatal):`, syncError)
         // Continue anyway, using existing local token
         if (server.authToken) {
           setCachedAuthToken(serverId, server.authToken)
@@ -836,7 +841,7 @@ async function executeRemoteMessage(
 
     // Establish SSH tunnel if required (default: true for security)
     if (useSshTunnel) {
-      console.log(`[Agent][Remote] Establishing SSH tunnel to ${server.host}:${server.wsPort || 8080}...`)
+      log.info(`Establishing SSH tunnel to ${server.host}:${server.wsPort || 8080}...`)
 
       // Decrypt password from server config
       const decryptedPassword = decryptString(server.password || '')
@@ -853,9 +858,9 @@ async function executeRemoteMessage(
           localPort: server.wsPort || 8080,  // Starting port (may be changed if in use)
           remotePort: server.wsPort || 8080
         })
-        console.log(`[Agent][Remote] SSH tunnel established on local port ${localTunnelPort}`)
+        log.info(`SSH tunnel established on local port ${localTunnelPort}`)
       } catch (tunnelError) {
-        console.error('[Agent][Remote] Failed to establish SSH tunnel:', tunnelError)
+        log.error(' Failed to establish SSH tunnel:', tunnelError)
         throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
       }
     }
@@ -882,36 +887,36 @@ async function executeRemoteMessage(
             remoteListenPort: 3848,
             localTargetPort: mcpProxyInstance.getPort(),
           })
-          console.log(`[Agent][Remote] MCP proxy reverse tunnel established: remote:${mcpProxyRemotePort} -> local:${mcpProxyInstance.getPort()}`)
+          log.debug(`MCP proxy reverse tunnel established: remote:${mcpProxyRemotePort} -> local:${mcpProxyInstance.getPort()}`)
         } catch (mcpTunnelError) {
-          console.warn(`[Agent][Remote] Failed to establish MCP proxy reverse tunnel (non-fatal):`, mcpTunnelError)
+          log.warn(`Failed to establish MCP proxy reverse tunnel (non-fatal):`, mcpTunnelError)
           mcpProxyRemotePort = null
         }
       }
     } else if (useSshTunnel && useWebSocketMcpBridge) {
-      console.log(`[Agent][Remote] Using WebSocket MCP Bridge (skipping reverse tunnel)`)
+      log.debug(`Using WebSocket MCP Bridge (skipping reverse tunnel)`)
     }
 
     // Check if remote agent is running before connecting
-    console.log(`[Agent][Remote] Checking if remote agent is running...`)
+    log.info(`Checking if remote agent is running...`)
     const isAgentRunning = await checkRemoteAgentRunning(serverId)
-    console.log(`[Agent][Remote] Agent running status:`, isAgentRunning)
+    log.debug(`Agent running status:`, isAgentRunning)
 
     if (!isAgentRunning) {
-      console.log(`[Agent][Remote] Agent not running, deploying and starting...`)
+      log.debug(`Agent not running, deploying and starting...`)
 
       // Deploy agent if not installed
       const isDeployed = await checkRemoteAgentDeployed(serverId)
-      console.log(`[Agent][Remote] Agent deployed status:`, isDeployed)
+      log.debug(`Agent deployed status:`, isDeployed)
 
       if (!isDeployed) {
-        console.log(`[Agent][Remote] Agent not deployed, deploying...`)
+        log.debug(`Agent not deployed, deploying...`)
         await deployRemoteAgent(serverId)
-        console.log(`[Agent][Remote] Deployment completed`)
+        log.debug(`Deployment completed`)
       }
 
       // Start the agent
-      console.log(`[Agent][Remote] Starting agent...`)
+      log.debug(`Starting agent...`)
       await startRemoteAgent(serverId)
 
       // OPTIMIZATION: Poll for agent readiness instead of fixed 3s wait
@@ -921,14 +926,14 @@ async function executeRemoteMessage(
       let waited = 0
       let agentReady = false
 
-      console.log(`[Agent][Remote] Waiting for agent to start (polling every ${CHECK_INTERVAL_MS}ms)...`)
+      log.debug(`Waiting for agent to start (polling every ${CHECK_INTERVAL_MS}ms)...`)
 
       while (waited < MAX_WAIT_MS) {
         // Check if agent is running
         const isReady = await checkRemoteAgentRunning(serverId)
         if (isReady) {
           agentReady = true
-          console.log(`[Agent][Remote] Agent ready after ${waited}ms`)
+          log.debug(`Agent ready after ${waited}ms`)
           break
         }
 
@@ -939,13 +944,13 @@ async function executeRemoteMessage(
 
       if (!agentReady) {
         const error = `Failed to start remote agent - not running after ${MAX_WAIT_MS}ms timeout`
-        console.error('[Agent][Remote]', error)
+        log.error('', error)
         throw new Error(error)
       }
 
-      console.log(`[Agent][Remote] Agent started and verified`)
+      log.info(`Agent started and verified`)
     } else {
-      console.log(`[Agent][Remote] Agent is already running`)
+      log.info(`Agent is already running`)
     }
 
     // Create remote client (WebSocket connection)
@@ -957,12 +962,12 @@ async function executeRemoteMessage(
       authToken: server.authToken || '',
       useSshTunnel  // Pass SSH tunnel flag
     }
-    console.log(`[Agent][Remote] Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
+    log.info(`Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
 
     // sessionId is the SDK session ID for resumption (if available from a previous turn)
     const sessionId = resumeSessionId || conversation?.sessionId
 
-    const client = new RemoteWsClient(wsConfig, effectiveSessionId)
+    const client = await acquireConnection(serverId, wsConfig, conversationId)
 
     // Register this client for interrupt support
     // CRITICAL: Use conversationId (not effectiveSessionId) for consistent lookup in stopGeneration
@@ -974,8 +979,9 @@ async function executeRemoteMessage(
     const abortController = new AbortController()
     sessionState = createSessionState(spaceId, conversationId, abortController)
     sessionState.isRemote = true  // Mark this as a remote session
+    sessionState.thoughts = thoughts  // Share reference (avoid array copies on every thought event)
     registerActiveSession(conversationId, sessionState)
-    console.log(`[Agent][Remote] Registered remote session to activeSessions for: ${conversationId}`)
+    log.info(`Registered remote session to activeSessions for: ${conversationId}`)
 
     // ============================================
     // WebSocket MCP Bridge Setup
@@ -984,19 +990,25 @@ async function executeRemoteMessage(
     mcpBridge = new AicoBotMcpBridge()
     const mcpToolDefs = mcpBridge.collectTools(spaceId, !!aiBrowserEnabled)
     const mcpCapabilities = mcpBridge.getCapabilities()
-    console.log(`[Agent][Remote] MCP Bridge: ${mcpToolDefs.length} tools, capabilities: ${JSON.stringify(mcpCapabilities)}`)
+    log.debug(`MCP Bridge: ${mcpToolDefs.length} tools, capabilities: ${JSON.stringify(mcpCapabilities)}`)
+
+    // Event handler cleanup - required for pooled connections to prevent stale handlers
+    const addHandler = (event: string, handler: (...args: any[]) => void) => {
+      client.on(event, handler)
+      eventCleanups.push(() => client.off(event, handler))
+    }
 
     // Handle incoming MCP tool calls from remote proxy
-    client.on('mcp:tool:call', async (data) => {
+    addHandler('mcp:tool:call', async (data) => {
       if (data.sessionId === effectiveSessionId) {
         const { callId, toolName, arguments: toolArgs } = data.data
-        console.log(`[Agent][Remote] MCP tool call received: ${toolName} (callId=${callId})`)
+        log.debug(`MCP tool call received: ${toolName} (callId=${callId})`)
         try {
           const result = await mcpBridge.handleToolCall(toolName, toolArgs)
           client.sendMcpToolResult(effectiveSessionId, callId, result)
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          console.error(`[Agent][Remote] MCP tool call error (${toolName}):`, errorMessage)
+          log.error(`MCP tool call error (${toolName}):`, errorMessage)
           client.sendMcpToolError(effectiveSessionId, callId, errorMessage)
         }
       }
@@ -1006,12 +1018,12 @@ async function executeRemoteMessage(
     // Variables already declared above
 
     // SDK session ID event - capture for session resumption
-    client.on('claude:session', (data) => {
+    addHandler('claude:session', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const receivedSdkSessionId = data.data?.sdkSessionId
         if (receivedSdkSessionId) {
           sdkSessionId = receivedSdkSessionId
-          console.log(`[Agent][Remote] Captured SDK session_id: ${sdkSessionId}`)
+          log.debug(`Captured SDK session_id: ${sdkSessionId}`)
         }
       }
     })
@@ -1035,10 +1047,10 @@ async function executeRemoteMessage(
       commandOutputBuffer.set(commandId, existing + output)
     }
 
-    client.on('tool:call', (data) => {
+    addHandler('tool:call', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
-        console.log(`[Agent][Remote] Tool call received:`, {
+        log.debug(`Tool call received:`, {
           name: toolData.name,
           status: toolData.status,
           id: toolData.id,
@@ -1050,7 +1062,7 @@ async function executeRemoteMessage(
         if (toolData.name === 'Bash' && toolData.input?.command) {
           const command = toolData.input.command as string
           const toolId = toolData.id as string
-          console.log(`[Agent][Remote] Bash command intercepted: ${command}`)
+          log.debug(`Bash command intercepted: ${command}`)
 
           // Generate commandId and store for later update
           const commandId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`
@@ -1069,7 +1081,7 @@ async function executeRemoteMessage(
             commandId
           )
         } else if (toolData.name === 'Bash') {
-          console.warn(`[Agent][Remote] Bash tool call received but input.command is missing:`, JSON.stringify(toolData.input))
+          log.warn(`Bash tool call received but input.command is missing:`, JSON.stringify(toolData.input))
         }
 
         // Send in format expected by handleAgentToolCall
@@ -1083,21 +1095,21 @@ async function executeRemoteMessage(
       }
     })
 
-    client.on('tool:delta', (data) => {
+    addHandler('tool:delta', (data) => {
       if (data.sessionId === effectiveSessionId) {
         // Handle tool delta for streaming tool input
-        console.log(`[Agent][Remote] Tool delta received`)
+        log.debug(`Tool delta received`)
         // Tool deltas are handled via thought events
       }
     })
 
-    client.on('tool:result', (data) => {
+    addHandler('tool:result', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
         // Try to get tool name from toolData, or look it up from remoteToolCommands map
         // The name field may be empty in some SDK responses, but we can infer it from the tool ID
         const toolName = toolData.name || (remoteToolCommands.has(toolData.id) ? 'Bash' : '')
-        console.log(`[Agent][Remote] Tool result received, name=${toolData.name}, inferredName=${toolName}, output.length=${toolData.output?.length || 0}`)
+        log.debug(`Tool result received, name=${toolData.name}, inferredName=${toolName}, output.length=${toolData.output?.length || 0}`)
 
         // Notify Terminal Gateway about Bash command completion
         // Check both explicit name and inferred name (for remote commands tracked in remoteToolCommands)
@@ -1113,7 +1125,7 @@ async function executeRemoteMessage(
             // Use accumulated output if toolData.output is empty
             const finalOutput = toolData.output || accumulatedOutput
 
-            console.log(`[Agent][Remote] Updating Bash command ${commandId}, toolData.output.length=${toolData.output?.length || 0}, accumulated.length=${accumulatedOutput.length}, finalOutput.length=${finalOutput.length}`)
+            log.debug(`Updating Bash command ${commandId}, toolData.output.length=${toolData.output?.length || 0}, accumulated.length=${accumulatedOutput.length}, finalOutput.length=${finalOutput.length}`)
 
             // Also send the command string (in case it wasn't preserved from tool:call)
             const commandString = toolData.input?.command as string || ''
@@ -1134,7 +1146,7 @@ async function executeRemoteMessage(
             }
             commandOutputBuffer.delete(commandId)
           } else {
-            console.warn(`[Agent][Remote] No commandId found for tool ${toolId}`)
+            log.warn(`No commandId found for tool ${toolId}`)
           }
         }
 
@@ -1146,10 +1158,10 @@ async function executeRemoteMessage(
       }
     })
 
-    client.on('tool:error', (data) => {
+    addHandler('tool:error', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const toolData = data.data
-        console.error(`[Agent][Remote] Tool error:`, toolData)
+        log.error(`Tool error:`, toolData)
         sendToRenderer('agent:tool-result', spaceId, conversationId, {
           toolId: toolData.id,
           result: toolData.error || 'Tool execution failed',
@@ -1159,10 +1171,10 @@ async function executeRemoteMessage(
     })
 
     // Terminal output events
-    client.on('terminal:output', (data) => {
+    addHandler('terminal:output', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const output = data.data
-        console.log(`[Agent][Remote] terminal:output received: content.length=${output.content?.length || 0}, activeBashCommandId=${activeBashCommandId}`)
+        log.debug(`terminal:output received: content.length=${output.content?.length || 0}, activeBashCommandId=${activeBashCommandId}`)
         terminalOutputs.push(output)
         sendToRenderer('agent:terminal', spaceId, conversationId, output)
 
@@ -1180,16 +1192,17 @@ async function executeRemoteMessage(
             true  // isStream
           )
         } else {
-          console.warn(`[Agent][Remote] terminal:output received but no activeBashCommandId set`)
+          log.warn(`terminal:output received but no activeBashCommandId set`)
         }
       }
     })
 
     // Streaming text events - use agent:message format expected by frontend
-    client.on('claude:stream', (data) => {
+    addHandler('claude:stream', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const text = data.data?.text || data.data?.content || ''
-        streamingContent += text
+        streamChunks.push(text)
+        streamingContent = streamChunks.join('')
         // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
         sessionState.streamingContent = streamingContent
         // Send in the format expected by handleAgentMessage
@@ -1202,15 +1215,14 @@ async function executeRemoteMessage(
     })
 
     // Thought events - for thinking process display (aligned with local agent:thought)
-    client.on('thought', (data) => {
+    addHandler('thought', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const thoughtData = data.data
-        console.log(`[Agent][Remote] Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
+        log.debug(`Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
 
         // Store thought for final message
         thoughts.push(thoughtData)
-        // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
-        sessionState.thoughts = [...thoughts]
+        // sessionState.thoughts already points to the same array (no copy needed)
 
         // Send to renderer in the same format as local agent:thought
         sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData })
@@ -1218,13 +1230,13 @@ async function executeRemoteMessage(
     })
 
     // Thought delta events - for streaming updates (aligned with local agent:thought-delta)
-    client.on('thought:delta', (data) => {
+    addHandler('thought:delta', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const deltaData = data.data
 
         // Debug: Log tool result deltas
         if (deltaData.isToolResult || deltaData.toolResult) {
-          console.log(`[Agent][Remote] Received thought:delta with toolResult for thought ${deltaData.thoughtId}`)
+          log.debug(`Received thought:delta with toolResult for thought ${deltaData.thoughtId}`)
         }
 
         // Send to renderer in the same format as local agent:thought-delta
@@ -1240,7 +1252,7 @@ async function executeRemoteMessage(
           // Update tool result (for tool_use with result)
           if (deltaData.toolResult) {
             thought.toolResult = deltaData.toolResult
-            console.log(`[Agent][Remote] Updated toolResult for thought ${deltaData.thoughtId}`)
+            log.debug(`Updated toolResult for thought ${deltaData.thoughtId}`)
           }
           // Update tool input (when complete)
           if (deltaData.toolInput) {
@@ -1254,27 +1266,26 @@ async function executeRemoteMessage(
           if (deltaData.isReady !== undefined) {
             thought.isReady = deltaData.isReady
           }
-          // CRITICAL: Also update sessionState for error handling (preserve content on interrupt)
-          sessionState.thoughts = [...thoughts]
+          // sessionState.thoughts already points to the same array (no copy needed)
         }
       }
     })
 
     // MCP status events - forward to renderer (aligned with local agent:mcp-status)
-    client.on('mcp:status', (data) => {
+    addHandler('mcp:status', (data) => {
       if (data.sessionId === effectiveSessionId) {
-        console.log(`[Agent][Remote] MCP status received:`, data.data)
+        log.debug(`MCP status received:`, data.data)
         // Import broadcastMcpStatus from mcp-manager
         import('./mcp-manager').then(({ broadcastMcpStatus }) => {
           broadcastMcpStatus(data.data.servers)
-        }).catch(err => console.error('[Agent][Remote] Failed to import broadcastMcpStatus:', err))
+        }).catch(err => log.error(' Failed to import broadcastMcpStatus:', err))
       }
     })
 
     // Compact boundary events - context compression notification
-    client.on('compact:boundary', (data) => {
+    addHandler('compact:boundary', (data) => {
       if (data.sessionId === effectiveSessionId) {
-        console.log(`[Agent][Remote] Compact boundary received:`, data.data)
+        log.debug(`Compact boundary received:`, data.data)
         sendToRenderer('agent:compact', spaceId, conversationId, {
           type: 'compact',
           trigger: data.data.trigger,
@@ -1284,22 +1295,22 @@ async function executeRemoteMessage(
     })
 
     // Subagent worker lifecycle events (from SDK Agent tool usage)
-    client.on('worker:started', (data) => {
+    addHandler('worker:started', (data) => {
       if (data.sessionId === effectiveSessionId) {
-        console.log(`[Agent][Remote] Worker started: ${data.data.agentId} - ${data.data.agentName}`)
+        log.debug(`Worker started: ${data.data.agentId} - ${data.data.agentName}`)
         sendToRenderer('worker:started', spaceId, conversationId, data.data)
       }
     })
 
-    client.on('worker:completed', (data) => {
+    addHandler('worker:completed', (data) => {
       if (data.sessionId === effectiveSessionId) {
-        console.log(`[Agent][Remote] Worker completed: ${data.data.agentId}`)
+        log.debug(`Worker completed: ${data.data.agentId}`)
         sendToRenderer('worker:completed', spaceId, conversationId, data.data)
       }
     })
 
     // Text block start signal - for proper text block reset in frontend
-    client.on('text:block-start', (data) => {
+    addHandler('text:block-start', (data) => {
       if (data.sessionId === effectiveSessionId) {
         sendToRenderer('agent:message', spaceId, conversationId, {
           type: 'message',
@@ -1317,48 +1328,48 @@ async function executeRemoteMessage(
     // They are forwarded to the local agent orchestrator for injection into leader sessions.
     // ============================================
 
-    client.on('proxy:report', (data) => {
+    addHandler('proxy:report', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const eventData = data.data
-        console.log(`[Agent][Remote] Proxy report: from=${eventData.workerName}, type=${eventData.reportType}`)
+        log.debug(`Proxy report: from=${eventData.workerName}, type=${eventData.reportType}`)
         // Forward to local orchestrator for injection into the leader's session
         import('./orchestrator').then(({ getAgentOrchestrator }) => {
           const orchestrator = getAgentOrchestrator()
           orchestrator.reportToLeader(eventData)
-        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:report:', err))
+        }).catch(err => log.error(' Failed to handle proxy:report:', err))
       }
     })
 
-    client.on('proxy:announce', (data) => {
+    addHandler('proxy:announce', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const eventData = data.data
-        console.log(`[Agent][Remote] Proxy announce: worker=${eventData.workerName}, status=${eventData.status}`)
+        log.debug(`Proxy announce: worker=${eventData.workerName}, status=${eventData.status}`)
         import('./orchestrator').then(({ getAgentOrchestrator }) => {
           const orchestrator = getAgentOrchestrator()
           orchestrator.sendAnnouncement(eventData)
-        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:announce:', err))
+        }).catch(err => log.error(' Failed to handle proxy:announce:', err))
       }
     })
 
-    client.on('proxy:question', (data) => {
+    addHandler('proxy:question', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const eventData = data.data
-        console.log(`[Agent][Remote] Proxy question: from=${eventData.workerName}, target=${eventData.target}`)
+        log.debug(`Proxy question: from=${eventData.workerName}, target=${eventData.target}`)
         import('./orchestrator').then(({ getAgentOrchestrator }) => {
           const orchestrator = getAgentOrchestrator()
           orchestrator.sendAgentMessage(eventData)
-        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:question:', err))
+        }).catch(err => log.error(' Failed to handle proxy:question:', err))
       }
     })
 
-    client.on('proxy:message', (data) => {
+    addHandler('proxy:message', (data) => {
       if (data.sessionId === effectiveSessionId) {
         const eventData = data.data
-        console.log(`[Agent][Remote] Proxy message: from=${eventData.workerName}, to=${eventData.recipient}`)
+        log.debug(`Proxy message: from=${eventData.workerName}, to=${eventData.recipient}`)
         import('./orchestrator').then(({ getAgentOrchestrator }) => {
           const orchestrator = getAgentOrchestrator()
           orchestrator.broadcastAgentMessage(eventData)
-        }).catch(err => console.error('[Agent][Remote] Failed to handle proxy:message:', err))
+        }).catch(err => log.error(' Failed to handle proxy:message:', err))
       }
     })
 
@@ -1368,10 +1379,10 @@ async function executeRemoteMessage(
     // created, triggered, paused, or completes a run.
     // ============================================
 
-    client.on('proxy:app:status', (data) => {
+    addHandler('proxy:app:status', (data) => {
       const eventData = data.data
       if (eventData._eventType === 'app:status') {
-        console.log(`[Agent][Remote] Proxy app status: ${eventData.name} -> ${eventData.status}`)
+        log.debug(`Proxy app status: ${eventData.name} -> ${eventData.status}`)
         // Forward to renderer for UI display (status card in chat)
         sendToRenderer('app:status_changed', spaceId, conversationId, {
           appId: eventData.appId,
@@ -1389,99 +1400,87 @@ async function executeRemoteMessage(
       }
     })
 
-    // Connect if not already connected
-    if (!client.isConnected()) {
-      const connectionUrl = `ws://${wsConfig.host}:${wsConfig.port}/agent`
-      console.log(`[Agent][Remote] Connecting to WebSocket at ${connectionUrl} (useSshTunnel=${wsConfig.useSshTunnel})...`)
-      try {
-        await client.connect()
-        console.log(`[Agent][Remote] Client connected, ready to send`)
-        // Register MCP tools with remote proxy after connection
-        if (mcpToolDefs.length > 0) {
-          client.registerMcpTools(mcpToolDefs, mcpCapabilities)
-          console.log(`[Agent][Remote] Registered ${mcpToolDefs.length} MCP tools with remote proxy`)
-        }
-      } catch (connectError) {
-        console.error(`[Agent][Remote] Failed to connect WebSocket:`, connectError)
-        throw connectError
-      }
-    } else {
-      console.log(`[Agent][Remote] Client already connected`)
+    // Register MCP tools with remote proxy (only once per connection lifetime)
+    if (mcpToolDefs.length > 0 && !(client as any)._mcpToolsRegistered) {
+      client.registerMcpTools(mcpToolDefs, mcpCapabilities)
+      ;(client as any)._mcpToolsRegistered = true
+      log.info(`Registered ${mcpToolDefs.length} MCP tools with pooled connection`)
     }
 
-    // Build complete message history for multi-turn conversation
-    console.log(`[Agent][Remote] Building message history for conversation ${conversationId}...`)
-
-    const messageHistory: Array<{ role: string; content: any }> = []
-
-    if (conversation && conversation.messages) {
-      // Filter out the last assistant placeholder message we just added
-      const messagesToSend = conversation.messages.slice(0, -1)
-
-      for (const msg of messagesToSend) {
-        // Build content array (supports text + images)
-        const content: any[] = []
-
-        // Add text content
-        if (msg.content) {
-          content.push({ type: 'text', text: msg.content })
-        }
-
-        // Add images if present
-        if (msg.images && msg.images.length > 0) {
-          for (const image of msg.images) {
-            content.push({
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: image.mediaType,
-                data: image.data
-              }
-            })
-          }
-        }
-
-        messageHistory.push({
-          role: msg.role,
-          content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
-        })
-      }
-    }
-
-    // Add current user message
-    const currentUserContent: any[] = []
-    currentUserContent.push({ type: 'text', text: message })
-
-    if (images && images.length > 0) {
-      for (const image of images) {
-        currentUserContent.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: image.mediaType,
-            data: image.data
-          }
-        })
-      }
-    }
-
-    messageHistory.push({
-      role: 'user',
-      content: currentUserContent.length === 1 ? currentUserContent[0].text : currentUserContent
-    })
-
-    console.log(`[Agent][Remote] Message history: ${messageHistory.length} messages`)
-
-    // Send chat request via WebSocket with streaming
-    // Pass sdkSessionId for session resumption (multi-turn conversation support)
+    // Build message payload - incremental when resuming a session
+    // When sdkSessionId exists, the remote SDK already has full conversation context.
+    // We only send the current user message (incremental) to reduce payload size.
     const sdkSessionIdForResume = sdkSessionId || sessionId
+    const isResumingSession = !!sdkSessionIdForResume
+
+    // Helper: build user message content with optional images
+    const buildUserMessage = (text: string, imgs?: any[]): any => {
+      const content: any[] = [{ type: 'text', text }]
+      if (imgs && imgs.length > 0) {
+        for (const image of imgs) {
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.mediaType,
+              data: image.data
+            }
+          })
+        }
+      }
+      return {
+        role: 'user',
+        content: content.length === 1 ? content[0].text : content
+      }
+    }
+
+    let messagesToSend: Array<{ role: string; content: any }>
+
+    if (isResumingSession) {
+      // Session resumption: remote SDK has full conversation context
+      // Only send the current user message (incremental)
+      messagesToSend = [buildUserMessage(message, images)]
+      log.info(`Sending incremental message (session resumption, sdkSessionId=${sdkSessionIdForResume})`)
+    } else {
+      // First message: send full history (remote SDK has no context yet)
+      log.debug(`Building full message history for conversation ${conversationId}...`)
+
+      const messageHistory: Array<{ role: string; content: any }> = []
+
+      if (conversation && conversation.messages) {
+        // Filter out the last assistant placeholder message we just added
+        const messagesForHistory = conversation.messages.slice(0, -1)
+
+        for (const msg of messagesForHistory) {
+          const content: any[] = []
+          if (msg.content) content.push({ type: 'text', text: msg.content })
+          if (msg.images && msg.images.length > 0) {
+            for (const image of msg.images) {
+              content.push({
+                type: 'image',
+                source: { type: 'base64', media_type: image.mediaType, data: image.data }
+              })
+            }
+          }
+          messageHistory.push({
+            role: msg.role,
+            content: content.length === 1 && content[0].type === 'text' ? content[0].text : content
+          })
+        }
+      }
+
+      messageHistory.push(buildUserMessage(message, images))
+      messagesToSend = messageHistory
+      log.info(`Sending full history: ${messageHistory.length} messages (new session)`)
+    }
+
     // CRITICAL: effectiveSessionId stays as conversationId throughout.
     // The server uses this as the key for its sessions Map.
-    console.log(`[Agent][Remote] Sending chat request to remote Claude (sessionId=${effectiveSessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
+    log.info(`Sending chat request to remote Claude (sessionId=${effectiveSessionId}, sdkSessionId=${sdkSessionIdForResume || 'new'}, workDir=${remotePath})...`)
 
     const response = await client.sendChatWithStream(
       effectiveSessionId,  // Conversation ID for WebSocket routing
-      messageHistory,
+      messagesToSend,
       {
         apiKey,
         baseUrl: currentSource?.apiUrl || undefined,
@@ -1496,7 +1495,7 @@ async function executeRemoteMessage(
       }
     )
 
-    console.log(`[Agent][Remote] Received response from remote Claude: ${response.content?.substring(0, 100)}...`)
+    log.info(`Received response from remote Claude: ${response.content?.substring(0, 100)}...`)
 
     // Send final message content (the streaming already sent deltas)
     // response is { content: string, tokenUsage?: any }
@@ -1516,10 +1515,10 @@ async function executeRemoteMessage(
         const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts)
         if (fileChangesSummary) {
           metadata = { fileChanges: fileChangesSummary }
-          console.log(`[Agent][Remote] File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
+          log.info(`File changes: ${fileChangesSummary.totalFiles} files, +${fileChangesSummary.totalAdded} -${fileChangesSummary.totalRemoved}`)
         }
       } catch (error) {
-        console.error(`[Agent][Remote] Failed to extract file changes:`, error)
+        log.error(`Failed to extract file changes:`, error)
       }
     }
 
@@ -1541,22 +1540,23 @@ async function executeRemoteMessage(
     const sessionToSave = sdkSessionId || sessionId
     if (sessionToSave) {
       saveSessionId(spaceId, conversationId, sessionToSave)
-      console.log(`[Agent][Remote] Session ID saved: ${sessionToSave}`)
+      log.info(`Session ID saved: ${sessionToSave}`)
     }
 
-    console.log(`[Agent][Remote] Remote Claude execution completed`)
+    log.info(`Remote Claude execution completed`)
 
-    // Clean up registered client after completion
-    client.disconnect()
+    // Clean up event handlers and release pooled connection
+    for (const cleanup of eventCleanups) cleanup()
+    releaseConnection(serverId, conversationId)
 
     // CRITICAL: Unregister active session after completion
     // This ensures that getSessionState returns isActive: false after completion,
     // preventing frontend from incorrectly restoring isGenerating state on refresh
     unregisterActiveSession(conversationId)
-    console.log(`[Agent][Remote] Unregistered active session: ${conversationId}`)
+    log.info(`Unregistered active session: ${conversationId}`)
 
   } catch (error) {
-    console.error('[Agent][Remote] Execute error:', error)
+    log.error(' Execute error:', error)
     const err = error as Error
 
     // Check if this is an abort/stop action (user intentionally stopped)
@@ -1578,7 +1578,7 @@ async function executeRemoteMessage(
     const hasThoughts = accumulatedThoughts.length > 0
 
     if (hasContent || hasThoughts) {
-      console.log(`[Agent][Remote] Persisting on abort: ${accumulatedContent.length} chars, ${accumulatedThoughts.length} thoughts`)
+      log.debug(`Persisting on abort: ${accumulatedContent.length} chars, ${accumulatedThoughts.length} thoughts`)
     }
 
     // CRITICAL: Update the assistant message with accumulated content and thoughts
@@ -1594,16 +1594,17 @@ async function executeRemoteMessage(
     // This ensures the frontend knows the generation is complete and can display the final content
     sendToRenderer('agent:complete', spaceId, conversationId, {})
 
-    // Clean up registered client on error too
+    // Clean up event handlers and release pooled connection on error too
     try {
-      client.disconnect()
+      for (const cleanup of eventCleanups) cleanup()
+      releaseConnection(serverId, conversationId)
     } catch {}
 
     // CRITICAL: Unregister active session on error too
     // This ensures that getSessionState returns isActive: false after error,
     // preventing frontend from incorrectly restoring isGenerating state on refresh
     unregisterActiveSession(conversationId)
-    console.log(`[Agent][Remote] Unregistered active session on error: ${conversationId}`)
+    log.info(`Unregistered active session on error: ${conversationId}`)
 
     // Clean up MCP bridge
     mcpBridge?.dispose()
@@ -1657,12 +1658,12 @@ async function deployRemoteAgent(serverId: string): Promise<void> {
     throw new Error(`SSH manager not available for server: ${serverId}`)
   }
 
-  console.log('[Agent][Remote] Deploying remote agent to:', server.name)
+  log.debug(' Deploying remote agent to:', server.name)
 
   // Execute the deploy command (this calls the existing deployAgentCode function)
   await deployService.deployAgentCode(serverId)
 
-  console.log('[Agent][Remote] Remote agent deployment completed')
+  log.debug(' Remote agent deployment completed')
 }
 
 /**
@@ -1713,10 +1714,10 @@ async function startRemoteAgent(serverId: string): Promise<void> {
     throw new Error(`SSH manager not available for server: ${serverId}`)
   }
 
-  console.log('[Agent][Remote] Starting remote agent on:', server.name)
+  log.debug(' Starting remote agent on:', server.name)
 
   // Start the agent server
   await deployService.startAgent(serverId)
 
-  console.log('[Agent][Remote] Remote agent started')
+  log.debug(' Remote agent started')
 }

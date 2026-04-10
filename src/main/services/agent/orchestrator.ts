@@ -12,6 +12,9 @@
 
 import { EventEmitter } from 'events'
 import { v4 as uuidv4 } from 'uuid'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('orchestrator')
 import type {
   AgentConfig,
   OrchestrationConfig,
@@ -154,7 +157,7 @@ class AgentOrchestrator extends EventEmitter {
   private constructor() {
     super()
     this.startStallDetection()
-    console.log('[Orchestrator] Service initialized')
+    log.info('Service initialized')
   }
 
   /**
@@ -314,7 +317,7 @@ class AgentOrchestrator extends EventEmitter {
     conversationId: string
     systemPrompt?: string
   }): Promise<void> {
-    console.log(`[Orchestrator] Executing on single agent ${params.agent.id}`)
+    log.info(` Executing on single agent ${params.agent.id}`)
 
     const { team, agent, task, conversationId, systemPrompt } = params
 
@@ -351,7 +354,7 @@ class AgentOrchestrator extends EventEmitter {
     systemPrompt: string | undefined,
     spaceId: string
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing locally on agent ${agent.id}`)
+    log.info(` Executing locally on agent ${agent.id}`)
 
     const { getOrCreateV2Session, createSessionState, registerActiveSession, unregisterActiveSession } = await import('./session-manager')
     const { getConfig } = await import('../config.service')
@@ -374,7 +377,7 @@ class AgentOrchestrator extends EventEmitter {
 
     // Use a FIXED child conversation ID to maintain session continuity for multi-turn conversations
     const childConversationId = `${conversationId}:agent-${agent.id}`
-    console.log(`[Orchestrator][${conversationId}] Using child conversation ID: ${childConversationId}`)
+    log.info(`[${conversationId}] Using child conversation ID: ${childConversationId}`)
 
     // --- Persist worker conversation to database ---
     const { createConversationWithId, addMessage } = await import('../conversation.service')
@@ -446,7 +449,7 @@ class AgentOrchestrator extends EventEmitter {
     const sessionState = createSessionState(spaceId, conversationId, abortController)
     registerActiveSession(conversationId, sessionState)
 
-    console.log(`[Orchestrator][${childConversationId}] Session obtained, processing stream...`)
+    log.info(`[${childConversationId}] Session obtained, processing stream...`)
 
     try {
       // Use processStream in a while(true) loop to handle worker announcement injection.
@@ -491,7 +494,7 @@ class AgentOrchestrator extends EventEmitter {
                     metadata = { fileChanges: fileChangesSummary }
                   }
                 } catch (e) {
-                  console.error(`[Orchestrator] Failed to extract file changes:`, e)
+                  log.error(` Failed to extract file changes:`, e)
                 }
               }
 
@@ -514,7 +517,7 @@ class AgentOrchestrator extends EventEmitter {
                   error: r.errorThought?.content
                 })
               } catch (e) {
-                console.error(`[Orchestrator] Failed to persist @mention worker response to ${childConversationId}:`, e)
+                log.error(` Failed to persist @mention worker response to ${childConversationId}:`, e)
               }
 
               // Only unregister when NOT continuing with injection
@@ -531,11 +534,11 @@ class AgentOrchestrator extends EventEmitter {
           if (injection) {
             injectionCycles++
             if (injectionCycles >= maxInjectionCycles) {
-              console.warn(`[Orchestrator] Max injection cycles (${maxInjectionCycles}) reached, stopping`)
+              log.warn(` Max injection cycles (${maxInjectionCycles}) reached, stopping`)
               unregisterActiveSession(conversationId)
               break
             }
-            console.log(`[Orchestrator][${conversationId}] Processing injected worker announcement (cycle ${injectionCycles})`)
+            log.debug(`[${conversationId}] Processing injected worker announcement (cycle ${injectionCycles})`)
 
             // Use injection content as next message for the Leader
             currentMessageContent = injection.content
@@ -566,11 +569,11 @@ class AgentOrchestrator extends EventEmitter {
           if (injection) {
             injectionCycles++
             if (injectionCycles >= maxInjectionCycles) {
-              console.warn(`[Orchestrator] Max injection cycles (${maxInjectionCycles}) reached, stopping`)
+              log.warn(` Max injection cycles (${maxInjectionCycles}) reached, stopping`)
               unregisterActiveSession(conversationId)
               break
             }
-            console.log(`[Orchestrator][${conversationId}] Processing late injection (race fix, cycle ${injectionCycles})`)
+            log.debug(`[${conversationId}] Processing late injection (race fix, cycle ${injectionCycles})`)
             currentMessageContent = injection.content
             sessionState.streamingContent = ''
             sessionState.isThinking = true
@@ -656,7 +659,7 @@ class AgentOrchestrator extends EventEmitter {
               continue
             }
           } catch (waitError) {
-            console.error(`[Orchestrator] Error waiting for workers:`, waitError)
+            log.error(` Error waiting for workers:`, waitError)
             // Don't break — let the leader know about the timeout
             currentMessageContent = `[Worker Timeout] Some workers did not complete within the timeout. Check their status individually.`
             sessionState.streamingContent = ''
@@ -669,7 +672,7 @@ class AgentOrchestrator extends EventEmitter {
         break
       }
 
-      console.log(`[Orchestrator] Agent ${agent.id} completed, injectionCycles: ${injectionCycles}`)
+      log.debug(` Agent ${agent.id} completed, injectionCycles: ${injectionCycles}`)
     } catch (error) {
       unregisterActiveSession(conversationId)
       throw error
@@ -687,7 +690,7 @@ class AgentOrchestrator extends EventEmitter {
     systemPrompt: string | undefined,
     spaceId: string
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing remotely on agent ${agent.id}`)
+    log.info(` Executing remotely on agent ${agent.id}`)
 
     const { RemoteWsClient, registerActiveClient, unregisterActiveClient } = await import('../remote-ws/remote-ws-client')
     const { getRemoteDeployService } = await import('../../ipc/remote-server')
@@ -717,12 +720,12 @@ class AgentOrchestrator extends EventEmitter {
     const apiKey = currentSource?.apiKey || config.api?.apiKey
     const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
 
-    console.log(`[Orchestrator] Using model: ${model}, hasApiKey: ${!!apiKey}`)
+    log.debug(` Using model: ${model}, hasApiKey: ${!!apiKey}`)
 
     // Use a FIXED child conversation ID to maintain session continuity for multi-turn conversations
     // Format: {mainConversationId}:agent-{agentId} (NO timestamp - same session for same agent)
     const childConversationId = `${conversationId}:agent-${agent.id}`
-    console.log(`[Orchestrator][${conversationId}] Using child conversation ID for remote: ${childConversationId}`)
+    log.info(`[${conversationId}] Using child conversation ID for remote: ${childConversationId}`)
 
     // --- Persist worker conversation to database ---
     const { createConversationWithId: cc, addMessage: am } = await import('../conversation.service')
@@ -740,7 +743,7 @@ class AgentOrchestrator extends EventEmitter {
 
     // Establish SSH tunnel if required (same as executeRemoteMessage)
     if (useSshTunnel) {
-      console.log(`[Orchestrator] Establishing SSH tunnel to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+      log.debug(` Establishing SSH tunnel to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
 
       const decryptedPassword = decryptString(serverInfo.password || '')
 
@@ -755,9 +758,9 @@ class AgentOrchestrator extends EventEmitter {
           localPort: serverInfo.wsPort || 8080,
           remotePort: serverInfo.wsPort || 8080
         })
-        console.log(`[Orchestrator] SSH tunnel established on local port ${localTunnelPort}`)
+        log.info(` SSH tunnel established on local port ${localTunnelPort}`)
       } catch (tunnelError) {
-        console.error('[Orchestrator] Failed to establish SSH tunnel:', tunnelError)
+        log.error('Failed to establish SSH tunnel:', tunnelError)
         throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
       }
     }
@@ -781,6 +784,7 @@ class AgentOrchestrator extends EventEmitter {
 
       // Variables to track streaming content and thoughts
       let streamingContent = ''
+      const streamChunks: string[] = []
       const thoughts: any[] = []
 
       // =====================================================
@@ -793,7 +797,7 @@ class AgentOrchestrator extends EventEmitter {
         if (data.sessionId === childConversationId) {
           const receivedSdkSessionId = data.data?.sdkSessionId
           if (receivedSdkSessionId) {
-            console.log(`[Orchestrator] Captured SDK session_id: ${receivedSdkSessionId}`)
+            log.debug(` Captured SDK session_id: ${receivedSdkSessionId}`)
             this.workerSessionIds.set(childConversationId, receivedSdkSessionId)
           }
         }
@@ -803,7 +807,8 @@ class AgentOrchestrator extends EventEmitter {
       client.on('claude:stream', (data: any) => {
         if (data.sessionId === childConversationId) {
           const text = data.data?.text || data.data?.content || ''
-          streamingContent += text
+          streamChunks.push(text)
+          streamingContent = streamChunks.join('')
           // Forward to renderer using MAIN conversation ID (not child)
           sendToRenderer('agent:message', spaceId, conversationId, {
             type: 'message',
@@ -819,7 +824,7 @@ class AgentOrchestrator extends EventEmitter {
         if (data.sessionId === childConversationId) {
           const thoughtData = data.data
           thoughts.push(thoughtData)  // Accumulate for persistence
-          console.log(`[Orchestrator] Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
+          log.debug(` Thought received: type=${thoughtData.type}, id=${thoughtData.id}`)
           // Forward to renderer
           sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData })
         }
@@ -847,7 +852,7 @@ class AgentOrchestrator extends EventEmitter {
       client.on('tool:call', (data: any) => {
         if (data.sessionId === childConversationId) {
           const toolData = data.data
-          console.log(`[Orchestrator] Tool call received:`, {
+          log.debug(` Tool call received:`, {
             name: toolData.name,
             status: toolData.status,
             id: toolData.id
@@ -866,7 +871,7 @@ class AgentOrchestrator extends EventEmitter {
       client.on('tool:result', (data: any) => {
         if (data.sessionId === childConversationId) {
           const toolData = data.data
-          console.log(`[Orchestrator] Tool result received, name=${toolData.name}`)
+          log.debug(` Tool result received, name=${toolData.name}`)
           sendToRenderer('agent:tool-result', spaceId, conversationId, {
             toolId: toolData.id,
             result: toolData.output || '',
@@ -879,7 +884,7 @@ class AgentOrchestrator extends EventEmitter {
       client.on('tool:error', (data: any) => {
         if (data.sessionId === childConversationId) {
           const toolData = data.data
-          console.error(`[Orchestrator] Tool error:`, toolData)
+          log.error(` Tool error:`, toolData)
           sendToRenderer('agent:tool-result', spaceId, conversationId, {
             toolId: toolData.id,
             result: toolData.error || 'Tool execution failed',
@@ -892,7 +897,7 @@ class AgentOrchestrator extends EventEmitter {
       client.on('terminal:output', (data: any) => {
         if (data.sessionId === childConversationId) {
           const output = data.data
-          console.log(`[Orchestrator] terminal:output received: content.length=${output.content?.length || 0}`)
+          log.debug(` terminal:output received: content.length=${output.content?.length || 0}`)
           sendToRenderer('agent:terminal', spaceId, conversationId, output)
         }
       })
@@ -911,13 +916,13 @@ class AgentOrchestrator extends EventEmitter {
       })
 
       // Connect to remote server
-      console.log(`[Orchestrator] Connecting to remote server...`)
+      log.debug(` Connecting to remote server...`)
       await client.connect()
       tunnelEstablished = false // After connect(), tunnel cleanup is client's responsibility
-      console.log(`[Orchestrator] Connected to remote server`)
+      log.debug(` Connected to remote server`)
 
       // Send chat request via WebSocket with streaming
-      console.log(`[Orchestrator] Sending chat request to remote Claude...`)
+      log.debug(` Sending chat request to remote Claude...`)
       const workerSdkSessionId = this.workerSessionIds.get(childConversationId)
       const response = await client.sendChatWithStream(
         childConversationId,
@@ -933,7 +938,7 @@ class AgentOrchestrator extends EventEmitter {
         }
       )
 
-      console.log(`[Orchestrator] Received response from remote Claude: ${(response.content || '').substring(0, 100)}...`)
+      log.debug(` Received response from remote Claude: ${(response.content || '').substring(0, 100)}...`)
 
       // Use accumulated streaming content or response content
       const result = streamingContent || response.content || ''
@@ -957,7 +962,7 @@ class AgentOrchestrator extends EventEmitter {
             metadata = { fileChanges: fileChangesSummary }
           }
         } catch (e) {
-          console.error(`[Orchestrator] Failed to extract file changes from remote thoughts:`, e)
+          log.error(` Failed to extract file changes from remote thoughts:`, e)
         }
       }
 
@@ -977,7 +982,7 @@ class AgentOrchestrator extends EventEmitter {
           tokenUsage: response.tokenUsage
         })
       } catch (e) {
-        console.error(`[Orchestrator] Failed to persist @mention remote worker response to ${childConversationId}:`, e)
+        log.error(` Failed to persist @mention remote worker response to ${childConversationId}:`, e)
       }
 
       // Send completion event
@@ -986,7 +991,7 @@ class AgentOrchestrator extends EventEmitter {
         timestamp: Date.now()
       })
 
-      console.log(`[Orchestrator] Remote agent ${agent.id} completed, result length: ${result.length}`)
+      log.debug(` Remote agent ${agent.id} completed, result length: ${result.length}`)
     } finally {
       // CRITICAL: Always clean up resources — WebSocket, SSH tunnel, active client registration
       if (client) {
@@ -997,9 +1002,9 @@ class AgentOrchestrator extends EventEmitter {
       if (tunnelEstablished && useSshTunnel) {
         try {
           await sshTunnelService.closeTunnel(spaceId, remoteServerId)
-          console.log(`[Orchestrator] SSH tunnel closed for ${remoteServerId}`)
+          log.info(` SSH tunnel closed for ${remoteServerId}`)
         } catch (_) {
-          console.warn(`[Orchestrator] Failed to close SSH tunnel for ${remoteServerId}`)
+          log.warn(` Failed to close SSH tunnel for ${remoteServerId}`)
         }
       }
     }
@@ -1013,12 +1018,12 @@ class AgentOrchestrator extends EventEmitter {
     const team = this.teams.get(teamId)
     if (!team) return false
 
-    console.log(`[Orchestrator] Destroying team ${teamId} — cleaning up all resources...`)
+    log.debug(` Destroying team ${teamId} — cleaning up all resources...`)
 
     // 1. Mark all running workers as idle (abort signals are handled by callers)
     for (const worker of team.workers) {
       if (worker.status === 'running') {
-        console.log(`[Orchestrator] Marking worker ${worker.id} as idle during team destroy`)
+        log.debug(` Marking worker ${worker.id} as idle during team destroy`)
         worker.status = 'idle'
         worker.currentTaskId = undefined
       }
@@ -1048,7 +1053,7 @@ class AgentOrchestrator extends EventEmitter {
 
     this.emit('team:destroyed', { teamId, spaceId: team.spaceId })
 
-    console.log(`[Orchestrator] Destroyed team ${teamId}`)
+    log.debug(` Destroyed team ${teamId}`)
     return true
   }
 
@@ -1068,7 +1073,7 @@ class AgentOrchestrator extends EventEmitter {
       team.workers.push(instance)
     }
 
-    console.log(`[Orchestrator] Added agent ${agentConfig.id} to team ${teamId}`)
+    log.debug(` Added agent ${agentConfig.id} to team ${teamId}`)
     return true
   }
 
@@ -1081,7 +1086,7 @@ class AgentOrchestrator extends EventEmitter {
 
     // Cannot remove leader
     if (team.leader.id === agentId) {
-      console.warn(`[Orchestrator] Cannot remove leader ${agentId} from team ${teamId}`)
+      log.warn(` Cannot remove leader ${agentId} from team ${teamId}`)
       return false
     }
 
@@ -1089,7 +1094,7 @@ class AgentOrchestrator extends EventEmitter {
     if (index === -1) return false
 
     team.workers.splice(index, 1)
-    console.log(`[Orchestrator] Removed agent ${agentId} from team ${teamId}`)
+    log.debug(` Removed agent ${agentId} from team ${teamId}`)
     return true
   }
 
@@ -1130,7 +1135,7 @@ class AgentOrchestrator extends EventEmitter {
       }
       tasks = [this.createSubtask({ team, agent: targetAgent, task: params.task, conversationId: params.conversationId })]
       strategy = 'direct-target'
-      console.log(`[Orchestrator] Dispatched task directly to agent: ${params.targetAgentId}`)
+      log.debug(` Dispatched task directly to agent: ${params.targetAgentId}`)
     } else {
       // Use routing strategy to find appropriate agent(s)
       strategy = team.config.routing.strategy
@@ -1152,7 +1157,7 @@ class AgentOrchestrator extends EventEmitter {
 
     // Register pending announcements (merge with existing set if any)
     const newPending = new Set(tasks.map(t => t.id))
-    console.log(`[Orchestrator] dispatchTask: conversationId=${params.conversationId}${params.conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
+    log.debug(` dispatchTask: conversationId=${params.conversationId}${params.conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
     const existing = this.pendingAnnouncements.get(params.conversationId)
     if (existing) {
       for (const id of newPending) {
@@ -1268,13 +1273,13 @@ Respond with a JSON array of agent IDs that should handle this task.`
   ): SubagentTask[] {
     const defaultAgentId = team.config.routing.defaultAgentId
     if (!defaultAgentId) {
-      console.warn('[Orchestrator] No default agent specified for manual routing')
+      log.warn('No default agent specified for manual routing')
       return this.dispatchToAll(team, params)
     }
 
     const target = team.workers.find(w => w.id === defaultAgentId)
     if (!target) {
-      console.warn(`[Orchestrator] Default agent ${defaultAgentId} not found`)
+      log.warn(` Default agent ${defaultAgentId} not found`)
       return this.dispatchToAll(team, params)
     }
 
@@ -1670,7 +1675,7 @@ just complete the task normally — the orchestrator will collect your results a
     agent: AgentInstance,
     team: AgentTeam
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing subtask ${subtask.id} on agent ${agent.id}`)
+    log.debug(` Executing subtask ${subtask.id} on agent ${agent.id}`)
 
     // Update status to running
     this.updateTaskStatus(subtask.id, 'running')
@@ -1683,7 +1688,7 @@ just complete the task normally — the orchestrator will collect your results a
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(`[Orchestrator] Subtask ${subtask.id} failed:`, errorMessage)
+      log.error(` Subtask ${subtask.id} failed:`, errorMessage)
 
       // Update status and send announcement
       this.updateTaskStatus(subtask.id, 'failed', undefined, errorMessage)
@@ -1712,7 +1717,7 @@ just complete the task normally — the orchestrator will collect your results a
     agent: AgentInstance,
     team: AgentTeam
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing locally on agent ${agent.id}`)
+    log.info(` Executing locally on agent ${agent.id}`)
 
     const { getOrCreateV2Session, createSessionState } = await import('./session-manager')
     const { getConfig } = await import('../config.service')
@@ -1820,7 +1825,7 @@ just complete the task normally — the orchestrator will collect your results a
                 tokenUsage: result.tokenUsage || undefined
               })
             } catch (e) {
-              console.error(`[Orchestrator] Failed to persist worker response to ${childConversationId}:`, e)
+              log.error(` Failed to persist worker response to ${childConversationId}:`, e)
             }
           }
         }
@@ -1850,11 +1855,11 @@ just complete the task normally — the orchestrator will collect your results a
           timestamp: Date.now()
         })
       } else {
-        console.log(`[Orchestrator] Local task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
+        log.debug(` Local task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
       }
 
       agent.status = 'idle'
-      console.log(`[Orchestrator] Local subtask ${subtask.id} completed`)
+      log.debug(` Local subtask ${subtask.id} completed`)
 
     } catch (error) {
       // Notify frontend that worker has failed
@@ -1871,7 +1876,7 @@ just complete the task normally — the orchestrator will collect your results a
           error: error instanceof Error ? error.message : String(error)
         })
       } catch (persistErr) {
-        console.error(`[Orchestrator] Failed to persist worker error:`, persistErr)
+        log.error(` Failed to persist worker error:`, persistErr)
       }
 
       sendToRenderer('worker:completed', team.spaceId, subtask.parentConversationId, {
@@ -1895,7 +1900,7 @@ just complete the task normally — the orchestrator will collect your results a
     agent: AgentInstance,
     team: AgentTeam
   ): Promise<void> {
-    console.log(`[Orchestrator] Executing subtask ${subtask.id} remotely on agent ${agent.id}`)
+    log.debug(` Executing subtask ${subtask.id} remotely on agent ${agent.id}`)
 
     const { RemoteWsClient } = await import('../remote-ws/remote-ws-client')
     const { getRemoteDeployService } = await import('../../ipc/remote-server')
@@ -1922,7 +1927,7 @@ just complete the task normally — the orchestrator will collect your results a
     const apiKey = currentSource?.apiKey || config.api?.apiKey
     const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
 
-    console.log(`[Orchestrator] Remote subtask using model: ${model}, hasApiKey: ${!!apiKey}`)
+    log.debug(` Remote subtask using model: ${model}, hasApiKey: ${!!apiKey}`)
 
     // Build subagent-specific system prompt (includes worker role context)
     const systemPrompt = this.buildSubagentPrompt(subtask, agent.config)
@@ -1942,7 +1947,7 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Establish SSH tunnel if required
     if (useSshTunnel) {
-      console.log(`[Orchestrator] Establishing SSH tunnel for subtask to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+      log.debug(` Establishing SSH tunnel for subtask to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
 
       const decryptedPassword = decryptString(serverInfo.password || '')
 
@@ -1957,9 +1962,9 @@ just complete the task normally — the orchestrator will collect your results a
           localPort: serverInfo.wsPort || 8080,
           remotePort: serverInfo.wsPort || 8080
         })
-        console.log(`[Orchestrator] SSH tunnel established for subtask on local port ${localTunnelPort}`)
+        log.info(` SSH tunnel established for subtask on local port ${localTunnelPort}`)
       } catch (tunnelError) {
-        console.error('[Orchestrator] Failed to establish SSH tunnel for subtask:', tunnelError)
+        log.error('Failed to establish SSH tunnel for subtask:', tunnelError)
         throw new Error(`SSH tunnel failed: ${tunnelError instanceof Error ? tunnelError.message : String(tunnelError)}`)
       }
     }
@@ -1975,6 +1980,7 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Set up event handlers for streaming (forward to parent conversation for UI display)
     let streamingContent = ''
+    const streamChunks2: string[] = []
     const thoughts: any[] = []  // Accumulate thoughts for persistence
     const workerTag = { agentId: agent.id, agentName: agent.config.name || agent.id }
 
@@ -1993,7 +1999,7 @@ just complete the task normally — the orchestrator will collect your results a
       if (data.sessionId === childConversationId) {
         const receivedSdkSessionId = data.data?.sdkSessionId
         if (receivedSdkSessionId) {
-          console.log(`[Orchestrator] Captured SDK session_id for subtask: ${receivedSdkSessionId}`)
+          log.debug(` Captured SDK session_id for subtask: ${receivedSdkSessionId}`)
           this.workerSessionIds.set(childConversationId, receivedSdkSessionId)
         }
       }
@@ -2002,7 +2008,8 @@ just complete the task normally — the orchestrator will collect your results a
     client.on('claude:stream', (data: any) => {
       if (data.sessionId === childConversationId) {
         const text = data.data?.text || data.data?.content || ''
-        streamingContent += text
+        streamChunks2.push(text)
+        streamingContent = streamChunks2.join('')
 
         // Update worker heartbeat to prevent false-positive stall detection
         agent.lastHeartbeat = Date.now()
@@ -2090,9 +2097,9 @@ just complete the task normally — the orchestrator will collect your results a
 
     try {
       // Connect to remote server
-      console.log(`[Orchestrator] Connecting to remote server for subtask...`)
+      log.debug(` Connecting to remote server for subtask...`)
       await client.connect()
-      console.log(`[Orchestrator] Connected, sending subtask to remote agent...`)
+      log.debug(` Connected, sending subtask to remote agent...`)
 
       // Send the task with full configuration (API key, model, maxTokens, system prompt)
       // Include hyperSpaceTools config so the remote proxy creates MCP proxy tools
@@ -2128,7 +2135,7 @@ just complete the task normally — the orchestrator will collect your results a
           thoughts: thoughts.length > 0 ? [...thoughts] : undefined
         })
       } catch (e) {
-        console.error(`[Orchestrator] Failed to persist remote worker response to ${childConversationId}:`, e)
+        log.error(` Failed to persist remote worker response to ${childConversationId}:`, e)
       }
 
       // Disconnect
@@ -2156,7 +2163,7 @@ just complete the task normally — the orchestrator will collect your results a
           timestamp: Date.now()
         })
       } else {
-        console.log(`[Orchestrator] Task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
+        log.debug(` Task ${subtask.id} already announced via MCP tool, skipping sendAnnouncement`)
       }
 
       // Accumulate worker thoughts into team for batch persistence
@@ -2165,7 +2172,7 @@ just complete the task normally — the orchestrator will collect your results a
       }
 
       agent.status = 'idle'
-      console.log(`[Orchestrator] Remote subtask ${subtask.id} completed, result length: ${result.length}`)
+      log.debug(` Remote subtask ${subtask.id} completed, result length: ${result.length}`)
 
     } catch (error) {
       client.disconnect()
@@ -2181,7 +2188,7 @@ just complete the task normally — the orchestrator will collect your results a
           error: error instanceof Error ? error.message : String(error)
         })
       } catch (persistErr) {
-        console.error(`[Orchestrator] Failed to persist remote worker error:`, persistErr)
+        log.error(` Failed to persist remote worker error:`, persistErr)
       }
 
       // Notify frontend that worker has failed
@@ -2217,7 +2224,7 @@ just complete the task normally — the orchestrator will collect your results a
       const conversation = getConversation(team.spaceId, team.conversationId)
       const lastMsg = conversation?.messages?.[conversation.messages.length - 1]
       if (!lastMsg) {
-        console.warn(`[Orchestrator] No last message found for thought persistence`)
+        log.warn(` No last message found for thought persistence`)
         return
       }
 
@@ -2235,7 +2242,7 @@ just complete the task normally — the orchestrator will collect your results a
           metadata = { fileChanges: fileChangesSummary }
         }
       } catch (e) {
-        console.error(`[Orchestrator] Failed to extract file changes for merged thoughts:`, e)
+        log.error(` Failed to extract file changes for merged thoughts:`, e)
       }
 
       updateLastMessage(team.spaceId, team.conversationId, {
@@ -2248,7 +2255,7 @@ just complete the task normally — the orchestrator will collect your results a
         `(merged with ${existingThoughts.length} existing thoughts) to conversation ${team.conversationId}`
       )
     } catch (e) {
-      console.error(`[Orchestrator] Failed to persist worker thoughts:`, e)
+      log.error(` Failed to persist worker thoughts:`, e)
     }
   }
 
@@ -2259,7 +2266,7 @@ just complete the task normally — the orchestrator will collect your results a
   async executeAllTasks(teamId: string): Promise<void> {
     const team = this.teams.get(teamId)
     if (!team) {
-      console.warn(`[Orchestrator] Team ${teamId} not found for execution`)
+      log.warn(` Team ${teamId} not found for execution`)
       return
     }
 
@@ -2267,7 +2274,7 @@ just complete the task normally — the orchestrator will collect your results a
     const pendingTasks = Array.from(this.tasks.values())
       .filter(t => t.status === 'pending')
 
-    console.log(`[Orchestrator] Executing ${pendingTasks.length} pending tasks for team ${teamId}`)
+    log.debug(` Executing ${pendingTasks.length} pending tasks for team ${teamId}`)
 
     // Reset worker thoughts accumulator for this execution cycle
     team.turnThoughts = []
@@ -2357,7 +2364,7 @@ just complete the task normally — the orchestrator will collect your results a
       const { clearAllInjections } = require('./stream-processor')
       clearAllInjections()
     } catch (_) { /* ignore */ }
-    console.log('[Orchestrator] Service destroyed')
+    log.debug('Service destroyed')
   }
 
   // ============================================
@@ -2374,7 +2381,7 @@ just complete the task normally — the orchestrator will collect your results a
       this.checkForStalledTasks()
     }, this.stallConfig.checkInterval)
 
-    console.log('[Orchestrator] Stall detection started')
+    log.debug('Stall detection started')
   }
 
   /**
@@ -2384,7 +2391,7 @@ just complete the task normally — the orchestrator will collect your results a
     if (this.stallCheckInterval) {
       clearInterval(this.stallCheckInterval)
       this.stallCheckInterval = null
-      console.log('[Orchestrator] Stall detection stopped')
+      log.debug('Stall detection stopped')
     }
   }
 
@@ -2445,7 +2452,7 @@ just complete the task normally — the orchestrator will collect your results a
         const pending = this.pendingAnnouncements.get(task.parentConversationId)
         if (pending && pending.has(taskId)) {
           pending.delete(taskId)
-          console.log(`[Orchestrator] Removed stalled task ${taskId} from pendingAnnouncements`)
+          log.debug(` Removed stalled task ${taskId} from pendingAnnouncements`)
         }
         this.updateTaskStatus(taskId, 'failed', undefined, 'Task stalled: no heartbeat or exceeded max duration')
         agent.status = 'error'
@@ -2500,7 +2507,7 @@ just complete the task normally — the orchestrator will collect your results a
   }): Promise<string> {
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).substring(7)}`
 
-    console.log(`[Orchestrator] Sending agent message: ${messageId} to ${params.recipientId}`)
+    log.debug(` Sending agent message: ${messageId} to ${params.recipientId}`)
 
     // Import sendToRenderer dynamically to avoid circular dependencies
     const { sendToRenderer } = await import('./helpers')
@@ -2526,7 +2533,7 @@ just complete the task normally — the orchestrator will collect your results a
                        (team.leader.id === params.recipientId ? team.leader : null)
 
       if (recipient && recipient.config.type === 'remote') {
-        console.log(`[Orchestrator] Dispatching message to remote agent: ${params.recipientId}`)
+        log.debug(` Dispatching message to remote agent: ${params.recipientId}`)
 
         // Format the message as a task for the remote agent
         const taskContent = `[Message from ${params.recipientName === recipient.config.name ? 'team leader' : params.recipientName}]\n\n${params.content}`
@@ -2541,7 +2548,7 @@ just complete the task normally — the orchestrator will collect your results a
 
         // Execute asynchronously without blocking the sender
         this.executeSubtask(subtask, recipient, team).catch(err => {
-          console.error(`[Orchestrator] Failed to deliver message to remote agent ${params.recipientId}:`, err)
+          log.error(` Failed to deliver message to remote agent ${params.recipientId}:`, err)
         })
       }
 
@@ -2573,11 +2580,11 @@ just complete the task normally — the orchestrator will collect your results a
   }): Promise<string[]> {
     const team = this.teams.get(params.teamId)
     if (!team) {
-      console.warn(`[Orchestrator] Team ${params.teamId} not found for broadcast`)
+      log.warn(` Team ${params.teamId} not found for broadcast`)
       return []
     }
 
-    console.log(`[Orchestrator] Broadcasting message to team ${params.teamId}`)
+    log.debug(` Broadcasting message to team ${params.teamId}`)
 
     const messageIds: string[] = []
 
@@ -2872,7 +2879,7 @@ just complete the task normally — the orchestrator will collect your results a
     // Find the task to get the parent conversation ID
     const task = this.tasks.get(announcement.taskId)
     if (!task) {
-      console.warn(`[Orchestrator] Cannot inject announcement: task ${announcement.taskId} not found`)
+      log.warn(` Cannot inject announcement: task ${announcement.taskId} not found`)
       return
     }
 
@@ -2881,7 +2888,7 @@ just complete the task normally — the orchestrator will collect your results a
     // Find the team for this conversation
     const team = this.getTeamByConversation(parentConversationId)
     if (!team) {
-      console.warn(`[Orchestrator] Cannot inject announcement: no team for conversation ${parentConversationId}`)
+      log.warn(` Cannot inject announcement: no team for conversation ${parentConversationId}`)
       return
     }
 
@@ -2959,7 +2966,7 @@ just complete the task normally — the orchestrator will collect your results a
     skipUiNotification = false
   ): Promise<void> {
     try {
-      console.log(`[Orchestrator] injectMessageToSession: conversationId=${conversationId}${conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
+      log.debug(` injectMessageToSession: conversationId=${conversationId}${conversationId.includes(':agent-') ? ' ⚠️ CHILD ID' : ' ✓ parent'}`)
       const { sendToRenderer } = await import('./helpers')
 
       // Show the announcement in the chat UI immediately
@@ -2986,9 +2993,9 @@ just complete the task normally — the orchestrator will collect your results a
       // The Leader's own response (after processing the injection) is what
       // gets persisted and shown to the user via processStream's onComplete.
 
-      console.log(`[Orchestrator] Announcement queued for injection: conversation=${conversationId}`)
+      log.debug(` Announcement queued for injection: conversation=${conversationId}`)
     } catch (error) {
-      console.error(`[Orchestrator] Error injecting message to leader session:`, error)
+      log.error(` Error injecting message to leader session:`, error)
     }
   }
 
@@ -3018,7 +3025,7 @@ just complete the task normally — the orchestrator will collect your results a
     const toolInput = toolData.input || {}
     const workerTag = { agentId: agent.id, agentName: agent.config.name || agent.id }
 
-    console.log(`[Orchestrator] Hyper-space tool call from remote worker: ${toolName}`)
+    log.debug(` Hyper-space tool call from remote worker: ${toolName}`)
 
     // Forward the tool call to the UI so users can see what the worker is doing
     sendToRenderer('agent:tool-call', team.spaceId, parentConversationId, {
@@ -3178,7 +3185,7 @@ just complete the task normally — the orchestrator will collect your results a
         result
       )
 
-      console.log(`[Orchestrator] Hyper-space tool ${toolName} completed, result sent back to remote worker`)
+      log.debug(` Hyper-space tool ${toolName} completed, result sent back to remote worker`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
 
@@ -3197,7 +3204,7 @@ just complete the task normally — the orchestrator will collect your results a
         errorMessage
       )
 
-      console.error(`[Orchestrator] Hyper-space tool ${toolName} failed:`, errorMessage)
+      log.error(` Hyper-space tool ${toolName} failed:`, errorMessage)
     }
   }
 
@@ -3231,7 +3238,7 @@ just complete the task normally — the orchestrator will collect your results a
     // Find the team to get the parent conversation ID (leader's conversation)
     const team = this.getTeamBySpace(params.spaceId)
     if (!team) {
-      console.warn(`[Orchestrator] No team found for space ${params.spaceId}, cannot report to leader`)
+      log.warn(` No team found for space ${params.spaceId}, cannot report to leader`)
       return
     }
 

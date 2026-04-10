@@ -5,6 +5,9 @@
 
 import WebSocket from 'ws'
 import { EventEmitter } from 'events'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('remote-ws')
 
 export interface RemoteWsClientConfig {
   serverId: string
@@ -83,7 +86,7 @@ export class RemoteWsClient extends EventEmitter {
    */
   async connect(): Promise<void> {
     if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
-      console.log(`[RemoteWsClient:${this.config.serverId}] Already connecting or connected`)
+      log.debug(`[${this.config.serverId}] Already connecting or connected`)
       return
     }
 
@@ -98,23 +101,26 @@ export class RemoteWsClient extends EventEmitter {
       const connectionMode = this.config.useSshTunnel ? `SSH tunnel (localhost:${port})` : `direct (${host}:${port})`
       const connectionStartTime = Date.now()  // Define at outer scope
 
-      console.log(`[RemoteWsClient:${this.config.serverId}] Connecting to ${wsUrl} via ${connectionMode}`)
-      console.log(`[RemoteWsClient:${this.config.serverId}] Auth token: ${this.config.authToken ? this.config.authToken.substring(0, 10) + '...' : 'none'}`)
+      log.info(`[${this.config.serverId}] Connecting to ${wsUrl} via ${connectionMode}`)
+      log.debug(`[${this.config.serverId}] Auth token: ${this.config.authToken ? this.config.authToken.substring(0, 10) + '...' : 'none'}`)
 
       this.ws = new WebSocket(wsUrl, {
         headers: {
           'Authorization': `Bearer ${this.config.authToken}`
+        },
+        perMessageDeflate: {
+          threshold: 1024  // Only compress messages larger than 1KB
         }
       })
 
       // Enhanced debug logging
       this.ws.on('upgrade', (req) => {
-        console.log(`[RemoteWsClient:${this.config.serverId}] WebSocket upgrade: ${req.url}`)
+        log.debug(`[${this.config.serverId}] WebSocket upgrade: ${req.url}`)
       })
 
       this.ws.on('open', () => {
         const duration = Date.now() - connectionStartTime
-        console.log(`[RemoteWsClient:${this.config.serverId}] Connected after ${duration}ms`)
+        log.info(`[${this.config.serverId}] Connected after ${duration}ms`)
         this.reconnectAttempts = 0
         this.emit('connected')
         resolve()
@@ -125,9 +131,9 @@ export class RemoteWsClient extends EventEmitter {
       })
 
       this.ws.on('error', (err) => {
-        console.error(`[RemoteWsClient:${this.config.serverId}] WebSocket error:`, err)
-        console.error(`[RemoteWsClient:${this.config.serverId}] Error code: ${err?.code}, message: ${err?.message}`)
-        console.error(`[RemoteWsClient:${this.config.serverId}] Error stack: ${err?.stack}`)
+        log.error(`[${this.config.serverId}] WebSocket error:`, err)
+        log.error(`[${this.config.serverId}] Error code: ${err?.code}, message: ${err?.message}`)
+        log.error(`[${this.config.serverId}] Error stack: ${err?.stack}`)
         this.emit('error', err)
         if (this.ws) {
           reject(err)
@@ -140,16 +146,16 @@ export class RemoteWsClient extends EventEmitter {
         const duration = Date.now() - connectionStartTime
         const wasClean = event.code === 1000
         const reason = event.reason || 'unknown'
-        console.log(`[RemoteWsClient:${this.config.serverId}] Disconnected - code: ${event.code}, reason: ${reason}, wasClean: ${wasClean}`)
-        console.log(`[RemoteWsClient:${this.config.serverId}] Disconnect duration: ${duration}ms`)
+        log.info(`[${this.config.serverId}] Disconnected - code: ${event.code}, reason: ${reason}, wasClean: ${wasClean}`)
+        log.debug(`[${this.config.serverId}] Disconnect duration: ${duration}ms`)
         this.authenticated = false
         this.stopPing()
 
         // CRITICAL: Reject all active stream sessions so callers don't hang forever.
         // After reconnection, the caller should re-initiate the request.
         if (this.activeStreamSessions.size > 0) {
-          console.warn(
-            `[RemoteWsClient:${this.config.serverId}] WebSocket closed with ${this.activeStreamSessions.size} ` +
+          log.warn(
+            `[${this.config.serverId}] WebSocket closed with ${this.activeStreamSessions.size} ` +
             `active stream(s). Rejecting all pending promises.`
           )
           for (const [sessionId, pending] of this.activeStreamSessions) {
@@ -167,9 +173,9 @@ export class RemoteWsClient extends EventEmitter {
 
       // Set timeout for connection
       const timeout = setTimeout(() => {
-        console.log(`[RemoteWsClient:${this.config.serverId}] Connection timeout after 30000ms`)
+        log.debug(`[${this.config.serverId}] Connection timeout after 30000ms`)
         if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
-          console.warn(`[RemoteWsClient:${this.config.serverId}] Closing due to timeout`)
+          log.warn(`[${this.config.serverId}] Closing due to timeout`)
           this.ws.close(1000, 'Connection timeout')
           reject(new Error('Connection timeout'))
         }
@@ -207,7 +213,7 @@ export class RemoteWsClient extends EventEmitter {
           'text:block-start'
         ]
         if (blockedTypes.includes(message.type as string)) {
-          console.log(`[RemoteWsClient:${this.config.serverId}] Blocking event after interrupt: ${message.type}`)
+          log.debug(`[${this.config.serverId}] Blocking event after interrupt: ${message.type}`)
           return
         }
       }
@@ -215,13 +221,13 @@ export class RemoteWsClient extends EventEmitter {
       switch (message.type) {
         case 'auth:success':
           this.authenticated = true
-          console.log(`[RemoteWsClient:${this.config.serverId}] Authenticated`)
+          log.info(`[${this.config.serverId}] Authenticated`)
           this.emit('authenticated')
           break
 
         case 'auth:failed':
           this.authenticated = false
-          console.error(`[RemoteWsClient:${this.config.serverId}] Authentication failed:`, message.data)
+          log.error(`[${this.config.serverId}] Authentication failed:`, message.data)
           this.emit('authFailed', message.data)
           this.disconnect()
           break
@@ -239,13 +245,13 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         case 'claude:error':
-          console.error(`[RemoteWsClient:${this.config.serverId}] Claude error:`, message.data)
+          log.error(`[${this.config.serverId}] Claude error:`, message.data)
           this.emit('claude:error', { sessionId: message.sessionId, data: message.data })
           break
 
         case 'claude:session':
           // SDK session_id for session resumption
-          console.log(`[RemoteWsClient:${this.config.serverId}] Received SDK session_id:`, message.data?.sdkSessionId)
+          log.debug(`[${this.config.serverId}] Received SDK session_id:`, message.data?.sdkSessionId)
           this.emit('claude:session', { sessionId: message.sessionId, data: message.data })
           break
 
@@ -262,7 +268,7 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         case 'tool:error':
-          console.error(`[RemoteWsClient:${this.config.serverId}] Tool error:`, message.data)
+          log.error(`[${this.config.serverId}] Tool error:`, message.data)
           this.emit('tool:error', { sessionId: message.sessionId, data: message.data })
           break
 
@@ -300,7 +306,7 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         case 'fs:error':
-          console.error(`[RemoteWsClient:${this.config.serverId}] FS error:`, message.data)
+          log.error(`[${this.config.serverId}] FS error:`, message.data)
           this.emit('fs:error', { sessionId: message.sessionId, data: message.data })
           break
 
@@ -329,10 +335,10 @@ export class RemoteWsClient extends EventEmitter {
           break
 
         default:
-          console.warn(`[RemoteWsClient:${this.config.serverId}] Unknown message type:`, message.type)
+          log.warn(`[${this.config.serverId}] Unknown message type:`, message.type)
       }
     } catch (error) {
-      console.error(`[RemoteWsClient:${this.config.serverId}] Failed to parse message:`, error)
+      log.error(`[${this.config.serverId}] Failed to parse message:`, error)
     }
   }
 
@@ -341,16 +347,16 @@ export class RemoteWsClient extends EventEmitter {
    */
   private send(message: ClientMessage): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn(`[RemoteWsClient:${this.config.serverId}] Cannot send message - not connected`)
+      log.warn(`[${this.config.serverId}] Cannot send message - not connected`)
       return false
     }
 
     try {
       this.ws.send(JSON.stringify(message))
-      console.log(`[RemoteWsClient:${this.config.serverId}] Message sent: ${message.type}`)
+      log.debug(`[${this.config.serverId}] Message sent: ${message.type}`)
       return true
     } catch (error) {
-      console.error(`[RemoteWsClient:${this.config.serverId}] Failed to send message:`, error)
+      log.error(`[${this.config.serverId}] Failed to send message:`, error)
       return false
     }
   }
@@ -375,6 +381,7 @@ export class RemoteWsClient extends EventEmitter {
    */
   sendChatWithStream(sessionId: string, messages: any[], options: any = {}): Promise<{ content: string; tokenUsage?: any }> {
     return new Promise((resolve, reject) => {
+      const chunks: string[] = []
       let fullContent = ''
       let tokenUsage: any = null
       let isComplete = false
@@ -424,7 +431,8 @@ export class RemoteWsClient extends EventEmitter {
           resetTimeout()  // Reset timeout on any stream activity
           // Support both 'text' and 'content' fields for compatibility
           const text = data.data?.text || data.data?.content || ''
-          fullContent += text
+          chunks.push(text)
+          fullContent = chunks.join('')
           // Emit stream event for UI updates
           this.emit('stream', { sessionId, content: fullContent, delta: text })
         }
@@ -435,7 +443,7 @@ export class RemoteWsClient extends EventEmitter {
         if (data.sessionId === sessionId) {
           resetTimeout()
           tokenUsage = data.data
-          console.log(`[RemoteWsClient:${this.config.serverId}] Received token usage:`, tokenUsage)
+          log.debug(`[${this.config.serverId}] Received token usage:`, tokenUsage)
         }
       }
 
@@ -678,12 +686,12 @@ export class RemoteWsClient extends EventEmitter {
   private scheduleReconnect(): void {
     // Don't reconnect if intentional disconnect (e.g., after stop button)
     if (!this.shouldReconnect) {
-      console.log(`[RemoteWsClient:${this.config.serverId}] Skipping reconnect - intentional disconnect`)
+      log.debug(`[${this.config.serverId}] Skipping reconnect - intentional disconnect`)
       return
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log(`[RemoteWsClient:${this.config.serverId}] Max reconnection attempts reached`)
+      log.warn(`[${this.config.serverId}] Max reconnection attempts reached`)
       this.emit('reconnectFailed')
       return
     }
@@ -693,12 +701,12 @@ export class RemoteWsClient extends EventEmitter {
     }
 
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts)
-    console.log(`[RemoteWsClient:${this.config.serverId}] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts + 1})`)
+    log.debug(`[${this.config.serverId}] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts + 1})`)
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++
       this.connect().catch(err => {
-        console.error(`[RemoteWsClient:${this.config.serverId}] Reconnect failed:`, err)
+        log.error(`[${this.config.serverId}] Reconnect failed:`, err)
       })
     }, delay)
   }
@@ -712,8 +720,8 @@ export class RemoteWsClient extends EventEmitter {
     this.lastPongTime = Date.now()
     this.pingTimer = setInterval(() => {
       if (this.lastPongTime && Date.now() - this.lastPongTime > this.pongTimeoutMs) {
-        console.warn(
-          `[RemoteWsClient:${this.config.serverId}] Pong timeout (${this.pongTimeoutMs / 1000}s) — ` +
+        log.warn(
+          `[${this.config.serverId}] Pong timeout (${this.pongTimeoutMs / 1000}s) — ` +
           `server is not responding. Closing connection.`
         )
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -761,7 +769,7 @@ export class RemoteWsClient extends EventEmitter {
     this.stopPing()
 
     if (this.ws) {
-      console.log(`[RemoteWsClient:${this.config.serverId}] Disconnecting`)
+      log.debug(`[${this.config.serverId}] Disconnecting`)
       this.ws.close()
       this.ws = null
     }
@@ -780,7 +788,7 @@ export class RemoteWsClient extends EventEmitter {
    * events to be processed first, preserving already-generated content.
    */
   async interrupt(sessionId: string): Promise<boolean> {
-    console.log(`[RemoteWsClient:${this.config.serverId}] Interrupt requested for session: ${sessionId}`)
+    log.info(`[${this.config.serverId}] Interrupt requested for session: ${sessionId}`)
 
     // Send interrupt and close:session messages to remote server FIRST
     const sendMessages = async () => {
@@ -792,7 +800,7 @@ export class RemoteWsClient extends EventEmitter {
             sessionId
           }
           this.ws!.send(JSON.stringify(interruptMessage))
-          console.log(`[RemoteWsClient:${this.config.serverId}] Interrupt message sent to remote server`)
+          log.debug(`[${this.config.serverId}] Interrupt message sent to remote server`)
 
           // Send close:session message to clean up SDK session
           const closeMessage = {
@@ -800,10 +808,10 @@ export class RemoteWsClient extends EventEmitter {
             sessionId
           }
           this.ws!.send(JSON.stringify(closeMessage))
-          console.log(`[RemoteWsClient:${this.config.serverId}] close:session message sent to remote server`)
+          log.debug(`[${this.config.serverId}] close:session message sent to remote server`)
           return true
         } catch (error) {
-          console.error(`[RemoteWsClient:${this.config.serverId}] Failed to send messages:`, error)
+          log.error(`[${this.config.serverId}] Failed to send messages:`, error)
         }
       }
       return false
@@ -815,15 +823,15 @@ export class RemoteWsClient extends EventEmitter {
     if (!sent) {
       // CRITICAL: Even if disconnected, try to reconnect briefly to send interrupt
       // This ensures the far end knows to stop and clean up the session
-      console.log(`[RemoteWsClient:${this.config.serverId}] Not connected, attempting quick reconnect to send interrupt...`)
+      log.debug(`[${this.config.serverId}] Not connected, attempting quick reconnect to send interrupt...`)
       this.shouldReconnect = true
       this.connect()
       // Wait briefly for connection
       await new Promise(resolve => setTimeout(resolve, 500))
       if (await sendMessages()) {
-        console.log(`[RemoteWsClient:${this.config.serverId}] Messages sent after reconnect`)
+        log.debug(`[${this.config.serverId}] Messages sent after reconnect`)
       } else {
-        console.warn(`[RemoteWsClient:${this.config.serverId}] Reconnect failed, could not send interrupt to remote server`)
+        log.warn(`[${this.config.serverId}] Reconnect failed, could not send interrupt to remote server`)
       }
       // Reset reconnect flag - we only wanted to reconnect for interrupt
       this.shouldReconnect = false
@@ -832,17 +840,17 @@ export class RemoteWsClient extends EventEmitter {
     // CRITICAL: Wait briefly before setting isInterrupted
     // This allows already-queued WebSocket messages (with content) to be processed
     // Events in the queue will be forwarded to the frontend before we block them
-    console.log(`[RemoteWsClient:${this.config.serverId}] Waiting 300ms for queued events to process...`)
+    log.debug(`[${this.config.serverId}] Waiting 300ms for queued events to process...`)
     await new Promise(resolve => setTimeout(resolve, 300))
 
     // NOW set isInterrupted to stop forwarding new events
     this.isInterrupted = true
-    console.log(`[RemoteWsClient:${this.config.serverId}] isInterrupted flag set`)
+    log.debug(`[${this.config.serverId}] isInterrupted flag set`)
 
     // CRITICAL: Directly reject all pending sendChatWithStream promises
     // This is more reliable than emitting events that may not match sessionId
     for (const [activeSessionId, { reject }] of this.activeStreamSessions) {
-      console.log(`[RemoteWsClient:${this.config.serverId}] Rejecting active stream session: ${activeSessionId}`)
+      log.debug(`[${this.config.serverId}] Rejecting active stream session: ${activeSessionId}`)
       reject(new Error('Interrupted by user'))
     }
     // Clear all active sessions
@@ -850,7 +858,7 @@ export class RemoteWsClient extends EventEmitter {
 
     // CRITICAL: Disconnect after delay to prevent any further events
     // This is now handled here instead of in control.ts
-    console.log(`[RemoteWsClient:${this.config.serverId}] Disconnecting after interrupt...`)
+    log.debug(`[${this.config.serverId}] Disconnecting after interrupt...`)
     this.disconnect()
 
     return true
@@ -880,12 +888,12 @@ const activeClients = new Map<string, RemoteWsClient>()
  */
 export function registerActiveClient(sessionId: string, client: RemoteWsClient): void {
   activeClients.set(sessionId, client)
-  console.log(`[RemoteWsClient] Registered active client for session: ${sessionId}`)
+  log.info(`Registered active client for session: ${sessionId}`)
 
   // Clean up registration when client disconnects
   client.once('close', () => {
     activeClients.delete(sessionId)
-    console.log(`[RemoteWsClient] Unregistered client for session: ${sessionId}`)
+    log.info(`Unregistered client for session: ${sessionId}`)
   })
 }
 
@@ -902,7 +910,7 @@ export function getRemoteWsClient(sessionId: string): RemoteWsClient | undefined
  */
 export function unregisterActiveClient(sessionId: string): void {
   activeClients.delete(sessionId)
-  console.log(`[RemoteWsClient] Unregistered client for session: ${sessionId}`)
+  log.info(`Unregistered client for session: ${sessionId}`)
 }
 
 /**
@@ -913,5 +921,124 @@ export function disconnectAllClients(): void {
     client.disconnect()
     activeClients.delete(sessionId)
   }
-  console.log('[RemoteWsClient] All active clients disconnected')
+  // Also disconnect all pooled connections
+  for (const [serverId, entry] of Array.from(connectionPool)) {
+    entry.client.destroy()
+    connectionPool.delete(serverId)
+  }
+  log.info('All active clients and pooled connections disconnected')
+}
+
+// ============================================
+// Connection Pool - Reuse WebSocket connections per server
+// ============================================
+
+interface PooledConnection {
+  client: RemoteWsClient
+  refs: Set<string>        // Reference counting: each caller holds a ref
+  createdAt: number        // For stale connection detection
+  config: RemoteWsClientConfig
+}
+
+const connectionPool = new Map<string, PooledConnection>()
+const POOL_MAX_AGE_MS = 30 * 60 * 1000  // 30 minutes - recycle stale connections
+
+/**
+ * Acquire a pooled WebSocket connection for a server.
+ * Returns an existing alive connection or creates a new one.
+ * The caller must call releaseConnection() when done.
+ */
+export async function acquireConnection(
+  serverId: string,
+  config: RemoteWsClientConfig,
+  callerId: string
+): Promise<RemoteWsClient> {
+  // Check for existing pool entry
+  const existing = connectionPool.get(serverId)
+
+  if (existing) {
+    if (existing.client.isConnected()) {
+      // Check for stale connection
+      if (Date.now() - existing.createdAt > POOL_MAX_AGE_MS) {
+        log.info(`[${serverId}] Pooled connection is stale (${POOL_MAX_AGE_MS / 60000}min), recycling`)
+        existing.client.destroy()
+        connectionPool.delete(serverId)
+      } else {
+        // Reuse existing connection
+        existing.refs.add(callerId)
+        log.debug(`[${serverId}] Reusing pooled connection (refs: ${existing.refs.size}, callerId: ${callerId})`)
+        return existing.client
+      }
+    } else {
+      // Connection is dead, cleanup
+      log.info(`[${serverId}] Pooled connection is dead, removing`)
+      existing.client.destroy()
+      connectionPool.delete(serverId)
+    }
+  }
+
+  // Create new connection
+  const client = new RemoteWsClient(config)
+  connectionPool.set(serverId, {
+    client,
+    refs: new Set([callerId]),
+    createdAt: Date.now(),
+    config
+  })
+
+  log.info(`[${serverId}] Created new pooled connection for callerId: ${callerId}`)
+
+  // Set up auto-cleanup when connection closes unexpectedly
+  client.once('close', () => {
+    const entry = connectionPool.get(serverId)
+    if (entry && entry.client === client) {
+      connectionPool.delete(serverId)
+      log.info(`[${serverId}] Pooled connection closed, removed from pool`)
+    }
+  })
+
+  await client.connect()
+  return client
+}
+
+/**
+ * Release a pooled connection reference.
+ * The connection stays alive for reuse - only disconnected when stale or by server close.
+ */
+export function releaseConnection(serverId: string, callerId: string): void {
+  const entry = connectionPool.get(serverId)
+  if (!entry) {
+    return
+  }
+
+  entry.refs.delete(callerId)
+  log.debug(`[${serverId}] Released connection ref (remaining refs: ${entry.refs.size}, callerId: ${callerId})`)
+}
+
+/**
+ * Force-disconnect a pooled connection (e.g., when server is removed).
+ */
+export function removePooledConnection(serverId: string): void {
+  const entry = connectionPool.get(serverId)
+  if (entry) {
+    entry.client.destroy()
+    connectionPool.delete(serverId)
+    log.info(`[${serverId}] Force-removed pooled connection`)
+  }
+}
+
+/**
+ * Get pool statistics for diagnostics
+ */
+export function getPoolStats(): Array<{ serverId: string; refs: number; age: number; isConnected: boolean }> {
+  const stats: Array<{ serverId: string; refs: number; age: number; isConnected: boolean }> = []
+  for (const [serverId, entry] of Array.from(connectionPool)) {
+    stats.push({
+      serverId,
+      refs: entry.refs.size,
+      age: Date.now() - entry.createdAt,
+      isConnected: entry.client.isConnected()
+    })
+  }
+  return stats
 }

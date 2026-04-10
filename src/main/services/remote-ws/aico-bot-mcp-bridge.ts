@@ -17,6 +17,9 @@
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { buildAllTools as buildAiBrowserTools } from '../ai-browser/sdk-mcp-server'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('mcp-bridge')
 import { browserContext } from '../ai-browser/context'
 import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server'
 
@@ -85,9 +88,9 @@ export class AicoBotMcpBridge {
             serverName: 'ai-browser'
           })
         }
-        console.log(`[AicoBotMcpBridge] Collected ${aiBrowserTools.length} ai-browser tools`)
+        log.debug(`Collected ${aiBrowserTools.length} ai-browser tools`)
       } catch (error) {
-        console.warn(`[AicoBotMcpBridge] Failed to collect ai-browser tools:`, error)
+        log.warn(`Failed to collect ai-browser tools:`, error)
       }
     }
 
@@ -107,15 +110,15 @@ export class AicoBotMcpBridge {
           serverName: 'gh-search'
         })
       }
-      console.log(`[AicoBotMcpBridge] Collected ${ghSearchTools.length} gh-search tools`)
+      log.debug(`Collected ${ghSearchTools.length} gh-search tools`)
     } catch (error) {
-      console.warn(`[AicoBotMcpBridge] Failed to collect gh-search tools:`, error)
+      log.warn(`Failed to collect gh-search tools:`, error)
     }
 
     // Note: aico-bot-apps tools are NOT bridged. The remote proxy has its own
     // independent AppManager + AppRuntime (Phase 3).
 
-    console.log(`[AicoBotMcpBridge] Total: ${allDefs.length} tools collected`)
+    log.info(`Total: ${allDefs.length} tools collected`)
     return allDefs
   }
 
@@ -140,7 +143,7 @@ export class AicoBotMcpBridge {
         })
       }
     }
-    console.log(`[AicoBotMcpBridge] Added ${tools.length} user MCP tool definitions (handlers pending future phase)`)
+    log.debug(`Added ${tools.length} user MCP tool definitions (handlers pending future phase)`)
   }
 
   /**
@@ -160,7 +163,7 @@ export class AicoBotMcpBridge {
       }
     }
 
-    console.log(`[AicoBotMcpBridge] Executing tool: ${entry.serverName}:${toolName}`)
+    log.info(`Executing tool: ${entry.serverName}:${toolName}`)
 
     try {
       const result = await entry.handler(args, null)
@@ -171,7 +174,7 @@ export class AicoBotMcpBridge {
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`[AicoBotMcpBridge] Tool error (${entry.serverName}:${toolName}):`, message)
+      log.error(`Tool error (${entry.serverName}:${toolName}):`, message)
       return {
         content: [{ type: 'text', text: `Error executing ${toolName}: ${message}` }],
         isError: true
@@ -210,6 +213,6 @@ export class AicoBotMcpBridge {
    */
   dispose(): void {
     this.tools.clear()
-    console.log('[AicoBotMcpBridge] Disposed')
+    log.info('Disposed')
   }
 }
