@@ -487,6 +487,9 @@ export interface Thought {
     isError: boolean;
     timestamp: string;
   };
+  // For subagent thoughts in merged display (display-only, not persisted)
+  agentId?: string;
+  agentName?: string;
 }
 
 // Legacy alias for backwards compatibility

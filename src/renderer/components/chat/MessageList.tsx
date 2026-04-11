@@ -513,6 +513,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
               <CollapsedThoughtProcess
                 thoughts={message.thoughts as Thought[]}
                 defaultExpanded={expandedThoughtIds.current.has(message.id)}
+                workerSessions={workerSessions}
               />
             ) : (
               <LazyCollapsedThoughtProcess

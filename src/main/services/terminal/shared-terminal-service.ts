@@ -10,6 +10,7 @@
 
 import pty, { IPty } from 'node-pty'
 import { SSHManager } from '../remote-ssh/ssh-manager'
+import { ClientChannel } from 'ssh2'
 import { EventEmitter } from 'events'
 import { Readable, Writable } from 'stream'
 import { getSpace } from '../space.service'
@@ -60,6 +61,7 @@ export interface TerminalSessionState {
   userProcess: ChildProcess | null  // Fallback using child_process
   sshManager: SSHManager | null  // SSH 连接（远程空间）
   sshStreams: { stdout: Readable; stderr: Readable; stdin: Writable } | null
+  sshChannel: ClientChannel | null  // SSH channel for resize support
   // Output buffer for agent query
   outputBuffer: TerminalOutputLine[]
   maxBufferLines: number
@@ -86,6 +88,7 @@ export class SharedTerminalSession extends EventEmitter {
       userProcess: null,
       sshManager: null,
       sshStreams: null,
+      sshChannel: null,
       outputBuffer: [],
       maxBufferLines: 500,  // 最近 500 行输出
       rawOutputBuffer: '',  // Raw output for reconnection replay
@@ -107,9 +110,11 @@ export class SharedTerminalSession extends EventEmitter {
       await this.startLocal()
     }
 
-    this._ready = true
-    this.state.ready = true
-    this.emit('ready')
+    // Note: ready state is set and emitted inside startLocal/startSSH
+    // to avoid double-trigger. If neither set ready, something went wrong.
+    if (!this._ready) {
+      throw new Error('Failed to start terminal session')
+    }
   }
 
   /**
@@ -228,6 +233,13 @@ export class SharedTerminalSession extends EventEmitter {
 
       this.state.sshStreams = result
 
+      // Store the channel for resize support.
+      // executeShell returns {stdout: stream, stderr: stream.stderr, stdin: stream}
+      // where stream is a ClientChannel with setWindow(rows, cols, height, width)
+      if ('setWindow' in result.stdout) {
+        this.state.sshChannel = result.stdout as unknown as ClientChannel
+      }
+
       // 处理 stdout
       result.stdout.on('data', (data: Buffer) => {
         const str = data.toString()
@@ -264,23 +276,15 @@ export class SharedTerminalSession extends EventEmitter {
    */
   write(data: string): void {
     if (!this._ready) {
-      console.warn('[SharedTerminal] Terminal not ready')
       return
     }
 
-    console.log('[SharedTerminal] write() called with:', JSON.stringify(data))
-
     if (this.state.userPty) {
-      console.log('[SharedTerminal] Writing to node-pty')
       this.state.userPty.write(data)
     } else if (this.state.userProcess) {
-      console.log('[SharedTerminal] Writing to child_process stdin')
       this.state.userProcess.stdin?.write(data)
     } else if (this.state.sshStreams) {
-      console.log('[SharedTerminal] Writing to SSH stdin')
       this.state.sshStreams.stdin.write(data)
-    } else {
-      console.warn('[SharedTerminal] No terminal backend available')
     }
   }
 
@@ -404,6 +408,9 @@ export class SharedTerminalSession extends EventEmitter {
   resize(cols: number, rows: number): void {
     if (this.state.userPty) {
       this.state.userPty.resize(cols, rows)
+    } else if (this.state.sshChannel) {
+      // SSH ClientChannel supports setWindow for PTY resize
+      this.state.sshChannel.setWindow(rows, cols, rows * 16, cols * 8)
     }
     // child_process doesn't support resize
   }
@@ -613,6 +620,26 @@ export class SharedTerminalService extends EventEmitter {
    */
   getSessionCount(): number {
     return this.sessions.size
+  }
+
+  /**
+   * 获取所有活跃会话的 sessionId 列表
+   */
+  getSessionIds(): string[] {
+    return Array.from(this.sessions.keys())
+  }
+
+  /**
+   * 根据 conversationId 查找匹配的会话
+   * sessionId 格式为 "${spaceId}:${conversationId}"
+   */
+  getSessionByConversationId(conversationId: string): SharedTerminalSession | undefined {
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (sessionId.endsWith(`:${conversationId}`)) {
+        return session
+      }
+    }
+    return undefined
   }
 }
 

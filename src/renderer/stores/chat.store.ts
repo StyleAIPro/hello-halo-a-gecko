@@ -272,6 +272,7 @@ interface ChatState {
   getCurrentConversationId: () => string | null
   getCachedConversation: (conversationId: string) => Conversation | null
   loadWorkerConversation: (spaceId: string, childConversationId: string) => Promise<boolean>
+  rebuildWorkerSessions: (spaceId: string, conversationId: string) => Promise<void>
 
   // Space actions
   setCurrentSpace: (spaceId: string) => void
@@ -832,6 +833,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (error) {
       console.error('[ChatStore] Failed to recover worker session states:', error)
     }
+
+    // Rebuild worker session thoughts from persisted child conversations on disk.
+    // This restores the full thought history (tool calls, thinking blocks, etc.)
+    // for subagent workers that completed in previous sessions (e.g., after page refresh).
+    // Non-blocking — runs in background so it doesn't delay conversation loading.
+    get().rebuildWorkerSessions(currentSpaceId, conversationId)
 
     // Warm up V2 Session in background - non-blocking
     // When user sends a message, V2 Session is ready to avoid delay
@@ -1665,17 +1672,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 textBlockVersion: (currentSession.textBlockVersion || 0) + 1
               })
             } else {
-              // No pending messages, clear all state
-              // Note: workerSessions are NOT cleared here — they remain visible
+              // No pending messages, clear streaming state but preserve thoughts
+              // for post-response review (including subagent collapsible groups).
+              // Note: workerSessions are NOT cleared — they remain visible
               // so users can see completed worker results after the leader finishes.
               // They will be cleared on the next user message (sendMessage).
+              // CRITICAL: Do NOT clear thoughts here — ThoughtProcess relies on it
+              // to display subagent collapsible groups after stream completion.
               newSessions.set(conversationId, {
                 ...currentSession,
                 isGenerating: false,
                 isStopping: false,        // Clear stopping state
-                isThinking: false,        // 清理思考状态
                 streamingContent: '',
-                thoughts: [],             // 清理思考数据
+                isStreaming: false,
+                isThinking: false,        // Clear thinking status
                 compactInfo: null,  // Clear temporary compact notification
                 pendingQuestion: null,  // Clear pending question
                 error: null,  // Clear session error — now persisted in message.error
@@ -2308,6 +2318,114 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (error) {
       console.warn(`[ChatStore] Failed to load worker conversation ${childConversationId}:`, error)
       return false
+    }
+  },
+
+  // Rebuild WorkerSessionState map from persisted child conversations on disk.
+  // This is called when opening a conversation after page refresh so that
+  // subagent collapsible groups are restored from their persisted child conversations.
+  rebuildWorkerSessions: async (spaceId: string, conversationId: string): Promise<void> => {
+    try {
+      // 1. List child conversations
+      const childrenRes = await api.listChildConversations(spaceId, conversationId)
+      if (!childrenRes.success || !childrenRes.data || !Array.isArray(childrenRes.data) || childrenRes.data.length === 0) {
+        return
+      }
+
+      const children = childrenRes.data as Array<{
+        id: string
+        title: string
+        messageCount: number
+      }>
+
+      console.log(`[ChatStore] Rebuilding worker sessions for ${conversationId}: ${children.length} child conversations found`)
+
+      // 2. Load each child conversation and build WorkerSessionState
+      const newWorkerSessions = new Map<string, WorkerSessionState>()
+
+      for (const child of children) {
+        try {
+          // Load child conversation with messages
+          const childRes = await api.getConversation(spaceId, child.id)
+          if (!childRes.success || !childRes.data) continue
+          const childConv = childRes.data as Conversation
+
+          // Cache the child conversation
+          set((state) => {
+            const newCache = new Map(state.conversationCache)
+            newCache.set(child.id, childConv)
+            return { conversationCache: newCache }
+          })
+
+          // Load thoughts for each assistant message
+          const assistantMessages = childConv.messages?.filter(m => m.role === 'assistant') || []
+          const allThoughts: Thought[] = []
+
+          for (const msg of assistantMessages) {
+            if (msg.thoughtsSummary && msg.thoughtsSummary.count > 0) {
+              const thoughtsRes = await api.getMessageThoughts(spaceId, child.id, msg.id)
+              if (thoughtsRes.success && thoughtsRes.data) {
+                const thoughts = thoughtsRes.data as Thought[]
+                allThoughts.push(...thoughts)
+              }
+            }
+          }
+
+          // Extract agent name from title or child conversation ID
+          // Child conversation title format: typically "{task description}"
+          // Agent ID can be extracted from the child conversation ID: {parentConvId}:agent-{agentId}
+          const agentIdMatch = child.id.match(/:agent-(.+)$/)
+          const agentId = agentIdMatch ? agentIdMatch[1] : child.id
+          const agentName = child.title || agentId
+
+          // Build WorkerSessionState
+          newWorkerSessions.set(agentId, {
+            agentId,
+            agentName,
+            taskId: null,
+            task: '',
+            isRunning: false,
+            status: 'completed',
+            streamingContent: '',
+            isStreaming: false,
+            thoughts: allThoughts,
+            isThinking: false,
+            textBlockVersion: 0,
+            error: null,
+            completedAt: childConv.updatedAt ? new Date(childConv.updatedAt).getTime() : null,
+            pendingQuestion: null,
+            childConversationId: child.id,
+            interactionMode: 'delegation'
+          })
+        } catch (error) {
+          console.warn(`[ChatStore] Failed to load child conversation ${child.id}:`, error)
+        }
+      }
+
+      // 3. Update session with rebuilt worker sessions
+      if (newWorkerSessions.size > 0) {
+        set((state) => {
+          const newSessions = new Map(state.sessions)
+          const session = newSessions.get(conversationId)
+          if (session) {
+            // Merge with existing worker sessions (if any)
+            const mergedWorkers = new Map(session.workerSessions)
+            for (const [agentId, ws] of newWorkerSessions) {
+              if (!mergedWorkers.has(agentId)) {
+                mergedWorkers.set(agentId, ws)
+              }
+            }
+            newSessions.set(conversationId, {
+              ...session,
+              workerSessions: mergedWorkers
+            })
+          }
+          return { sessions: newSessions }
+        })
+        console.log(`[ChatStore] Rebuilt ${newWorkerSessions.size} worker sessions for ${conversationId}`)
+      }
+    } catch (error) {
+      console.error(`[ChatStore] Failed to rebuild worker sessions for ${conversationId}:`, error)
     }
   },
 

@@ -69,6 +69,17 @@ export function SharedTerminalPanel({
   // WebSocket ref for direct terminal input
   const terminalWebSocketRef = useRef<WebSocket | null>(null)
 
+  // Heartbeat timer ref (sends periodic pings to keep connection alive)
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Reconnect timer ref (exponential backoff on disconnection)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptRef = useRef(0)
+
+  // Connection guard: tracks the current connection attempt's ID.
+  // Incremented when starting a new connection to invalidate previous in-flight attempts.
+  const connectionGenerationRef = useRef(0)
+
   // Track if WebSocket is the active channel for agent terminal output
   // When WebSocket is connected, IPC handlers should NOT write to xterm to avoid duplicates
   const isWebSocketActiveRef = useRef(false)
@@ -227,6 +238,57 @@ export function SharedTerminalPanel({
     }
   }, [currentCommands, conversationId])
 
+  // Unified agent command rendering to xterm (used by both IPC and WebSocket handlers)
+  const writeAgentCommandStart = useCallback((msg: { command: string; cwdLabel?: string; pathOnly?: string }) => {
+    const agentTerm = agentXtermRef.current
+    if (!agentTerm) return
+    const promptText = msg.cwdLabel || msg.pathOnly || '~'
+    const cleanPrompt = promptText.trim()
+    agentTerm.writeln('')
+    agentTerm.writeln(`\x1b[1;36m┌─\x1b[0m \x1b[1;33m${cleanPrompt}\x1b[0m`)
+    agentTerm.writeln(`\x1b[1;36m└─\x1b[0m\x1b[1;32m$\x1b[0m \x1b[1m${msg.command}\x1b[0m`)
+    agentTerm.scrollToBottom()
+  }, [])
+
+  const writeAgentCommandOutput = useCallback((commandId: string, output: string, isStream: boolean) => {
+    const agentTerm = agentXtermRef.current
+    if (!agentTerm || !output) return
+
+    const isPlaceholder = isStream && output.includes('正在执行')
+    const placeholderLines = placeholderShownMap.current.get(commandId)
+
+    if (isPlaceholder) {
+      const outputLines = output.split('\n').filter(l => l.length > 0)
+      placeholderShownMap.current.set(commandId, outputLines.length)
+      outputLines.forEach(line => { agentTerm.writeln(line) })
+      agentTerm.scrollToBottom()
+    } else if (placeholderLines != null && !isStream) {
+      // Real output after placeholder - clear placeholder lines first
+      for (let i = 0; i < placeholderLines; i++) {
+        agentTerm.write('\x1b[1A\x1b[2K')
+      }
+      const outputLines = output.split('\n')
+      outputLines.forEach(line => { agentTerm.writeln(`\x1b[90m${line}\x1b[0m`) })
+      agentTerm.scrollToBottom()
+      placeholderShownMap.current.delete(commandId)
+    } else {
+      const outputLines = output.split('\n')
+      outputLines.forEach(line => { agentTerm.writeln(`\x1b[90m${line}\x1b[0m`) })
+      agentTerm.scrollToBottom()
+    }
+  }, [])
+
+  const writeAgentCommandComplete = useCallback((exitCode: number) => {
+    const agentTerm = agentXtermRef.current
+    if (!agentTerm) return
+    if (exitCode === 0) {
+      agentTerm.writeln(`\x1b[90m[Process completed - exit code: ${exitCode}]\x1b[0m`)
+    } else {
+      agentTerm.writeln(`\x1b[31m[Process failed - exit code: ${exitCode}]\x1b[0m`)
+    }
+    agentTerm.scrollToBottom()
+  }, [])
+
   // Listen for IPC events from main process (for when WebSocket is not connected)
   useEffect(() => {
     const cleanupFns: (() => void)[] = []
@@ -234,7 +296,6 @@ export function SharedTerminalPanel({
     // Listen for agent command start
     const unsubStart = onEvent('terminal:agent-command-start', (data: unknown) => {
       const msg = data as { id: string; command: string; cwd?: string; cwdLabel?: string; pathOnly?: string; timestamp: string; conversationId: string }
-      console.log('[SharedTerminal] IPC: Agent command start:', msg.command, 'cwdLabel:', msg.cwdLabel, 'pathOnly:', msg.pathOnly)
 
       // Only process if it's for our conversation
       if (msg.conversationId === conversationId) {
@@ -251,17 +312,8 @@ export function SharedTerminalPanel({
         setAgentTerminalStatus('running')
 
         // Write to Agent Terminal xterm only if WebSocket is NOT active
-        // (when WebSocket is connected, it handles xterm rendering to avoid duplicates)
-        const agentTerm = agentXtermRef.current
-        if (agentTerm && !isWebSocketActiveRef.current) {
-          // Format environment label like a real terminal prompt
-          // cwdLabel format: "user@host path % "
-          const promptText = msg.cwdLabel || msg.pathOnly || '~'
-          const cleanPrompt = promptText.trim()
-          // Display environment label on its own line for clarity
-          agentTerm.writeln('')
-          agentTerm.writeln(`\x1b[1;36m┌─\x1b[0m \x1b[1;33m${cleanPrompt}\x1b[0m`)
-          agentTerm.writeln(`\x1b[1;36m└─\x1b[0m\x1b[1;32m$\x1b[0m \x1b[1m${msg.command}\x1b[0m`)
+        if (!isWebSocketActiveRef.current) {
+          writeAgentCommandStart(msg)
         }
       }
     })
@@ -270,11 +322,9 @@ export function SharedTerminalPanel({
     // Listen for agent command output
     const unsubOutput = onEvent('terminal:agent-command-output', (data: unknown) => {
       const msg = data as { commandId: string; output: string; isStream: boolean; conversationId?: string; spaceId?: string }
-      console.log('[SharedTerminal] IPC: Agent command output:', msg.output?.length, 'isStream:', msg.isStream, 'conversationId:', msg.conversationId)
 
       // Only process if it's for our conversation (if conversationId is provided)
       if (msg.conversationId && msg.conversationId !== conversationId) {
-        console.log('[SharedTerminal] IPC: Skipping output for different conversation:', msg.conversationId)
         return
       }
 
@@ -282,45 +332,8 @@ export function SharedTerminalPanel({
       _onAgentCommandOutput(msg.commandId, msg.output)
 
       // Write to Agent Terminal xterm only if WebSocket is NOT active
-      // (when WebSocket is connected, it handles xterm rendering to avoid duplicates)
-      const agentTerm = agentXtermRef.current
-      if (agentTerm && msg.output && !isWebSocketActiveRef.current) {
-        // Check if this is a placeholder output (isStream: true with "正在执行")
-        const isPlaceholder = msg.isStream && msg.output.includes('正在执行')
-
-        // Check if this is real output after a placeholder was shown
-        const placeholderLines = placeholderShownMap.current.get(msg.commandId)
-
-        if (isPlaceholder) {
-          // Mark that we've shown placeholder for this command with line count
-          const outputLines = msg.output.split('\n').filter(l => l.length > 0)
-          placeholderShownMap.current.set(msg.commandId, outputLines.length)
-          // Write placeholder to terminal
-          outputLines.forEach(line => {
-            agentTerm.writeln(line)
-          })
-          agentTerm.scrollToBottom()
-        } else if (placeholderLines != null && !msg.isStream) {
-          // Real output after placeholder - clear the placeholder lines first
-          for (let i = 0; i < placeholderLines; i++) {
-            agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
-          }
-          // Then write the real output
-          const outputLines = msg.output.split('\n')
-          outputLines.forEach(line => {
-            agentTerm.writeln(`\x1b[90m${line}\x1b[0m`)
-          })
-          agentTerm.scrollToBottom()
-          // Clear the placeholder flag
-          placeholderShownMap.current.delete(msg.commandId)
-        } else {
-          // Normal output - just write it
-          const outputLines = msg.output.split('\n')
-          outputLines.forEach(line => {
-            agentTerm.writeln(`\x1b[90m${line}\x1b[0m`)
-          })
-          agentTerm.scrollToBottom()
-        }
+      if (msg.output && !isWebSocketActiveRef.current) {
+        writeAgentCommandOutput(msg.commandId, msg.output, msg.isStream)
       }
     })
     cleanupFns.push(unsubOutput)
@@ -328,11 +341,9 @@ export function SharedTerminalPanel({
     // Listen for agent command complete
     const unsubComplete = onEvent('terminal:agent-command-complete', (data: unknown) => {
       const msg = data as { commandId: string; exitCode: number; conversationId?: string; spaceId?: string }
-      console.log('[SharedTerminal] IPC: Agent command complete, exitCode:', msg.exitCode, 'conversationId:', msg.conversationId)
 
       // Only process if it's for our conversation (if conversationId is provided)
       if (msg.conversationId && msg.conversationId !== conversationId) {
-        console.log('[SharedTerminal] IPC: Skipping complete for different conversation:', msg.conversationId)
         return
       }
 
@@ -341,20 +352,36 @@ export function SharedTerminalPanel({
       setAgentTerminalStatus('completed')
 
       // Write completion to Agent Terminal xterm only if WebSocket is NOT active
-      const agentTerm = agentXtermRef.current
-      if (agentTerm && !isWebSocketActiveRef.current) {
-        if (msg.exitCode === 0) {
-          agentTerm.writeln(`\x1b[90m[Process completed - exit code: ${msg.exitCode}]\x1b[0m`)
-        } else {
-          agentTerm.writeln(`\x1b[31m[Process failed - exit code: ${msg.exitCode}]\x1b[0m`)
-        }
-        agentTerm.scrollToBottom()
+      if (!isWebSocketActiveRef.current) {
+        writeAgentCommandComplete(msg.exitCode)
       }
     })
     cleanupFns.push(unsubComplete)
 
     return () => {
       cleanupFns.forEach(fn => fn())
+    }
+  }, [conversationId])
+
+  // Cleanup timers and stale connections on unmount or conversation change
+  useEffect(() => {
+    return () => {
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current)
+        heartbeatTimerRef.current = null
+      }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      // Bump generation to invalidate any in-flight connection attempt
+      connectionGenerationRef.current++
+      // Close any existing WebSocket (it will be recreated for the new conversation)
+      if (terminalWebSocketRef.current) {
+        terminalWebSocketRef.current.close()
+        terminalWebSocketRef.current = null
+      }
+      isWebSocketActiveRef.current = false
     }
   }, [conversationId])
 
@@ -633,9 +660,21 @@ export function SharedTerminalPanel({
     // Use capture phase to intercept before Electron/xterm.js
     userTerminalRef.current?.addEventListener('keydown', handleKeyDownCapture, true)
 
-    // Resize observer
+    // Resize observer - also notify backend about terminal size changes
     const resizeObserver = new ResizeObserver(() => {
       userFitAddon.fit()
+      // Send resize to backend PTY/SSH
+      const ws = terminalWebSocketRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const cols = term.cols
+        const rows = term.rows
+        if (cols && rows) {
+          ws.send(JSON.stringify({
+            type: 'terminal:resize',
+            data: { cols, rows }
+          }))
+        }
+      }
     })
     resizeObserver.observe(userTerminalRef.current)
 
@@ -650,57 +689,126 @@ export function SharedTerminalPanel({
     }
   }, [isVisible, conversationId])
 
-  // Connect to user terminal session
-  // Handles both initial connection and reconnection when panel is reopened
-  useEffect(() => {
-    // Only connect when visible and terminal is initialized
-    if (!isVisible || !userTerminalInitialized.current || !userXtermRef.current) {
-      console.log('[SharedTerminal] Terminal not ready for connection')
-      return
+  // Handle user terminal WebSocket messages
+  // MUST be defined before startConnection to avoid TDZ (Temporal Dead Zone) error
+  const handleUserTerminalMessage = useCallback((message: any, ws: WebSocket) => {
+    const term = userXtermRef.current
+    const { _onAgentCommandStart, _onAgentCommandOutput, _onAgentCommandComplete } = useAgentCommandViewerStore.getState()
+
+    switch (message.type) {
+      case 'terminal:data':
+        if (term && message.data?.content) {
+          term.write(message.data.content)
+        }
+        break
+
+      case 'terminal:agent-command-start':
+        if (message.data?.conversationId && message.data.conversationId !== conversationId) {
+          break
+        }
+        _onAgentCommandStart({
+          id: message.data.id,
+          command: message.data.command,
+          timestamp: message.data.timestamp,
+          conversationId: message.data.conversationId,
+          cwd: message.data.cwd,
+          cwdLabel: message.data.cwdLabel,
+          pathOnly: message.data.pathOnly
+        })
+        setAgentTerminalStatus('running')
+        writeAgentCommandStart(message.data)
+        break
+
+      case 'terminal:agent-command-output':
+        _onAgentCommandOutput(message.data.commandId, message.data.output)
+        if (message.data.output) {
+          writeAgentCommandOutput(message.data.commandId, message.data.output, message.data.isStream)
+        }
+        break
+
+      case 'terminal:agent-command-complete':
+        _onAgentCommandComplete(message.data.commandId, message.data.exitCode)
+        setAgentTerminalStatus('completed')
+        writeAgentCommandComplete(message.data.exitCode)
+        break
+
+      case 'terminal:ready':
+        break
+
+      case 'terminal:exit':
+        if (term) {
+          term.writeln('')
+          term.writeln('\x1b[31mTerminal session exited\x1b[0m')
+        }
+        setTerminalStatus('disconnected')
+        break
+
+      case 'terminal:history-output':
+        if (term && message.data?.content) {
+          receivedHistoryRef.current = true
+          term.clear()
+          term.write(message.data.content)
+        }
+        break
     }
+  }, [conversationId, writeAgentCommandStart, writeAgentCommandOutput, writeAgentCommandComplete])
 
-    // Skip if already connected
-    if (terminalWebSocketRef.current && terminalWebSocketRef.current.readyState === WebSocket.OPEN) {
-      console.log('[SharedTerminal] WebSocket already connected, focusing terminal')
-      userXtermRef.current.focus()
-      setTerminalStatus('connected')
-      return
+  // Helper: cancel any pending reconnect and stop heartbeat
+  const cancelTimers = useCallback(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
+      heartbeatTimerRef.current = null
     }
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
 
-    console.log('[SharedTerminal] Starting WebSocket connection...')
-    setTerminalStatus('connecting')
+  // Helper: schedule a reconnect attempt (used by onclose)
+  const scheduleReconnect = useCallback(() => {
+    cancelTimers()
+    reconnectAttemptRef.current++
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current - 1), 30000)
+    console.log(`[SharedTerminal] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current})`)
 
-    // Small delay to ensure terminal is fully ready
-    const timer = setTimeout(() => {
-      connectUserTerminal()
-    }, 50)
-
-    return () => clearTimeout(timer)
-  }, [isVisible, conversationId])  // Depend on both isVisible and conversationId
-
-  // WebSocket connection function
-  const connectUserTerminal = useCallback(() => {
-    console.log('[SharedTerminal] Connecting to WebSocket...')
-
-    // If already connected, just re-focus the terminal (don't recreate connection)
-    if (terminalWebSocketRef.current && terminalWebSocketRef.current.readyState === WebSocket.OPEN) {
-      console.log('[SharedTerminal] Already connected, just focusing terminal')
-      if (userXtermRef.current) {
-        userXtermRef.current.focus()
+    reconnectTimerRef.current = setTimeout(() => {
+      // Check latest state via refs instead of stale closure values
+      if (userTerminalInitialized.current && userXtermRef.current) {
+        // Don't reconnect if already connected
+        const currentWs = terminalWebSocketRef.current
+        if (currentWs && currentWs.readyState === WebSocket.OPEN) return
+        console.log('[SharedTerminal] Auto-reconnecting...')
+        startConnection()
       }
+    }, delay)
+  }, [cancelTimers])
+
+  // Core connection function - uses generation guard to prevent concurrent connections
+  const startConnection = useCallback(() => {
+    // Bump generation to invalidate any previous in-flight connection
+    const gen = ++connectionGenerationRef.current
+
+    // If already connected, just focus
+    if (terminalWebSocketRef.current && terminalWebSocketRef.current.readyState === WebSocket.OPEN) {
+      userXtermRef.current?.focus()
       setTerminalStatus('connected')
       return
     }
 
-    // If WebSocket exists but is closed (CLOSED state = 3), clean it up before reconnecting
-    if (terminalWebSocketRef.current && terminalWebSocketRef.current.readyState === WebSocket.CLOSED) {
-      console.log('[SharedTerminal] WebSocket was closed, cleaning up for reconnection')
+    // Clean up stale WebSocket
+    if (terminalWebSocketRef.current) {
       terminalWebSocketRef.current = null
     }
 
     api.getTerminalWebSocketUrl(spaceId, conversationId).then(result => {
-      const wsUrl = result.data?.wsUrl
+      // Guard: another connection was started while we were waiting
+      if (connectionGenerationRef.current !== gen) {
+        console.log('[SharedTerminal] Connection generation mismatch, aborting stale connection')
+        return
+      }
 
+      const wsUrl = result.data?.wsUrl
       if (!wsUrl) {
         console.error('[SharedTerminal] Failed to get WebSocket URL')
         setTerminalStatus('disconnected')
@@ -711,38 +819,45 @@ export function SharedTerminalPanel({
       terminalWebSocketRef.current = ws
 
       ws.onopen = () => {
+        // Guard: check generation again
+        if (connectionGenerationRef.current !== gen) {
+          console.log('[SharedTerminal] Stale connection opened, closing')
+          ws.close()
+          return
+        }
+
         console.log('[SharedTerminal] User terminal connected')
         setTerminalStatus('connected')
         isWebSocketActiveRef.current = true
+        reconnectAttemptRef.current = 0  // Reset reconnect counter on successful connect
+
+        // Start heartbeat to keep connection alive
+        if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current)
+        heartbeatTimerRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }))
+          }
+        }, 30000)  // Send ping every 30s
 
         const term = userXtermRef.current
         if (term) {
-          // Register data handler - handles both keyboard and paste input
-          // Dispose old handler if exists
+          // Dispose old data handler if exists
           if ((term as any)._onDataDisposable) {
             ;(term as any)._onDataDisposable.dispose()
           }
 
-          // Register new data handler - handles keyboard input and paste
-          // Note: Ctrl+C copy is handled by customKeyEventHandler above
           const onDataDisposable = term.onData((data: string) => {
             if (ws.readyState === WebSocket.OPEN) {
-              // Check if user is trying to paste (Ctrl/Cmd + V)
-              // xterm.js sends '\x16' for Ctrl+V, but we want clipboard paste instead
               if (data === '\x16') {
                 navigator.clipboard.readText().then(clipboardText => {
                   if (clipboardText && ws.readyState === WebSocket.OPEN) {
-                    // Normalize line endings: strip \r to avoid double-enter
-                    // Windows clipboard uses \r\n, but terminals only need \n
                     const normalizedText = clipboardText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
                     ws.send(JSON.stringify({
                       type: 'terminal:raw-input',
                       data: { input: normalizedText }
                     }))
                   }
-                }).catch(() => {
-                  // Clipboard access denied - ignore
-                })
+                }).catch(() => {})
                 return
               }
 
@@ -758,7 +873,6 @@ export function SharedTerminalPanel({
           receivedHistoryRef.current = false
 
           // Send a newline to trigger shell to display prompt
-          // Only do this if we don't receive history output (to avoid duplicate prompts)
           setTimeout(() => {
             if (ws.readyState === WebSocket.OPEN && userXtermRef.current && !receivedHistoryRef.current) {
               ws.send(JSON.stringify({
@@ -766,9 +880,8 @@ export function SharedTerminalPanel({
                 data: { input: '\r' }
               }))
             }
-          }, 150)  // Slightly longer delay to allow history-output to arrive first
+          }, 150)
 
-          // Terminal is ready - focus it
           term.focus()
         }
       }
@@ -783,166 +896,67 @@ export function SharedTerminalPanel({
       }
 
       ws.onclose = (event) => {
+        // Guard: only process close for the current generation
+        if (connectionGenerationRef.current !== gen) {
+          return  // Old connection closed, ignore
+        }
+
         console.log('[SharedTerminal] User terminal disconnected', {
           code: event.code,
-          reason: event.reason,
           wasClean: event.wasClean
         })
         setTerminalStatus('disconnected')
         isWebSocketActiveRef.current = false
-        // Don't set terminalWebSocketRef.current to null - keep it so we know a connection existed
-        // The next time the panel opens, we'll detect the closed state and reconnect
+
+        // Stop heartbeat
+        if (heartbeatTimerRef.current) {
+          clearInterval(heartbeatTimerRef.current)
+          heartbeatTimerRef.current = null
+        }
+
+        // Auto-reconnect with exponential backoff
+        // Only if this is still the current generation (no new connection started)
+        if (connectionGenerationRef.current === gen) {
+          scheduleReconnect()
+        }
       }
 
       ws.onerror = (error) => {
         console.error('[SharedTerminal] User terminal error:', error)
-        // Don't set disconnected status on error - let onclose handle it
       }
     }).catch(error => {
+      if (connectionGenerationRef.current !== gen) return  // Stale
       console.error('[SharedTerminal] Connection error:', error)
       setTerminalStatus('disconnected')
+      scheduleReconnect()
     })
-  }, [spaceId, conversationId])
+  }, [spaceId, conversationId, scheduleReconnect, handleUserTerminalMessage])
 
-  // Handle user terminal WebSocket messages
-  const handleUserTerminalMessage = useCallback((message: any, ws: WebSocket) => {
-    const term = userXtermRef.current
-    const agentTerm = agentXtermRef.current
-    const { _onAgentCommandStart, _onAgentCommandOutput, _onAgentCommandComplete } = useAgentCommandViewerStore.getState()
-
-    switch (message.type) {
-      case 'terminal:data':
-        // Real PTY data - write to terminal
-        if (term && message.data?.content) {
-          term.write(message.data.content)
-        }
-        break
-
-      case 'terminal:agent-command-start':
-        // Agent started executing a command
-        // Only process if it's for our conversation
-        if (message.data?.conversationId && message.data.conversationId !== conversationId) {
-          break
-        }
-        console.log('[Terminal] Agent command start:', message.data, 'cwdLabel:', message.data.cwdLabel, 'pathOnly:', message.data.pathOnly)
-        _onAgentCommandStart({
-          id: message.data.id,
-          command: message.data.command,
-          timestamp: message.data.timestamp,
-          conversationId: message.data.conversationId,
-          cwd: message.data.cwd,
-          cwdLabel: message.data.cwdLabel,
-          pathOnly: message.data.pathOnly
-        })
-        // 更新状态为 running，显示蓝点
-        setAgentTerminalStatus('running')
-        // Also write directly to Agent Terminal xterm
-        if (agentTerm) {
-          // Format environment label like a real terminal prompt
-          // cwdLabel format: "user@host path % "
-          const promptText = message.data.cwdLabel || message.data.pathOnly || '~'
-          const cleanPrompt = promptText.trim()
-          // Display environment label on its own line for clarity
-          agentTerm.writeln('')
-          agentTerm.writeln(`\x1b[1;36m┌─\x1b[0m \x1b[1;33m${cleanPrompt}\x1b[0m`)
-          agentTerm.writeln(`\x1b[1;36m└─\x1b[0m\x1b[1;32m$\x1b[0m \x1b[1m${message.data.command}\x1b[0m`)
-          // Track rendered commands for this commandId
-          if (!(agentTerm as any)._commandLines) {
-            ;(agentTerm as any)._commandLines = new Map()
-          }
-          ;(agentTerm as any)._commandLines.set(message.data.id, { outputWritten: false, completeWritten: false })
-        }
-        break
-
-      case 'terminal:agent-command-output':
-        // Agent command output (streaming)
-        console.log('[Terminal] Agent command output:', message.data, 'isStream:', message.data.isStream)
-        _onAgentCommandOutput(message.data.commandId, message.data.output)
-        // Also write directly to Agent Terminal xterm
-        if (agentTerm && message.data.output) {
-          // Check if this is a placeholder output (isStream: true with "正在执行")
-          const isPlaceholder = message.data.isStream && message.data.output.includes('正在执行')
-
-          // Check if this is real output after a placeholder was shown
-          const placeholderLines = placeholderShownMap.current.get(message.data.commandId)
-
-          if (isPlaceholder) {
-            // Mark that we've shown placeholder for this command with line count
-            const outputLines = message.data.output.split('\n').filter(l => l.length > 0)
-            placeholderShownMap.current.set(message.data.commandId, outputLines.length)
-            // Write placeholder to terminal
-            outputLines.forEach(line => {
-              agentTerm.writeln(line)
-            })
-            agentTerm.scrollToBottom()
-          } else if (placeholderLines != null && !message.data.isStream) {
-            // Real output after placeholder - clear the placeholder lines first
-            for (let i = 0; i < placeholderLines; i++) {
-              agentTerm.write('\x1b[1A\x1b[2K') // Move up 1 line and clear it
-            }
-            // Then write the real output
-            const outputLines = message.data.output.split('\n')
-            outputLines.forEach(line => {
-              agentTerm.writeln(`\x1b[90m${line}\x1b[0m`)
-            })
-            agentTerm.scrollToBottom()
-            // Clear the placeholder flag
-            placeholderShownMap.current.delete(message.data.commandId)
-          } else {
-            // Normal output - just write it
-            const outputLines = message.data.output.split('\n')
-            outputLines.forEach(line => {
-              agentTerm.writeln(`\x1b[90m${line}\x1b[0m`)
-            })
-            agentTerm.scrollToBottom()
-          }
-        }
-        break
-
-      case 'terminal:agent-command-complete':
-        // Agent command completed
-        console.log('[Terminal] Agent command complete:', message.data)
-        _onAgentCommandComplete(message.data.commandId, message.data.exitCode)
-        // 更新状态为 completed，显示绿点
-        setAgentTerminalStatus('completed')
-        // Also write completion status to Agent Terminal xterm
-        if (agentTerm) {
-          const exitCode = message.data.exitCode
-          if (exitCode === 0) {
-            agentTerm.writeln(`\x1b[90m[Process completed - exit code: ${exitCode}]\x1b[0m`)
-          } else {
-            agentTerm.writeln(`\x1b[31m[Process failed - exit code: ${exitCode}]\x1b[0m`)
-          }
-          agentTerm.scrollToBottom()
-        }
-        break
-
-      case 'terminal:ready':
-        console.log('[SharedTerminal] Terminal session ready')
-        break
-
-      case 'terminal:exit':
-        if (term) {
-          term.writeln('')
-          term.writeln('\x1b[31mTerminal session exited\x1b[0m')
-        }
-        setTerminalStatus('disconnected')
-        break
-
-      case 'terminal:history-output':
-        // Replay historical output on reconnection
-        console.log('[SharedTerminal] Received history output:', message.data?.content?.length)
-        if (term && message.data?.content) {
-          // Mark that we received history (to skip sending extra \r)
-          receivedHistoryRef.current = true
-          // Clear terminal first to avoid duplicate content
-          term.clear()
-          // Write the history output
-          term.write(message.data.content)
-        }
-        break
+  // Connect to user terminal session
+  // Handles both initial connection and reconnection when panel is reopened
+  useEffect(() => {
+    // Only connect when visible and terminal is initialized
+    if (!isVisible || !userTerminalInitialized.current || !userXtermRef.current) {
+      return
     }
-  }, [])
+
+    // Skip if already connected
+    if (terminalWebSocketRef.current && terminalWebSocketRef.current.readyState === WebSocket.OPEN) {
+      userXtermRef.current.focus()
+      setTerminalStatus('connected')
+      return
+    }
+
+    console.log('[SharedTerminal] Starting WebSocket connection...')
+    setTerminalStatus('connecting')
+
+    // Small delay to ensure terminal is fully ready
+    const timer = setTimeout(() => {
+      startConnection()
+    }, 50)
+
+    return () => clearTimeout(timer)
+  }, [isVisible, conversationId, startConnection])
 
   // Keyboard shortcut: Ctrl+` to toggle agent panel
   useEffect(() => {

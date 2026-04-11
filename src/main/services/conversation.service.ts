@@ -1083,6 +1083,62 @@ export function deleteConversation(spaceId: string, conversationId: string): boo
 }
 
 /**
+ * List child (worker) conversations for a given parent conversation.
+ * Child conversations are stored as `{parentConvId}_agent-{agentId}.json`
+ * (colons replaced with underscores for Windows filename compatibility).
+ *
+ * Returns lightweight metadata (same shape as ConversationMeta) plus
+ * the childConversationId for loading full data on demand.
+ */
+export function listChildConversations(
+  spaceId: string,
+  parentConversationId: string
+): Array<{
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}> {
+  const conversationsDir = getConversationsDir(spaceId)
+  if (!existsSync(conversationsDir)) return []
+
+  const childPrefix = safeFileName(`${parentConversationId}:agent-`)
+  const results: Array<{
+    id: string
+    title: string
+    createdAt: string
+    updatedAt: string
+    messageCount: number
+  }> = []
+
+  try {
+    const files = readdirSync(conversationsDir)
+    for (const file of files) {
+      if (file.startsWith(childPrefix) && isConversationFile(file)) {
+        try {
+          const content = readFileSync(join(conversationsDir, file), 'utf-8')
+          const conversation: Conversation = JSON.parse(content)
+          results.push({
+            id: conversation.id,
+            title: conversation.title,
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.updatedAt,
+            messageCount: conversation.messageCount
+          })
+        } catch (error) {
+          console.error(`[Conversation] Failed to read child conversation ${file}:`, error)
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`[Conversation] Failed to scan for child conversations:`, error)
+  }
+
+  return results
+}
+
+/**
  * Delete all child conversations for a given parent conversation ID.
  * Called when a parent conversation is deleted to clean up worker history files.
  */

@@ -11,6 +11,24 @@ import { z } from 'zod'
 import { sharedTerminalService } from './shared-terminal-service'
 
 /**
+ * Resolve a terminal session from tool parameters.
+ * Tries by conversationId suffix first, then falls back to the most recent session.
+ */
+function resolveSession(conversationId?: string) {
+  if (conversationId) {
+    // sessionId format is "${spaceId}:${conversationId}"
+    const session = sharedTerminalService.getSessionByConversationId(conversationId)
+    if (session) return session
+  }
+
+  // Fallback: return the most recently created session
+  const sessionIds = sharedTerminalService.getSessionIds()
+  if (sessionIds.length === 0) return undefined
+  const lastId = sessionIds[sessionIds.length - 1]
+  return sharedTerminalService.getSession(lastId)
+}
+
+/**
  * Register terminal-related MCP tools
  */
 export function registerTerminalTools(server: McpServer): void {
@@ -27,10 +45,7 @@ export function registerTerminalTools(server: McpServer): void {
     },
     async ({ lines, conversationId }) => {
       try {
-        // Get the terminal session for current conversation
-        // Note: In production, you'd need to resolve the correct sessionId
-        const sessionId = conversationId ? `session:${conversationId}` : 'current'
-        const session = sharedTerminalService.getSession(sessionId)
+        const session = resolveSession(conversationId)
 
         if (!session) {
           return {
@@ -88,13 +103,12 @@ export function registerTerminalTools(server: McpServer): void {
     'Get list of commands executed in the terminal (both user and agent)',
     {
       source: z.enum(['all', 'user', 'agent']).optional().default('all').describe('Filter by command source'),
-      limit: z.number().optional().default(20).describe('Maximum number of commands to return')
+      limit: z.number().optional().default(20).describe('Maximum number of commands to return'),
+      conversationId: z.string().optional().describe('Conversation ID to filter by')
     },
-    async ({ source, limit }) => {
+    async ({ source, limit, conversationId }) => {
       try {
-        // Get the most recent session
-        const sessions = Array.from(sharedTerminalService['sessions'].values())
-        const session = sessions[sessions.length - 1]
+        const session = resolveSession(conversationId)
 
         if (!session) {
           return {
@@ -151,18 +165,28 @@ export function registerTerminalTools(server: McpServer): void {
 
   /**
    * Clear terminal output
-   * Clear the terminal output buffer
+   * Clear the terminal output buffer for a specific session
    */
   server.tool(
     'clear_terminal',
     'Clear the terminal output buffer (does not affect the actual terminal session)',
-    {},
-    async () => {
+    {
+      conversationId: z.string().optional().describe('Conversation ID (defaults to most recent session)')
+    },
+    async ({ conversationId }) => {
       try {
-        const sessions = Array.from(sharedTerminalService['sessions'].values())
-
-        for (const session of sessions) {
-          session.clearBuffer()
+        if (conversationId) {
+          // Clear specific session
+          const session = sharedTerminalService.getSessionByConversationId(conversationId)
+          if (session) {
+            session.clearBuffer()
+          }
+        } else {
+          // Clear all sessions (original behavior preserved for backward compat)
+          for (const sessionId of sharedTerminalService.getSessionIds()) {
+            const session = sharedTerminalService.getSession(sessionId)
+            session?.clearBuffer()
+          }
         }
 
         return {

@@ -462,6 +462,19 @@ export const api = {
     )
   },
 
+  listChildConversations: async (
+    spaceId: string,
+    parentConversationId: string
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.listChildConversations(spaceId, parentConversationId)
+    }
+    return httpRequest(
+      'GET',
+      `/api/spaces/${spaceId}/conversations/${parentConversationId}/children`
+    )
+  },
+
   // ===== Agent =====
   sendMessage: async (request: {
     spaceId: string

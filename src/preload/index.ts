@@ -90,6 +90,10 @@ export interface AicoBotAPI {
     spaceId: string,
     conversationId: string
   ) => Promise<IpcResponse>
+  listChildConversations: (
+    spaceId: string,
+    parentConversationId: string
+  ) => Promise<IpcResponse>
 
   // Agent
   sendMessage: (request: {
@@ -628,6 +632,8 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('conversation:toggle-star', spaceId, conversationId, starred),
   getAgentCommands: (spaceId, conversationId) =>
     ipcRenderer.invoke('conversation:get-agent-commands', spaceId, conversationId),
+  listChildConversations: (spaceId, parentConversationId) =>
+    ipcRenderer.invoke('conversation:list-children', spaceId, parentConversationId),
 
   // Agent
   sendMessage: (request) => ipcRenderer.invoke('agent:send-message', request),

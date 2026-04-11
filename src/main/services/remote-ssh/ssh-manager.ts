@@ -27,6 +27,7 @@ export class SSHManager {
   private config: SSHConfig | null = null
   private _ready = false // Custom ready state tracker
   private localForwardServers: Map<number, any> = new Map() // Local port -> net.Server
+  private interactiveShell: any | null = null // Stored interactive shell stream
 
   /**
    * Establish SSH connection
@@ -518,6 +519,7 @@ export class SSHManager {
         }
 
         console.log('[SSHManager] Interactive shell started')
+        this.interactiveShell = stream
         resolve({
           stdout: stream,
           stderr: stream.stderr,
@@ -528,20 +530,14 @@ export class SSHManager {
   }
 
   /**
-   * Write data to the interactive shell
+   * Write data to the interactive shell (uses existing shell session)
    */
   writeShell(data: string): void {
-    if (!this._ready || !this.client) {
+    if (!this.interactiveShell) {
+      console.warn('[SSHManager] No active shell session to write to')
       return
     }
-
-    this.client.shell((err, stream) => {
-      if (err) {
-        console.error('[SSHManager] Shell write error:', err)
-        return
-      }
-      stream.write(data)
-    })
+    this.interactiveShell.write(data)
   }
 
   /**
@@ -566,6 +562,7 @@ export class SSHManager {
       this.client = null
       this.sftp = null
       this.config = null
+      this.interactiveShell = null
     }
   }
 }

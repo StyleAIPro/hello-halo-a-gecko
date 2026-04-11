@@ -350,6 +350,15 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     res.json(result)
   })
 
+  // List child (worker) conversations for a parent conversation
+  app.get('/api/spaces/:spaceId/conversations/:conversationId/children', async (req: Request, res: Response) => {
+    const result = conversationController.listChildConversations(
+      req.params.spaceId,
+      req.params.conversationId
+    )
+    res.json(result)
+  })
+
   // ===== Agent Routes =====
   app.post('/api/agent/message', async (req: Request, res: Response) => {
     const { spaceId, conversationId, message, resumeSessionId, images, thinkingEnabled, aiBrowserEnabled } = req.body

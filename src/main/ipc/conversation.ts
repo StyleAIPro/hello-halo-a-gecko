@@ -13,7 +13,8 @@ import {
   updateLastMessage,
   getMessageThoughts,
   toggleStarConversation,
-  loadAgentCommands
+  loadAgentCommands,
+  listChildConversations
 } from '../services/conversation.service'
 
 export function registerConversationHandlers(): void {
@@ -161,6 +162,20 @@ export function registerConversationHandlers(): void {
       try {
         const commands = loadAgentCommands(spaceId, conversationId)
         return { success: true, data: commands }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
+
+  // List child (worker) conversations for a parent conversation
+  ipcMain.handle(
+    'conversation:list-children',
+    async (_event, spaceId: string, parentConversationId: string) => {
+      try {
+        const children = listChildConversations(spaceId, parentConversationId)
+        return { success: true, data: children }
       } catch (error: unknown) {
         const err = error as Error
         return { success: false, error: err.message }

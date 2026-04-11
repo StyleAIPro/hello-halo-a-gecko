@@ -29,6 +29,9 @@ export interface AgentCommandViewerState {
   // 按会话存储命令历史：Map<conversationId, AgentCommandEntry[]>
   commandHistory: Map<string, AgentCommandEntry[]>
 
+  // 快速索引：commandId -> { conversationId, index }，避免 O(N) 遍历
+  commandIndex: Map<string, { conversationId: string; index: number }>
+
   // 当前活跃的命令（正在执行）
   activeCommandId: string | null
 
@@ -60,9 +63,34 @@ export interface AgentCommandViewerState {
   _loadCommands: (conversationId: string, commands: AgentCommandEntry[]) => void
 }
 
+// Helper: fallback linear search when index is stale, also rebuilds the index entry
+function updateCommandWithFallback(
+  state: AgentCommandViewerState,
+  commandId: string,
+  updater: (cmd: AgentCommandEntry) => AgentCommandEntry
+): Partial<AgentCommandViewerState> {
+  const newHistory = new Map(state.commandHistory)
+  const newIndex = new Map(state.commandIndex)
+
+  for (const [convId, commands] of newHistory.entries()) {
+    const commandIndex = commands.findIndex(cmd => cmd.id === commandId)
+    if (commandIndex >= 0) {
+      const updatedCommands = [...commands]
+      updatedCommands[commandIndex] = updater(updatedCommands[commandIndex])
+      newHistory.set(convId, updatedCommands)
+      // Rebuild index entry
+      newIndex.set(commandId, { conversationId: convId, index: commandIndex })
+      break
+    }
+  }
+
+  return { commandHistory: newHistory, commandIndex: newIndex }
+}
+
 export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, get) => ({
   // Initial state
   commandHistory: new Map(),
+  commandIndex: new Map(),
   activeCommandId: null,
   isConnected: false,
   currentConversationId: null,
@@ -95,12 +123,19 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
       set(state => {
         const newHistory = new Map(state.commandHistory)
         newHistory.delete(conversationId)
+        const newIndex = new Map(state.commandIndex)
+        // Remove index entries for this conversation
+        for (const [cmdId, loc] of newIndex.entries()) {
+          if (loc.conversationId === conversationId) {
+            newIndex.delete(cmdId)
+          }
+        }
         const newLoaded = new Set(state.loadedConversations)
         newLoaded.delete(conversationId)
-        return { commandHistory: newHistory, loadedConversations: newLoaded }
+        return { commandHistory: newHistory, commandIndex: newIndex, loadedConversations: newLoaded }
       })
     } else {
-      set({ commandHistory: new Map(), activeCommandId: null, loadedConversations: new Set() })
+      set({ commandHistory: new Map(), commandIndex: new Map(), activeCommandId: null, loadedConversations: new Set() })
     }
   },
 
@@ -142,6 +177,7 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
   _onAgentCommandStart: (entry) => {
     set(state => {
       const newHistory = new Map(state.commandHistory)
+      const newIndex = new Map(state.commandIndex)
       const convCommands = newHistory.get(entry.conversationId) || []
 
       const newCommand: AgentCommandEntry = {
@@ -151,10 +187,15 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
         status: 'running'
       }
 
-      newHistory.set(entry.conversationId, [...convCommands, newCommand])
+      const newCommands = [...convCommands, newCommand]
+      newHistory.set(entry.conversationId, newCommands)
+
+      // Update index
+      newIndex.set(entry.id, { conversationId: entry.conversationId, index: newCommands.length - 1 })
 
       return {
         commandHistory: newHistory,
+        commandIndex: newIndex,
         activeCommandId: entry.id,
         currentConversationId: entry.conversationId,
         isConnected: true
@@ -164,21 +205,25 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
   _onAgentCommandOutput: (commandId: string, output: string) => {
     set(state => {
-      const newHistory = new Map(state.commandHistory)
+      const loc = state.commandIndex.get(commandId)
+      if (!loc) return state
 
-      // Find and update the command in any conversation
-      for (const [convId, commands] of newHistory.entries()) {
-        const commandIndex = commands.findIndex(cmd => cmd.id === commandId)
-        if (commandIndex >= 0) {
-          const updatedCommands = [...commands]
-          updatedCommands[commandIndex] = {
-            ...updatedCommands[commandIndex],
-            output: updatedCommands[commandIndex].output + output
-          }
-          newHistory.set(convId, updatedCommands)
-          break
-        }
+      const commands = state.commandHistory.get(loc.conversationId)
+      if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
+        // Index stale - fall back to linear search and rebuild index entry
+        return updateCommandWithFallback(state, commandId, cmd => ({
+          ...cmd,
+          output: cmd.output + output
+        }))
       }
+
+      const newHistory = new Map(state.commandHistory)
+      const updatedCommands = [...commands]
+      updatedCommands[loc.index] = {
+        ...updatedCommands[loc.index],
+        output: updatedCommands[loc.index].output + output
+      }
+      newHistory.set(loc.conversationId, updatedCommands)
 
       return { commandHistory: newHistory }
     })
@@ -186,22 +231,26 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
   _onAgentCommandComplete: (commandId: string, exitCode: number) => {
     set(state => {
-      const newHistory = new Map(state.commandHistory)
+      const loc = state.commandIndex.get(commandId)
+      if (!loc) return state
 
-      // Find and update the command in any conversation
-      for (const [convId, commands] of newHistory.entries()) {
-        const commandIndex = commands.findIndex(cmd => cmd.id === commandId)
-        if (commandIndex >= 0) {
-          const updatedCommands = [...commands]
-          updatedCommands[commandIndex] = {
-            ...updatedCommands[commandIndex],
-            status: 'completed' as const,
-            exitCode
-          }
-          newHistory.set(convId, updatedCommands)
-          break
-        }
+      const commands = state.commandHistory.get(loc.conversationId)
+      if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
+        return updateCommandWithFallback(state, commandId, cmd => ({
+          ...cmd,
+          status: 'completed' as const,
+          exitCode
+        }))
       }
+
+      const newHistory = new Map(state.commandHistory)
+      const updatedCommands = [...commands]
+      updatedCommands[loc.index] = {
+        ...updatedCommands[loc.index],
+        status: 'completed' as const,
+        exitCode
+      }
+      newHistory.set(loc.conversationId, updatedCommands)
 
       return { commandHistory: newHistory, activeCommandId: null }
     })
@@ -209,22 +258,26 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
   _onAgentCommandError: (commandId: string, error: string) => {
     set(state => {
-      const newHistory = new Map(state.commandHistory)
+      const loc = state.commandIndex.get(commandId)
+      if (!loc) return state
 
-      // Find and update the command in any conversation
-      for (const [convId, commands] of newHistory.entries()) {
-        const commandIndex = commands.findIndex(cmd => cmd.id === commandId)
-        if (commandIndex >= 0) {
-          const updatedCommands = [...commands]
-          updatedCommands[commandIndex] = {
-            ...updatedCommands[commandIndex],
-            status: 'error' as const,
-            output: updatedCommands[commandIndex].output + '\n' + error
-          }
-          newHistory.set(convId, updatedCommands)
-          break
-        }
+      const commands = state.commandHistory.get(loc.conversationId)
+      if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
+        return updateCommandWithFallback(state, commandId, cmd => ({
+          ...cmd,
+          status: 'error' as const,
+          output: cmd.output + '\n' + error
+        }))
       }
+
+      const newHistory = new Map(state.commandHistory)
+      const updatedCommands = [...commands]
+      updatedCommands[loc.index] = {
+        ...updatedCommands[loc.index],
+        status: 'error' as const,
+        output: updatedCommands[loc.index].output + '\n' + error
+      }
+      newHistory.set(loc.conversationId, updatedCommands)
 
       return { commandHistory: newHistory, activeCommandId: null }
     })
@@ -233,38 +286,41 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
   _loadCommands: (conversationId: string, commands: AgentCommandEntry[]) => {
     set(state => {
       const newHistory = new Map(state.commandHistory)
+      const newIndex = new Map(state.commandIndex)
       const newLoaded = new Set(state.loadedConversations)
 
       // Check if we already have commands in memory for this conversation
       const existingCommands = newHistory.get(conversationId)
 
+      let mergedCommands: AgentCommandEntry[]
       if (!existingCommands || existingCommands.length === 0) {
-        // No existing commands - use loaded commands directly
-        newHistory.set(conversationId, commands)
+        mergedCommands = commands
       } else {
         // Merge: use loaded commands as base, but preserve any in-memory updates
-        // (e.g., commands that are still running or have more recent output)
         const loadedIds = new Set(commands.map(c => c.id))
-        const mergedCommands = [...commands]
+        mergedCommands = [...commands]
 
-        // Add any in-memory commands that aren't in the loaded set
-        // (these are new commands added after the last save)
         for (const cmd of existingCommands) {
           if (!loadedIds.has(cmd.id)) {
             mergedCommands.push(cmd)
           }
         }
 
-        // Sort by timestamp to maintain order
         mergedCommands.sort((a, b) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         )
-
-        newHistory.set(conversationId, mergedCommands)
       }
+
+      newHistory.set(conversationId, mergedCommands)
+
+      // Rebuild index for this conversation
+      for (let i = 0; i < mergedCommands.length; i++) {
+        newIndex.set(mergedCommands[i].id, { conversationId, index: i })
+      }
+
       newLoaded.add(conversationId)
 
-      return { commandHistory: newHistory, loadedConversations: newLoaded }
+      return { commandHistory: newHistory, commandIndex: newIndex, loadedConversations: newLoaded }
     })
   },
 

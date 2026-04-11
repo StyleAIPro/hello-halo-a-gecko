@@ -85,7 +85,7 @@ export class ErrorBoundary extends Component<Props, State> {
             {/* Help text */}
             <p className="text-muted-foreground/60 text-xs text-center mt-6">
               If the problem persists, please report at{' '}
-              <span className="text-primary">github.com/openkursar/hello-halo/issues</span>
+              <span className="text-primary">github.com/StyleAIPro/AICO-Bot/issues</span>
             </p>
           </div>
         </div>

@@ -11,8 +11,8 @@ import {
   Loader2,
   XCircle,
   ChevronRight,
-  ChevronUp,
   ChevronDown,
+  ChevronUp,
   Braces,
   Copy,
   Check,
@@ -27,14 +27,18 @@ import {
   getThoughtColor,
   getThoughtLabelKey,
   getToolFriendlyFormat,
+  groupSubagentThoughts,
+  type ThoughtGroup,
 } from './thought-utils'
 import { useLazyVisible } from '../../hooks/useLazyVisible'
 import type { Thought, ThoughtsSummary } from '../../types'
+import type { WorkerSessionState } from '../../stores/chat.store'
 import { getCurrentLanguage, useTranslation } from '../../i18n'
 
 interface CollapsedThoughtProcessProps {
   thoughts: Thought[]
   defaultExpanded?: boolean
+  workerSessions?: Map<string, WorkerSessionState>
 }
 
 
@@ -341,11 +345,108 @@ function LazyCollapsedThoughtItem({
   )
 }
 
-export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false }: CollapsedThoughtProcessProps) {
+/**
+ * Collapsible subagent thought group for historical (CollapsedThoughtProcess) display.
+ * Mirrors the SubagentThoughtGroup from ThoughtProcess but uses simpler styling.
+ */
+function CollapsedSubagentGroup({
+  group,
+  scrollContainerRef,
+}: {
+  group: ThoughtGroup
+  scrollContainerRef: RefObject<HTMLDivElement | null>
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const { t } = useTranslation()
+
+  const subThoughts = group.subagentThoughts
+  if (!subThoughts || subThoughts.length === 0) {
+    return <LazyCollapsedThoughtItem thought={group.main} scrollContainerRef={scrollContainerRef} />
+  }
+
+  const agentName = subThoughts[0]?.agentName || ''
+  const truncatedName = agentName.length > 40 ? agentName.substring(0, 40) + '...' : agentName
+
+  const duration = useMemo(() => {
+    if (subThoughts.length < 2) return null
+    const start = new Date(subThoughts[0].timestamp).getTime()
+    const end = new Date(subThoughts[subThoughts.length - 1].timestamp).getTime()
+    return ((end - start) / 1000).toFixed(1)
+  }, [subThoughts])
+
+  return (
+    <>
+      <LazyCollapsedThoughtItem thought={group.main} scrollContainerRef={scrollContainerRef} />
+      <div className="ml-1 my-1 rounded-lg border border-purple-500/20 bg-purple-500/[0.04] overflow-hidden">
+        <button
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/5 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <ChevronDown size={12} className={`text-purple-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            <span className="text-[11px] font-medium text-purple-400 truncate">{truncatedName}</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground/50 flex-1">
+            {subThoughts.length} {t('steps')}
+            {duration && ` · ${duration}s`}
+          </span>
+        </button>
+        {isExpanded && (
+          <div className="border-t border-purple-500/10 max-h-[400px] overflow-auto scrollbar-overlay">
+            {subThoughts.map((th, idx) => (
+              <div key={th.id} className="ml-3 pl-2 border-l border-purple-500/15">
+                <ThoughtItem thought={th} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false, workerSessions }: CollapsedThoughtProcessProps) {
   const { t } = useTranslation()
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const [isMaximized, setIsMaximized] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  // Build workerMatchMap from workerSessions
+  const workerMatchMap = useMemo((): Map<string, WorkerSessionState> => {
+    const matchMap = new Map<string, WorkerSessionState>()
+    if (!workerSessions || workerSessions.size === 0) return matchMap
+
+    const workers = Array.from(workerSessions.values())
+    const matchedWorkers = new Set<string>()
+
+    // Match Task/Agent tool_use thoughts to worker sessions by description
+    for (const thought of thoughts) {
+      if (thought.type !== 'tool_use' || (thought.toolName !== 'Task' && thought.toolName !== 'Agent')) continue
+      const desc = thought.toolInput?.description
+      if (!desc) continue
+
+      for (const worker of workers) {
+        if (matchedWorkers.has(worker.agentId)) continue
+        if (worker.task && (worker.task === desc || worker.task.includes(desc) || desc.includes(worker.task))) {
+          matchMap.set(thought.id, worker)
+          matchedWorkers.add(worker.agentId)
+          break
+        }
+      }
+    }
+
+    // Match remaining by order
+    const unmatchedTasks = thoughts.filter(
+      th => th.type === 'tool_use' && (th.toolName === 'Task' || th.toolName === 'Agent') && !matchMap.has(th.id)
+    )
+    const unmatchedWorkers = workers.filter(w => !matchedWorkers.has(w.agentId))
+    for (let i = 0; i < Math.min(unmatchedTasks.length, unmatchedWorkers.length); i++) {
+      matchMap.set(unmatchedTasks[i].id, unmatchedWorkers[i])
+    }
+
+    return matchMap
+  }, [thoughts, workerSessions])
 
   // Get latest todo data (only render one TodoCard at bottom)
   const latestTodos = useMemo(() => {
@@ -368,6 +469,14 @@ export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false }: C
       return true
     })
   }, [thoughts])
+
+  // Group with subagent thoughts if workerMatchMap is provided
+  const thoughtGroups = useMemo((): ThoughtGroup[] => {
+    if (!workerMatchMap || workerMatchMap.size === 0) {
+      return displayThoughts.map(t => ({ main: t }))
+    }
+    return groupSubagentThoughts(displayThoughts, workerMatchMap)
+  }, [displayThoughts, workerMatchMap])
 
   // Check if there's anything to show
   const hasContent = displayThoughts.length > 0 || (latestTodos && latestTodos.length > 0)
@@ -423,12 +532,12 @@ export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false }: C
       {isExpanded && (
         <div className="mt-1 py-2 bg-muted/20 rounded-lg border border-border/30 animate-slide-down thought-content">
           {/* Thought items — lazy-loaded: only items near the scroll viewport are rendered */}
-          {displayThoughts.length > 0 && (
+          {thoughtGroups.length > 0 && (
             <div ref={scrollContainerRef} className={`${isMaximized ? 'max-h-[80vh]' : 'max-h-[300px]'} scrollbar-overlay px-3 transition-all duration-200`}>
-              {displayThoughts.map((thought, index) => (
-                <LazyCollapsedThoughtItem
-                  key={`${thought.id}-${index}`}
-                  thought={thought}
+              {thoughtGroups.map((group, index) => (
+                <CollapsedSubagentGroup
+                  key={`${group.main.id}-${index}`}
+                  group={group}
                   scrollContainerRef={scrollContainerRef}
                 />
               ))}
@@ -437,13 +546,13 @@ export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false }: C
 
           {/* TodoCard at bottom - only one instance */}
           {latestTodos && latestTodos.length > 0 && (
-            <div className={`px-3 ${displayThoughts.length > 0 ? 'mt-2 pt-2 border-t border-border/20' : ''}`}>
+            <div className={`px-3 ${thoughtGroups.length > 0 ? 'mt-2 pt-2 border-t border-border/20' : ''}`}>
               <TodoCard todos={latestTodos} isAgentActive={false} />
             </div>
           )}
 
           {/* Maximize toggle - bottom right, heuristic: show when likely to overflow */}
-          {(displayThoughts.length > 8 || isMaximized) && (
+          {(thoughtGroups.length > 8 || isMaximized) && (
             <div className="flex justify-end px-3 mt-1">
               <button
                 onClick={() => setIsMaximized(!isMaximized)}

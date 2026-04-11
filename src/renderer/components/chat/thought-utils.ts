@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { getToolIcon } from '../icons/ToolIcons'
 import type { Thought } from '../../types'
+import type { WorkerSessionState } from '../../stores/chat.store'
 
 // i18n static keys for extraction (DO NOT REMOVE)
 // prettier-ignore
@@ -248,4 +249,65 @@ export function getStepCounts(thoughts: Thought[]): { completed: number; total: 
     }
   }
   return { completed, total }
+}
+
+// ============================================
+// Subagent Thought Grouping
+// ============================================
+
+/**
+ * A group in the thought timeline — a main agent thought optionally
+ * followed by a batch of subagent thoughts.
+ */
+export interface ThoughtGroup {
+  /** The main agent's thought */
+  main: Thought
+  /** Subagent thoughts grouped under this main thought (display-only) */
+  subagentThoughts?: Thought[]
+}
+
+/**
+ * Group main thoughts with their subagent thoughts.
+ *
+ * This is a DISPLAY-ONLY operation — it does NOT modify the main agent's
+ * session memory or persisted thoughts. Worker thoughts remain in their
+ * isolated WorkerSessionState and are only injected into the display list
+ * for easier reading and analysis.
+ *
+ * Each main thought that has a matched worker gets a `ThoughtGroup` with
+ * the worker's display thoughts as `subagentThoughts`. The UI can then
+ * render these in a collapsible container (default collapsed).
+ *
+ * @param thoughts - Main agent's thought array (already filtered)
+ * @param workerMatchMap - Map from thought.id to WorkerSessionState
+ *                         (same as returned by useWorkerMatching)
+ * @returns Array of ThoughtGroups for rendering
+ */
+export function groupSubagentThoughts(
+  thoughts: Thought[],
+  workerMatchMap: Map<string, WorkerSessionState>
+): ThoughtGroup[] {
+  return thoughts.map(thought => {
+    const group: ThoughtGroup = { main: thought }
+
+    const worker = workerMatchMap.get(thought.id)
+    if (worker && worker.thoughts.length > 0) {
+      const workerDisplayThoughts = worker.thoughts.filter(th => {
+        if (th.type === 'result') return false
+        if (th.type === 'tool_result') return false
+        if (th.toolName === 'TodoWrite') return false
+        return true
+      }).map(wThought => ({
+        ...wThought,
+        agentId: worker.agentId,
+        agentName: worker.agentName
+      }))
+
+      if (workerDisplayThoughts.length > 0) {
+        group.subagentThoughts = workerDisplayThoughts
+      }
+    }
+
+    return group
+  })
 }

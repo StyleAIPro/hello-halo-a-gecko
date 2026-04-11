@@ -26,6 +26,8 @@ import {
   getThoughtColor,
   getThoughtLabelKey,
   getToolFriendlyFormat,
+  groupSubagentThoughts,
+  type ThoughtGroup,
 } from './thought-utils'
 import { useSmartScroll } from '../../hooks/useSmartScroll'
 import { useLazyVisible } from '../../hooks/useLazyVisible'
@@ -439,26 +441,35 @@ const ThoughtItem = memo(function ThoughtItem({ thought, isLast, matchedWorker }
             })()}
             {thought.toolName && ` - ${thought.toolName}`}
           </span>
+          {/* Subagent indicator — small badge when thought has agent tag */}
+          {thought.agentName && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-semibold border border-purple-500/20">
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="text-purple-400">
+                <circle cx="4" cy="4" r="4" fill="currentColor"/>
+              </svg>
+              {thought.agentName.length > 35 ? thought.agentName.substring(0, 35) + '…' : thought.agentName}
+            </span>
+          )}
           {toolStatus && (
-            <span className={`text-xs ${toolStatus.color}`}>
-              {toolStatus.label}
+              <span className={`text-xs ${toolStatus.color}`}>
+                {toolStatus.label}
+              </span>
+            )}
+            {/* Time - hidden on mobile */}
+            <span className="hidden sm:inline text-xs text-muted-foreground/50">
+              {new Date(thought.timestamp).toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              })}
             </span>
-          )}
-          {/* Time - hidden on mobile */}
-          <span className="hidden sm:inline text-xs text-muted-foreground/50">
-            {new Date(thought.timestamp).toLocaleTimeString('zh-CN', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            })}
-          </span>
-          {/* Duration - hidden on mobile */}
-          {thought.duration && (
-            <span className="hidden sm:inline text-xs text-muted-foreground/40">
-              ({(thought.duration / 1000).toFixed(1)}s)
-            </span>
-          )}
-        </div>
+            {/* Duration - hidden on mobile */}
+            {thought.duration && (
+              <span className="hidden sm:inline text-xs text-muted-foreground/40">
+                ({(thought.duration / 1000).toFixed(1)}s)
+              </span>
+            )}
+          </div>
 
         {/* ---- tool_use: unified container for input + result ---- */}
         {thought.type === 'tool_use' && isToolReady && (
@@ -636,6 +647,91 @@ function LazyThoughtItem({
   )
 }
 
+/**
+ * Collapsible subagent thought group.
+ * Default collapsed — user clicks to expand.
+ * Shows a summary line (step count + duration) when collapsed.
+ */
+const SubagentThoughtGroup = memo(function SubagentThoughtGroup({
+  group,
+  scrollContainerRef,
+  isLastGroup,
+}: {
+  group: ThoughtGroup
+  scrollContainerRef: RefObject<HTMLDivElement | null>
+  isLastGroup: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const { t } = useTranslation()
+
+  const subThoughts = group.subagentThoughts
+  if (!subThoughts || subThoughts.length === 0) {
+    // No subagent thoughts — just render the main thought normally
+    return (
+      <LazyThoughtItem
+        thought={group.main}
+        isLast={isLastGroup && !group.main.type} // will be overridden
+        scrollContainerRef={scrollContainerRef}
+        eager
+      />
+    )
+  }
+
+  const agentName = subThoughts[0]?.agentName || ''
+  const truncatedName = agentName.length > 40 ? agentName.substring(0, 40) + '...' : agentName
+
+  // Calculate duration from first to last subagent thought
+  const duration = useMemo(() => {
+    if (subThoughts.length < 2) return null
+    const start = new Date(subThoughts[0].timestamp).getTime()
+    const end = new Date(subThoughts[subThoughts.length - 1].timestamp).getTime()
+    return ((end - start) / 1000).toFixed(1)
+  }, [subThoughts])
+
+  return (
+    <>
+      {/* Main thought */}
+      <LazyThoughtItem
+        thought={group.main}
+        isLast={false}
+        scrollContainerRef={scrollContainerRef}
+        eager
+      />
+
+      {/* Collapsible subagent container */}
+      <div className="ml-1 my-1 rounded-lg border border-purple-500/20 bg-purple-500/[0.04] overflow-hidden">
+        {/* Expand/collapse header */}
+        <button
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/5 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <ChevronDown size={12} className={`text-purple-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            <span className="text-[11px] font-medium text-purple-400 truncate">{truncatedName}</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground/50 flex-1">
+            {subThoughts.length} {t('steps')}
+            {duration && ` · ${duration}s`}
+          </span>
+          {group.main.isThinking && <Loader2 size={10} className="text-purple-400 animate-spin" />}
+        </button>
+
+        {/* Subagent thoughts — rendered lazily */}
+        {isExpanded && (
+          <div className="border-t border-purple-500/10 max-h-[400px] overflow-auto scrollbar-overlay">
+            {subThoughts.map((th, idx) => (
+              <div key={th.id} className="ml-3 pl-2 border-l border-purple-500/15">
+                <ThoughtItem thought={th} isLast={idx === subThoughts.length - 1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  )
+})
+
 export function ThoughtProcess({ thoughts, isThinking, workerSessions }: ThoughtProcessProps) {
   // Start collapsed, but auto-expand when streaming starts
   const [isExpanded, setIsExpanded] = useState(false)
@@ -681,22 +777,24 @@ export function ThoughtProcess({ thoughts, isThinking, workerSessions }: Thought
     return parseTodoInput(latest.toolInput!)
   }, [thoughts])
 
-  // Filter thoughts for display (exclude TodoWrite, tool_result, result)
-  // tool_result is now merged into tool_use, no need to show separately
-  // text blocks are now shown in the timeline so users can see AI output
-  // interleaved with tool calls and thinking blocks
-  const displayThoughts = useMemo(() => {
-    return thoughts.filter(t => {
+  // Match Task tool_use thoughts to worker sessions
+  const workerMatchMap = useWorkerMatching(thoughts, workerSessions)
+
+  // Filter + group subagent thoughts.
+  // Each main thought that has subagent activity gets a ThoughtGroup with
+  // subagentThoughts. The UI renders these in collapsible containers (default collapsed).
+  // This is DISPLAY ONLY — subagent thoughts remain in their isolated WorkerSessionState
+  // and are NOT added to the main session's memory or persistence.
+  const thoughtGroups = useMemo((): ThoughtGroup[] => {
+    const filtered = thoughts.filter(t => {
       if (t.type === 'result') return false
       if (t.type === 'tool_result') return false  // Merged into tool_use
       // Exclude TodoWrite tool_use (shown separately at bottom)
       if (t.toolName === 'TodoWrite') return false
       return true
     })
-  }, [thoughts])
-
-  // Match Task tool_use thoughts to worker sessions
-  const workerMatchMap = useWorkerMatching(thoughts, workerSessions)
+    return groupSubagentThoughts(filtered, workerMatchMap)
+  }, [thoughts, workerMatchMap])
 
   // Smart auto-scroll: only scrolls when user is at bottom
   // Stops auto-scroll when user scrolls up to read history
@@ -716,7 +814,7 @@ export function ThoughtProcess({ thoughts, isThinking, workerSessions }: Thought
   const errorCount = thoughts.filter(t => t.type === 'error').length
 
   // Check if there's content to show in the scrollable area
-  const hasDisplayContent = displayThoughts.length > 0
+  const hasDisplayContent = thoughtGroups.length > 0
 
   return (
     <div className="animate-fade-in mb-4">
@@ -781,23 +879,30 @@ export function ThoughtProcess({ thoughts, isThinking, workerSessions }: Thought
                 onScroll={handleScroll}
                 className={`px-4 pt-3 ${isMaximized ? 'max-h-[80vh]' : 'max-h-[300px]'} overflow-auto scrollbar-overlay transition-all duration-200`}
               >
-                {displayThoughts.map((thought, index) => {
-                  const isLast = index === displayThoughts.length - 1 && !latestTodos && !isThinking
-                  // Last 3 items render eagerly (near the scroll bottom where the
-                  // user is watching during streaming). The rest lazy-load via IO.
-                  // Using a single component type for all items avoids React
-                  // unmount/remount when an item shifts from "recent" to "old"
-                  // as new thoughts arrive — which previously caused 1-2 frame flicker.
-                  const isRecentItem = index >= displayThoughts.length - 3
-                  const matchedWorker = workerMatchMap.get(thought.id)
+                {thoughtGroups.map((group, index) => {
+                  const isLastGroup = index === thoughtGroups.length - 1 && !latestTodos && !isThinking
+                  const hasSubagents = group.subagentThoughts && group.subagentThoughts.length > 0
+
+                  if (hasSubagents) {
+                    // Render as collapsible group
+                    return (
+                      <SubagentThoughtGroup
+                        key={group.main.id}
+                        group={group}
+                        scrollContainerRef={contentRef}
+                        isLastGroup={isLastGroup}
+                      />
+                    )
+                  }
+
+                  // No subagents — render normally
                   return (
                     <LazyThoughtItem
-                      key={thought.id}
-                      thought={thought}
-                      isLast={isLast}
+                      key={group.main.id}
+                      thought={group.main}
+                      isLast={isLastGroup}
                       scrollContainerRef={contentRef}
-                      eager={isRecentItem}
-                      matchedWorker={matchedWorker}
+                      eager={index >= thoughtGroups.length - 3}
                     />
                   )
                 })}
@@ -812,7 +917,7 @@ export function ThoughtProcess({ thoughts, isThinking, workerSessions }: Thought
             )}
 
             {/* Maximize toggle - bottom right, heuristic: show when likely to overflow */}
-            {(displayThoughts.length > 8 || isMaximized) && (
+            {(thoughtGroups.length > 8 || isMaximized) && (
               <div className="flex justify-end px-4 pb-2">
                 <button
                   onClick={() => setIsMaximized(!isMaximized)}

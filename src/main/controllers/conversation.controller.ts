@@ -12,7 +12,8 @@ import {
   addMessage as serviceAddMessage,
   updateLastMessage as serviceUpdateLastMessage,
   getMessageThoughts as serviceGetMessageThoughts,
-  toggleStarConversation as serviceToggleStarConversation
+  toggleStarConversation as serviceToggleStarConversation,
+  listChildConversations as serviceListChildConversations
 } from '../services/conversation.service'
 
 export interface ControllerResponse<T = unknown> {
@@ -164,6 +165,22 @@ export function toggleStarConversation(
       return { success: true, data: meta }
     }
     return { success: false, error: 'Conversation not found' }
+  } catch (error: unknown) {
+    const err = error as Error
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * List child (worker) conversations for a parent conversation
+ */
+export function listChildConversations(
+  spaceId: string,
+  parentConversationId: string
+): ControllerResponse {
+  try {
+    const children = serviceListChildConversations(spaceId, parentConversationId)
+    return { success: true, data: children }
   } catch (error: unknown) {
     const err = error as Error
     return { success: false, error: err.message }

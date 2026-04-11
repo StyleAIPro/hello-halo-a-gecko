@@ -49,6 +49,9 @@ export interface TerminalMessage {
 // Store active terminal sessions (keyed by conversationId)
 const sessions = new Map<string, TerminalSession>()
 
+// Track command IDs we've already seen (avoids disk reads to determine isNewCommand)
+const knownCommandIds = new Set<string>()
+
 // Track pending commands awaiting output (keyed by conversationId:toolId)
 const pendingCommands = new Map<string, string>()
 
@@ -171,17 +174,16 @@ export class TerminalGateway extends EventEmitter {
     }
 
     // Persist command to disk for history
-    // When updating an existing command (commandId provided), preserve original fields
-    // CRITICAL: Check disk to determine if this is a new command or an update
-    // because commandId is always provided by send-message.ts for remote commands
-    const existingCommands = loadAgentCommands(spaceId, conversationId)
-    const existingRecord = existingCommands.find(c => c.id === commandId)
-    const isNewCommand = !existingRecord  // Check disk, not just commandId parameter
+    // Use in-memory tracking to determine isNewCommand instead of reading disk every time
+    const isNewCommand = !commandId || !knownCommandIds.has(commandId)
+    let existingRecord: AgentCommandRecord | undefined
     let commandRecord: AgentCommandRecord
 
     console.log(`[TerminalGateway] onAgentCommand: id=${id}, commandId=${commandId}, isNew=${isNewCommand}, status=${status}, output.length=${output?.length || 0}`)
 
     if (isNewCommand) {
+      // Track this command ID so we recognize updates later
+      if (commandId) knownCommandIds.add(commandId)
       // New command - create full record
       commandRecord = {
         id,
@@ -195,23 +197,39 @@ export class TerminalGateway extends EventEmitter {
         cwdLabel: spaceCwdInfo.cwdLabel
       }
     } else {
-      // Update existing command - preserve original command, cwd info
-      // existingRecord is guaranteed to exist here because isNewCommand = !existingRecord
-      console.log(`[TerminalGateway] Updating command ${commandId}, newOutput.length=${output?.length || 0}`)
+      // Update existing command - load from disk only when updating
+      const existingCommands = loadAgentCommands(spaceId, conversationId)
+      existingRecord = existingCommands.find(c => c.id === commandId)
 
-      // Merge: keep original command/cwd, append output and update status/exitCode
-      commandRecord = {
-        ...existingRecord,
-        output: output ? existingRecord.output + output : existingRecord.output,
-        exitCode: exitCode ?? existingRecord.exitCode,
-        status
+      if (!existingRecord) {
+        // Edge case: knownCommandIds had it but disk doesn't - treat as new
+        commandRecord = {
+          id,
+          command,
+          output,
+          exitCode: exitCode ?? null,
+          status,
+          timestamp: terminalCommand.timestamp,
+          conversationId,
+          cwd: spaceCwdInfo.cwd,
+          cwdLabel: spaceCwdInfo.cwdLabel
+        }
+      } else {
+        console.log(`[TerminalGateway] Updating command ${commandId}, newOutput.length=${output?.length || 0}`)
+
+        // Merge: keep original command/cwd, append output and update status/exitCode
+        commandRecord = {
+          ...existingRecord,
+          output: output ? existingRecord.output + output : existingRecord.output,
+          exitCode: exitCode ?? existingRecord.exitCode,
+          status
+        }
+        // Also update the terminalCommand for in-memory history
+        terminalCommand.command = existingRecord.command
+        terminalCommand.cwd = existingRecord.cwd
+        terminalCommand.cwdLabel = existingRecord.cwdLabel
+        terminalCommand.pathOnly = existingRecord.cwdLabel?.split(' ').pop()?.replace('%', '').trim() || existingRecord.cwd?.split('/').pop()
       }
-      console.log(`[TerminalGateway] Merged record: command="${commandRecord.command.substring(0, 30)}...", output.length=${commandRecord.output?.length || 0}`)
-      // Also update the terminalCommand for in-memory history
-      terminalCommand.command = existingRecord.command
-      terminalCommand.cwd = existingRecord.cwd
-      terminalCommand.cwdLabel = existingRecord.cwdLabel
-      terminalCommand.pathOnly = existingRecord.cwdLabel?.split(' ').pop()?.replace('%', '').trim() || existingRecord.cwd?.split('/').pop()
     }
     saveAgentCommand(spaceId, conversationId, commandRecord)
 
@@ -751,18 +769,24 @@ function handleMessage(session: TerminalSession, message: TerminalMessage): void
       if (message.data?.input) {
         const sessionId = `${session.spaceId}:${session.conversationId}`
         const terminalSession = sharedTerminalService.getSession(sessionId)
-        console.log('[TerminalGateway] raw-input received:', message.data.input, 'sessionId:', sessionId)
         if (terminalSession) {
-          console.log('[TerminalGateway] Writing to PTY:', message.data.input)
           terminalSession.write(message.data.input)
-        } else {
-          console.warn('[TerminalGateway] Terminal session not found for:', sessionId)
         }
       }
       break
 
     case 'ping':
       session.ws.send(JSON.stringify({ type: 'pong' }))
+      break
+
+    case 'terminal:resize':
+      if (message.data?.cols && message.data?.rows) {
+        const sessionId = `${session.spaceId}:${session.conversationId}`
+        const terminalSession = sharedTerminalService.getSession(sessionId)
+        if (terminalSession) {
+          terminalSession.resize(message.data.cols, message.data.rows)
+        }
+      }
       break
 
     default:
