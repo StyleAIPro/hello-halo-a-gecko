@@ -10,7 +10,7 @@
 
 import path from 'path'
 import os from 'os'
-import { existsSync, copyFileSync, mkdirSync } from 'fs'
+import { existsSync, copyFileSync, mkdirSync, readdirSync } from 'fs'
 import { app } from 'electron'
 import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
 import { getConfig, onApiConfigChange, getCredentialsGeneration } from '../config.service'
@@ -490,28 +490,57 @@ function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
   }
 
   // 4. Check if exists in old directory
-  if (!existsSync(oldPath)) {
-    console.log(`[Agent] ✗ Session file not found in old directory: ${sessionId}`)
-    return false
+  if (existsSync(oldPath)) {
+    // 5. Ensure new project directory exists
+    const newProjectDir = path.join(newConfigDir, 'projects', projectDir)
+    if (!existsSync(newProjectDir)) {
+      mkdirSync(newProjectDir, { recursive: true })
+    }
+
+    // 6. Copy file (not move - preserve old directory for user's own Claude Code)
+    try {
+      copyFileSync(oldPath, newPath)
+      console.log(`[Agent] Migrated session file: ${sessionId}`)
+      console.log(`[Agent]   From: ${oldPath}`)
+      console.log(`[Agent]   To: ${newPath}`)
+      return true
+    } catch (error) {
+      console.error(`[Agent] Failed to migrate session file: ${sessionId}`, error)
+      return false
+    }
   }
 
-  // 5. Ensure new project directory exists
-  const newProjectDir = path.join(newConfigDir, 'projects', projectDir)
-  if (!existsSync(newProjectDir)) {
-    mkdirSync(newProjectDir, { recursive: true })
+  // 7. Scan all project directories for the session file
+  //    The SDK may compute a different projectDir (e.g., from the Electron process CWD
+  //    rather than the cwd option passed to the SDK). This happens because the CLI
+  //    subprocess inherits the parent process CWD and uses it as originalCwd.
+  const projectsDir = path.join(newConfigDir, 'projects')
+  if (existsSync(projectsDir)) {
+    try {
+      const entries = readdirSync(projectsDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name === projectDir) continue
+        const candidatePath = path.join(projectsDir, entry.name, sessionFile)
+        if (existsSync(candidatePath)) {
+          // Found it in an unexpected project directory - copy to expected location
+          const targetDir = path.join(newConfigDir, 'projects', projectDir)
+          if (!existsSync(targetDir)) {
+            mkdirSync(targetDir, { recursive: true })
+          }
+          copyFileSync(candidatePath, newPath)
+          console.log(`[Agent] ✓ Found session in unexpected project dir: ${entry.name}`)
+          console.log(`[Agent]   Copied from: ${candidatePath}`)
+          console.log(`[Agent]   Copied to: ${newPath}`)
+          return true
+        }
+      }
+    } catch (err) {
+      console.error('[Agent] Failed to scan project directories:', err)
+    }
   }
 
-  // 6. Copy file (not move - preserve old directory for user's own Claude Code)
-  try {
-    copyFileSync(oldPath, newPath)
-    console.log(`[Agent] Migrated session file: ${sessionId}`)
-    console.log(`[Agent]   From: ${oldPath}`)
-    console.log(`[Agent]   To: ${newPath}`)
-    return true
-  } catch (error) {
-    console.error(`[Agent] Failed to migrate session file: ${sessionId}`, error)
-    return false
-  }
+  console.log(`[Agent] ✗ Session file not found in any directory: ${sessionId}`)
+  return false
 }
 
 // ============================================

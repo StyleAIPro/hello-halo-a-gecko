@@ -24,9 +24,14 @@ import {
   RefreshCw,
   Terminal,
   Monitor,
-  Server
+  Server,
+  Github,
+  Globe,
+  Plus,
+  Settings,
+  ChevronDown
 } from 'lucide-react'
-import type { RemoteSkillItem } from '../../../shared/skill/skill-types'
+import type { RemoteSkillItem, SkillMarketSource } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
 
 const PAGE_SIZE = 20
@@ -69,7 +74,18 @@ interface EnvStatus {
 
 export function SkillMarket() {
   const { t } = useTranslation()
-  const { installedSkills, loadInstalledSkills } = useSkillStore()
+  const {
+    installedSkills,
+    loadInstalledSkills,
+    marketSources,
+    loadMarketSources,
+    setActiveMarketSource,
+    addMarketSource,
+    removeMarketSource,
+    toggleMarketSource,
+    validateGitHubRepo,
+    validateGitCodeRepo,
+  } = useSkillStore()
 
   // 选中的技能
   const [selectedSkill, setSelectedSkill] = useState<RemoteSkillItem | null>(null)
@@ -107,6 +123,19 @@ export function SkillMarket() {
 
   // 激活的终端输出标签页
   const [activeOutputTab, setActiveOutputTab] = useState<string>('local')
+
+  // 源管理状态
+  const [showSourcePanel, setShowSourcePanel] = useState(false)
+  const [showSourceDropdown, setShowSourceDropdown] = useState(false)
+  const [newRepoUrl, setNewRepoUrl] = useState('')
+  const [validating, setValidating] = useState(false)
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string } | null>(null)
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null)
+
+  // 当前活跃源：优先使用 activeSourceId，否则 fallback 到第一个 enabled 的源
+  const activeSource = activeSourceId
+    ? marketSources.find(s => s.id === activeSourceId)
+    : marketSources.find(s => s.enabled) || marketSources[0]
 
   // 搜索防抖
   useEffect(() => {
@@ -155,6 +184,7 @@ export function SkillMarket() {
   useEffect(() => {
     loadInstalledSkills()
     loadServers()
+    loadMarketSources()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -543,29 +573,97 @@ export function SkillMarket() {
     <div className="flex h-full">
       {/* 左侧：技能列表 */}
       <div className="flex-1 flex flex-col">
-        {/* 搜索栏 */}
+        {/* 搜索栏 + 源选择器 */}
         <div className="p-3 border-b border-border">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder={t('Search skills...')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            <button
-              onClick={() => {
-                setSkills([])
-                setPage(1)
-                setHasMore(true)
-                loadSkills(1, true)
-              }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-              title={t('Refresh')}
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+          <div className="flex items-center gap-2">
+            {/* 源选择器 */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSourceDropdown(!showSourceDropdown)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground hover:bg-secondary/80 transition-colors whitespace-nowrap"
+              >
+                {activeSource?.type === 'github' ? (
+                  <Github className="w-4 h-4" />
+                ) : activeSource?.type === 'gitcode' ? (
+                  <Globe className="w-4 h-4" />
+                ) : (
+                  <Store className="w-4 h-4" />
+                )}
+                <span className="max-w-[120px] truncate">{activeSource?.name || 'Skills.sh'}</span>
+                <ChevronDown className="w-3 h-3 text-muted-foreground" />
+              </button>
+              {showSourceDropdown && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowSourceDropdown(false)} />
+                  <div className="absolute top-full left-0 mt-1 bg-popover border border-border rounded-lg shadow-lg z-20 min-w-[220px] py-1">
+                    {marketSources.filter(s => s.enabled).map(source => (
+                      <button
+                        key={source.id}
+                        onClick={async () => {
+                          setActiveSourceId(source.id)
+                          await setActiveMarketSource(source.id)
+                          setShowSourceDropdown(false)
+                          setSkills([])
+                          setPage(1)
+                          setHasMore(true)
+                          loadSkills(1, true)
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors ${
+                          source.id === activeSource?.id ? 'text-primary font-medium' : 'text-foreground'
+                        }`}
+                      >
+                        {source.type === 'github' ? (
+                          <Github className="w-4 h-4 shrink-0" />
+                        ) : source.type === 'gitcode' ? (
+                          <Globe className="w-4 h-4 shrink-0" />
+                        ) : (
+                          <Store className="w-4 h-4 shrink-0" />
+                        )}
+                        <span className="truncate">{source.name}</span>
+                        {source.id === activeSource?.id && (
+                          <Check className="w-3.5 h-3.5 ml-auto text-primary" />
+                        )}
+                      </button>
+                    ))}
+                    <div className="border-t border-border my-1" />
+                    <button
+                      onClick={() => {
+                        setShowSourceDropdown(false)
+                        setShowSourcePanel(true)
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                      {t('Manage Sources')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 搜索框 */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={t('Search skills...')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <button
+                onClick={() => {
+                  setSkills([])
+                  setPage(1)
+                  setHasMore(true)
+                  loadSkills(1, true)
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                title={t('Refresh')}
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
             {loading ? (
@@ -749,7 +847,10 @@ export function SkillMarket() {
 
               {selectedSkill.githubRepo && (
                 <a
-                  href={`https://github.com/${selectedSkill.githubRepo}`}
+                  href={selectedSkill.sourceId?.startsWith('gitcode:')
+                    ? `https://gitcode.com/${selectedSkill.githubRepo}`
+                    : `https://github.com/${selectedSkill.githubRepo}`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-xs text-primary hover:text-primary/80"
@@ -853,6 +954,157 @@ export function SkillMarket() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 源管理面板 */}
+      {showSourcePanel && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowSourcePanel(false)} />
+          <div className="relative w-96 bg-background border-l border-border flex flex-col z-10">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground">{t('Manage Sources')}</h2>
+              <button onClick={() => setShowSourcePanel(false)} className="p-1 hover:bg-secondary rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* 已有源列表 */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('Sources')}</h3>
+                {marketSources.map(source => (
+                  <div key={source.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
+                    {source.type === 'github' ? (
+                      <Github className="w-4 h-4 shrink-0" />
+                    ) : source.type === 'gitcode' ? (
+                      <Globe className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <Store className="w-4 h-4 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-foreground truncate">{source.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{source.url}</div>
+                    </div>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      source.type === 'builtin' ? 'bg-blue-500/10 text-blue-500' :
+                      source.type === 'github' ? 'bg-purple-500/10 text-purple-500' :
+                      source.type === 'gitcode' ? 'bg-orange-500/10 text-orange-500' :
+                      'bg-green-500/10 text-green-500'
+                    }`}>
+                      {source.type}
+                    </span>
+                    {source.type !== 'builtin' && (
+                      <button
+                        onClick={async () => {
+                          await removeMarketSource(source.id)
+                        }}
+                        className="p-1 text-muted-foreground hover:text-red-500 transition-colors"
+                        title={t('Remove')}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* 添加 GitHub / GitCode 源 */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <span className="flex items-center gap-1">
+                    <Github className="w-3 h-3" />
+                    {t('Add Git Source')}
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="https://github.com/owner/repo or https://gitcode.com/owner/repo"
+                    value={newRepoUrl}
+                    onChange={(e) => {
+                      setNewRepoUrl(e.target.value)
+                      setValidationResult(null)
+                    }}
+                    className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+
+                  {/* 校验 + 添加按钮 */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        const githubMatch = newRepoUrl.match(/github\.com\/([^/]+\/[^/]+)/)
+                        const gitcodeMatch = newRepoUrl.match(/gitcode\.com\/([^/]+\/[^/]+)/)
+                        const repo = (githubMatch || gitcodeMatch)?.[1].replace(/\.git$/, '')
+                        if (!repo) return
+                        setValidating(true)
+                        try {
+                          let result
+                          if (gitcodeMatch) {
+                            result = await validateGitCodeRepo(repo)
+                          } else {
+                            result = await validateGitHubRepo(repo)
+                          }
+                          setValidationResult(result || { valid: false, hasSkillsDir: false, skillCount: 0 })
+                        } catch {
+                          setValidationResult({ valid: false, hasSkillsDir: false, skillCount: 0, error: 'Validation failed' })
+                        }
+                        setValidating(false)
+                      }}
+                      disabled={(!newRepoUrl.includes('github.com') && !newRepoUrl.includes('gitcode.com')) || validating}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
+                    >
+                      {validating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      {t('Validate')}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!newRepoUrl.includes('github.com') && !newRepoUrl.includes('gitcode.com')) return
+                        console.log('[SkillMarket] Add button clicked, URL:', newRepoUrl)
+                        const { addGitHubSource } = useSkillStore.getState()
+                        const success = await addGitHubSource(newRepoUrl)
+                        console.log('[SkillMarket] addGitHubSource result:', success)
+                        if (success) {
+                          setNewRepoUrl('')
+                          setValidationResult(null)
+                          setShowSourcePanel(false)
+                          // Switch to new source and reload
+                          const sources = useSkillStore.getState().marketSources
+                          const newSource = sources[sources.length - 1]
+                          if (newSource) {
+                            await setActiveMarketSource(newSource.id)
+                          }
+                          setSkills([])
+                          setPage(1)
+                          setHasMore(true)
+                          loadSkills(1, true)
+                        }
+                      }}
+                      disabled={!newRepoUrl.includes('github.com') && !newRepoUrl.includes('gitcode.com')}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    >
+                      <Plus className="w-3 h-3" />
+                      {t('Add')}
+                    </button>
+                  </div>
+
+                  {/* 校验结果 */}
+                  {validationResult && (
+                    <div className={`text-xs p-2 rounded ${validationResult.valid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                      {validationResult.valid ? (
+                        <span>
+                          {t('Valid repository')} - {validationResult.skillCount} {t('skills found')}
+                          {validationResult.hasSkillsDir && ` (${t('skills/ directory')})`}
+                        </span>
+                      ) : (
+                        <span>{validationResult.error || t('Invalid or inaccessible repository')}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

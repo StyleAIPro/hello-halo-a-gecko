@@ -26,7 +26,10 @@ import {
   RefreshCw,
   Server,
   HardDrive,
-  GripVertical
+  GripVertical,
+  Github,
+  ExternalLink,
+  Upload
 } from 'lucide-react'
 import type { InstalledSkill, SkillFileNode } from '../../../shared/skill/skill-types'
 import { api } from '../../api'
@@ -62,7 +65,33 @@ export function SkillLibrary() {
     remoteSkillsLoading,
     remoteSkillsError,
     loadRemoteSkills,
+    marketSources,
+    pushSkillToGitHub,
+    pushLoading,
+    pushResult,
+    pushError,
+    clearPushState,
+    repoDirs,
+    repoDirsLoading,
+    loadRepoDirectories,
+    syncLoading,
+    syncError,
+    syncSkillToRemote,
+    clearSyncState,
   } = useSkillStore()
+
+  // GitHub 推送状态
+  const [showPushModal, setShowPushModal] = useState(false)
+  const [pushTargetRepo, setPushTargetRepo] = useState('')
+  const [pushTargetPath, setPushTargetPath] = useState('')
+
+  // Sync to remote server 状态
+  const [showSyncModal, setShowSyncModal] = useState(false)
+  const [syncTargetServerId, setSyncTargetServerId] = useState<string | null>(null)
+  const [syncOutput, setSyncOutput] = useState<string>('')
+
+  // GitHub + GitCode 源列表
+  const githubSources = marketSources.filter(s => s.type === 'github' || s.type === 'gitcode')
 
   // 技能来源选择
   const [selectedSource, setSelectedSource] = useState<SkillSource>({ type: 'local' })
@@ -181,6 +210,23 @@ export function SkillLibrary() {
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [showSourceDropdown])
+
+  // Push 弹窗打开时加载仓库目录
+  useEffect(() => {
+    if (showPushModal && pushTargetRepo) {
+      loadRepoDirectories(pushTargetRepo)
+    }
+  }, [showPushModal, pushTargetRepo])
+
+  // 监听技能同步输出
+  useEffect(() => {
+    const cleanup = api.onSkillSyncOutput(({ skillId, serverId, output }) => {
+      if (skillId === selectedSkillId) {
+        setSyncOutput(prev => prev + output.content)
+      }
+    })
+    return cleanup
+  }, [selectedSkillId])
 
   // 加载文件树
   const loadFileTree = async (skillId: string) => {
@@ -486,6 +532,21 @@ export function SkillLibrary() {
               onExport={isLocal ? (e) => handleExport(selectedSkillId, e) : undefined}
               onUninstall={isLocal ? (e) => handleUninstall(selectedSkillId, e) : undefined}
               onOpenFiles={() => handleOpenFiles(selectedSkillId)}
+              hasGitHubSources={githubSources.length > 0}
+              onPushToGitHub={isLocal ? () => {
+                const repo = githubSources[0]?.repos?.[0] || ''
+                setPushTargetRepo(repo)
+                setPushTargetPath('')
+                setShowPushModal(true)
+                if (repo) loadRepoDirectories(repo)
+              } : undefined}
+              onSyncToServer={isLocal && remoteServers.length > 0 ? () => {
+                setSyncTargetServerId(null)
+                setSyncOutput('')
+                clearSyncState()
+                setShowSyncModal(true)
+              } : undefined}
+              syncLoading={syncLoading}
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
@@ -588,6 +649,253 @@ export function SkillLibrary() {
         )}
       </div>
     </div>
+
+      {/* Push to GitHub Modal */}
+      {showPushModal && selectedSkillId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => { setShowPushModal(false); clearPushState() }} />
+          <div className="relative bg-background border border-border rounded-xl shadow-xl w-[420px] p-6 space-y-4 z-10">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <Github className="w-5 h-5" />
+                {pushTargetRepo && githubSources.find(s => s.repos?.[0] === pushTargetRepo && s.type === 'gitcode')
+                  ? t('Push to GitCode')
+                  : t('Push to GitHub')}
+              </h3>
+              <button onClick={() => { setShowPushModal(false); clearPushState() }} className="p-1 hover:bg-secondary rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              {t('Submit skill')} <span className="font-medium text-foreground">{selectedSkillId}</span> {t('as a Pull Request to a repository.')}
+            </p>
+
+            {/* Target repo selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">{t('Target Repository')}</label>
+              {githubSources.length > 0 ? (
+                <select
+                  value={pushTargetRepo}
+                  onChange={(e) => {
+                    setPushTargetRepo(e.target.value)
+                    setPushTargetPath('')
+                    if (e.target.value) {
+                      loadRepoDirectories(e.target.value)
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground"
+                >
+                  {githubSources.map(s => (
+                    <option key={s.id} value={s.repos?.[0] || ''}>
+                      {s.repos?.[0] || s.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-yellow-500">{t('No GitHub sources configured. Add one in the Skill Market.')}</p>
+              )}
+            </div>
+
+            {/* Target directory selector */}
+            {pushTargetRepo && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">{t('Target Directory')}</label>
+                <div className="relative">
+                  {repoDirsLoading && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    list="repo-dirs-list"
+                    value={pushTargetPath}
+                    onChange={(e) => setPushTargetPath(e.target.value)}
+                    placeholder={repoDirs.length > 0 ? repoDirs[0] : 'e.g. Inference'}
+                    className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground pr-8"
+                  />
+                  <datalist id="repo-dirs-list">
+                    {repoDirs.map(dir => (
+                      <option key={dir} value={dir} />
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('Leave empty for root, or type a directory name.')}
+                </p>
+              </div>
+            )}
+
+            {/* Upload path preview */}
+            {pushTargetRepo && !pushResult && (
+              <div className="p-2 bg-secondary/50 rounded text-xs font-mono text-muted-foreground">
+                {pushTargetPath
+                  ? `${pushTargetPath}/${selectedSkillId}/...`
+                  : `${selectedSkillId}/...`
+                }
+                {' '}(all files in skill directory)
+              </div>
+            )}
+
+            {/* Push result */}
+            {pushResult?.prUrl && (
+              <div className="p-3 bg-green-500/10 rounded-lg">
+                <p className="text-sm text-green-500 font-medium mb-1">{t('PR created successfully!')}</p>
+                <a
+                  href={pushResult.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  {pushResult.prUrl}
+                </a>
+                {pushResult.warning && (
+                  <p className="text-xs text-yellow-500 mt-2">{pushResult.warning}</p>
+                )}
+              </div>
+            )}
+
+            {pushError && (
+              <div className="p-3 bg-red-500/10 rounded-lg">
+                <p className="text-sm text-red-500">{pushError}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => { setShowPushModal(false); clearPushState() }}
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {pushResult ? t('Close') : t('Cancel')}
+              </button>
+              {!pushResult && (
+                <button
+                  onClick={async () => {
+                    if (pushTargetRepo) {
+                      const targetSource = githubSources.find(s => s.repos?.[0] === pushTargetRepo)
+                      if (targetSource?.type === 'gitcode') {
+                        const { pushSkillToGitCode } = useSkillStore.getState()
+                        await pushSkillToGitCode(selectedSkillId, pushTargetRepo, pushTargetPath || undefined)
+                      } else {
+                        await pushSkillToGitHub(selectedSkillId, pushTargetRepo, pushTargetPath || undefined)
+                      }
+                    }
+                  }}
+                  disabled={pushLoading || !pushTargetRepo}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white hover:bg-purple-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {pushLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t('Creating PR...')}
+                    </>
+                  ) : (
+                    <>
+                      <Github className="w-4 h-4" />
+                      {t('Create PR')}
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync to Remote Server Modal */}
+      {showSyncModal && selectedSkillId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => { setShowSyncModal(false); clearSyncState() }} />
+          <div className="relative bg-background border border-border rounded-xl shadow-xl w-[420px] max-h-[70vh] flex flex-col z-10">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <Upload className="w-5 h-5" />
+                {t('Sync to Server')}
+              </h3>
+              <button onClick={() => { setShowSyncModal(false); clearSyncState() }} className="p-1 hover:bg-secondary rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="px-4 pt-3 text-sm text-muted-foreground">
+              {t('Select a server to sync the skill to')}
+            </p>
+
+            <div className="p-4 space-y-2 overflow-y-auto flex-1">
+              {remoteServers.map((server) => (
+                <div
+                  key={server.id}
+                  onClick={() => setSyncTargetServerId(server.id)}
+                  className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${
+                    syncTargetServerId === server.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:bg-accent/50'
+                  }`}
+                >
+                  <Server className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-foreground">{server.name}</span>
+                    <span className="text-xs text-muted-foreground block">{server.status}</span>
+                  </div>
+                  {server.status === 'connected' && (
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Sync output */}
+            {syncOutput && (
+              <div className="border-t border-border p-3 max-h-32 overflow-y-auto">
+                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">{syncOutput}</pre>
+              </div>
+            )}
+
+            {syncError && (
+              <div className="px-4 py-2 text-xs text-red-400 bg-red-500/10">
+                {syncError}
+              </div>
+            )}
+
+            <div className="p-4 border-t border-border flex justify-end gap-2">
+              <button
+                onClick={() => { setShowSyncModal(false); clearSyncState() }}
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {t('Cancel')}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!syncTargetServerId || !selectedSkillId) return
+                  setSyncOutput('')
+                  const success = await syncSkillToRemote(selectedSkillId, syncTargetServerId)
+                  if (success) {
+                    loadRemoteSkills(syncTargetServerId)
+                    setShowSyncModal(false)
+                    setSyncTargetServerId(null)
+                  }
+                }}
+                disabled={!syncTargetServerId || syncLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {syncLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('Syncing...')}
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    {t('Sync')}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -600,7 +908,11 @@ function SkillDetail({
   onToggle,
   onExport,
   onUninstall,
-  onOpenFiles
+  onOpenFiles,
+  onPushToGitHub,
+  hasGitHubSources,
+  onSyncToServer,
+  syncLoading
 }: {
   skill: InstalledSkill
   isRemote?: boolean
@@ -609,6 +921,10 @@ function SkillDetail({
   onExport?: (e: React.MouseEvent) => void
   onUninstall?: (e: React.MouseEvent) => void
   onOpenFiles?: () => void
+  onPushToGitHub?: () => void
+  hasGitHubSources?: boolean
+  onSyncToServer?: () => void
+  syncLoading?: boolean
 }) {
   const { t } = useTranslation()
 
@@ -729,6 +1045,31 @@ function SkillDetail({
             <Download className="w-4 h-4" />
             {t('Export')}
           </button>
+
+          {hasGitHubSources && onPushToGitHub && (
+            <button
+              onClick={onPushToGitHub}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Github className="w-4 h-4" />
+              {t('Push to GitHub')}
+            </button>
+          )}
+
+          {onSyncToServer && (
+            <button
+              onClick={onSyncToServer}
+              disabled={syncLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {syncLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4" />
+              )}
+              {syncLoading ? t('Syncing...') : t('Sync to Server')}
+            </button>
+          )}
 
           <button
             onClick={onUninstall}

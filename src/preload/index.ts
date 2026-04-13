@@ -340,6 +340,11 @@ export interface AicoBotAPI {
   githubGetGitConfig: (key: string) => Promise<IpcResponse>
   onGithubLoginProgress: (callback: (data: { code?: string; url?: string; message: string }) => void) => () => void
 
+  // GitCode Integration
+  gitcodeGetAuthStatus: () => Promise<IpcResponse>
+  gitcodeLoginToken: (token: string) => Promise<IpcResponse>
+  gitcodeLogout: () => Promise<IpcResponse>
+
   // Bootstrap lifecycle
   getBootstrapStatus: () => Promise<IpcResponse<{
     extendedReady: boolean
@@ -474,6 +479,13 @@ export interface AicoBotAPI {
   skillMarketAddSource: (source: { name: string; url: string; repos?: string[]; description?: string }) => Promise<IpcResponse>
   skillMarketRemoveSource: (sourceId: string) => Promise<IpcResponse>
   skillMarketDetail: (skillId: string) => Promise<IpcResponse>
+  skillMarketPushToGitHub: (skillId: string, targetRepo: string, targetPath?: string) => Promise<IpcResponse>
+  skillMarketListRepoDirs: (repo: string) => Promise<IpcResponse>
+  skillMarketValidateRepo: (repo: string) => Promise<IpcResponse>
+  skillMarketPushToGitCode: (skillId: string, targetRepo: string, targetPath?: string) => Promise<IpcResponse>
+  skillMarketListGitCodeRepoDirs: (repo: string) => Promise<IpcResponse>
+  skillMarketValidateGitCodeRepo: (repo: string) => Promise<IpcResponse>
+  skillMarketSetGitCodeToken: (token: string) => Promise<IpcResponse>
   skillConfigGet: () => Promise<IpcResponse>
   skillConfigUpdate: (config: { globalShared?: boolean }) => Promise<IpcResponse>
   skillRefresh: () => Promise<IpcResponse>
@@ -484,6 +496,8 @@ export interface AicoBotAPI {
   skillCloseTempSession: (sessionId: string) => Promise<IpcResponse>
   onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void) => () => void
   onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void) => () => void
+  skillSyncToRemote: (input: { skillId: string; serverId: string }) => Promise<IpcResponse>
+  onSkillSyncOutput: (callback: (data: { skillId: string; serverId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void) => () => void
 
   // Skill Conversation (持久化会话)
   skillConversationList: (relatedSkillId?: string) => Promise<IpcResponse>
@@ -799,6 +813,11 @@ const api: AicoBotAPI = {
   githubGetGitConfig: (key) => ipcRenderer.invoke('github:get-git-config', key),
   onGithubLoginProgress: (callback) => createEventListener('github:login-progress', callback as (data: unknown) => void),
 
+  // GitCode Integration
+  gitcodeGetAuthStatus: () => ipcRenderer.invoke('gitcode:auth-status'),
+  gitcodeLoginToken: (token) => ipcRenderer.invoke('gitcode:login-token', token),
+  gitcodeLogout: () => ipcRenderer.invoke('gitcode:logout'),
+
   // Bootstrap lifecycle
   getBootstrapStatus: () => ipcRenderer.invoke('bootstrap:get-status'),
   onBootstrapExtendedReady: (callback) => createEventListener('bootstrap:extended-ready', callback as (data: unknown) => void),
@@ -915,6 +934,7 @@ const api: AicoBotAPI = {
   skillInstall: (input) => ipcRenderer.invoke('skill:install', input),
   skillInstallMulti: (input) => ipcRenderer.invoke('skill:install-multi', input),
   skillUninstallMulti: (input) => ipcRenderer.invoke('skill:uninstall-multi', input),
+  skillSyncToRemote: (input) => ipcRenderer.invoke('skill:sync-to-remote', input),
   skillMarketList: (sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:list', sourceId, page, pageSize),
   skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('skill:market:search', query, sourceId, page, pageSize),
   skillMarketSources: () => ipcRenderer.invoke('skill:market:sources'),
@@ -924,6 +944,13 @@ const api: AicoBotAPI = {
   skillMarketAddSource: (source: { name: string; url: string; repos?: string[]; description?: string }) => ipcRenderer.invoke('skill:market:add-source', source),
   skillMarketRemoveSource: (sourceId: string) => ipcRenderer.invoke('skill:market:remove-source', sourceId),
   skillMarketDetail: (skillId: string) => ipcRenderer.invoke('skill:market:detail', skillId),
+  skillMarketPushToGitHub: (skillId: string, targetRepo: string, targetPath?: string) => ipcRenderer.invoke('skill:market:push-to-github', skillId, targetRepo, targetPath),
+  skillMarketListRepoDirs: (repo: string) => ipcRenderer.invoke('skill:market:list-repo-dirs', repo),
+  skillMarketValidateRepo: (repo: string) => ipcRenderer.invoke('skill:market:validate-repo', repo),
+  skillMarketPushToGitCode: (skillId: string, targetRepo: string, targetPath?: string) => ipcRenderer.invoke('skill:market:push-to-gitcode', skillId, targetRepo, targetPath),
+  skillMarketListGitCodeRepoDirs: (repo: string) => ipcRenderer.invoke('skill:market:list-gitcode-repo-dirs', repo),
+  skillMarketValidateGitCodeRepo: (repo: string) => ipcRenderer.invoke('skill:market:validate-gitcode-repo', repo),
+  skillMarketSetGitCodeToken: (token: string) => ipcRenderer.invoke('skill:market:set-gitcode-token', token),
   skillConfigGet: () => ipcRenderer.invoke('skill:config:get'),
   skillConfigUpdate: (config) => ipcRenderer.invoke('skill:config:update', config),
   skillRefresh: () => ipcRenderer.invoke('skill:refresh'),
@@ -962,6 +989,15 @@ const api: AicoBotAPI = {
     ipcRenderer.on('skill:uninstall-output', handler)
     return () => {
       ipcRenderer.removeListener('skill:uninstall-output', handler)
+    }
+  },
+  onSkillSyncOutput: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, skillId: string, serverId: string, output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+      callback({ skillId, serverId, output })
+    }
+    ipcRenderer.on('skill:sync-output', handler)
+    return () => {
+      ipcRenderer.removeListener('skill:sync-output', handler)
     }
   },
 

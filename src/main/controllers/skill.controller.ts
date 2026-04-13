@@ -9,6 +9,8 @@ import { SkillGeneratorService } from '../services/skill/skill-generator';
 import { ConversationService } from '../services/conversation.service';
 import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
 import { SkillGenerateOptions } from '../../shared/skill/skill-types';
+import * as githubSkillSource from '../services/skill/github-skill-source.service';
+import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
 
 let skillManager: SkillManager;
 let skillMarket: SkillMarketService;
@@ -50,69 +52,61 @@ async function installSkillFromGitHub(
   const configService = await import('../services/config.service');
   const yamlModule = await import('yaml');
 
-  const skillId = skillName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
+  // skillName can be a full githubPath like "skills/category/skill-name"
+  const lastSegment = skillName.split('/').pop() || skillName;
+  const skillId = lastSegment.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
   const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
   onOutput?.({ type: 'stdout', content: `npx not available, downloading directly from GitHub...\n` });
 
-  // 尝试多个可能的 GitHub 路径
-  const branches = ['main', 'master'];
-  const pathVariants = [
-    `skills/${skillName}/SKILL.md`,
-    `skills/${skillName}/SKILL.yaml`,
-    `skills-${skillName}/SKILL.md`,
-    `skills-${skillName}/SKILL.yaml`,
-    `${skillName}/SKILL.md`,
-    `${skillName}/SKILL.yaml`,
-  ];
-
-  let skillContent: string | null = null;
-  let isYaml = false;
-  let usedBranch = 'main';
-  let usedPath = '';
-
-  for (const branch of branches) {
-    for (const variant of pathVariants) {
-      const url = `https://raw.githubusercontent.com/${githubRepo}/${branch}/${variant}`;
-      try {
-        onOutput?.({ type: 'stdout', content: `  Trying ${url}...\n` });
-        const response = await fetch(url);
-        if (response.ok) {
-          skillContent = await response.text();
-          usedBranch = branch;
-          usedPath = variant;
-          isYaml = variant.endsWith('.yaml')
-          break;
-        }
-      } catch {
-        // continue
-      }
-    }
-    if (skillContent) break;
+  // Get GitHub token for private repo support
+  const token = await githubSkillSource.getGitHubToken();
+  if (token) {
+    onOutput?.({ type: 'stdout', content: `  Using authenticated GitHub access\n` });
   }
 
-  if (!skillContent) {
-    const error = `Failed to download skill files from GitHub repo: ${githubRepo}`;
+  // Step 1: Find the skill directory on GitHub
+  onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
+  const dirPath = await githubSkillSource.findSkillDirectoryPath(githubRepo, skillName, token);
+
+  if (!dirPath) {
+    const error = `Could not find skill directory for "${skillName}" in repo ${githubRepo}`;
     onOutput?.({ type: 'error', content: `  ${error}\n` });
     return { success: false, error };
   }
 
-  onOutput?.({ type: 'stdout', content: `  Downloaded ${usedPath} (${skillContent.length} bytes)\n` });
+  onOutput?.({ type: 'stdout', content: `  Found skill at: ${dirPath}/\n` });
+
+  // Step 2: Download all files in the directory recursively
+  onOutput?.({ type: 'stdout', content: `  Downloading skill files...\n` });
+  const files = await githubSkillSource.fetchSkillDirectoryContents(githubRepo, dirPath, token);
+
+  if (files.length === 0) {
+    const error = `No files found in skill directory: ${dirPath}`;
+    onOutput?.({ type: 'error', content: `  ${error}\n` });
+    return { success: false, error };
+  }
+
+  onOutput?.({ type: 'stdout', content: `  Downloaded ${files.length} file(s)\n` });
 
   try {
-    // 创建技能目录
+    // Step 3: Create skill directory and write all files
     await nodeFs.mkdir(skillDir, { recursive: true });
 
-    if (isYaml) {
-      // SKILL.yaml 格式：直接写入文件，由 loadSkills 读取
-      await nodeFs.writeFile(nodePath.join(skillDir, 'SKILL.yaml'), skillContent, 'utf-8');
-    } else {
-      // SKILL.md 格式：写入 SKILL.md（Claude Code 原生格式）
-      // 同时解析 frontmatter 生成 META.json 以便 loadSkills 识别
-      await nodeFs.writeFile(nodePath.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
+    for (const file of files) {
+      const filePath = nodePath.join(skillDir, file.path);
+      // Ensure parent directories exist (for nested files)
+      await nodeFs.mkdir(nodePath.dirname(filePath), { recursive: true });
+      await nodeFs.writeFile(filePath, file.content, 'utf-8');
+      onOutput?.({ type: 'stdout', content: `    Wrote ${file.path}\n` });
+    }
 
-      // 尝试从 SKILL.md 的 frontmatter 解析元数据
-      const frontmatterMatch = skillContent.match(/^---\n([\s\S]*?)\n---/)
+    // Step 4: Generate META.json from SKILL.md frontmatter if present
+    const skillMdFile = files.find(f => f.path === 'SKILL.md' || f.path.toUpperCase() === 'SKILL.MD');
+    const skillYamlFile = files.find(f => f.path === 'SKILL.yaml' || f.path.toUpperCase() === 'SKILL.YAML');
+
+    if (skillMdFile) {
+      const frontmatterMatch = skillMdFile.content.match(/^---\n([\s\S]*?)\n---/)
       if (frontmatterMatch) {
         try {
           const meta = yamlModule.parse(frontmatterMatch[1]);
@@ -128,22 +122,16 @@ async function installSkillFromGitHub(
             'utf-8'
           );
         } catch {
-          // frontmatter 解析失败，写入基本 META.json
-          const metaJson = {
-            appId: skillId,
-            enabled: true,
-            installedAt: new Date().toISOString()
-          };
-          await nodeFs.writeFile(
-            nodePath.join(skillDir, 'META.json'),
-            JSON.stringify(metaJson, null, 2),
-            'utf-8'
-          );
+          // frontmatter parse failed, write basic META.json
         }
-      } else {
-        // 没有 frontmatter，写入基本 META.json
+      }
+    } else if (skillYamlFile) {
+      try {
+        const meta = yamlModule.parse(skillYamlFile.content);
+        const spec = meta?.skill || meta;
         const metaJson = {
           appId: skillId,
+          spec,
           enabled: true,
           installedAt: new Date().toISOString()
         };
@@ -152,13 +140,28 @@ async function installSkillFromGitHub(
           JSON.stringify(metaJson, null, 2),
           'utf-8'
         );
+      } catch {
+        // yaml parse failed
       }
     }
 
-    // 刷新技能列表
+    // If no META.json was generated, write a basic one
+    const metaPath = nodePath.join(skillDir, 'META.json');
+    try {
+      await nodeFs.access(metaPath);
+    } catch {
+      const metaJson = {
+        appId: skillId,
+        enabled: true,
+        installedAt: new Date().toISOString()
+      };
+      await nodeFs.writeFile(metaPath, JSON.stringify(metaJson, null, 2), 'utf-8');
+    }
+
+    // Refresh skill list
     await skillManager.refresh();
 
-    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (via GitHub download)!\n` });
+    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (${files.length} files via GitHub download)!\n` });
     return { success: true };
   } catch (error) {
     const err = error as Error;
@@ -448,6 +451,41 @@ export async function uninstallSkillMultiTarget(
   }
 
   return { results };
+}
+
+/**
+ * Sync a local skill to a remote server.
+ */
+export async function syncLocalSkillToRemote(
+  skillId: string,
+  serverId: string,
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await ensureInitialized()
+
+    // Verify skill exists locally
+    const skill = skillManager.getSkill(skillId)
+    if (!skill) {
+      const error = `Skill "${skillId}" not found locally`
+      onOutput?.({ type: 'error', content: `${error}\n` })
+      return { success: false, error }
+    }
+
+    onOutput?.({ type: 'stdout', content: `Syncing skill "${skill.spec.name}" to remote server...\n` })
+
+    const result = await remoteDeployService.syncLocalSkillToRemote(serverId, skillId, onOutput)
+
+    if (result.success) {
+      onOutput?.({ type: 'complete', content: `Skill "${skill.spec.name}" synced successfully!\n` })
+    }
+
+    return result
+  } catch (error) {
+    const err = error instanceof Error ? error.message : 'Failed to sync skill'
+    onOutput?.({ type: 'error', content: `${err}\n` })
+    return { success: false, error: err }
+  }
 }
 
 export async function toggleSkill(skillId: string, enabled: boolean) {
@@ -1273,4 +1311,128 @@ function htmlToMarkdown(html: string): string {
   md = md.trim();
 
   return md;
+}
+
+// ── GitHub Source Operations ──────────────────────────────────────────
+
+/**
+ * Push a local skill to a GitHub repo via PR
+ */
+export async function pushSkillToGitHub(
+  skillId: string,
+  targetRepo: string,
+  targetPath?: string
+): Promise<{ success: boolean; prUrl?: string; error?: string }> {
+  try {
+    // Read all local skill files (not just SKILL.md)
+    const files = await githubSkillSource.readLocalSkillFiles(skillId)
+    if (files.length === 0) {
+      return { success: false, error: `Skill "${skillId}" not found locally or has no files` }
+    }
+
+    // Get GitHub token
+    const token = await githubSkillSource.getGitHubToken()
+    if (!token) {
+      return { success: false, error: 'Not authenticated with GitHub. Please login via Settings > GitHub.' }
+    }
+
+    // Push all files via PR
+    return await githubSkillSource.pushSkillAsPR(
+      targetRepo,
+      skillId,
+      files,
+      targetPath,
+      token
+    )
+  } catch (error: any) {
+    console.error('[SkillController] pushSkillToGitHub error:', error)
+    return { success: false, error: error.message || 'Failed to push skill to GitHub' }
+  }
+}
+
+/**
+ * List subdirectories under skills/ in a GitHub repo
+ */
+export async function listRepoDirectories(
+  repo: string
+): Promise<{ success: boolean; data?: string[]; error?: string }> {
+  try {
+    console.log(`[SkillController] listRepoDirectories for: ${repo}`)
+    const dirs = await githubSkillSource.listRepoDirectories(repo)
+    console.log(`[SkillController] listRepoDirectories result:`, dirs)
+    return { success: true, data: dirs }
+  } catch (error: any) {
+    console.error(`[SkillController] listRepoDirectories error:`, error)
+    return { success: false, error: error.message || 'Failed to list directories' }
+  }
+}
+
+/**
+ * Validate a GitHub repo for use as a skill source
+ */
+export async function validateGitHubRepo(
+  repo: string
+): Promise<{ success: boolean; data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number }; error?: string }> {
+  try {
+    const token = await githubSkillSource.getGitHubToken()
+    const result = await githubSkillSource.validateRepo(repo, token)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to validate repository' }
+  }
+}
+
+// ── GitCode operations ─────────────────────────────────────────────
+
+export async function pushSkillToGitCode(
+  skillId: string,
+  targetRepo: string,
+  targetPath?: string
+): Promise<{ success: boolean; mrUrl?: string; error?: string; warning?: string }> {
+  try {
+    const files = await gitcodeSkillSource.readLocalSkillFiles(skillId)
+    if (files.length === 0) {
+      return { success: false, error: `Skill "${skillId}" not found locally or has no files` }
+    }
+    const token = gitcodeSkillSource.getGitCodeToken()
+    if (!token) {
+      return { success: false, error: 'GitCode token not configured. Please set it in Settings.' }
+    }
+    return await gitcodeSkillSource.pushSkillAsMR(targetRepo, skillId, files, targetPath, token)
+  } catch (error: any) {
+    console.error('[SkillController] pushSkillToGitCode error:', error)
+    return { success: false, error: error.message || 'Failed to push skill to GitCode' }
+  }
+}
+
+export async function listGitCodeRepoDirectories(
+  repo: string
+): Promise<{ success: boolean; data?: string[]; error?: string }> {
+  try {
+    const token = gitcodeSkillSource.getGitCodeToken()
+    const dirs = await gitcodeSkillSource.listRepoDirectories(repo, undefined, token)
+    return { success: true, data: dirs }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to list directories' }
+  }
+}
+
+export async function validateGitCodeRepo(
+  repo: string
+): Promise<{ success: boolean; data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number }; error?: string }> {
+  try {
+    const token = gitcodeSkillSource.getGitCodeToken()
+    const result = await gitcodeSkillSource.validateRepo(repo, token)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to validate repository' }
+  }
+}
+
+export async function setGitCodeToken(
+  token: string
+): Promise<{ success: boolean }> {
+  const { setGitCodeToken: saveToken } = await import('../services/config.service')
+  saveToken(token || undefined)
+  return { success: true }
 }

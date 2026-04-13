@@ -21,6 +21,7 @@ import {
   AppearanceSection,
   SystemSection,
   GitHubSection,
+  GitCodeSection,
   RemoteAccessSection,
   RemoteServersSection,
   AboutSection,
@@ -108,6 +109,11 @@ export function SettingsPage() {
               {/* GitHub Integration Section - Desktop only */}
               {!isRemoteMode && (
                 <GitHubSection />
+              )}
+
+              {/* GitCode Integration Section - Desktop only */}
+              {!isRemoteMode && (
+                <GitCodeSection />
               )}
 
               {/* MCP Servers Section */}

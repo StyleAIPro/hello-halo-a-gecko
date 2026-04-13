@@ -92,7 +92,7 @@ export interface SkillMarketSource {
   /** 显示名称 */
   name: string;
   /** 源类型 */
-  type: 'builtin' | 'github' | 'custom';
+  type: 'builtin' | 'github' | 'gitcode' | 'custom';
   /** 源 URL 或 API 端点 */
   url: string;
   /** 是否启用 */

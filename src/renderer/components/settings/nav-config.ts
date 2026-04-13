@@ -28,6 +28,12 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     desktopOnly: true
   },
   {
+    id: 'gitcode',
+    labelKey: 'GitCode 连接',
+    icon: Globe,
+    desktopOnly: true
+  },
+  {
     id: 'mcp',
     labelKey: 'MCP',
     icon: Puzzle

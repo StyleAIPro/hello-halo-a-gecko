@@ -83,6 +83,20 @@ interface SkillState {
   // Agent 面板状态（仅用于控制面板显示）
   agentPanelOpen: boolean
 
+  // GitHub 推送状态
+  pushLoading: boolean
+  pushError: string | null
+  pushResult: { prUrl: string; warning?: string } | null
+
+  // GitHub 仓库目录列表
+  repoDirs: string[]
+  repoDirsLoading: boolean
+
+  // Sync to remote server 状态
+  syncLoading: boolean
+  syncError: string | null
+  syncResult: { serverId: string; success: boolean } | null
+
   // Actions - 已安装技能
   loadInstalledSkills: () => Promise<void>
   toggleSkill: (skillId: string, enabled: boolean) => Promise<boolean>
@@ -129,6 +143,19 @@ interface SkillState {
 
   // Actions - Agent 面板
   setAgentPanelOpen: (open: boolean) => void
+
+  // Actions - GitHub 推送
+  pushSkillToGitHub: (skillId: string, targetRepo: string, targetPath?: string) => Promise<{ success: boolean; prUrl?: string }>
+  pushSkillToGitCode: (skillId: string, targetRepo: string, targetPath?: string) => Promise<{ success: boolean; prUrl?: string }>
+  loadRepoDirectories: (repo: string) => Promise<void>
+  validateGitHubRepo: (repo: string) => Promise<{ valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string } | null>
+  validateGitCodeRepo: (repo: string) => Promise<{ valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string } | null>
+  addGitHubSource: (repoUrl: string) => Promise<boolean>
+  clearPushState: () => void
+
+  // Actions - Sync to remote server
+  syncSkillToRemote: (skillId: string, serverId: string) => Promise<boolean>
+  clearSyncState: () => void
 }
 
 // ============================================
@@ -155,6 +182,17 @@ const initialState = {
   generatedSkillSpec: null,
   // Agent 面板状态
   agentPanelOpen: false,
+  // GitHub 推送状态
+  pushLoading: false,
+  pushError: null,
+  pushResult: null,
+  // GitHub 仓库目录列表
+  repoDirs: [],
+  repoDirsLoading: false,
+  // Sync to remote server 状态
+  syncLoading: false,
+  syncError: null,
+  syncResult: null,
   // 远程技能状态
   remoteSkills: {} as Record<string, InstalledSkill[]>,
   remoteSkillsLoading: {} as Record<string, boolean>,
@@ -500,5 +538,163 @@ export const useSkillStore = create<SkillState>((set, get) => ({
         remoteSkillsError: { ...state.remoteSkillsError, [serverId]: error instanceof Error ? error.message : 'Failed to load remote skills' },
       }))
     }
+  },
+
+  // ==========================================
+  // GitHub 推送
+  // ==========================================
+
+  pushSkillToGitHub: async (skillId: string, targetRepo: string, targetPath?: string) => {
+    set({ pushLoading: true, pushError: null, pushResult: null })
+    try {
+      const result = await api.skillMarketPushToGitHub(skillId, targetRepo, targetPath)
+      if (result.success && result.data?.prUrl) {
+        set({ pushLoading: false, pushResult: { prUrl: result.data.prUrl } })
+        return { success: true, prUrl: result.data.prUrl }
+      } else {
+        set({ pushLoading: false, pushError: result.error || 'Failed to push skill' })
+        return { success: false }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to push skill'
+      set({ pushLoading: false, pushError: msg })
+      return { success: false }
+    }
+  },
+
+  pushSkillToGitCode: async (skillId: string, targetRepo: string, targetPath?: string) => {
+    set({ pushLoading: true, pushError: null, pushResult: null })
+    try {
+      const result = await api.skillMarketPushToGitCode(skillId, targetRepo, targetPath)
+      const mrUrl = (result as any)?.mrUrl || (result as any)?.data?.mrUrl
+      const warning = (result as any)?.warning || (result as any)?.data?.warning
+      if (result.success && mrUrl) {
+        set({ pushLoading: false, pushResult: { prUrl: mrUrl, warning } })
+        return { success: true, prUrl: mrUrl }
+      } else {
+        set({ pushLoading: false, pushError: result.error || 'Failed to push skill to GitCode' })
+        return { success: false }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to push skill to GitCode'
+      set({ pushLoading: false, pushError: msg })
+      return { success: false }
+    }
+  },
+
+  loadRepoDirectories: async (repo: string) => {
+    set({ repoDirsLoading: true })
+    try {
+      const result = await api.skillMarketListRepoDirs(repo)
+      console.log('[SkillStore] loadRepoDirectories result:', JSON.stringify(result))
+      if (result.success && result.data) {
+        set({ repoDirs: result.data as string[], repoDirsLoading: false })
+      } else {
+        console.warn('[SkillStore] loadRepoDirectories failed:', result.error)
+        set({ repoDirs: [], repoDirsLoading: false })
+      }
+    } catch (error) {
+      console.error('[SkillStore] loadRepoDirectories error:', error)
+      set({ repoDirs: [], repoDirsLoading: false })
+    }
+  },
+
+  validateGitHubRepo: async (repo: string) => {
+    try {
+      const result = await api.skillMarketValidateRepo(repo)
+      if (result.success && result.data) {
+        return result.data as { valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string }
+      }
+      return { valid: false, hasSkillsDir: false, skillCount: 0, error: result.error || 'Validation failed' }
+    } catch (error) {
+      console.error('Failed to validate GitHub repo:', error)
+      return { valid: false, hasSkillsDir: false, skillCount: 0, error: error instanceof Error ? error.message : 'Validation failed' }
+    }
+  },
+
+  validateGitCodeRepo: async (repo: string) => {
+    try {
+      console.log('[SkillStore] validateGitCodeRepo called:', repo)
+      const result = await api.skillMarketValidateGitCodeRepo(repo)
+      console.log('[SkillStore] validateGitCodeRepo raw result:', JSON.stringify(result))
+      if (result.success && result.data) {
+        return result.data as { valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string }
+      }
+      return { valid: false, hasSkillsDir: false, skillCount: 0, error: result.error || 'Validation failed' }
+    } catch (error) {
+      console.error('Failed to validate GitCode repo:', error)
+      return { valid: false, hasSkillsDir: false, skillCount: 0, error: error instanceof Error ? error.message : 'Validation failed' }
+    }
+  },
+
+  addGitHubSource: async (repoUrl: string) => {
+    try {
+      // Parse owner/repo from URL (supports both github.com and gitcode.com)
+      const githubMatch = repoUrl.match(/github\.com\/([^/]+\/[^/]+)/)
+      const gitcodeMatch = repoUrl.match(/gitcode\.com\/([^/]+\/[^/]+)/)
+      const match = githubMatch || gitcodeMatch
+      console.log('[SkillStore] addGitHubSource:', { repoUrl, githubMatch: !!githubMatch, gitcodeMatch: !!gitcodeMatch, match: match?.[1] })
+      if (!match) return false
+
+      const repo = match[1].replace(/\.git$/, '')
+      const isGitCode = !!gitcodeMatch
+
+      // Validate the repo
+      const validation = isGitCode
+        ? await get().validateGitCodeRepo(repo)
+        : await get().validateGitHubRepo(repo)
+      console.log('[SkillStore] validation result:', { isGitCode, repo, valid: validation?.valid, skillCount: validation?.skillCount, fullValidation: validation })
+      if (!validation?.valid) {
+        console.warn('[SkillStore] Validation failed, aborting addSource')
+        return false
+      }
+
+      // Add as source
+      console.log('[SkillStore] Calling addMarketSource...')
+      await get().addMarketSource({
+        name: repo,
+        url: repoUrl,
+        repos: [repo],
+        description: `${isGitCode ? 'GitCode' : 'GitHub'}: ${repo} (${validation.skillCount} skills)`,
+      })
+      console.log('[SkillStore] addMarketSource completed, marketSources:', useSkillStore.getState().marketSources.map(s => `${s.name} (${s.type})`))
+
+      return true
+    } catch (error) {
+      console.error('Failed to add git source:', error)
+      return false
+    }
+  },
+
+  clearPushState: () => {
+    set({ pushLoading: false, pushError: null, pushResult: null })
+  },
+
+  // ==========================================
+  // Sync to remote server
+  // ==========================================
+
+  syncSkillToRemote: async (skillId: string, serverId: string) => {
+    set({ syncLoading: true, syncError: null, syncResult: null })
+    try {
+      const result = await api.skillSyncToRemote({ skillId, serverId })
+      if (result.success) {
+        set({ syncLoading: false, syncResult: { serverId, success: true } })
+        // Refresh remote skills for the target server
+        get().loadRemoteSkills(serverId)
+        return true
+      } else {
+        set({ syncLoading: false, syncError: result.error || 'Failed to sync skill' })
+        return false
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to sync skill'
+      set({ syncLoading: false, syncError: msg })
+      return false
+    }
+  },
+
+  clearSyncState: () => {
+    set({ syncLoading: false, syncError: null, syncResult: null })
   },
 }))
