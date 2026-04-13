@@ -16,6 +16,31 @@ const execAsync = promisify(exec)
 
 const GITHUB_API_BASE = 'https://api.github.com'
 
+// Proxy support for internal networks
+let _ghProxyDispatcher: any = null
+
+async function getGitHubProxyDispatcher(): Promise<any> {
+  if (_ghProxyDispatcher !== null) return _ghProxyDispatcher
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+  if (!proxyUrl) {
+    _ghProxyDispatcher = false
+    return false
+  }
+  try {
+    const { ProxyAgent } = await import('undici')
+    _ghProxyDispatcher = new ProxyAgent(proxyUrl)
+    return _ghProxyDispatcher
+  } catch {
+    _ghProxyDispatcher = false
+    return false
+  }
+}
+
+async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
+  const dispatcher = await getGitHubProxyDispatcher()
+  return fetch(url, { ...init, ...(dispatcher ? { dispatcher } as any : {}) })
+}
+
 export interface GitHubAuthStatus {
   authenticated: boolean
   user: string | null
@@ -308,7 +333,7 @@ export interface DirectGitHubAuthStatus {
  */
 async function validateGitHubToken(token: string): Promise<{ login: string; avatar_url: string } | null> {
   try {
-    const resp = await fetch(`${GITHUB_API_BASE}/user`, {
+    const resp = await proxyFetch(`${GITHUB_API_BASE}/user`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github+json',

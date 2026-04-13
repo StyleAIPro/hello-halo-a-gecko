@@ -7,6 +7,7 @@
  */
 
 import { getGitCodeToken, setGitCodeToken } from './config.service'
+import { gitcodeFetch } from './gitcode-skill-source.service'
 
 const GITCODE_API_BASE = 'https://gitcode.com/api/v5'
 
@@ -28,7 +29,7 @@ export async function getGitCodeAuthStatus(): Promise<GitCodeAuthStatus> {
   }
 
   try {
-    const response = await fetch(`${GITCODE_API_BASE}/user`, {
+    const response = await gitcodeFetch(`${GITCODE_API_BASE}/user`, {
       headers: { 'private-token': token }
     })
 
@@ -65,7 +66,7 @@ export async function getGitCodeAuthStatus(): Promise<GitCodeAuthStatus> {
  */
 export async function loginWithGitCodeToken(token: string): Promise<{ success: boolean; error?: string; user?: string }> {
   try {
-    const response = await fetch(`${GITCODE_API_BASE}/user`, {
+    const response = await gitcodeFetch(`${GITCODE_API_BASE}/user`, {
       headers: { 'private-token': token }
     })
 

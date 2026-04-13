@@ -21,6 +21,37 @@ interface GitCodeApiOptions {
 
 const GITCODE_API_BASE = 'https://gitcode.com/api/v5'
 
+// Proxy support for internal networks
+let _proxyDispatcher: any = null
+
+async function getProxyDispatcher(): Promise<any> {
+  if (_proxyDispatcher !== null) return _proxyDispatcher
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+  if (!proxyUrl) {
+    _proxyDispatcher = false
+    return false
+  }
+  try {
+    const { ProxyAgent } = await import('undici')
+    _proxyDispatcher = new ProxyAgent(proxyUrl)
+    console.log('[GitCodeAPI] using proxy:', proxyUrl)
+    return _proxyDispatcher
+  } catch {
+    console.warn('[GitCodeAPI] failed to create proxy agent, proceeding without proxy')
+    _proxyDispatcher = false
+    return false
+  }
+}
+
+/**
+ * Proxy-aware fetch for GitCode API. Exported for reuse by gitcode-auth.service.
+ */
+export async function gitcodeFetch(url: string, init?: RequestInit): Promise<Response> {
+  const dispatcher = await getProxyDispatcher()
+  const response = await fetch(url, { ...init, ...(dispatcher ? { dispatcher } as any : {}) })
+  return response
+}
+
 async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promise<any> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -35,7 +66,7 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
     : `${GITCODE_API_BASE}${path}`
 
   console.log('[GitCodeAPI] fetch:', url, 'hasToken:', !!options?.token)
-  const response = await fetch(url, { headers })
+  const response = await gitcodeFetch(url, { headers })
 
   if (response.status === 404) {
     console.log('[GitCodeAPI] 404 not found:', url)
@@ -479,7 +510,7 @@ export async function pushSkillAsMR(
         // Fork the repo
         console.log(`[GitCodeSkillSource] Forking ${repo}...`)
         try {
-          const forkResp = await fetch(`${GITCODE_API_BASE}/repos/${repo}/forks?access_token=${encodeURIComponent(token)}`, {
+          const forkResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${repo}/forks?access_token=${encodeURIComponent(token)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           })
@@ -516,7 +547,7 @@ export async function pushSkillAsMR(
 
     // Create branch - GitCode API: branch_name + refs
     console.log(`[GitCodeSkillSource] Creating branch ${branchName} on ${targetRepo} from ${baseBranch}...`)
-    const branchResp = await fetch(`${GITCODE_API_BASE}/repos/${targetRepo}/branches?access_token=${encodeURIComponent(token)}&refs=${encodeURIComponent(baseBranch)}&branch_name=${encodeURIComponent(branchName)}`, {
+    const branchResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${targetRepo}/branches?access_token=${encodeURIComponent(token)}&refs=${encodeURIComponent(baseBranch)}&branch_name=${encodeURIComponent(branchName)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -564,7 +595,7 @@ export async function pushSkillAsMR(
 
       // POST for new files, PUT for updates
       const method = existingSha ? 'PUT' : 'POST'
-      const putResp = await fetch(url, {
+      const putResp = await gitcodeFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -590,7 +621,7 @@ export async function pushSkillAsMR(
     const head = targetRepo === mrTargetRepo ? branchName : `${username}:${branchName}`
 
     console.log(`[GitCodeSkillSource] Creating MR: ${mrTargetRepo} <- ${head}`)
-    const mrResp = await fetch(`${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls?access_token=${encodeURIComponent(token)}`, {
+    const mrResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls?access_token=${encodeURIComponent(token)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
