@@ -381,6 +381,8 @@ interface AicoBotConfig {
   }>
   // GitCode Personal Access Token
   gitcodeToken?: string
+  // GitHub Personal Access Token (direct, no gh CLI required)
+  githubToken?: string
 }
 
 // MCP server configuration types
@@ -474,6 +476,17 @@ export function getGitCodeToken(): string | undefined {
 
 export function setGitCodeToken(token: string | undefined): void {
   saveConfig({ gitcodeToken: token })
+}
+
+/**
+ * GitHub PAT 管理（直连模式，不依赖 gh CLI）
+ */
+export function getGitHubToken(): string | undefined {
+  return getConfig().githubToken
+}
+
+export function setGitHubToken(token: string | undefined): void {
+  saveConfig({ githubToken: token })
 }
 
 /**

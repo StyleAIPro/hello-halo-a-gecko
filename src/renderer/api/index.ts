@@ -1403,6 +1403,36 @@ export const api = {
     return window.aicoBot.onGithubLoginProgress(callback)
   },
 
+  // ===== GitHub Direct PAT (Electron only) =====
+
+  githubDirectAuthStatus: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectAuthStatus()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectLoginToken: async (token: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectLoginToken(token)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectLogout: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectLogout()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectSetupCredentials: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectSetupCredentials()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
   // ===== GitCode Integration (Electron only) =====
 
   gitcodeGetAuthStatus: async (): Promise<ApiResponse> => {

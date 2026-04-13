@@ -340,6 +340,12 @@ export interface AicoBotAPI {
   githubGetGitConfig: (key: string) => Promise<IpcResponse>
   onGithubLoginProgress: (callback: (data: { code?: string; url?: string; message: string }) => void) => () => void
 
+  // GitHub Direct PAT (no gh CLI)
+  githubDirectAuthStatus: () => Promise<IpcResponse>
+  githubDirectLoginToken: (token: string) => Promise<IpcResponse>
+  githubDirectLogout: () => Promise<IpcResponse>
+  githubDirectSetupCredentials: () => Promise<IpcResponse>
+
   // GitCode Integration
   gitcodeGetAuthStatus: () => Promise<IpcResponse>
   gitcodeLoginToken: (token: string) => Promise<IpcResponse>
@@ -812,6 +818,12 @@ const api: AicoBotAPI = {
   githubGitConfig: (key, value) => ipcRenderer.invoke('github:git-config', key, value),
   githubGetGitConfig: (key) => ipcRenderer.invoke('github:get-git-config', key),
   onGithubLoginProgress: (callback) => createEventListener('github:login-progress', callback as (data: unknown) => void),
+
+  // GitHub Direct PAT (no gh CLI)
+  githubDirectAuthStatus: () => ipcRenderer.invoke('github:direct-auth-status'),
+  githubDirectLoginToken: (token) => ipcRenderer.invoke('github:direct-login-token', token),
+  githubDirectLogout: () => ipcRenderer.invoke('github:direct-logout'),
+  githubDirectSetupCredentials: () => ipcRenderer.invoke('github:direct-setup-credentials'),
 
   // GitCode Integration
   gitcodeGetAuthStatus: () => ipcRenderer.invoke('gitcode:auth-status'),
