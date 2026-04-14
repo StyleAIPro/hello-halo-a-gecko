@@ -14,7 +14,8 @@ import {
   getMessageThoughts,
   toggleStarConversation,
   loadAgentCommands,
-  listChildConversations
+  listChildConversations,
+  listAllWorkerConversations
 } from '../services/conversation.service'
 
 export function registerConversationHandlers(): void {
@@ -176,6 +177,25 @@ export function registerConversationHandlers(): void {
       try {
         const children = listChildConversations(spaceId, parentConversationId)
         return { success: true, data: children }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
+
+  // List all worker conversations across all parent conversations in a space (HyperSpace)
+  ipcMain.handle(
+    'conversation:list-all-workers',
+    async (_event, spaceId: string) => {
+      try {
+        const workerMap = listAllWorkerConversations(spaceId)
+        // Convert Map to plain object for IPC serialization
+        const data: Record<string, typeof workerMap extends Map<string, infer V> ? V : never> = {}
+        for (const [parentConvId, workers] of workerMap) {
+          data[parentConvId] = workers
+        }
+        return { success: true, data }
       } catch (error: unknown) {
         const err = error as Error
         return { success: false, error: err.message }

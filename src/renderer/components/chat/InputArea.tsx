@@ -20,7 +20,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
-import { Plus, ImagePlus, Loader2, AlertCircle, Atom, Globe, Boxes, Clock, X, Crown, Wrench, Cloud, Monitor } from 'lucide-react'
+import { Plus, ImagePlus, Loader2, AlertCircle, CheckCircle, Atom, Globe, Boxes, Clock, X, Crown, Wrench, Cloud, Monitor } from 'lucide-react'
 import { useOnboardingStore } from '../../stores/onboarding.store'
 import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { useSpaceStore } from '../../stores/space.store'
@@ -81,6 +81,7 @@ function InputAreaInternal(
   const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
   const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
   const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
+  const [compactResult, setCompactResult] = useState<'success' | 'error' | null>(null)  // Compression result notification
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>([])  // Target agents for Hyper Space (multi-mention)
 
   // @ Mention state
@@ -162,10 +163,13 @@ function InputAreaInternal(
     }).catch(console.error)
   }, [spaceId, isHyperSpace])
 
-  // Filter members based on query
+  // Filter members based on query; include @all special option
+  const allAgentOption: AgentMember = { id: '__all__', name: 'all', role: 'worker', type: 'local' }
   const filteredMembers = agentMembers.filter(member =>
     member.name.toLowerCase().includes(mentionQuery.toLowerCase())
   )
+  const allInResults = filteredMembers.some(m => m.id === '__all__') || mentionQuery.toLowerCase().includes('all')
+  const displayMembers = allInResults ? filteredMembers : [allAgentOption, ...filteredMembers]
 
   // Close mention popup when clicking outside
   useEffect(() => {
@@ -444,15 +448,22 @@ function InputAreaInternal(
     const beforeText = content.substring(0, mentionPosition.start)
     const afterText = content.substring(mentionPosition.end)
 
-    const mentionText = `@${agent.name} `
+    const mentionText = agent.id === '__all__'
+      ? '@all '
+      : `@${agent.name} `
     const newValue = beforeText + mentionText + afterText
 
     setContent(newValue)
 
-    // Add to target agent list (avoid duplicates)
-    setTargetAgentIds(prev =>
-      prev.includes(agent.id) ? prev : [...prev, agent.id]
-    )
+    // Handle @all: set a special marker so the store knows to broadcast
+    if (agent.id === '__all__') {
+      setTargetAgentIds(['__all__'])
+    } else {
+      // Add to target agent list (avoid duplicates)
+      setTargetAgentIds(prev =>
+        prev.includes(agent.id) ? prev : [...prev, agent.id]
+      )
+    }
 
     // Update cursor position after the mention
     const newCursorPos = mentionPosition.start + mentionText.length
@@ -531,17 +542,23 @@ function InputAreaInternal(
     if (!conversationId || isCompacting) return
 
     setIsCompacting(true)
+    setCompactResult(null)
     try {
       const result = await api.compactContext(conversationId)
       if (result.success) {
         console.log('[InputArea] Context compacted successfully')
+        setCompactResult('success')
       } else {
         console.error('[InputArea] Failed to compact context:', result.error)
+        setCompactResult('error')
       }
     } catch (error) {
       console.error('[InputArea] Error compacting context:', error)
+      setCompactResult('error')
     } finally {
       setIsCompacting(false)
+      // Auto-dismiss notification after 3 seconds
+      setTimeout(() => setCompactResult(null), 3000)
     }
   }
 
@@ -552,6 +569,21 @@ function InputAreaInternal(
       ${isCompact ? 'px-3 py-2' : 'px-4 py-3'}
     `}>
       <div className={isCompact ? '' : 'max-w-3xl mx-auto'}>
+        {/* Compact result notification */}
+        {compactResult === 'success' && (
+          <div className="mb-2 p-3 rounded-xl bg-green-500/10 border border-green-500/20
+            flex items-center gap-2 animate-fade-in">
+            <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+            <span className="text-sm text-green-500">{t('Context compressed successfully')}</span>
+          </div>
+        )}
+        {compactResult === 'error' && (
+          <div className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20
+            flex items-center gap-2 animate-fade-in">
+            <AlertCircle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
+            <span className="text-sm text-destructive">{t('Failed to compress context. Please try sending a message first.')}</span>
+          </div>
+        )}
         {/* Error toast notification */}
         {imageError && (
           <div className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20

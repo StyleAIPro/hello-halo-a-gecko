@@ -67,7 +67,52 @@ fs.writeFileSync(
   buildInfoModule
 )
 
-// Step 5: Patch SDK for remote agent usage (cwd, systemPrompt, etc.)
+// Step 5: Fix ESM imports in openai-compat-router dist files
+// TypeScript with bundler moduleResolution doesn't add .js extensions to imports,
+// but Node.js ESM requires them at runtime. This post-build step fixes:
+// 1. './xxx' → './xxx.js' (if xxx.js exists)
+// 2. './xxx' → './xxx/index.js' (if xxx/ is a directory with index.js)
+console.log('\nFixing ESM import extensions...')
+const routerDistDir = path.join(distDir, 'openai-compat-router')
+if (fs.existsSync(routerDistDir)) {
+  function fixImports(dir) {
+    for (const entry of fs.readdirSync(dir)) {
+      const fp = path.join(dir, entry)
+      if (fs.statSync(fp).isDirectory()) {
+        fixImports(fp)
+      } else if (entry.endsWith('.js')) {
+        let content = fs.readFileSync(fp, 'utf8')
+        let changed = false
+        content = content.replace(/(from\s+['"])(\.\.?\/[^'"]+)(['"])/g, (match, prefix, importPath, suffix) => {
+          // Skip if already has extension
+          if (importPath.endsWith('.js') || importPath.endsWith('.json')) return match
+          // Resolve the import path relative to the current file's directory
+          const resolved = path.resolve(dir, importPath)
+          // Check if it's a directory with index.js (barrel export)
+          if (fs.existsSync(path.join(resolved, 'index.js'))) {
+            changed = true
+            return `${prefix}${importPath}/index.js${suffix}`
+          }
+          // Check if it's a .js file
+          if (fs.existsSync(resolved + '.js')) {
+            changed = true
+            return `${prefix}${importPath}.js${suffix}`
+          }
+          // Fallback: just add .js
+          changed = true
+          return `${prefix}${importPath}.js${suffix}`
+        })
+        if (changed) {
+          fs.writeFileSync(fp, content)
+        }
+      }
+    }
+  }
+  fixImports(routerDistDir)
+  console.log('ESM import extensions fixed')
+}
+
+// Step 6: Patch SDK for remote agent usage (cwd, systemPrompt, etc.)
 console.log('\nPatching SDK...')
 try {
   execSync('node ' + path.join(__dirname, 'patch-sdk.mjs'), { cwd: rootDir, stdio: 'inherit' })

@@ -163,6 +163,8 @@ export interface StreamResult {
   reachedMaxTurns: boolean
   /** Whether there's a pending injection message to continue the conversation */
   hasPendingInjection: boolean
+  /** Whether a 401 authentication_failed retry was detected during streaming */
+  needsAuthRetry: boolean
 }
 
 /**
@@ -194,6 +196,8 @@ export interface ProcessStreamParams {
   suppressComplete?: boolean
   /** Worker agent info — when set, all renderer events include agentId/agentName for worker panel routing */
   workerInfo?: { agentId: string; agentName: string }
+  /** User-configured context window size (from AI source settings). Used for accurate token usage display. */
+  contextWindow?: number
 }
 
 // ============================================
@@ -273,7 +277,8 @@ function processSubagentStreamEvent(
   event: any,
   _sdkMessage: any,
   spaceId: string,
-  rendererConvId: string
+  rendererConvId: string,
+  sessionState: SessionState
 ): void {
   const { streamingBlocks, toolIdToThoughtId, agentId, agentName } = state
   const blockIndex = event.index ?? 0
@@ -288,7 +293,8 @@ function processSubagentStreamEvent(
     streamingBlocks.set(blockIndex, { type: 'thinking', thoughtId, content: '' })
     const thought: Thought = {
       id: thoughtId, type: 'thinking', content: '',
-      timestamp: new Date().toISOString(), isStreaming: true
+      timestamp: new Date().toISOString(), isStreaming: true,
+      agentId, agentName
     }
     workerEmit('agent:thought', { thought })
     return
@@ -316,7 +322,8 @@ function processSubagentStreamEvent(
     const thought: Thought = {
       id: thoughtId, type: 'tool_use', content: '',
       timestamp: new Date().toISOString(), toolName,
-      toolInput: {}, isStreaming: true, isReady: false
+      toolInput: {}, isStreaming: true, isReady: false,
+      agentId, agentName
     }
     workerEmit('agent:thought', { thought })
     return
@@ -335,7 +342,7 @@ function processSubagentStreamEvent(
     return
   }
 
-  // Block stop
+  // Block stop — persist completed subagent thought to sessionState
   if (event.type === 'content_block_stop') {
     const blockState = streamingBlocks.get(blockIndex)
     if (!blockState) return
@@ -343,6 +350,13 @@ function processSubagentStreamEvent(
     if (blockState.type === 'thinking') {
       workerEmit('agent:thought-delta', {
         thoughtId: blockState.thoughtId, content: blockState.content, isComplete: true
+      })
+      // Persist completed thinking thought
+      sessionState.thoughts.push({
+        id: blockState.thoughtId, type: 'thinking',
+        content: blockState.content,
+        timestamp: new Date().toISOString(),
+        agentId, agentName
       })
     } else if (blockState.type === 'tool_use') {
       let toolInput: Record<string, unknown> = {}
@@ -358,6 +372,23 @@ function processSubagentStreamEvent(
         thoughtId: blockState.thoughtId, toolInput,
         isComplete: true, isReady: true, isToolInput: true
       })
+      // Persist completed tool_use thought
+      sessionState.thoughts.push({
+        id: blockState.thoughtId, type: 'tool_use',
+        content: '',
+        timestamp: new Date().toISOString(),
+        toolName: blockState.toolName,
+        toolInput,
+        agentId, agentName
+      })
+    } else if (blockState.type === 'text') {
+      // Persist completed text thought
+      sessionState.thoughts.push({
+        id: blockState.thoughtId, type: 'text',
+        content: blockState.content,
+        timestamp: new Date().toISOString(),
+        agentId, agentName
+      })
     }
 
     streamingBlocks.delete(blockIndex)
@@ -371,7 +402,8 @@ function processSubagentStreamEvent(
     const thought: Thought = {
       id: thoughtId, type: 'text',
       content: event.content_block.text || '',
-      timestamp: new Date().toISOString(), isStreaming: true
+      timestamp: new Date().toISOString(), isStreaming: true,
+      agentId, agentName
     }
     workerEmit('agent:thought', { thought })
     workerEmit('agent:message', {
@@ -436,7 +468,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     const state = findSubagentByToolUseId(parentToolUseId, subagentStates, toolUseIdToTaskId)
     if (state) {
       if (!state.isComplete) {
-        processSubagentStreamEvent(state, event, sdkMessage, spaceId, rendererConvId)
+        processSubagentStreamEvent(state, event, sdkMessage, spaceId, rendererConvId, sessionState)
       }
     } else {
       // Subagent stream events may arrive before task_started — buffer them
@@ -479,6 +511,11 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
                 toolResult: { output: resultContent, isError: block.is_error || false, timestamp: new Date().toISOString() },
                 isToolResult: true
               })
+              // Also merge tool result into persisted thought in sessionState
+              const persistedThought = sessionState.thoughts.find(t => t.id === toolUseThoughtId)
+              if (persistedThought) {
+                persistedThought.toolResult = { output: resultContent, isError: block.is_error || false, timestamp: new Date().toISOString() }
+              }
             }
           }
         }
@@ -494,9 +531,11 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             const thought: Thought = {
               id: `thought-sub-fallback-${Date.now()}`,
               type: 'thinking', content: block.thinking,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              agentId, agentName
             }
             workerEmit('agent:thought', { thought })
+            sessionState.thoughts.push(thought)
           } else if (block.type === 'tool_use' && block.id) {
             const thoughtId = `thought-sub-fallback-tool-${Date.now()}`
             toolIdToThoughtId.set(block.id, thoughtId)
@@ -505,16 +544,20 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
               timestamp: new Date().toISOString(),
               toolName: block.name || 'Unknown',
               toolInput: block.input || {},
-              isStreaming: false, isReady: true
+              isStreaming: false, isReady: true,
+              agentId, agentName
             }
             workerEmit('agent:thought', { thought })
+            sessionState.thoughts.push(thought)
           } else if (block.type === 'text' && block.text) {
             const thought: Thought = {
               id: `thought-sub-fallback-text-${Date.now()}`,
               type: 'text', content: block.text,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              agentId, agentName
             }
             workerEmit('agent:thought', { thought })
+            sessionState.thoughts.push(thought)
           }
         }
       }
@@ -548,6 +591,8 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   let hasStreamEvent = false
   // Track if pending injection was detected at turn boundary (for turn-level message injection)
   let hadPendingInjection = false
+  // Track if SDK detected 401 authentication_failed retry (for auto-recovery)
+  let detectedAuthRetry = false
 
   // Streaming block state - track active blocks by index for delta/stop correlation
   // Key: block index, Value: { type, thoughtId, content/partialJson }
@@ -1198,6 +1243,33 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     if (sdkMessage.type === 'system') {
       const subtype = msg.subtype as string | undefined
 
+      // ========== API retry events (auth recovery) ==========
+      // When the SDK encounters a 401 authentication_failed, it emits api_retry system events.
+      // Detect these so the caller can rebuild the session with fresh credentials and retry.
+      if (subtype === 'api_retry') {
+        const errorStatus = msg.error_status as number | undefined
+        const error = msg.error as string | undefined
+        if (errorStatus === 401 && error === 'authentication_failed') {
+          detectedAuthRetry = true
+          const attempt = msg.attempt as number | undefined
+          const maxRetries = msg.max_retries as number | undefined
+          console.warn(
+            `[Agent][${conversationId}] SDK auth retry detected: attempt=${attempt ?? '?'}/${maxRetries ?? '?'}, ` +
+            `error_status=${errorStatus}, error=${error} — will refresh credentials after SDK finishes retrying`
+          )
+          // Show a transient system thought so user knows recovery is in progress
+          const authRetryThought: Thought = {
+            id: `thought-auth-retry-${Date.now()}`,
+            type: 'system',
+            content: `Auth retry (${attempt ?? '?'}/${maxRetries ?? '?'}) — will refresh credentials`,
+            timestamp: new Date().toISOString()
+          }
+          sessionState.thoughts.push(authRetryThought)
+          emit('agent:thought', { thought: authRetryThought })
+        }
+        continue
+      }
+
       // ========== Subagent lifecycle events ==========
       // task_started: SDK spawned a subagent (Agent tool). Create a virtual worker session.
       if (subtype === 'task_started') {
@@ -1236,7 +1308,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           pendingSubagentEvents.delete(toolUseId || taskId)
           for (const { event: bufferedEvent, sdkMessage: bufferedMsg } of buffered) {
             if (!state.isComplete) {
-              processSubagentStreamEvent(state, bufferedEvent, bufferedMsg, spaceId, rendererConvId)
+              processSubagentStreamEvent(state, bufferedEvent, bufferedMsg, spaceId, rendererConvId, sessionState)
             }
           }
         }
@@ -1351,7 +1423,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       }
 
       // Extract token usage from result message
-      tokenUsage = extractResultUsage(msg, lastSingleUsage)
+      tokenUsage = extractResultUsage(msg, lastSingleUsage, params.contextWindow)
       if (tokenUsage) {
         console.log(`[Agent][${conversationId}] Token usage (single API):`, tokenUsage)
       }
@@ -1376,6 +1448,16 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Merge content: prefer lastTextContent (all accumulated text blocks), fallback to currentStreamingText
   const finalContent = lastTextContent || currentStreamingText || ''
   const wasAborted = abortController.signal.aborted
+
+  // Finalize subagent thoughts for persistence: remove streaming state
+  sessionState.thoughts.forEach(thought => {
+    if (thought.agentId) {
+      thought.isStreaming = false
+      if (thought.type === 'tool_use') {
+        thought.isReady = true
+      }
+    }
+  })
 
   // Clean up any active subagents that didn't complete (interrupted/aborted streams)
   subagentStates.forEach((state, taskId) => {
@@ -1427,7 +1509,8 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
     hasErrorThought,
     errorThought,
     reachedMaxTurns: hadMaxTurnsReached,
-    hasPendingInjection: hasPendingInjectionFlag
+    hasPendingInjection: hasPendingInjectionFlag,
+    needsAuthRetry: detectedAuthRetry
   }
 
   // Notify caller for storage handling

@@ -26,6 +26,7 @@ import { PULSE_READ_GRACE_PERIOD_MS } from '../types'
 import { canvasLifecycle } from '../services/canvas-lifecycle'
 import { getActionSummary, getStepCounts } from '../components/chat/thought-utils'
 import { useTerminalStore } from './terminal.store'
+import { useSpaceStore } from './space.store'
 
 // LRU cache size limit
 const CONVERSATION_CACHE_SIZE = 10
@@ -37,6 +38,19 @@ let _pulseCleanupTimer: ReturnType<typeof setTimeout> | null = null
 interface SpaceState {
   conversations: ConversationMeta[]  // Lightweight metadata, no messages
   currentConversationId: string | null
+  // HyperSpace: worker conversation metadata grouped by parent conversation ID
+  workerConversations: Map<string, WorkerConversationMeta[]>
+}
+
+// Worker conversation metadata — persisted child conversation visible in sidebar
+export interface WorkerConversationMeta {
+  id: string           // Full child conversation ID (e.g., "uuid:agent-worker-1")
+  title: string        // Worker display name
+  agentId: string      // Agent identifier extracted from the ID
+  parentConversationId: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
 }
 
 // Pending message in queue (waiting for current generation to complete)
@@ -98,6 +112,9 @@ export interface WorkerSessionState {
   // 'mention': User @mentioned in main conversation; output shows inline in main view
   // 'delegation': Leader spawned via spawn_subagent; output shows ONLY in worker tab
   interactionMode?: 'mention' | 'delegation'
+  // Timestamp of when the current turn started — used by WorkerView to detect
+  // new turns and reload multi-turn history from the child conversation
+  turnStartedAt: number
 }
 
 // Throttle state for worker streaming updates (avoids excessive set() calls per token delta)
@@ -125,7 +142,10 @@ function applyWorkerStreamUpdate(
   set((state: any) => {
     const newSessions = new Map(state.sessions)
     const session = resolveSessionId(newSessions, conversationId)
-    if (!session) return state
+    if (!session) {
+      console.warn(`[ChatStore] applyWorkerStreamUpdate: no session for ${conversationId}, event dropped (agent=${agentId})`)
+      return state
+    }
 
     const parentConvId = baseConvId(conversationId)
     const newWorkerSessions = new Map(session.workerSessions)
@@ -145,7 +165,8 @@ function applyWorkerStreamUpdate(
       error: null,
       completedAt: null,
       pendingQuestion: null,
-      interactionMode: 'delegation'
+      interactionMode: 'delegation',
+      turnStartedAt: 0
     }
 
     const newTextBlockVersion = pending.isNewTextBlock
@@ -224,7 +245,8 @@ function createEmptySessionState(): SessionState {
 function createEmptySpaceState(): SpaceState {
   return {
     conversations: [],
-    currentConversationId: null
+    currentConversationId: null,
+    workerConversations: new Map()
   }
 }
 
@@ -452,6 +474,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return get().getCurrentSpaceState().currentConversationId
   },
 
+  // Get the conversation ID that the terminal should connect to.
+  // When a worker is selected (activeAgentId), returns that worker's childConversationId.
+  // Otherwise returns the leader's currentConversationId.
+  getActiveTerminalConversationId: (spaceId: string) => {
+    const { activeAgentId, workerSessions, spaceStates } = get()
+    if (activeAgentId) {
+      const workerState = workerSessions.get(activeAgentId)
+      if (workerState?.childConversationId) {
+        return workerState.childConversationId
+      }
+    }
+    const spaceState = spaceStates.get(spaceId)
+    return spaceState?.currentConversationId || ''
+  },
+
   // Get cached conversation by ID
   getCachedConversation: (conversationId: string) => {
     return get().conversationCache.get(conversationId) || null
@@ -496,6 +533,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           return { spaceStates: newSpaceStates }
         })
+
+        // For HyperSpace, also load worker conversations in the background
+        const space = useSpaceStore.getState().currentSpace
+        if (space?.spaceType === 'hyper') {
+          api.listAllWorkerConversations(spaceId)
+            .then((workerRes) => {
+              if (workerRes.success && workerRes.data) {
+                const workerMap = workerRes.data as Record<string, Array<{
+                  id: string; title: string; agentId: string
+                  createdAt: string; updatedAt: string; messageCount: number
+                }>>
+
+                const newWorkerConversations = new Map<string, WorkerConversationMeta[]>()
+                for (const [parentConvId, workers] of Object.entries(workerMap)) {
+                  if (workers.length > 0) {
+                    newWorkerConversations.set(parentConvId, workers.map(w => ({
+                      id: w.id,
+                      title: w.title,
+                      agentId: w.agentId,
+                      parentConversationId: parentConvId,
+                      createdAt: w.createdAt,
+                      updatedAt: w.updatedAt,
+                      messageCount: w.messageCount
+                    })))
+                  }
+                }
+
+                if (newWorkerConversations.size > 0) {
+                  set((state) => {
+                    const newSpaceStates = new Map(state.spaceStates)
+                    const existingState = newSpaceStates.get(spaceId)
+                    if (existingState) {
+                      newSpaceStates.set(spaceId, {
+                        ...existingState,
+                        workerConversations: newWorkerConversations
+                      })
+                    }
+                    return { spaceStates: newSpaceStates }
+                  })
+                }
+              }
+            })
+            .catch((err) => console.error('[ChatStore] Failed to load worker conversations:', err))
+        }
       }
     } catch (error) {
       console.error('Failed to load conversations:', error)
@@ -611,8 +692,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       canvasLifecycle.setOpen(false)
     }
 
-    // Subscribe to conversation events (for remote mode)
-    api.subscribeToConversation(conversationId)
+    // Subscribe to conversation events (for remote mode).
+    // Fire-and-forget is fine here — if this subscription races with a subsequent
+    // sendMessage, sendMessage will await its own subscription with ack.
+    api.subscribeToConversation(conversationId).catch(() => {})
 
     // Switch terminal state to the new conversation
     useTerminalStore.getState().switchConversation(conversationId)
@@ -820,7 +903,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   type: ws.type,
                   serverName: ws.serverName,
                   pendingQuestion: null,
-                  childConversationId: ws.childConversationId
+                  childConversationId: ws.childConversationId,
+                  turnStartedAt: 0
                 })
               }
             }
@@ -883,8 +967,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
             currentConversationId:
               existingState.currentConversationId === conversationId
                 ? (newConversations[0]?.id || null)
-                : existingState.currentConversationId
+                : existingState.currentConversationId,
+            workerConversations: existingState.workerConversations
           })
+
+          // Remove worker conversations for deleted parent
+          const newWorkerConvs = new Map(existingState.workerConversations)
+          newWorkerConvs.delete(conversationId)
+          const updatedSpaceState = newSpaceStates.get(spaceId)
+          if (updatedSpaceState) {
+            newSpaceStates.set(spaceId, {
+              ...updatedSpaceState,
+              workerConversations: newWorkerConvs
+            })
+          }
 
           return {
             spaceStates: newSpaceStates,
@@ -1163,8 +1259,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Send to agent (with images, AI Browser state, thinking mode, and canvas context)
       // For Hyper Space: agentId routes to specific agent ('leader' or agent ID)
+      // Support @all broadcast to all workers in parallel
       // Support multi-agent parallel execution when multiple agentIds are comma-separated
-      if (agentId && agentId.includes(',') && agentId !== 'leader') {
+      if (agentId === '__all__') {
+        // Broadcast to all workers: send to leader first, then all workers
+        const members = await api.getHyperSpaceMembers(currentSpaceId)
+        const allAgentIds = ['leader']
+        if (members.success && members.data?.members) {
+          for (const m of members.data.members) {
+            if (m.role === 'worker') allAgentIds.push(m.id)
+          }
+        }
+        await Promise.all(allAgentIds.map(id =>
+          api.sendMessage({
+            spaceId: currentSpaceId,
+            conversationId,
+            message: content,
+            images: images,
+            aiBrowserEnabled,
+            thinkingEnabled,
+            canvasContext: buildCanvasContext(),
+            agentId: id
+          })
+        ))
+      } else if (agentId && agentId.includes(',') && agentId !== 'leader') {
         const agentIds = agentId.split(',').filter(Boolean)
         // Send to all mentioned agents in parallel
         await Promise.all(agentIds.map(id =>
@@ -1821,7 +1939,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((state) => {
         const newSessions = new Map(state.sessions)
         const session = resolveSessionId(newSessions, conversationId)
-        if (!session) return state
+        if (!session) {
+          console.warn(`[ChatStore] handleAgentThought (worker): no session for ${conversationId}, thought dropped (agent=${agentId})`)
+          return state
+        }
 
         const newWorkerSessions = new Map(session.workerSessions)
         let ws = newWorkerSessions.get(agentId)
@@ -1916,7 +2037,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((state) => {
         const newSessions = new Map(state.sessions)
         const session = resolveSessionId(newSessions, conversationId)
-        if (!session) return state
+        if (!session) {
+          console.warn(`[ChatStore] handleAgentThoughtDelta (worker): no session for ${conversationId}, delta dropped (agent=${agentId})`)
+          return state
+        }
 
         const newWorkerSessions = new Map(session.workerSessions)
         const ws = newWorkerSessions.get(agentId)
@@ -2183,7 +2307,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     console.log(`[ChatStore] handleWorkerStarted [${conversationId}] agent=${agentId}, task=${task?.substring(0, 50)}`)
 
+    // Add worker to workerConversations in SpaceState for sidebar visibility
+    const parentConvId = baseConvId(conversationId)
     set((state) => {
+      // 1. Update session state
       const newSessions = new Map(state.sessions)
       const session = resolveSessionId(newSessions, conversationId)
       if (!session) {
@@ -2196,7 +2323,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Also preserves content from temporary sessions created by early agent:message events
       const existing = newWorkerSessions.get(agentId)
       // Build child conversation ID for loading persisted message history
-      const childConvId = `${baseConvId(conversationId)}:agent-${agentId}`
+      const childConvId = `${parentConvId}:agent-${agentId}`
       const isTemporarySession = existing && !existing.childConversationId
       newWorkerSessions.set(agentId, {
         agentId,
@@ -2207,7 +2334,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         status: 'running',
         streamingContent: isTemporarySession ? existing.streamingContent : '',
         isStreaming: false,
-        thoughts: [],
+        thoughts: isTemporarySession ? existing.thoughts : [],
         isThinking: false,
         textBlockVersion: 0,
         error: null,
@@ -2216,9 +2343,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
         serverName: serverName || existing?.serverName,
         pendingQuestion: null,
         childConversationId: childConvId,
-        interactionMode: interactionMode || 'delegation'
+        interactionMode: interactionMode || 'delegation',
+        turnStartedAt: Date.now()
       })
-      newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
+      newSessions.set(parentConvId, { ...session, workerSessions: newWorkerSessions })
+
+      // 2. Update SpaceState workerConversations for sidebar
+      const spaceId = state.currentSpaceId
+      if (spaceId) {
+        const newSpaceStates = new Map(state.spaceStates)
+        const existingSpaceState = newSpaceStates.get(spaceId)
+        if (existingSpaceState) {
+          const newWorkerConvs = new Map(existingSpaceState.workerConversations)
+          const existingWorkers = newWorkerConvs.get(parentConvId) || []
+          if (!existingWorkers.some(w => w.agentId === agentId)) {
+            newWorkerConvs.set(parentConvId, [...existingWorkers, {
+              id: childConvId,
+              title: agentName || agentId,
+              agentId,
+              parentConversationId: parentConvId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              messageCount: 0
+            }])
+            newSpaceStates.set(spaceId, { ...existingSpaceState, workerConversations: newWorkerConvs })
+          }
+          return { sessions: newSessions, spaceStates: newSpaceStates }
+        }
+      }
+
       return { sessions: newSessions }
     })
 
@@ -2231,7 +2384,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { conversationId, agentId, result, error, status } = data
     console.log(`[ChatStore] handleWorkerCompleted [${conversationId}] agent=${agentId}, status=${status}`)
 
+    const parentConvId = baseConvId(conversationId)
     set((state) => {
+      // 1. Update session state
       const newSessions = new Map(state.sessions)
       const session = resolveSessionId(newSessions, conversationId)
       if (!session) return state
@@ -2253,7 +2408,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ? { ...ws.pendingQuestion, status: 'cancelled' as const }
           : ws.pendingQuestion
       })
-      newSessions.set(baseConvId(conversationId), { ...session, workerSessions: newWorkerSessions })
+      newSessions.set(parentConvId, { ...session, workerSessions: newWorkerSessions })
+
+      // 2. Update SpaceState workerConversations metadata (updatedAt, messageCount)
+      const spaceId = state.currentSpaceId
+      if (spaceId) {
+        const newSpaceStates = new Map(state.spaceStates)
+        const existingSpaceState = newSpaceStates.get(spaceId)
+        if (existingSpaceState) {
+          const newWorkerConvs = new Map(existingSpaceState.workerConversations)
+          const workers = newWorkerConvs.get(parentConvId)
+          if (workers) {
+            const idx = workers.findIndex(w => w.agentId === agentId)
+            if (idx !== -1) {
+              const updated = [...workers]
+              updated[idx] = {
+                ...updated[idx],
+                updatedAt: new Date().toISOString(),
+                messageCount: updated[idx].messageCount + 1
+              }
+              newWorkerConvs.set(parentConvId, updated)
+              newSpaceStates.set(spaceId, { ...existingSpaceState, workerConversations: newWorkerConvs })
+              return { sessions: newSessions, spaceStates: newSpaceStates }
+            }
+          }
+        }
+      }
+
       return { sessions: newSessions }
     })
 
@@ -2395,7 +2576,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             completedAt: childConv.updatedAt ? new Date(childConv.updatedAt).getTime() : null,
             pendingQuestion: null,
             childConversationId: child.id,
-            interactionMode: 'delegation'
+            interactionMode: 'delegation',
+            turnStartedAt: 0
           })
         } catch (error) {
           console.warn(`[ChatStore] Failed to load child conversation ${child.id}:`, error)
@@ -2988,4 +3170,98 @@ export function usePulseBeaconStatus(): 'waiting' | 'completed' | 'generating' |
 
     return null
   })
+}
+
+/**
+ * Selector: Check if a specific space has any active (non-idle) tasks.
+ * Used by SpaceSelector to show active indicators on space items.
+ */
+export function useSpaceHasActiveTasks(spaceId: string | undefined): boolean {
+  return useChatStore((state) => {
+    if (!spaceId) return false
+    const spaceState = state.spaceStates.get(spaceId)
+    if (!spaceState) return false
+
+    for (const conv of spaceState.conversations) {
+      const session = state.sessions.get(conv.id)
+      const hasUnseen = state.unseenCompletions.has(conv.id)
+      const status = deriveTaskStatus(session, hasUnseen)
+      if (status !== 'idle') return true
+    }
+    return false
+  })
+}
+
+/**
+ * Selector: Check if any space OTHER THAN the current one has active tasks.
+ * Used by SpaceSelector to show a global indicator on the space switch button.
+ */
+export function useOtherSpacesHaveActiveTasks(): boolean {
+  return useChatStore((state) => {
+    const currentSpaceId = state.currentSpaceId
+    for (const [spaceId, spaceState] of state.spaceStates) {
+      if (spaceId === currentSpaceId) continue
+      for (const conv of spaceState.conversations) {
+        const session = state.sessions.get(conv.id)
+        const hasUnseen = state.unseenCompletions.has(conv.id)
+        const status = deriveTaskStatus(session, hasUnseen)
+        if (status !== 'idle') return true
+      }
+    }
+    return false
+  })
+}
+
+/** Detailed status info for a single conversation (used by ConversationItem) */
+export interface ConversationStatusDetail {
+  status: TaskStatus
+  currentAction: string
+  completedSteps: number
+  totalSteps: number
+  generatingStartedAt: number | undefined
+}
+
+/**
+ * Selector: Get detailed status for all conversations in the current space.
+ * Returns a Map of conversationId -> ConversationStatusDetail (only non-idle).
+ */
+export function useConversationStatusDetails(): Map<string, ConversationStatusDetail> {
+  return useChatStore(
+    (state) => {
+      const result = new Map<string, ConversationStatusDetail>()
+      const spaceState = state.currentSpaceId
+        ? state.spaceStates.get(state.currentSpaceId)
+        : null
+      if (!spaceState) return result
+
+      for (const conv of spaceState.conversations) {
+        const session = state.sessions.get(conv.id)
+        const hasUnseen = state.unseenCompletions.has(conv.id)
+        const status = deriveTaskStatus(session, hasUnseen)
+        if (status === 'idle') continue
+
+        const currentAction = session?.isGenerating ? getActionSummary(session.thoughts) : ''
+        const { completed, total } = session?.isGenerating ? getStepCounts(session.thoughts) : { completed: 0, total: 0 }
+        const generatingStartedAt = session && session.thoughts.length > 0
+          ? new Date(session.thoughts[0].timestamp).getTime()
+          : undefined
+
+        result.set(conv.id, { status, currentAction, completedSteps: completed, totalSteps: total, generatingStartedAt })
+      }
+      return result
+    },
+    (a, b) => {
+      if (a.size !== b.size) return false
+      for (const [id, detail] of a) {
+        const other = b.get(id)
+        if (!other) return false
+        if (detail.status !== other.status ||
+            detail.currentAction !== other.currentAction ||
+            detail.completedSteps !== other.completedSteps ||
+            detail.totalSteps !== other.totalSteps ||
+            detail.generatingStartedAt !== other.generatingStartedAt) return false
+      }
+      return true
+    }
+  )
 }

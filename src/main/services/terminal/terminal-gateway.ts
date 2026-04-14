@@ -18,6 +18,8 @@ import { sharedTerminalService, type TerminalSessionConfig } from './shared-term
 import { getSpace } from '../space.service'
 import { saveAgentCommand, loadAgentCommands, type AgentCommandRecord } from '../conversation.service'
 import { remoteDeployService } from '../remote-deploy/remote-deploy.service'
+import { type TerminalHistoryStore } from './terminal-history-store'
+import { saveTerminalOutputImmediate, loadTerminalOutput, flushAllPendingOutputWrites } from './terminal-output-store'
 import * as os from 'os'
 
 export interface TerminalSession {
@@ -127,6 +129,41 @@ function getSpaceCwdInfo(spaceId: string): {
  * Terminal Gateway events
  */
 export class TerminalGateway extends EventEmitter {
+  private historyStore: TerminalHistoryStore | null = null
+  outputFlushTimer: ReturnType<typeof setInterval> | null = null
+
+  /**
+   * Set the terminal history store. Called after platform initialization.
+   */
+  setHistoryStore(store: TerminalHistoryStore): void {
+    this.historyStore = store
+    console.log('[TerminalGateway] History store attached')
+
+    // Start periodic flush timer for raw output persistence
+    this.outputFlushTimer = setInterval(() => this.flushDirtySessions(), 2000)
+    console.log('[TerminalGateway] Raw output flush timer started (2s interval)')
+  }
+
+  /**
+   * Flush all sessions with dirty raw output to disk.
+   */
+  flushDirtySessions(): void {
+    const sessionIds = sharedTerminalService.getSessionIds()
+    for (const sid of sessionIds) {
+      const session = sharedTerminalService.getSession(sid)
+      if (session && session.isRawOutputDirty()) {
+        // Extract spaceId and conversationId from sessionId format: "${spaceId}:${conversationId}"
+        const colonIdx = sid.indexOf(':')
+        if (colonIdx > 0) {
+          const spaceId = sid.substring(0, colonIdx)
+          const conversationId = sid.substring(colonIdx + 1)
+          const rawOutput = session.getRawOutputBuffer()
+          saveTerminalOutputImmediate(spaceId, conversationId, rawOutput)
+          session.markRawOutputClean()
+        }
+      }
+    }
+  }
   /**
    * Called when agent executes a bash command
    * - Sends event to frontend for display in Agent Terminal panel
@@ -232,6 +269,32 @@ export class TerminalGateway extends EventEmitter {
       }
     }
     saveAgentCommand(spaceId, conversationId, commandRecord)
+
+    // Also persist to SQLite terminal history store
+    if (this.historyStore) {
+      if (isNewCommand) {
+        this.historyStore.insertCommand({
+          id: commandRecord.id,
+          command: commandRecord.command,
+          source: 'agent',
+          output: commandRecord.output,
+          exit_code: commandRecord.exitCode,
+          status: commandRecord.status,
+          space_id: spaceId,
+          conversation_id: conversationId,
+          cwd: commandRecord.cwd || null,
+          cwd_label: commandRecord.cwdLabel || null,
+          timestamp: commandRecord.timestamp,
+          created_at_ms: new Date(commandRecord.timestamp).getTime()
+        })
+      } else {
+        this.historyStore.updateCommand(commandId || id, {
+          output: commandRecord.output,
+          status: commandRecord.status,
+          exit_code: commandRecord.exitCode
+        })
+      }
+    }
 
     // Update in-memory history
     if (session) {
@@ -415,6 +478,24 @@ export class TerminalGateway extends EventEmitter {
 
     session.commandHistory.push(terminalCommand)
 
+    // Persist user command to SQLite history store
+    if (this.historyStore) {
+      this.historyStore.insertCommand({
+        id: commandId,
+        command,
+        source: 'user',
+        output: '',
+        exit_code: null,
+        status: 'running',
+        space_id: spaceId,
+        conversation_id: conversationId,
+        cwd: null,
+        cwd_label: null,
+        timestamp: terminalCommand.timestamp,
+        created_at_ms: new Date(terminalCommand.timestamp).getTime()
+      })
+    }
+
     // Echo back to user (will show in terminal)
     this.sendToSession(session, {
       type: 'terminal:user-command',
@@ -544,6 +625,32 @@ export class TerminalGateway extends EventEmitter {
           terminalSession.once('ready', () => resolve())
         }
       })
+
+      // Restore persisted history if history store is available
+      if (this.historyStore) {
+        const persistedCommands = this.historyStore.getCommandsForConversation(conversationId, 500)
+        if (persistedCommands.length > 0) {
+          const commands = persistedCommands.map(row => ({
+            id: row.id,
+            command: row.command,
+            source: row.source as 'agent' | 'user',
+            output: row.output,
+            exitCode: row.exit_code,
+            status: row.status as 'running' | 'completed' | 'error',
+            timestamp: row.timestamp,
+            spaceId: row.space_id,
+            conversationId: row.conversation_id
+          }))
+          terminalSession.restoreCommandHistory(commands)
+          console.log(`[TerminalGateway] Restored ${commands.length} commands from SQLite for ${conversationId}`)
+        }
+
+        const persistedOutput = loadTerminalOutput(spaceId, conversationId)
+        if (persistedOutput) {
+          terminalSession.restoreRawOutput(persistedOutput)
+          console.log(`[TerminalGateway] Restored ${persistedOutput.length} bytes of raw output for ${conversationId}`)
+        }
+      }
 
       // Send history output to client (for reconnection scenarios)
       const rawHistory = terminalSession.getRawOutputBuffer()
@@ -798,6 +905,16 @@ function handleMessage(session: TerminalSession, message: TerminalMessage): void
  * Shutdown Terminal Gateway
  */
 export function shutdownTerminalGateway(): void {
+  // Flush all dirty raw output to disk before closing
+  terminalGateway.flushDirtySessions()
+  flushAllPendingOutputWrites()
+
+  // Stop periodic flush timer
+  if (terminalGateway.outputFlushTimer) {
+    clearInterval(terminalGateway.outputFlushTimer)
+    terminalGateway.outputFlushTimer = null
+  }
+
   if (terminalWss) {
     // Close all sessions
     for (const session of Array.from(sessions.values())) {

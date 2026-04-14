@@ -7,6 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { RemoteDeployService, RemoteServerConfigInput } from '../services/remote-deploy'
 import type { RemoteServer } from '../../shared/types'
 import { getMainWindow, onMainWindowChange } from '../services/window.service'
+import { removePooledConnection } from '../services/remote-ws/remote-ws-client'
 
 const deployService = new RemoteDeployService()
 
@@ -129,6 +130,18 @@ export function registerRemoteServerHandlers(): void {
       }
     }
   )
+
+  ipcMain.handle('remote-server:update-ai-source', async (_event, serverId: string, aiSourceId: string) => {
+    console.log(`[IPC] remote-server:update-ai-source - serverId=${serverId}, aiSourceId=${aiSourceId}`)
+    try {
+      await deployService.updateServerAiSource(serverId, aiSourceId)
+      return { success: true }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-server:update-ai-source - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
 
   ipcMain.handle('remote-server:delete', async (_event, id: string) => {
     console.log('[IPC] remote-server:delete - Removing server:', id)
@@ -463,47 +476,84 @@ ipcMain.handle('remote-server:is-agent-running', async (_event, serverId: string
 // Force update agent code and restart (for deploying new features)
 ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:update-agent - Updating agent code:', serverId)
+  deployService.startUpdate(serverId)
+
+  // Helper: send completion event to renderer
+  const sendCompleteEvent = (success: boolean, data?: any, error?: string) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('remote-server:update-complete', {
+        serverId, success, data, error
+      })
+    }
+    // Show system notification so user sees it even on a different page
+    try {
+      const { Notification } = require('electron')
+      const server = deployService.getServer(serverId)
+      const serverName = server?.name || serverId
+      new Notification({
+        title: success ? 'Agent 更新完成' : 'Agent 更新失败',
+        body: success
+          ? `${serverName} 已成功更新`
+          : `${serverName} 更新失败: ${error || '未知错误'}`,
+      }).show()
+    } catch { /* Notification may not be available */ }
+  }
+
   try {
+    // Disconnect all WebSocket connections for this server BEFORE stopping the agent.
+    // This prevents "socket hang up" errors from propagating to the renderer when
+    // the remote agent process is killed. Active streams will be rejected cleanly.
+    console.log('[IPC] remote-server:update-agent - Disconnecting WebSocket connections...')
+    removePooledConnection(serverId)
+
     // Stop the agent first
     console.log('[IPC] remote-server:update-agent - Stopping agent...')
     await deployService.stopAgent(serverId)
 
     // Deploy the latest agent code (use fast incremental update)
+    // updateAgentCode internally restarts the agent at the end
     console.log('[IPC] remote-server:update-agent - Deploying latest code (incremental)...')
     await deployService.updateAgentCode(serverId)
 
-    // Start the agent with new code (will print build info)
-    console.log('[IPC] remote-server:update-agent - Starting agent...')
-    await deployService.startAgent(serverId)
-
     // Get the remote agent version after update
+    // (skip startAgent — updateAgentCode already restarted the agent)
     console.log('[IPC] remote-server:update-agent - Getting remote version...')
     const agentCheckResult = await deployService.checkAgentInstalled(serverId)
 
     // Also get the local package.json version for comparison
     const localVersionInfo = deployService.getLocalAgentVersion()
 
-    console.log('[IPC] remote-server:update-agent - Update complete', {
-      remoteVersion: agentCheckResult.version,
+    const result = {
+      message: 'Agent updated and restarted successfully',
+      remoteVersion: agentCheckResult.version || 'unknown',
       remoteBuildTime: agentCheckResult.buildTime,
-      localVersion: localVersionInfo?.version,
+      localVersion: localVersionInfo?.version || 'unknown',
       localBuildTime: localVersionInfo?.buildTime
-    })
-    return {
-      success: true,
-      data: {
-        message: 'Agent updated and restarted successfully',
-        remoteVersion: agentCheckResult.version || 'unknown',
-        remoteBuildTime: agentCheckResult.buildTime,
-        localVersion: localVersionInfo?.version || 'unknown',
-        localBuildTime: localVersionInfo?.buildTime
-      }
     }
+
+    console.log('[IPC] remote-server:update-agent - Update complete', result)
+    deployService.completeUpdate(serverId, result)
+    sendCompleteEvent(true, result)
+    return { success: true, data: result }
   } catch (error: unknown) {
     const err = error as Error
     console.error('[IPC] remote-server:update-agent - Failed:', err.message)
+    deployService.failUpdate(serverId, err.message)
+    sendCompleteEvent(false, undefined, err.message)
     return { success: false, error: err.message }
   }
+})
+
+// Query update operation state (for restoring UI after tab switch)
+ipcMain.handle('remote-server:get-update-status', async (_event, serverId: string) => {
+  const status = deployService.getUpdateStatus(serverId)
+  return { success: true, data: status }
+})
+
+// Acknowledge an update result (UI has shown it, clear stored state)
+ipcMain.handle('remote-server:acknowledge-update', async (_event, serverId: string) => {
+  deployService.acknowledgeUpdate(serverId)
+  return { success: true }
 })
 
 ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => {

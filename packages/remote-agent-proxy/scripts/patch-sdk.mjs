@@ -7,6 +7,10 @@
  * cwd, systemPrompt, maxThinkingTokens, etc. This script patches the minified
  * SDK to forward these options.
  *
+ * IMPORTANT: CLAUDE_CODE_ENTRYPOINT variable names change between SDK minifier
+ * runs, so we use a regex for those. The other patterns (mX, lX, close) are
+ * stable enough for exact matching.
+ *
  * Run: node scripts/patch-sdk.mjs
  *      (called automatically by the build script)
  */
@@ -46,15 +50,20 @@ if (sdk.includes('[PATCHED] AICO-Bot SDK patch applied')) {
 
 let patchCount = 0
 
-// === PATCH 1: Tz constructor — Remove CLAUDE_CODE_ENTRYPOINT ===
-const entryPattern = 'if(!J.CLAUDE_CODE_ENTRYPOINT)J.CLAUDE_CODE_ENTRYPOINT="sdk-ts";'
-if (sdk.includes(entryPattern)) {
-  // Must use empty-string replacement, not // comment — minified code has no
-  // newlines for thousands of chars, so a // comment would comment out critical code.
-  sdk = sdk.replace(entryPattern, '')
+// === PATCH 1, 5, 7: Remove ALL CLAUDE_CODE_ENTRYPOINT assignments ===
+// Minifier uses different variable names (J, U, s4, Y, X4...) every build.
+// Pattern: <var>.CLAUDE_CODE_ENTRYPOINT="sdk-ts";
+// IMPORTANT: [a-zA-Z] for first char prevents greedy match back into if() condition:
+//   if(!U.CLAUDE_CODE_ENTRYPOINT)U.CLAUDE_CODE_ENTRYPOINT="sdk-ts";
+//   └─ regex must NOT match the ')' ─┘  ^ starts at U
+const entryRe = /[a-zA-Z][A-Za-z0-9_]*\.CLAUDE_CODE_ENTRYPOINT="sdk-ts";/g
+const entryMatches = [...sdk.matchAll(entryRe)]
+if (entryMatches.length >= 3) {
+  sdk = sdk.replace(entryRe, '')
   patchCount++
+  console.log(`[patch-sdk] Patched: Removed CLAUDE_CODE_ENTRYPOINT (${entryMatches.length} occurrences)`)
 } else {
-  console.warn('[patch-sdk] WARNING: Could not find CLAUDE_CODE_ENTRYPOINT in Tz constructor')
+  console.warn(`[patch-sdk] WARNING: Could not find all CLAUDE_CODE_ENTRYPOINT (expected >=3, found ${entryMatches.length})`)
 }
 
 // === PATCH 2: Tz constructor — Forward all options to mX (ProcessTransport) ===
@@ -132,25 +141,12 @@ if (sdk.includes(oldClose)) {
   console.warn('[patch-sdk] WARNING: Could not find close method in Tz class')
 }
 
-// === PATCH 5: ProcessTransport (mX) — Remove CLAUDE_CODE_ENTRYPOINT ===
-const mxEntryPattern = 'if(!U.CLAUDE_CODE_ENTRYPOINT)U.CLAUDE_CODE_ENTRYPOINT="sdk-ts";'
-if (sdk.includes(mxEntryPattern)) {
-  // Must use empty-string replacement — minified code has no newlines nearby,
-  // a // comment would comment out ~10KB of critical class code.
-  sdk = sdk.replace(mxEntryPattern, '')
-  patchCount++
-} else {
-  console.warn('[patch-sdk] WARNING: Could not find CLAUDE_CODE_ENTRYPOINT in ProcessTransport')
-}
-
-// === PATCH 6: query function (Aa) — Remove CLAUDE_AGENT_SDK_VERSION ===
+// === PATCH 6: query function — Remove CLAUDE_AGENT_SDK_VERSION ===
 const verPattern = 'process.env.CLAUDE_AGENT_SDK_VERSION="0.2.87";'
 if (sdk.includes(verPattern)) {
-  // Must use empty-string replacement — minified code has no newlines nearby.
   sdk = sdk.replace(verPattern, '')
   patchCount++
 } else {
-  // Try with a generic version pattern
   const verMatch = sdk.match(/process\.env\.CLAUDE_AGENT_SDK_VERSION="[^"]+";/)
   if (verMatch) {
     sdk = sdk.replace(verMatch[0], '')
@@ -161,18 +157,7 @@ if (sdk.includes(verPattern)) {
   }
 }
 
-// === PATCH 7: query function — Remove CLAUDE_CODE_ENTRYPOINT ===
-const queryEntryPattern = 'if(!s4.CLAUDE_CODE_ENTRYPOINT)s4.CLAUDE_CODE_ENTRYPOINT="sdk-ts";'
-if (sdk.includes(queryEntryPattern)) {
-  // Must use empty-string replacement — minified code has no newlines nearby.
-  sdk = sdk.replace(queryEntryPattern, '')
-  patchCount++
-} else {
-  console.warn('[patch-sdk] WARNING: Could not find CLAUDE_CODE_ENTRYPOINT in query function')
-}
-
-// Add patch marker AFTER shebang (shebang must stay on line 1, otherwise
-// CJS require() of this .mjs file fails with SyntaxError on the "!" in "#!")
+// Add patch marker AFTER shebang (shebang must stay on line 1)
 const shebangAndSdk = sdk.match(/^#!\/usr\/bin\/env node\n([\s\S]*)/)
 if (shebangAndSdk) {
   sdk = '#!/usr/bin/env node\n// [PATCHED] AICO-Bot SDK patch applied\n' + shebangAndSdk[1]

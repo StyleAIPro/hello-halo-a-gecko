@@ -5,6 +5,12 @@ import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, Te
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 import { BackgroundTaskManager } from './background-tasks.js'
 
+/** Mask API key for safe logging (show first 8 chars only) */
+function maskKey(key?: string): string {
+  if (!key) return '(none)'
+  return key.length > 10 ? key.substring(0, 8) + '...' : '***'
+}
+
 export class RemoteAgentServer {
   private config: RemoteServerConfig
   private server: WebSocketServer
@@ -14,13 +20,14 @@ export class RemoteAgentServer {
     authenticated: boolean
     sessionId?: string  // Conversation ID
     sdkSessionId?: string  // SDK's real session ID for resumption
+    authToken?: string  // The token used to authenticate this connection (for credential lookup)
     // WebSocket MCP Bridge: tools registered by the AICO-Bot client
     aicoBotMcpTools?: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>
     aicoBotMcpCapabilities?: { aiBrowser: boolean; ghSearch: boolean; version?: number }
   }> = new Map()
   private claudeManager: ClaudeManager
+  // BackgroundTaskManager for HTTP/WS API tasks (separate from MCP server's own manager)
   private bgTaskManager: BackgroundTaskManager
-  private bgTasksMcpServer: any
 
   // Token whitelist: merged from tokens.json and bootstrap env var
   private authTokens: Set<string> = new Set()
@@ -28,6 +35,12 @@ export class RemoteAgentServer {
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
   private pendingHyperSpaceTools = new Map<string, {
     resolve: (result: string) => void
+    reject: (error: Error) => void
+  }>()
+
+  // Pending AskUserQuestion answers: questionId -> { resolve, reject }
+  private pendingAskQuestions = new Map<string, {
+    resolve: (answers: Record<string, string>) => void
     reject: (error: Error) => void
   }>()
 
@@ -53,8 +66,9 @@ export class RemoteAgentServer {
     }
     console.log(`[RemoteAgentServer] Auth whitelist initialized with ${this.authTokens.size} token(s)`)
 
-    if (!config.claudeApiKey) {
-      console.warn('Warning: No Claude API key provided. Chat features will be unavailable.')
+    // Watch tokens.json for hot-reload — supports new clients adding tokens while proxy is running
+    if (config.tokensFilePath) {
+      this.watchTokensFile(config.tokensFilePath)
     }
 
     // Use pathToClaudeCodeExecutable from config or environment variable
@@ -62,14 +76,14 @@ export class RemoteAgentServer {
     const claudeCodePath = config.pathToClaudeCodeExecutable || process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE
 
     this.claudeManager = new ClaudeManager(
-      config.claudeApiKey,
-      config.claudeBaseUrl,
+      undefined,  // API credentials are always provided per-request by AICO-Bot client
+      undefined,
       claudeCodePath || undefined,  // Pass undefined if not configured (SDK mode)
       config.workDir,
-      config.model
+      undefined  // Model is always provided per-request
     )
 
-    // Initialize background task manager for long-running commands
+    // Initialize background task manager for HTTP/WS API tasks
     this.bgTaskManager = new BackgroundTaskManager()
     this.bgTaskManager.on('update', (event) => {
       this.broadcastToAllClients({
@@ -77,11 +91,6 @@ export class RemoteAgentServer {
         data: event,
       })
     })
-
-    // Create background-tasks MCP server for Claude SDK integration
-    const bgTasksMcpServer = this.claudeManager.createBackgroundTasksMcpServer(this.bgTaskManager)
-    // Store for injection into streamChat
-    this.bgTasksMcpServer = bgTasksMcpServer
 
     this.setupServer()
   }
@@ -91,16 +100,28 @@ export class RemoteAgentServer {
       // Check for Authorization header authentication
       // HTTP headers are case-insensitive, check both 'authorization' and 'Authorization'
       const authHeader = req.headers['authorization'] || req.headers['Authorization']
+      let authGraceTimer: NodeJS.Timeout | null = null
 
       if (this.authTokens.size > 0 && typeof authHeader === 'string') {
         const token = authHeader.split(' ')[1]
         if (this.isTokenValid(token)) {
           console.log('Client authenticated via Authorization header')
-          this.clients.set(ws, { authenticated: true })
+          this.clients.set(ws, { authenticated: true, authToken: token })
+          // Send auth:success to the client so it knows immediately
+          ws.send(JSON.stringify({ type: 'auth:success' }))
         } else {
-          console.log('Authentication failed via Authorization header')
-          ws.close(1008, 'Unauthorized')
-          return
+          // Header auth failed — don't close immediately.
+          // Store as unauthenticated and allow register-token-disk to register the token.
+          console.log('Authentication failed via Authorization header, waiting for register-token-disk...')
+          this.clients.set(ws, { authenticated: false })
+          // Grace period: close the connection if still unauthenticated after 5 seconds
+          authGraceTimer = setTimeout(() => {
+            const client = this.clients.get(ws)
+            if (client && !client.authenticated) {
+              console.log('Auth grace period expired, closing unauthenticated connection')
+              ws.close(1008, 'Unauthorized')
+            }
+          }, 5000)
         }
       } else if (this.authTokens.size === 0) {
         // No auth required, auto-authenticate
@@ -110,6 +131,12 @@ export class RemoteAgentServer {
         this.clients.set(ws, { authenticated: false })
       }
       console.log('New client connected')
+
+      // Store authGraceTimer on the client so handleMessage can clear it on register-token-disk success
+      const clientInfo = this.clients.get(ws)
+      if (clientInfo && authGraceTimer) {
+        ;(clientInfo as any)._authGraceTimer = authGraceTimer
+      }
 
       ws.on('message', (data: Buffer) => {
         try {
@@ -149,12 +176,6 @@ export class RemoteAgentServer {
       console.log(`Remote Agent Proxy server listening on port ${this.config.port}`)
       if (this.config.workDir) {
         console.log(`Working directory: ${this.config.workDir}`)
-      }
-      if (this.config.claudeBaseUrl) {
-        console.log(`Claude API Base URL: ${this.config.claudeBaseUrl}`)
-      }
-      if (this.config.model) {
-        console.log(`Model: ${this.config.model}`)
       }
       if (this.config.maxThinkingTokens) {
         console.log(`Max thinking tokens: ${this.config.maxThinkingTokens}`)
@@ -221,7 +242,8 @@ export class RemoteAgentServer {
     if (!client) return
 
     // Check authentication for non-auth messages
-    if (message.type !== 'auth' && !client.authenticated) {
+    // register-token-disk is exempt: it allows clients to register their token before auth
+    if (message.type !== 'auth' && message.type !== 'register-token-disk' && !client.authenticated) {
       this.sendMessage(ws, {
         type: 'auth:failed',
         data: { message: 'Not authenticated' }
@@ -257,14 +279,7 @@ export class RemoteAgentServer {
         console.log(`[RemoteAgentServer] SDK session removed: ${sid}`)
       }
     } else if (message.type === 'claude:chat') {
-      if (!this.config.claudeApiKey) {
-        this.sendMessage(ws, {
-          type: 'claude:error',
-          sessionId,
-          data: { error: 'Claude API key not configured' }
-        })
-        return
-      }
+      // API credentials are always provided per-request by the AICO-Bot client
       const sid = sessionId || client.sessionId
       if (!sid) {
         this.sendMessage(ws, {
@@ -276,14 +291,6 @@ export class RemoteAgentServer {
       }
       await this.handleClaudeChat(ws, sid, message.payload)
     } else if (['fs:list', 'fs:read', 'fs:write', 'fs:delete', 'fs:upload', 'fs:download'].includes(message.type)) {
-      if (!this.config.claudeApiKey) {
-        this.sendMessage(ws, {
-          type: 'fs:error',
-          sessionId,
-          data: { error: 'Claude API key not configured' }
-        })
-        return
-      }
       const sid = sessionId || client.sessionId
       if (!sid) {
         this.sendMessage(ws, {
@@ -319,6 +326,64 @@ export class RemoteAgentServer {
       } else {
         console.log(`[${message.type}] No pending tool found for ID: ${toolId}`)
       }
+    } else if (message.type === 'ask:answer') {
+      // User answered an AskUserQuestion from the remote Claude
+      const questionId = message.payload?.id
+      const answers = message.payload?.answers
+      if (!questionId) {
+        console.log('[ask:answer] Missing id in payload')
+        return
+      }
+      const pending = this.pendingAskQuestions.get(questionId)
+      if (pending) {
+        this.pendingAskQuestions.delete(questionId)
+        console.log(`[ask:answer] Resolving question ${questionId}`, answers)
+        pending.resolve(answers || {})
+      } else {
+        console.log(`[ask:answer] No pending question found for id: ${questionId}`)
+      }
+    } else if (message.type === 'reload-tokens') {
+      // Force-reload tokens from disk — can be used by clients to ensure their token is in the whitelist
+      const tokensPath = this.config.tokensFilePath
+      if (tokensPath) {
+        this.reloadTokens(tokensPath)
+      }
+      this.sendMessage(ws, { type: 'reload-tokens:success', data: { count: this.authTokens.size } })
+    } else if (message.type === 'register-token-disk') {
+      // Register a token directly to both disk and in-memory whitelist
+      // Does NOT require prior authentication — used by clients to register their token
+      // before the proxy's whitelist includes it (e.g. after re-adding a server)
+      const token = message.payload?.token
+      const clientId = message.payload?.clientId || 'unknown'
+      const hostname = message.payload?.hostname || 'unknown'
+      if (!token) {
+        this.sendMessage(ws, { type: 'register-token-disk:error', data: { message: 'Missing token' } })
+        return
+      }
+      // Add to in-memory whitelist immediately (no file watcher needed)
+      if (!this.authTokens.has(token)) {
+        this.authTokens.add(token)
+        console.log(`[RemoteAgentServer] Token added to whitelist via register-token-disk (clientId: ${clientId})`)
+      }
+      // Also persist to disk for persistence across proxy restarts
+      this.handleRegisterToken({ token, clientId, hostname })
+      this.sendMessage(ws, { type: 'register-token-disk:success' })
+
+      // If the client was not yet authenticated, authenticate it now
+      // since we just registered its token. Also cancel the grace timer.
+      if (!client.authenticated) {
+        client.authenticated = true
+        client.authToken = token
+        // Clear the auth grace timer
+        const graceTimer = (client as any)._authGraceTimer
+        if (graceTimer) {
+          clearTimeout(graceTimer)
+          delete (client as any)._authGraceTimer
+        }
+        // Notify the client that it is now authenticated
+        this.sendMessage(ws, { type: 'auth:success' })
+        console.log(`[RemoteAgentServer] Client authenticated via register-token-disk (clientId: ${clientId})`)
+      }
     } else if (message.type === 'register-token') {
       // Register a new token to the whitelist
       // Client must already be authenticated to register a new token
@@ -339,7 +404,7 @@ export class RemoteAgentServer {
         client.aicoBotMcpCapabilities = message.payload?.aicoBotMcpCapabilities
         console.log(`[MCP Bridge] AICO-Bot client registered ${client.aicoBotMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.aicoBotMcpCapabilities)}`)
       }
-    } else if (message.type === 'mcp:tool:call') {
+    } else if (message.type === 'mcp:tool:response') {
       // WebSocket MCP Bridge: AICO-Bot client returns tool execution result
       const callId = message.payload?.callId
       if (callId) {
@@ -385,6 +450,7 @@ export class RemoteAgentServer {
         const client = this.clients.get(ws)
         if (client) {
           client.authenticated = true
+          client.authToken = token
           this.sendMessage(ws, { type: 'auth:success' })
           console.log('Client authenticated')
         }
@@ -432,7 +498,6 @@ export class RemoteAgentServer {
 
     if (this.authTokens.has(token)) {
       console.log(`[RemoteAgentServer] Token already in whitelist (clientId: ${clientId})`)
-      // Update lastSeen in tokens.json
       this.updateLastSeen(token, hostname)
       return
     }
@@ -516,6 +581,78 @@ export class RemoteAgentServer {
   }
 
   /**
+   * Watch tokens.json for changes and hot-reload the whitelist.
+   * Uses debouncing to handle atomic writes (.tmp + rename) and multiple inotify events.
+   */
+  private tokenReloadTimer: NodeJS.Timeout | null = null
+
+  private watchTokensFile(tokensPath: string): void {
+    try {
+      // Watch the directory containing tokens.json — atomic rename triggers 'rename' event
+      const dir = require('path').dirname(tokensPath)
+      const watcher = fs.watch(dir, (eventType: string, filename: string | null) => {
+        if (filename === 'tokens.json' || filename === 'tokens.json.tmp') {
+          this.scheduleTokenReload(tokensPath)
+        }
+      })
+      console.log(`[RemoteAgentServer] Watching ${tokensPath} for changes`)
+
+      // Clean up watcher on server close
+      this.server.on('close', () => {
+        watcher.close()
+        if (this.tokenReloadTimer) {
+          clearTimeout(this.tokenReloadTimer)
+          this.tokenReloadTimer = null
+        }
+      })
+    } catch (e) {
+      console.warn('[RemoteAgentServer] Failed to set up tokens.json watcher:', e)
+    }
+  }
+
+  /**
+   * Debounced token reload — coalesces multiple rapid fs.watch events into one re-read.
+   */
+  private scheduleTokenReload(tokensPath: string): void {
+    if (this.tokenReloadTimer) return
+    // Wait 100ms for the atomic write to complete
+    this.tokenReloadTimer = setTimeout(() => {
+      this.tokenReloadTimer = null
+      this.reloadTokens(tokensPath)
+    }, 100)
+  }
+
+  /**
+   * Reload tokens from disk and update the in-memory whitelist.
+   * New tokens are added; removed tokens are kept (graceful degradation).
+   */
+  private reloadTokens(tokensPath: string): void {
+    try {
+      if (!fs.existsSync(tokensPath)) return
+      const data: TokensFile = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
+      if (data.version !== 1 || !Array.isArray(data.tokens)) {
+        console.warn('[RemoteAgentServer] tokens.json has invalid format, skipping reload')
+        return
+      }
+
+      let added = 0
+      for (const t of data.tokens) {
+        if (t.token && !this.authTokens.has(t.token)) {
+          this.authTokens.add(t.token)
+          added++
+        }
+      }
+
+      if (added > 0) {
+        console.log(`[RemoteAgentServer] Token whitelist hot-reloaded: ${added} new token(s), total: ${this.authTokens.size}`)
+      }
+    } catch (e) {
+      // Could be a partially-written file — ignore, next event will retry
+      console.debug('[RemoteAgentServer] tokens.json reload failed (may be in-progress write):', (e as Error).message)
+    }
+  }
+
+  /**
    * Handle interrupt request for an active conversation
    */
   private async handleClaudeInterrupt(sessionId: string): Promise<void> {
@@ -572,6 +709,10 @@ export class RemoteAgentServer {
       console.log(`[RemoteAgentServer] options.maxThinkingTokens = ${options?.maxThinkingTokens || 'not provided'}`)
       console.log(`[RemoteAgentServer] options.system = ${options?.system ? options.system.substring(0, 100) + '...' : 'not provided'}`)
       console.log(`[RemoteAgentServer] SDK session resumption: ${sdkSessionIdForResume || 'new session'}`)
+
+      // Credentials are always provided per-request by the AICO-Bot client.
+      // No token-bound or instance-level credential resolution needed.
+      const resolvedOptions = options
 
       // Normalize messages to ChatMessage format
       // Support both string content and complex content (text + images)
@@ -674,17 +815,42 @@ export class RemoteAgentServer {
               this.executeAicoBotMcpTool(ws, sessionId, callId, toolName, args)
           : undefined
 
+        // AskUserQuestion handler — forward question to AICO-Bot client, wait for answer
+        const onAskUserQuestion = (id: string, questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect: boolean }>) => {
+          return new Promise<Record<string, string>>((resolve, reject) => {
+            this.pendingAskQuestions.set(id, { resolve, reject })
+            // Send question to AICO-Bot client
+            this.sendMessage(ws, {
+              type: 'ask:question',
+              sessionId,
+              data: { id, questions }
+            })
+            // 10 minute timeout for user response
+            setTimeout(() => {
+              if (this.pendingAskQuestions.has(id)) {
+                this.pendingAskQuestions.delete(id)
+                reject(new Error('AskUserQuestion timeout'))
+              }
+            }, 10 * 60 * 1000)
+          })
+        }
+
         try {
           const sdkSessionIdToUse = sdkSessionIdForResume;
 
-          // Inject background-tasks MCP server into options
-          (options as any).proxyAppsMcpServer = this.bgTasksMcpServer;
+          // Auth retry loop — rebuild session with fresh credentials on 401
+          const MAX_AUTH_RETRIES = 1
+          let authRetries = 0
+          let needsAuthRetry = false
+
+          do {
+            needsAuthRetry = false
 
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
             chatMessages,
-            options,
-            sdkSessionIdToUse,
+            resolvedOptions,
+            authRetries > 0 ? undefined : sdkSessionIdToUse,  // Don't resume on auth retry
             onToolCall,
             onTerminalOutput,
             onThought,
@@ -693,8 +859,14 @@ export class RemoteAgentServer {
             onCompact,
             hyperSpaceToolExecutor,
             aicoBotMcpToolExecutor,
-            aicoBotMcpToolDefs
+            aicoBotMcpToolDefs,
+            onAskUserQuestion
           )) {
+            // Auth retry detected — signal for session rebuild after stream ends
+            if (chunk.type === 'auth_retry_required') {
+              needsAuthRetry = true
+              continue  // Don't forward to client
+            }
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
               this.sendMessage(ws, {
@@ -747,6 +919,23 @@ export class RemoteAgentServer {
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
+
+          // Check if auth retry is needed (after stream completes)
+          if (needsAuthRetry && authRetries < MAX_AUTH_RETRIES) {
+            authRetries++
+            console.warn(`[RemoteAgentServer] Auth retry #${authRetries} for session ${sessionId}: rebuilding session`)
+
+            // Notify client about auth recovery
+            this.sendMessage(ws, {
+              type: 'auth_retry',
+              sessionId,
+              data: { attempt: authRetries, maxRetries: MAX_AUTH_RETRIES }
+            })
+
+            // Force session rebuild — next streamChat call creates fresh session
+            this.claudeManager.forceSessionRebuild(sessionId)
+          }
+          } while (needsAuthRetry && authRetries < MAX_AUTH_RETRIES)
           console.log(`[RemoteAgentServer] Stream completed for session ${sessionId}`)
         } catch (streamError) {
           // Check if this is an expected interrupt
@@ -766,6 +955,12 @@ export class RemoteAgentServer {
         if (this.claudeManager.checkAndClearInterrupt(sessionId)) {
           wasInterrupted = true
           console.log(`[RemoteAgentServer] Interrupt detected after streamChat for session ${sessionId}`)
+        }
+
+        // Reject any pending AskUserQuestion when stream ends
+        for (const [id, pending] of this.pendingAskQuestions) {
+          pending.reject(new Error('Stream ended'))
+          this.pendingAskQuestions.delete(id)
         }
 
         // Only send claude:complete if not interrupted

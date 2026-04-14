@@ -54,8 +54,39 @@ process.on('uncaughtException', (error) => {
     log.warn('[Main] Ignored EPIPE error:', error.message)
     return
   }
-  // Non-EPIPE errors: fall through to electron-log's handler (registered below via startCatching).
+
+  // Ignore network errors from remote agent connections during update/restart
+  const isNetError =
+    error.message?.includes('socket hang up') ||
+    error.message?.includes('ECONNRESET') ||
+    (error as any).code === 'ECONNRESET'
+
+  if (isNetError) {
+    log.warn('[Main] Ignored network error:', error.message)
+    return
+  }
+  // Non-EPIPE/ECONNRESET errors: fall through to electron-log's handler (registered below via startCatching).
   // Node.js calls all registered uncaughtException handlers in order — no need to re-throw.
+})
+
+// Handle unhandled promise rejections from network errors during agent update/restart.
+// electron-log's startCatching() also catches unhandledRejection and may show a dialog.
+// Register our filter first to prevent unwanted error popups for expected network errors.
+process.on('unhandledRejection', (reason: unknown) => {
+  const err = reason instanceof Error ? reason : (reason ? new Error(String(reason)) : null)
+  if (!err) return
+
+  const isNetError =
+    err.message?.includes('socket hang up') ||
+    err.message?.includes('ECONNRESET') ||
+    err.message?.includes('WebSocket disconnected') ||
+    (err as any).code === 'ECONNRESET' ||
+    (err as any).code === 'EPIPE'
+
+  if (isNetError) {
+    log.warn('[Main] Ignored unhandled network rejection:', err.message)
+    return
+  }
 })
 
 // Catch unhandled errors and log them (after EPIPE filter is in place)

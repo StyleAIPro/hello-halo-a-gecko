@@ -178,3 +178,9 @@ export interface CreateSpaceInput {
 
 // Hyper Space types
 export * from './hyper-space'
+
+// Mailbox types (multi-agent group chat)
+export * from './mailbox'
+
+// TaskBoard types (shared task board)
+export * from './taskboard'

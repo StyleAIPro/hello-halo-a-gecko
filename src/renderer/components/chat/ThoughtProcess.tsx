@@ -40,6 +40,7 @@ interface ThoughtProcessProps {
   thoughts: Thought[]
   isThinking: boolean
   workerSessions?: Map<string, WorkerSessionState>
+  defaultExpanded?: boolean
 }
 
 // i18n static keys for extraction (DO NOT REMOVE)
@@ -732,10 +733,10 @@ const SubagentThoughtGroup = memo(function SubagentThoughtGroup({
   )
 })
 
-export function ThoughtProcess({ thoughts, isThinking, workerSessions }: ThoughtProcessProps) {
-  // Start collapsed, but auto-expand when streaming starts
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
+export function ThoughtProcess({ thoughts, isThinking, workerSessions, defaultExpanded }: ThoughtProcessProps) {
+  // Start collapsed (or expanded if defaultExpanded is set), auto-expand when streaming starts
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false)
+  const [hasAutoExpanded, setHasAutoExpanded] = useState(defaultExpanded ?? false)
   const [isMaximized, setIsMaximized] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const { t } = useTranslation()

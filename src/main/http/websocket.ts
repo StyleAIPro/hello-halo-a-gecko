@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * WebSocket Manager - Handles real-time communication with remote clients
  * Replaces IPC events for remote access
  */
@@ -20,6 +20,22 @@ const clients = new Map<string, WebSocketClient>()
 
 // WebSocket server instance
 let wss: WebSocketServer | null = null
+
+// Event buffer: for events that arrived before any client subscribed to a conversationId.
+// When a client subscribes, buffered events are flushed immediately.
+// Each entry is a list of { channel, data } objects.
+const eventBuffer = new Map<string, Array<{ channel: string; data: Record<string, unknown> }>>()
+
+// Maximum buffered events per conversationId to prevent memory leaks
+const MAX_BUFFER_SIZE = 200
+// Buffer entries older than this are discarded (ms)
+const BUFFER_TTL_MS = 60_000
+
+interface BufferedEvent {
+  channel: string
+  data: Record<string, unknown>
+  timestamp: number
+}
 
 /**
  * Initialize WebSocket server
@@ -67,6 +83,39 @@ export function initWebSocket(server: any): WebSocketServer {
 }
 
 /**
+ * Flush buffered events for a conversationId to a newly subscribed client.
+ * Events are sent in order and then removed from the buffer.
+ */
+function flushBufferedEvents(client: WebSocketClient, conversationId: string): void {
+  const buffered = eventBuffer.get(conversationId)
+  if (!buffered || buffered.length === 0) return
+
+  // Filter out expired events
+  const now = Date.now()
+  const valid = buffered.filter(e => now - e.timestamp < BUFFER_TTL_MS)
+
+  // Update buffer (keep expired ones will be cleaned up later)
+  if (valid.length < buffered.length) {
+    eventBuffer.set(conversationId, valid)
+  } else {
+    // All events are still valid
+  }
+
+  // Send valid buffered events to the newly subscribed client
+  for (const event of valid) {
+    sendToClient(client, {
+      type: 'event',
+      channel: event.channel,
+      data: event.data
+    })
+  }
+
+  if (valid.length > 0) {
+    console.log(`[WS] Flushed ${valid.length} buffered events for ${conversationId}`)
+  }
+}
+
+/**
  * Handle incoming message from client
  */
 function handleClientMessage(
@@ -97,6 +146,13 @@ function handleClientMessage(
       if (message.payload?.conversationId) {
         client.subscriptions.add(message.payload.conversationId)
         console.log(`[WS] Client ${client.id} subscribed to ${message.payload.conversationId}`)
+        // Acknowledge subscription so the client can await it before sending messages
+        sendToClient(client, {
+          type: 'subscribe:success',
+          payload: { conversationId: message.payload.conversationId }
+        })
+        // Flush any events that arrived before this subscription
+        flushBufferedEvents(client, message.payload.conversationId)
       }
       break
 
@@ -126,8 +182,11 @@ function sendToClient(client: WebSocketClient, message: object): void {
 }
 
 /**
- * Broadcast event to all subscribed clients
- * This is called from agent.service.ts
+ * Broadcast event to all subscribed clients.
+ * If no client is subscribed yet, buffer the event for later delivery.
+ * This prevents event loss when events are emitted before the client's
+ * WebSocket subscription is processed (race condition between HTTP POST and
+ * WebSocket subscribe frame ordering).
  */
 export function broadcastToWebSocket(
   channel: string,
@@ -141,14 +200,46 @@ export function broadcastToWebSocket(
     return
   }
 
+  let hasSubscribers = false
   for (const client of Array.from(clients.values())) {
-    // Only send to authenticated clients subscribed to this conversation
     if (client.authenticated && client.subscriptions.has(conversationId)) {
+      hasSubscribers = true
       sendToClient(client, {
         type: 'event',
         channel,
         data
       })
+    }
+  }
+
+  // No subscribers — buffer the event for later delivery when a client subscribes
+  if (!hasSubscribers) {
+    let buffer = eventBuffer.get(conversationId)
+    if (!buffer) {
+      buffer = []
+      eventBuffer.set(conversationId, buffer)
+    }
+    // Enforce max buffer size (discard oldest if exceeded)
+    if (buffer.length >= MAX_BUFFER_SIZE) {
+      buffer.shift()
+    }
+    buffer.push({ channel, data, timestamp: Date.now() })
+
+    // Periodically clean up expired buffers
+    if (buffer.length === 1) {
+      // Schedule cleanup on first buffer entry
+      setTimeout(() => {
+        const buf = eventBuffer.get(conversationId)
+        if (buf) {
+          const now = Date.now()
+          const valid = buf.filter(e => now - e.timestamp < BUFFER_TTL_MS)
+          if (valid.length === 0) {
+            eventBuffer.delete(conversationId)
+          } else {
+            eventBuffer.set(conversationId, valid)
+          }
+        }
+      }, BUFFER_TTL_MS + 1000)
     }
   }
 }
@@ -197,6 +288,7 @@ export function shutdownWebSocket(): void {
     clients.clear()
     wss.close()
     wss = null
+    eventBuffer.clear()
     console.log('[WS] WebSocket server shutdown')
   }
 }

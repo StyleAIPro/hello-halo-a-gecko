@@ -6,6 +6,7 @@
 import { app } from 'electron'
 import { SSHManager, SSHConfig } from '../remote-ssh/ssh-manager'
 import { getConfig, saveConfig } from '../config.service'
+import { decryptString } from '../secure-storage.service'
 import type { RemoteServer } from '../../../shared/types'
 import type { InstalledSkill } from '../../../shared/skill/skill-types'
 import type { SkillFileNode } from '../../../shared/skill/skill-types'
@@ -74,12 +75,22 @@ const AGENT_FILES = [
   { name: 'types.js.map', path: '../packages/remote-agent-proxy/dist/types.js.map' }
 ]
 
+export interface UpdateOperationState {
+  inProgress: boolean
+  completedAt?: number
+  success?: boolean
+  data?: any
+  error?: string
+}
+
 export class RemoteDeployService {
   private servers: Map<string, RemoteServerConfig> = new Map()
   private sshManagers: Map<string, SSHManager> = new Map()
   private statusCallbacks: Set<(serverId: string, config: RemoteServer) => void> = new Set()
   private commandOutputCallbacks: Set<(serverId: string, type: 'command' | 'output' | 'error' | 'success', content: string) => void> = new Set()
   private deployProgressCallbacks: Set<(serverId: string, stage: string, message: string, progress?: number) => void> = new Set()
+  // Track update operations so the UI can restore state after component remount
+  private updateOperations: Map<string, UpdateOperationState> = new Map()
 
   constructor() {
     this.loadServers()
@@ -114,6 +125,49 @@ export class RemoteDeployService {
   private emitDeployProgress(serverId: string, stage: string, message: string, progress?: number): void {
     console.log(`[RemoteDeployService][${serverId}] ${stage}: ${message}`)
     this.deployProgressCallbacks.forEach(callback => callback(serverId, stage, message, progress))
+  }
+
+  // ===== Update operation state tracking =====
+  // These methods allow the UI to restore spinner/dialog state after tab switches.
+
+  startUpdate(id: string): void {
+    this.updateOperations.set(id, { inProgress: true })
+  }
+
+  completeUpdate(id: string, data?: any): void {
+    this.updateOperations.set(id, {
+      inProgress: false,
+      completedAt: Date.now(),
+      success: true,
+      data,
+    })
+  }
+
+  failUpdate(id: string, error: string): void {
+    this.updateOperations.set(id, {
+      inProgress: false,
+      completedAt: Date.now(),
+      success: false,
+      error,
+    })
+  }
+
+  getUpdateStatus(id: string): UpdateOperationState | null {
+    return this.updateOperations.get(id) || null
+  }
+
+  /** Get all servers that currently have an update in progress */
+  getInProgressUpdates(): string[] {
+    const result: string[] = []
+    for (const [id, state] of this.updateOperations) {
+      if (state.inProgress) result.push(id)
+    }
+    return result
+  }
+
+  /** Mark an update result as acknowledged (UI has shown it) */
+  acknowledgeUpdate(id: string): void {
+    this.updateOperations.delete(id)
   }
 
   /**
@@ -228,6 +282,7 @@ export class RemoteDeployService {
       claudeApiKey: config.claudeApiKey,
       claudeBaseUrl: config.claudeBaseUrl,
       claudeModel: config.claudeModel,
+      aiSourceId: config.aiSourceId,
     }
 
     console.log('[RemoteDeployService] addServer - Server object before save:', JSON.stringify(server))
@@ -244,6 +299,21 @@ export class RemoteDeployService {
     try {
       await this.connectServer(id)
       console.log(`[RemoteDeployService] Server ${server.name} connected (deployment skipped - use Update Agent)`)
+
+      // After SSH is connected, quickly detect if SDK/agent is already installed
+      // This avoids showing "SDK Not Installed" for servers that already have a working deployment
+      try {
+        console.log(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`)
+        const detectResult = await this.detectAgentInstalled(id)
+        if (detectResult.installed) {
+          console.log(`[RemoteDeployService] Existing agent detected on ${server.name} (version: ${detectResult.version})`)
+        } else {
+          console.log(`[RemoteDeployService] No existing agent found on ${server.name}`)
+        }
+      } catch (detectError) {
+        // Detection failure should not block the server addition
+        console.warn(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError)
+      }
     } catch (error) {
       console.error('[RemoteDeployService] Connection failed:', error)
       await this.updateServer(id, {
@@ -339,6 +409,36 @@ export class RemoteDeployService {
   }
 
   /**
+   * Update the AI source bound to a remote server.
+   * Resolves the AI source's credentials and updates server card fields.
+   */
+  async updateServerAiSource(serverId: string, aiSourceId: string): Promise<void> {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      throw new Error(`Server not found: ${serverId}`)
+    }
+
+    const config = getConfig()
+    const source = config.aiSources?.sources?.find(s => s.id === aiSourceId)
+    if (!source) {
+      throw new Error(`AI source not found: ${aiSourceId}`)
+    }
+
+    const claudeApiKey = source.authType === 'api-key' ? (source.apiKey || '') : (source.accessToken || '')
+    const claudeBaseUrl = source.apiUrl || ''
+    const claudeModel = source.model || ''
+
+    await this.updateServer(serverId, {
+      aiSourceId,
+      claudeApiKey,
+      claudeBaseUrl,
+      claudeModel,
+    })
+
+    console.log(`[RemoteDeployService] Updated AI source for server ${server.name}: ${source.name} (${claudeModel})`)
+  }
+
+  /**
    * Remove a server
    */
   async removeServer(id: string): Promise<void> {
@@ -353,22 +453,76 @@ export class RemoteDeployService {
 
   /**
    * Get or create SSH manager for a server
+   * NOTE: Does NOT replace disconnected managers — callers must reconnect via connectServer()
+   * This prevents race conditions where a recently-connected manager gets replaced by a
+   * fresh disconnected one during rapid successive calls.
    */
   private getSSHManager(id: string): SSHManager {
     let manager = this.sshManagers.get(id)
-
-    // If manager exists but is not connected, create a fresh one
-    if (manager && !manager.isConnected()) {
-      console.log(`[RemoteDeployService] Cached SSH manager for ${id} is disconnected, creating fresh one`)
-      this.sshManagers.delete(id)
-      manager = new SSHManager()
-      this.sshManagers.set(id, manager)
-    } else if (!manager) {
+    if (!manager) {
       manager = new SSHManager()
       this.sshManagers.set(id, manager)
     }
-
     return manager
+  }
+
+  /**
+   * Ensure SSH connection is established for a server.
+   * Reconnects the existing manager if needed. This is the preferred way
+   * to ensure connectivity before SSH operations.
+   */
+  async ensureSshConnection(id: string): Promise<void> {
+    await this.ensureSshConnectionInternal(id)
+  }
+
+  private async ensureSshConnectionInternal(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    const manager = this.sshManagers.get(id)
+    if (manager && manager.isConnected()) {
+      return // Already connected
+    }
+
+    // Reconnect using existing manager (or create new if none exists)
+    const mgr = this.getSSHManager(id)
+    console.log(`[RemoteDeployService] Ensuring SSH connection for ${server.name} (${id})...`)
+    await mgr.connect(server.ssh)
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    if (!mgr.isConnected()) {
+      throw new Error(`Failed to establish SSH connection to ${server.name}`)
+    }
+  }
+
+  /**
+   * Check SSH connection health and reconnect if needed.
+   * Used before long-running operations to prevent "Not connected" errors
+   * when the connection silently dropped (e.g., during OS suspend, network
+   * switch, or window focus change).
+   */
+  private async ensureSshConnectionHealthy(id: string): Promise<void> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    const manager = this.sshManagers.get(id)
+    if (!manager) {
+      await this.ensureSshConnectionInternal(id)
+      return
+    }
+
+    if (!manager.isConnected()) {
+      console.log(`[RemoteDeployService] SSH connection dropped, reconnecting...`)
+      await this.ensureSshConnectionInternal(id)
+      return
+    }
+
+    // Connection appears active — run a lightweight health check
+    try {
+      await manager.executeCommand('echo ok')
+    } catch (err) {
+      console.log(`[RemoteDeployService] SSH health check failed, reconnecting...`)
+      await this.ensureSshConnectionInternal(id)
+    }
   }
 
   /**
@@ -384,9 +538,9 @@ export class RemoteDeployService {
 
     if (server.status === 'connected') {
       console.log(`[RemoteDeployService] Server ${server.name} already connected, checking SSH state...`)
-      const manager = this.getSSHManager(id)
-      console.log(`[RemoteDeployService] SSH state: ${manager.isConnected()}`)
-      if (manager.isConnected()) {
+      const manager = this.sshManagers.get(id)
+      console.log(`[RemoteDeployService] SSH state: ${manager?.isConnected()}`)
+      if (manager && manager.isConnected()) {
         console.log(`[RemoteDeployService] SSH is connected, reusing connection`)
         return
       }
@@ -396,33 +550,32 @@ export class RemoteDeployService {
     await this.updateServer(id, { status: 'connecting' })
 
     try {
-      const manager = this.getSSHManager(id)
-      console.log(`[RemoteDeployService] Calling manager.connect for ${server.name}...`)
+      console.log(`[RemoteDeployService] Establishing SSH connection for ${server.name}...`)
 
-      manager.connect(server.ssh)
+      await this.ensureSshConnectionInternal(id)
 
-      // Wait a bit for connection to stabilize
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const manager = this.sshManagers.get(id)
+      console.log(`[RemoteDeployService] Verifying SSH connection after ensureSshConnection: ${manager?.isConnected()}`)
 
-      // Verify SSH is actually connected
-      console.log(`[RemoteDeployService] Verifying SSH connection after 2s: ${manager.isConnected()}`)
-
-      if (!manager.isConnected()) {
+      if (!manager?.isConnected()) {
         throw new Error('SSH connection not established')
       }
 
       // Register this PC's token to the remote whitelist (tokens.json)
       // This ensures the PC can authenticate when connecting via WebSocket
+      let tokenRegistrationWarning: string | undefined
       try {
         console.log(`[RemoteDeployService] Ensuring local token is in remote whitelist...`)
         await this.registerTokenOnRemote(id)
       } catch (error) {
-        console.warn(`[RemoteDeployService] Failed to register token (non-fatal):`, error)
+        const errMsg = error instanceof Error ? error.message : String(error)
+        console.error(`[RemoteDeployService] Failed to register token:`, errMsg)
+        tokenRegistrationWarning = `Token registration failed: ${errMsg}. Remote chat may fail until token is synced.`
       }
 
       await this.updateServer(id, {
         status: 'connected',
-        error: undefined,
+        error: tokenRegistrationWarning,
         lastConnected: new Date(),
       })
 
@@ -539,61 +692,25 @@ export class RemoteDeployService {
       }
 
       // Upload package.json
-      this.emitDeployProgress(id, 'upload', '正在上传 package.json...', 15)
+      this.emitDeployProgress(id, 'upload', '正在打包部署文件...', 15)
       const packageJsonPath = path.join(packageDir, 'package.json')
-      if (fs.existsSync(packageJsonPath)) {
-        await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
-      }
 
-      // Upload all files from dist directory recursively (including subdirectories like proxy-apps/)
-      const distFiles = this.readdirRecursive(distDir)
-      let uploadedCount = 0
-      for (const file of distFiles) {
-        const localPath = path.join(distDir, file)
-        const remotePath = `${DEPLOY_AGENT_PATH}/dist/${file}`
-        uploadedCount++
-        const progress = 15 + Math.round((uploadedCount / distFiles.length) * 20)
-        this.emitDeployProgress(id, 'upload', `正在上传 ${file}...`, progress)
-        // Ensure remote subdirectory exists before uploading
-        const remoteDir = path.dirname(remotePath)
-        await manager.executeCommand(`mkdir -p "${remoteDir}"`)
-        await manager.uploadFile(localPath, remotePath)
-      }
+      // Package all files (dist/, patches/, scripts/, package.json) into a single tar.gz
+      const localPackagePath = await this.createDeployPackage(packageDir)
 
-      // Also upload version.json to the root deployment path for easy access
-      const versionJsonPath = path.join(distDir, 'version.json')
-      if (fs.existsSync(versionJsonPath)) {
-        this.emitDeployProgress(id, 'upload', '正在上传版本信息...', 38)
-        await manager.uploadFile(versionJsonPath, `${DEPLOY_AGENT_PATH}/version.json`)
-      }
+      // Connection health check before upload (prevents failures after tab switch)
+      await this.ensureSshConnectionHealthy(id)
 
-      // Upload patches directory for SDK patch support
-      const patchesDir = path.join(packageDir, 'patches')
-      if (fs.existsSync(patchesDir)) {
-        this.emitDeployProgress(id, 'upload', '正在上传 SDK 补丁...', 40)
-        await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/patches`)
-        const patchFiles = fs.readdirSync(patchesDir)
-        for (const file of patchFiles) {
-          const localPath = path.join(patchesDir, file)
-          if (fs.statSync(localPath).isFile()) {
-            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
-          }
-        }
-      }
+      this.emitDeployProgress(id, 'upload', '正在上传部署包...', 20)
+      const remotePackageName = `agent-deploy-${Date.now()}.tar.gz`
+      await manager.uploadFile(localPackagePath, `${DEPLOY_AGENT_PATH}/${remotePackageName}`)
 
-      // Upload scripts directory (register-token.js etc.)
-      const scriptsDir = path.join(packageDir, 'scripts')
-      if (fs.existsSync(scriptsDir)) {
-        this.emitDeployProgress(id, 'upload', '正在上传辅助脚本...', 41)
-        await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/scripts`)
-        const scriptFiles = fs.readdirSync(scriptsDir)
-        for (const file of scriptFiles) {
-          const localPath = path.join(scriptsDir, file)
-          if (fs.statSync(localPath).isFile()) {
-            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/scripts/${file}`)
-          }
-        }
-      }
+      this.emitDeployProgress(id, 'upload', '正在解压部署包...', 35)
+      await manager.executeCommand(`cd ${DEPLOY_AGENT_PATH} && tar -xzf ${remotePackageName} && rm -f ${remotePackageName}`)
+      this.emitCommandOutput(id, 'success', '✓ 部署包已上传并解压')
+
+      // Clean up local temp package
+      try { fs.unlinkSync(localPackagePath) } catch {}
 
       // Check if Node.js is installed before running npm commands
       this.emitDeployProgress(id, 'prepare', '检查 Node.js 环境...', 42)
@@ -752,6 +869,9 @@ WRAPPER
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 55)
       this.emitCommandOutput(id, 'command', `$ npm install`)
 
+      // Connection health check before long-running npm install
+      await this.ensureSshConnectionHealthy(id)
+
       const installResult = await manager.executeCommandStreaming(
         `cd ${DEPLOY_AGENT_PATH} && export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
         (type, data) => {
@@ -774,6 +894,8 @@ WRAPPER
       // Also install SDK globally for use by other projects
       this.emitDeployProgress(id, 'install', '正在全局安装 SDK...', 77)
       this.emitCommandOutput(id, 'command', '$ npm install -g @anthropic-ai/claude-agent-sdk')
+      // Connection health check before SDK install
+      await this.ensureSshConnectionHealthy(id)
       const globalSdkResult = await manager.executeCommandStreaming(
         'export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install -g @anthropic-ai/claude-agent-sdk 2>&1',
         (type, data) => {
@@ -802,6 +924,7 @@ WRAPPER
       const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath()
       const localSdkPath = path.join(projectRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk')
       const remoteSdkPath = `${DEPLOY_AGENT_PATH}/node_modules/@anthropic-ai/claude-agent-sdk`
+      const patchesDir = path.join(packageDir, 'patches')
 
       const hasPatch = fs.existsSync(patchesDir) &&
         fs.readdirSync(patchesDir).some((f: string) => f.endsWith('.patch'))
@@ -879,7 +1002,7 @@ WRAPPER
   }
 
   /**
-   * Fast update: only upload changed files, skip full environment setup.
+   * Fast update: upload all files as a single tar.gz package, skip full environment setup.
    * Falls back to full deployAgentCode() if this is the first deployment.
    */
   async updateAgentCode(id: string): Promise<void> {
@@ -940,59 +1063,43 @@ WRAPPER
 
     const npmPathPrefix = `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && `
 
-    this.emitDeployProgress(id, 'upload', '正在检查文件变更...', 10)
-
+    // --- Package and upload all files as a single tar.gz ---
     const packageDir = getRemoteAgentProxyPath()
     const distDir = path.join(packageDir, 'dist')
     const patchesDir = path.join(packageDir, 'patches')
 
-    // 1. Upload changed dist files (recursive to include subdirectories like proxy-apps/)
-    let changedFiles = 0
-    const distFiles = this.readdirRecursive(distDir)
-    for (let i = 0; i < distFiles.length; i++) {
-      const file = distFiles[i]
-      const localPath = path.join(distDir, file)
-      const remotePath = `${DEPLOY_AGENT_PATH}/dist/${file}`
-      const progress = 10 + Math.round(((i + 1) / distFiles.length) * 20)
-      this.emitDeployProgress(id, 'upload', `正在检查 ${file}...`, progress)
+    this.emitDeployProgress(id, 'upload', '正在打包部署文件...', 10)
+    const packagePath = await this.createDeployPackage(packageDir)
 
-      // Compare md5 with remote
-      const localMd5 = this.computeMd5(localPath)
-      const remoteMd5Result = await manager.executeCommandFull(`md5sum ${remotePath} 2>/dev/null | awk '{print $1}' || echo ""`)
-      const remoteMd5 = remoteMd5Result.stdout.trim()
+    // Connection health check before upload (prevents failures after tab switch)
+    await this.ensureSshConnectionHealthy(id)
 
-      if (localMd5 !== remoteMd5) {
-        // Ensure remote subdirectory exists before uploading
-        const remoteDir = path.dirname(remotePath)
-        await manager.executeCommand(`mkdir -p "${remoteDir}"`)
-        await manager.uploadFile(localPath, remotePath)
-        changedFiles++
-        this.emitCommandOutput(id, 'output', `  ↑ ${file} (已更新)`)
-      }
-    }
-    this.emitCommandOutput(id, 'output', `dist 文件: ${changedFiles}/${distFiles.length} 已更新`)
+    this.emitDeployProgress(id, 'upload', '正在上传部署包...', 20)
+    const updatedManager = this.getSSHManager(id)
+    const remotePackageName = `agent-update-${Date.now()}.tar.gz`
+    const remotePackagePath = `${DEPLOY_AGENT_PATH}/${remotePackageName}`
+    await updatedManager.uploadFile(packagePath, remotePackagePath)
 
-    // Also upload version.json to root
-    const versionJsonPath = path.join(distDir, 'version.json')
-    if (fs.existsSync(versionJsonPath)) {
-      const localMd5 = this.computeMd5(versionJsonPath)
-      const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/version.json 2>/dev/null | awk '{print $1}' || echo ""`)
-      if (localMd5 !== remoteMd5Result.stdout.trim()) {
-        await manager.uploadFile(versionJsonPath, `${DEPLOY_AGENT_PATH}/version.json`)
-      }
-    }
+    this.emitDeployProgress(id, 'upload', '正在解压部署包...', 35)
+    await manager.executeCommand(`cd ${DEPLOY_AGENT_PATH} && tar -xzf ${remotePackageName} && rm -f ${remotePackageName}`)
+    this.emitCommandOutput(id, 'success', '✓ 部署包已上传并解压')
 
-    // 2. Upload package.json and check if npm install is needed
-    this.emitDeployProgress(id, 'install', '正在检查依赖变更...', 35)
+    // Clean up local temp package
+    try { fs.unlinkSync(packagePath) } catch {}
+
+    // 2. Check if npm install is needed (compare package.json md5)
+    this.emitDeployProgress(id, 'install', '正在检查依赖变更...', 40)
     const packageJsonPath = path.join(packageDir, 'package.json')
     const localPkgMd5 = this.computeMd5(packageJsonPath)
     const remotePkgMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/package.json 2>/dev/null | awk '{print $1}' || echo ""`)
 
     if (localPkgMd5 !== remotePkgMd5Result.stdout.trim()) {
       // package.json changed → npm install needed
-      await manager.uploadFile(packageJsonPath, `${DEPLOY_AGENT_PATH}/package.json`)
       this.emitCommandOutput(id, 'output', 'package.json 已变更，执行 npm install...')
-      this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 40)
+      this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 45)
+
+      // Connection health check before long-running npm install
+      await this.ensureSshConnectionHealthy(id)
 
       const installResult = await manager.executeCommandStreaming(
         `cd ${DEPLOY_AGENT_PATH} && ${npmPathPrefix}npm install --legacy-peer-deps 2>&1`,
@@ -1014,7 +1121,7 @@ WRAPPER
       const depsMissing = await this.checkRemoteDependencies(id, manager, packageJsonPath)
       if (depsMissing) {
         this.emitCommandOutput(id, 'output', `检测到缺失依赖: ${depsMissing}，执行 npm install...`)
-        this.emitDeployProgress(id, 'install', '正在修复依赖 (npm install)...', 40)
+        this.emitDeployProgress(id, 'install', '正在修复依赖 (npm install)...', 45)
 
         const repairResult = await manager.executeCommandStreaming(
           `cd ${DEPLOY_AGENT_PATH} && ${npmPathPrefix}npm install --legacy-peer-deps 2>&1`,
@@ -1047,6 +1154,8 @@ WRAPPER
       if (remoteSdkVersion && remoteSdkVersion !== localVersionInfo.version) {
         this.emitCommandOutput(id, 'output', `SDK 版本变更: ${remoteSdkVersion} → ${localVersionInfo.version}`)
         this.emitDeployProgress(id, 'install', '正在更新 SDK...', 57)
+        // Connection health check before SDK install
+        await this.ensureSshConnectionHealthy(id)
         await manager.executeCommandStreaming(
           `${npmPathPrefix}npm install -g @anthropic-ai/claude-agent-sdk 2>&1`,
           (type, data) => {
@@ -1077,6 +1186,8 @@ WRAPPER
       const localSdkMd5 = this.computeMd5(localSdkFile)
       const remoteSdkMd5Result = await manager.executeCommandFull(`md5sum ${remoteSdkPath}/sdk.mjs 2>/dev/null | awk '{print $1}' || echo ""`)
       if (localSdkMd5 !== remoteSdkMd5Result.stdout.trim()) {
+        // Connection health check before SDK file upload
+        await this.ensureSshConnectionHealthy(id)
         await manager.executeCommand(`mkdir -p ${remoteSdkPath}`)
         await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`)
         this.emitCommandOutput(id, 'output', 'SDK 补丁已更新')
@@ -1087,53 +1198,13 @@ WRAPPER
       this.emitCommandOutput(id, 'output', '无 SDK 补丁，使用远程 npm 安装版本')
     }
 
-    // 5. Upload patches (if changed)
-    if (fs.existsSync(patchesDir)) {
-      const patchFiles = fs.readdirSync(patchesDir)
-      let patchChanged = 0
-      for (const file of patchFiles) {
-        const localPath = path.join(patchesDir, file)
-        if (fs.statSync(localPath).isFile()) {
-          const localMd5 = this.computeMd5(localPath)
-          const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/patches/${file} 2>/dev/null | awk '{print $1}' || echo ""`)
-          if (localMd5 !== remoteMd5Result.stdout.trim()) {
-            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/patches/${file}`)
-            patchChanged++
-          }
-        }
-      }
-      if (patchChanged > 0) {
-        this.emitCommandOutput(id, 'output', `patches: ${patchChanged} 个文件已更新`)
-      }
-    }
-
-    // 6. Upload scripts (register-token.js etc.)
-    const scriptsDir = path.join(packageDir, 'scripts')
-    if (fs.existsSync(scriptsDir)) {
-      const scriptFiles = fs.readdirSync(scriptsDir)
-      let scriptChanged = 0
-      await manager.executeCommand(`mkdir -p ${DEPLOY_AGENT_PATH}/scripts`)
-      for (const file of scriptFiles) {
-        const localPath = path.join(scriptsDir, file)
-        if (fs.statSync(localPath).isFile()) {
-          const localMd5 = this.computeMd5(localPath)
-          const remoteMd5Result = await manager.executeCommandFull(`md5sum ${DEPLOY_AGENT_PATH}/scripts/${file} 2>/dev/null | awk '{print $1}' || echo ""`)
-          if (localMd5 !== remoteMd5Result.stdout.trim()) {
-            await manager.uploadFile(localPath, `${DEPLOY_AGENT_PATH}/scripts/${file}`)
-            scriptChanged++
-          }
-        }
-      }
-      if (scriptChanged > 0) {
-        this.emitCommandOutput(id, 'output', `scripts: ${scriptChanged} 个文件已更新`)
-      }
-    }
-
-    // 7. Sync system prompt
+    // 5. Sync system prompt
     this.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 75)
+    // Connection health check before sync operations
+    await this.ensureSshConnectionHealthy(id)
     await this.syncSystemPrompt(id)
 
-    // 8. Register this PC's auth token to the remote whitelist (tokens.json)
+    // 6. Register this PC's auth token to the remote whitelist (tokens.json)
     // This ensures the token whitelist is created/updated even during incremental updates
     try {
       this.emitDeployProgress(id, 'token', '正在注册认证令牌...', 85)
@@ -1143,8 +1214,10 @@ WRAPPER
       this.emitCommandOutput(id, 'error', `⚠️ 令牌注册失败（非致命）：${tokenError}`)
     }
 
-    // 9. Restart agent to apply changes (same logic as deployAgentCode)
+    // 7. Restart agent to apply changes (same logic as deployAgentCode)
     this.emitDeployProgress(id, 'restart', '检查 Agent 状态...', 90)
+    // Connection health check before restart operations
+    await this.ensureSshConnectionHealthy(id)
     try {
       const healthPort = (server.wsPort || 8080) + 1
       const checkHealthCmd = `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`
@@ -1186,6 +1259,41 @@ WRAPPER
     this.emitCommandOutput(id, 'success', '========================================')
     this.emitCommandOutput(id, 'success', '增量更新完成!')
     this.emitCommandOutput(id, 'success', '========================================')
+  }
+
+  /**
+   * Create a tar.gz deployment package containing dist/, patches/, scripts/, and package.json.
+   * Returns the path to the temporary tar.gz file.
+   */
+  private async createDeployPackage(packageDir: string): Promise<string> {
+    const { execSync } = require('child_process')
+    const tmpDir = os.tmpdir()
+    const packagePath = path.join(tmpDir, `aico-bot-deploy-${Date.now()}.tar.gz`)
+    const distDir = path.join(packageDir, 'dist')
+
+    if (!fs.existsSync(distDir)) {
+      throw new Error(`Remote agent proxy not built. Run 'npm run build' first. (looked at: ${distDir})`)
+    }
+
+    // Build tar command args
+    // tar -czf <output> -C <packageDir> package.json dist/ patches/ scripts/
+    const includes: string[] = ['package.json', 'dist']
+    if (fs.existsSync(path.join(packageDir, 'patches'))) {
+      includes.push('patches')
+    }
+    if (fs.existsSync(path.join(packageDir, 'scripts'))) {
+      includes.push('scripts')
+    }
+
+    const tarArgs = `-czf "${packagePath}" -C "${packageDir}" ${includes.join(' ')}`
+
+    try {
+      execSync(`tar ${tarArgs}`, { stdio: 'pipe' })
+    } catch (err) {
+      throw new Error(`Failed to create deployment package: ${err}`)
+    }
+
+    return packagePath
   }
 
   /**
@@ -1327,9 +1435,6 @@ WRAPPER
       `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(bootstrapToken)}`,
       server.workDir ? `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir)}` : null,
       `IS_SANDBOX=1`,
-      server.claudeApiKey ? `ANTHROPIC_API_KEY=${escapeEnvValue(server.claudeApiKey)}` : null,
-      server.claudeBaseUrl ? `ANTHROPIC_BASE_URL=${escapeEnvValue(server.claudeBaseUrl)}` : null,
-      server.claudeModel ? `ANTHROPIC_MODEL=${escapeEnvValue(server.claudeModel)}` : null
     ].filter(Boolean).join(' ')
 
     const indexPath = `${DEPLOY_AGENT_PATH}/dist/index.js`
@@ -1454,11 +1559,13 @@ WRAPPER
       throw new Error(`Server not found: ${id}`)
     }
 
-    const manager = this.getSSHManager(id)
+    // Ensure SSH connection first (may reconnect)
+    await this.ensureSshConnectionInternal(id)
 
-    // Ensure SSH connection is established
-    if (!manager.isConnected()) {
-      await this.connectServer(id)
+    // Get the manager AFTER ensuring connection (it may have been replaced)
+    const manager = this.sshManagers.get(id)
+    if (!manager || !manager.isConnected()) {
+      throw new Error(`SSH not connected for ${id} after ensureSshConnection`)
     }
 
     const token = server.authToken
@@ -1468,8 +1575,9 @@ WRAPPER
     console.log(`[RemoteDeployService] Registering token for ${server.name} (clientId: ${clientId})`)
 
     // Call the register-token.js script on the remote server
+    // Args: token clientId hostname tokensPath
     const scriptPath = `${DEPLOY_AGENT_PATH}/scripts/register-token.cjs`
-    const registerCmd = `node ${scriptPath} '${token}' '${clientId}' '${hostname}'`
+    const registerCmd = `node ${scriptPath} '${token}' '${clientId}' '${hostname}' '' '' '' ''`
 
     try {
       const result = await manager.executeCommandFull(registerCmd)
@@ -1792,13 +1900,28 @@ WRAPPER
       return existingClient
     }
 
+    // Resolve API credentials — server card aiSourceId takes precedence, then global AI source
+    const config = getConfig()
+    const sourceId = server.aiSourceId || config.aiSources?.currentId
+    const currentSource = sourceId ? config.aiSources?.sources?.find(s => s.id === sourceId) : undefined
+
+    // Decrypt apiKey (handles both encrypted aiSources and plaintext server card values)
+    const apiKeyRaw = server.claudeApiKey || currentSource?.apiKey || config.api?.apiKey
+    const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined
+    const baseUrl = server.claudeBaseUrl || currentSource?.apiUrl
+    const model = server.claudeModel || currentSource?.model || config.api?.model
+
     // Create new WebSocket client
     const wsConfig = {
       serverId: id,
       host: server.ssh.host,
       port: 8080,  // Default WebSocket port for remote-agent-proxy
       useSshTunnel: false,  // TODO: Support SSH tunneling
-      authToken: server.password || ''  // Use SSH password as auth token for now
+      authToken: server.password || '',  // Use SSH password as auth token for now
+      // Bind server card API credentials to this connection (per-PC isolation)
+      apiKey,
+      baseUrl: baseUrl || undefined,
+      model: model || undefined
     }
 
     const client = new RemoteWsClient(wsConfig)
@@ -1839,6 +1962,65 @@ WRAPPER
   disconnectAll(): void {
     for (const [id] of this.servers) {
       this.disconnectServer(id)
+    }
+  }
+
+  /**
+   * Lightweight detection of claude-agent-sdk on remote server
+   * Unlike checkAgentInstalled(), this does NOT emit terminal output
+   * Used for quick auto-detection when adding/connecting to a server
+   */
+  private async detectAgentInstalled(id: string): Promise<{ installed: boolean; version?: string }> {
+    const server = this.servers.get(id)
+    if (!server) {
+      throw new Error(`Server not found: ${id}`)
+    }
+
+    const manager = this.getSSHManager(id)
+
+    // Only connect if not already connected
+    if (!manager.isConnected()) {
+      await this.connectServer(id)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+
+    if (!manager.isConnected()) {
+      return { installed: false }
+    }
+
+    try {
+      // Check SDK
+      const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND)
+      const stdout = result.stdout.trim()
+      const installed = stdout.includes('@anthropic-ai/claude-agent-sdk') && !stdout.includes('NOT_INSTALLED')
+
+      let version: string | undefined
+      if (installed) {
+        const versionMatch = stdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/)
+        version = versionMatch ? versionMatch[1] : 'unknown'
+      }
+
+      // Also check if the agent is already running (proxy process)
+      let agentRunning = false
+      try {
+        const pgrepResult = await manager.executeCommandFull(`pgrep -f "node.*${DEPLOY_AGENT_PATH}" 2>/dev/null || echo ""`)
+        agentRunning = pgrepResult.stdout.trim().length > 0
+      } catch {
+        // Ignore
+      }
+
+      // Update server config with SDK status
+      await this.updateServer(id, {
+        sdkInstalled: installed,
+        sdkVersion: version,
+      })
+
+      console.log(`[RemoteDeployService] detectAgentInstalled for ${server.name}: installed=${installed}, version=${version}, running=${agentRunning}`)
+
+      return { installed, version }
+    } catch (error) {
+      console.error(`[RemoteDeployService] detectAgentInstalled failed for ${server.name}:`, error)
+      return { installed: false }
     }
   }
 

@@ -15,11 +15,16 @@ export interface RemoteWsClientConfig {
   port: number
   authToken: string
   useSshTunnel?: boolean  // Use SSH port forwarding (localhost:8080) instead of direct connection
+  // Per-connection API credentials (sent during token registration)
+  apiKey?: string
+  baseUrl?: string
+  model?: string
 }
 
 export interface ClientMessage {
   type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:download' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject'
-        | 'mcp:tools:register' | 'mcp:tool:call' | 'mcp:tool:error'  // WebSocket MCP Bridge
+        | 'mcp:tools:register' | 'mcp:tool:response' | 'mcp:tool:error'  // WebSocket MCP Bridge
+        | 'ask:answer'  // AskUserQuestion response from client
   sessionId?: string
   payload?: any
 }
@@ -35,7 +40,10 @@ export interface ServerMessage {
          'compact:boundary' |  // Context compression notification
          'text:block-start' |  // Text block start signal
          'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks AICO-Bot to execute a tool
-         'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn'  // Background tasks
+         'mcp:tool:response' |  // WebSocket MCP Bridge: proxy acknowledges tool result
+         'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background tasks
+         'worker:started' | 'worker:completed' |  // Sub-agent worker lifecycle
+         'ask:question'  // AskUserQuestion forwarding
   sessionId?: string
   data?: any
 }
@@ -71,6 +79,12 @@ export class RemoteWsClient extends EventEmitter {
   private isInterrupted = false
   // Track if disconnect was intentional (should not reconnect)
   private shouldReconnect = true
+  // Track if MCP tools have been registered on this connection lifetime
+  // Reset on disconnect so tools are re-registered after reconnect
+  private _mcpToolsRegistered = false
+
+  get mcpToolsRegistered(): boolean { return this._mcpToolsRegistered }
+  set mcpToolsRegistered(value: boolean) { this._mcpToolsRegistered = value }
   // Track active streaming sessions for interrupt support
   // Key: sessionId used in sendChatWithStream, Value: { resolve, reject }
   private activeStreamSessions = new Map<string, { resolve: (value: string) => void; reject: (reason: Error) => void }>()
@@ -82,16 +96,24 @@ export class RemoteWsClient extends EventEmitter {
   }
 
   /**
-   * Connect to the remote agent server
+   * Connect to the remote agent server and wait for authentication.
+   * Resolves only when the WebSocket is open AND authenticated.
    */
   async connect(): Promise<void> {
     if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
       log.debug(`[${this.config.serverId}] Already connecting or connected`)
+      // If already connected but not authenticated (e.g. after reconnect), send auth message
+      if (this.ws.readyState === WebSocket.OPEN && !this.authenticated) {
+        log.debug(`[${this.config.serverId}] Connected but not authenticated, sending auth...`)
+        return this.sendAuthAndWait()
+      }
       return
     }
 
     // Reset reconnect flag for new connections
     this.shouldReconnect = true
+    this.authenticated = false
+    this._mcpToolsRegistered = false
 
     return new Promise<void>((resolve, reject) => {
       // Use localhost and the tunnel port when SSH tunnel is enabled
@@ -113,6 +135,17 @@ export class RemoteWsClient extends EventEmitter {
         }
       })
 
+      let settled = false
+      const settle = (result: 'resolve' | 'reject', error?: Error) => {
+        if (settled) return
+        settled = true
+        if (result === 'resolve') {
+          resolve()
+        } else {
+          reject(error!)
+        }
+      }
+
       // Enhanced debug logging
       this.ws.on('upgrade', (req) => {
         log.debug(`[${this.config.serverId}] WebSocket upgrade: ${req.url}`)
@@ -120,10 +153,66 @@ export class RemoteWsClient extends EventEmitter {
 
       this.ws.on('open', () => {
         const duration = Date.now() - connectionStartTime
-        log.info(`[${this.config.serverId}] Connected after ${duration}ms`)
+        log.info(`[${this.config.serverId}] WebSocket open after ${duration}ms`)
         this.reconnectAttempts = 0
         this.emit('connected')
-        resolve()
+
+        // If header auth already succeeded (proxy sent auth:success before we
+        // attached this handler), this.authenticated is true and we resolve now.
+        if (this.authenticated) {
+          log.info(`[${this.config.serverId}] Already authenticated via header`)
+          settle('resolve')
+          return
+        }
+
+        // Before auth, register our token on the server's in-memory whitelist
+        // to avoid timing issues with the tokens.json file watcher.
+        // The server's 'register-token-disk' handler does NOT require auth.
+        const registerResolve = () => {
+          log.info(`[${this.config.serverId}] Token registered on server, sending auth...`)
+          this.send({ type: 'auth', payload: { token: this.config.authToken } })
+        }
+        const registerReject = (err: Error) => {
+          log.warn(`[${this.config.serverId}] register-token-disk failed: ${err.message}, trying auth anyway...`)
+          this.send({ type: 'auth', payload: { token: this.config.authToken } })
+        }
+        this.sendWithResponse(
+          {
+            type: 'register-token-disk',
+            payload: {
+              token: this.config.authToken,
+              clientId: this.config.serverId,
+            }
+          },
+          'register-token-disk:success',
+          'register-token-disk:error',
+          3000
+        ).then(registerResolve, registerReject)
+
+        // Otherwise wait for the auth response from the explicit auth message
+        log.debug(`[${this.config.serverId}] Waiting for auth confirmation...`)
+        const authTimeout = setTimeout(() => {
+          if (!this.authenticated) {
+            const err = new Error(
+              `Authentication timed out — the remote proxy may not be running or the auth token is invalid. ` +
+              `Ensure the agent is started and the token is registered on the remote server.`
+            )
+            log.error(`[${this.config.serverId}] ${err.message}`)
+            settle('reject', err)
+          }
+        }, 10000)
+
+        this.once('authenticated', () => {
+          clearTimeout(authTimeout)
+          log.info(`[${this.config.serverId}] Authenticated`)
+          settle('resolve')
+        })
+        this.once('authFailed', (data: any) => {
+          clearTimeout(authTimeout)
+          const err = new Error(`Authentication failed: ${data?.message || 'Invalid token'}`)
+          log.error(`[${this.config.serverId}] ${err.message}`)
+          settle('reject', err)
+        })
       })
 
       this.ws.on('message', (data: Buffer) => {
@@ -133,13 +222,8 @@ export class RemoteWsClient extends EventEmitter {
       this.ws.on('error', (err) => {
         log.error(`[${this.config.serverId}] WebSocket error:`, err)
         log.error(`[${this.config.serverId}] Error code: ${err?.code}, message: ${err?.message}`)
-        log.error(`[${this.config.serverId}] Error stack: ${err?.stack}`)
         this.emit('error', err)
-        if (this.ws) {
-          reject(err)
-        } else {
-          resolve() // Don't reject if already closed
-        }
+        settle('reject', err instanceof Error ? err : new Error(String(err)))
       })
 
       this.ws.on('close', (event) => {
@@ -150,6 +234,20 @@ export class RemoteWsClient extends EventEmitter {
         log.debug(`[${this.config.serverId}] Disconnect duration: ${duration}ms`)
         this.authenticated = false
         this.stopPing()
+
+        // If connect() hasn't resolved yet, reject it with a descriptive error
+        if (!settled) {
+          let errorMessage: string
+          if (event.code === 1008) {
+            errorMessage = `Authentication rejected by remote proxy (invalid token). Ensure the token is registered on the remote server.`
+          } else if (event.code === 1006) {
+            errorMessage = `Remote proxy connection lost abruptly. The agent process may have crashed or is not running on port ${port}.`
+          } else {
+            errorMessage = `WebSocket disconnected (code: ${event.code}, reason: ${reason}). The remote process may still be running.`
+          }
+          log.error(`[${this.config.serverId}] ${errorMessage}`)
+          settle('reject', new Error(errorMessage))
+        }
 
         // CRITICAL: Reject all active stream sessions so callers don't hang forever.
         // After reconnection, the caller should re-initiate the request.
@@ -177,7 +275,7 @@ export class RemoteWsClient extends EventEmitter {
         if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
           log.warn(`[${this.config.serverId}] Closing due to timeout`)
           this.ws.close(1000, 'Connection timeout')
-          reject(new Error('Connection timeout'))
+          settle('reject', new Error('Connection timeout after 30s — check that the remote agent is running and the SSH tunnel is working.'))
         }
       }, 30000)
 
@@ -185,6 +283,34 @@ export class RemoteWsClient extends EventEmitter {
         clearTimeout(timeout)
         this.startPing()
       })
+
+      // Also clear timeout if auth succeeds
+      this.once('authenticated', () => {
+        clearTimeout(timeout)
+      })
+    })
+  }
+
+  /**
+   * Send an auth message and wait for auth confirmation.
+   * Used when reconnecting or when header auth was not used.
+   */
+  private async sendAuthAndWait(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const authTimeout = setTimeout(() => {
+        reject(new Error('Authentication timed out'))
+      }, 5000)
+
+      this.once('authenticated', () => {
+        clearTimeout(authTimeout)
+        resolve()
+      })
+      this.once('authFailed', (data: any) => {
+        clearTimeout(authTimeout)
+        reject(new Error(`Authentication failed: ${data?.message || 'Invalid token'}`))
+      })
+
+      this.send({ type: 'auth', payload: { token: this.config.authToken } })
     })
   }
 
@@ -293,6 +419,11 @@ export class RemoteWsClient extends EventEmitter {
           this.emit('mcp:tool:call', { sessionId: message.sessionId, data: message.data })
           break
 
+        case 'mcp:tool:response':
+          // WebSocket MCP Bridge: proxy acknowledges tool result (forward compatibility)
+          log.debug(`[${this.config.serverId}] Received mcp:tool:response (acknowledged)`)
+          break
+
         case 'compact:boundary':
           this.emit('compact:boundary', { sessionId: message.sessionId, data: message.data })
           break
@@ -334,6 +465,18 @@ export class RemoteWsClient extends EventEmitter {
           this.emit('task:spawn', message.data)
           break
 
+        case 'worker:started':
+          this.emit('worker:started', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'worker:completed':
+          this.emit('worker:completed', { sessionId: message.sessionId, data: message.data })
+          break
+
+        case 'ask:question':
+          this.emit('ask:question', { sessionId: message.sessionId, data: message.data })
+          break
+
         default:
           log.warn(`[${this.config.serverId}] Unknown message type:`, message.type)
       }
@@ -359,6 +502,45 @@ export class RemoteWsClient extends EventEmitter {
       log.error(`[${this.config.serverId}] Failed to send message:`, error)
       return false
     }
+  }
+
+  /**
+   * Send a message and wait for a specific response type.
+   * Used for request-response patterns like register-token-disk.
+   */
+  private sendWithResponse(
+    message: ClientMessage,
+    successType: string,
+    errorType: string,
+    timeoutMs: number = 5000
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.ws?.off('message', onMessage)
+        reject(new Error(`Timeout waiting for ${successType}`))
+      }, timeoutMs)
+
+      const onMessage = (data: Buffer) => {
+        try {
+          const parsed = JSON.parse(data.toString())
+          if (parsed.type === successType) {
+            clearTimeout(timeout)
+            this.ws?.off('message', onMessage)
+            resolve()
+          } else if (parsed.type === errorType) {
+            clearTimeout(timeout)
+            this.ws?.off('message', onMessage)
+            reject(new Error(parsed.data?.message || 'Unknown error'))
+          }
+          // Ignore other message types (let handleMessage process them normally)
+        } catch {
+          // Invalid JSON, ignore
+        }
+      }
+
+      this.ws?.on('message', onMessage)
+      this.send(message)
+    })
   }
 
   /**
@@ -631,12 +813,17 @@ export class RemoteWsClient extends EventEmitter {
   /**
    * Register MCP tools available on this AICO-Bot instance.
    * Called after authentication succeeds to advertise local tool capabilities.
+   * Only marks as registered if the message was actually sent successfully.
    */
   registerMcpTools(tools: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>, capabilities: { aiBrowser: boolean; ghSearch: boolean; version?: number }): boolean {
-    return this.send({
+    const sent = this.send({
       type: 'mcp:tools:register',
       payload: { tools, capabilities }
     })
+    if (sent) {
+      this._mcpToolsRegistered = true
+    }
+    return sent
   }
 
   /**
@@ -644,7 +831,7 @@ export class RemoteWsClient extends EventEmitter {
    */
   sendMcpToolResult(sessionId: string, callId: string, result: any): boolean {
     return this.send({
-      type: 'mcp:tool:call',
+      type: 'mcp:tool:response',
       sessionId,
       payload: { callId, toolResult: result }
     })
@@ -947,6 +1134,10 @@ const POOL_MAX_AGE_MS = 30 * 60 * 1000  // 30 minutes - recycle stale connection
  * Acquire a pooled WebSocket connection for a server.
  * Returns an existing alive connection or creates a new one.
  * The caller must call releaseConnection() when done.
+ *
+ * Multi-PC support: if authentication fails, retries once after a brief
+ * delay to allow the proxy's fs.watch token hot-reload to pick up the
+ * newly registered token from tokens.json.
  */
 export async function acquireConnection(
   serverId: string,
@@ -997,8 +1188,36 @@ export async function acquireConnection(
     }
   })
 
-  await client.connect()
-  return client
+  // Connect with retry for multi-PC token sync scenarios.
+  // When a second PC adds the same remote server, its token is written to
+  // tokens.json via SSH, but the running proxy may not have reloaded it yet
+  // (fs.watch debounce: 100ms). The first connect attempt may fail with
+  // auth rejection; we retry once after a short delay.
+  const MAX_CONNECT_ATTEMPTS = 2
+  for (let attempt = 1; attempt <= MAX_CONNECT_ATTEMPTS; attempt++) {
+    try {
+      await client.connect()
+      return client
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      const isAuthFailure = errorMsg.includes('Authentication') || errorMsg.includes('Unauthorized')
+
+      if (isAuthFailure && attempt < MAX_CONNECT_ATTEMPTS) {
+        log.info(`[${serverId}] Auth failed on attempt ${attempt}, retrying after 500ms to allow token reload...`)
+        // Wait for proxy's fs.watch debounce (100ms) + a safety margin
+        await new Promise(resolve => setTimeout(resolve, 500))
+        // Reset client state for reconnection
+        client.authenticated = false
+        ;(client as any).ws = null
+        continue
+      }
+      // Not an auth failure, or last attempt — let it propagate
+      throw err
+    }
+  }
+
+  // Should not reach here, but just in case
+  throw new Error(`Failed to connect after ${MAX_CONNECT_ATTEMPTS} attempts`)
 }
 
 /**

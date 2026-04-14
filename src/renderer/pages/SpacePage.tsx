@@ -28,6 +28,7 @@ import { Header } from '../components/layout/Header'
 import { SidebarToggle } from '../components/layout/SidebarToggle'
 import { SpaceSelector } from '../components/layout/SpaceSelector'
 import { ModelSelector } from '../components/layout/ModelSelector'
+import { RemoteModelSelector } from '../components/layout/RemoteModelSelector'
 import { ContentCanvas } from '../components/canvas'
 import { GitBashWarningBanner } from '../components/setup/GitBashWarningBanner'
 import { AgentPanel } from '../components/space/AgentPanel'
@@ -350,10 +351,12 @@ export function SpacePage() {
               <SearchIcon onClick={openSearch} isInSpace={true} />
             </div>
 
-            {/* Model Selector - only for local spaces */}
-            {currentSpace?.spaceType !== 'remote' && currentSpace?.spaceType !== 'hyper' && (
+            {/* Model Selector - remote spaces use RemoteModelSelector, local use ModelSelector */}
+            {currentSpace?.spaceType === 'remote' ? (
+              <RemoteModelSelector space={currentSpace} />
+            ) : currentSpace?.spaceType !== 'hyper' ? (
               <ModelSelector />
-            )}
+            ) : null}
 
             {/* Skills - navigate to Skill management page */}
             <button

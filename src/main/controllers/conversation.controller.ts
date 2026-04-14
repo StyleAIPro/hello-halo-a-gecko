@@ -13,7 +13,8 @@ import {
   updateLastMessage as serviceUpdateLastMessage,
   getMessageThoughts as serviceGetMessageThoughts,
   toggleStarConversation as serviceToggleStarConversation,
-  listChildConversations as serviceListChildConversations
+  listChildConversations as serviceListChildConversations,
+  listAllWorkerConversations as serviceListAllWorkerConversations
 } from '../services/conversation.service'
 
 export interface ControllerResponse<T = unknown> {
@@ -181,6 +182,31 @@ export function listChildConversations(
   try {
     const children = serviceListChildConversations(spaceId, parentConversationId)
     return { success: true, data: children }
+  } catch (error: unknown) {
+    const err = error as Error
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * List all worker conversations across all parent conversations in a space (HyperSpace)
+ */
+export function listAllWorkerConversations(spaceId: string): ControllerResponse {
+  try {
+    const workerMap = serviceListAllWorkerConversations(spaceId)
+    // Convert Map to plain object for HTTP serialization
+    const data: Record<string, Array<{
+      id: string
+      title: string
+      agentId: string
+      createdAt: string
+      updatedAt: string
+      messageCount: number
+    }>> = {}
+    for (const [parentConvId, workers] of workerMap) {
+      data[parentConvId] = workers
+    }
+    return { success: true, data }
   } catch (error: unknown) {
     const err = error as Error
     return { success: false, error: err.message }

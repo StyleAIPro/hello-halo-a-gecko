@@ -149,6 +149,14 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [historyMessages, setHistoryMessages] = useState<Message[]>([])
 
+  // When a new turn starts (turnStartedAt changes), reset history to force reload.
+  // The child conversation on disk accumulates all turns — reloading shows full history.
+  const turnStartedAt = worker.turnStartedAt || 0
+  useEffect(() => {
+    setHistoryLoaded(false)
+    setHistoryMessages([])
+  }, [turnStartedAt])
+
   useEffect(() => {
     if (worker.childConversationId && !historyLoaded) {
       // Check cache first
@@ -220,10 +228,10 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
           </div>
         )}
 
-        {/* Thought process */}
+        {/* Thought process — always expanded in worker view so users can see all steps */}
         {(worker.thoughts.length > 0 || worker.isThinking) && (
           <div className="mb-4">
-            <ThoughtProcess thoughts={worker.thoughts} isThinking={worker.isThinking} />
+            <ThoughtProcess thoughts={worker.thoughts} isThinking={worker.isThinking} defaultExpanded />
           </div>
         )}
 

@@ -46,6 +46,9 @@ interface Thought {
     isError: boolean
     timestamp: string
   }
+  // For subagent thought persistence (inline in main thoughts array)
+  agentId?: string      // Subagent identifier
+  agentName?: string    // Subagent display name
 }
 
 type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
@@ -1136,6 +1139,77 @@ export function listChildConversations(
   }
 
   return results
+}
+
+/**
+ * List all worker (child) conversations across all parent conversations in a space.
+ * Returns a map of parentConversationId -> worker metadata array.
+ * Used for HyperSpace worker visibility in the sidebar.
+ */
+export function listAllWorkerConversations(
+  spaceId: string
+): Map<string, Array<{
+  id: string
+  title: string
+  agentId: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}>> {
+  const conversationsDir = getConversationsDir(spaceId)
+  const result = new Map<string, Array<{
+    id: string
+    title: string
+    agentId: string
+    createdAt: string
+    updatedAt: string
+    messageCount: number
+  }>>()
+
+  if (!existsSync(conversationsDir)) return result
+
+  try {
+    const files = readdirSync(conversationsDir)
+    for (const file of files) {
+      if (!isConversationFile(file)) continue
+      // Child conversations have format: {uuid}_agent-{agentId}.json
+      if (!file.includes('_agent-')) continue
+
+      try {
+        const content = readFileSync(join(conversationsDir, file), 'utf-8')
+        const conversation: Conversation = JSON.parse(content)
+        if (!conversation.id.includes(':agent-')) continue
+
+        // Extract parent conversation ID and agent ID
+        const agentMatch = conversation.id.match(/:agent-(.+)$/)
+        if (!agentMatch) continue
+        const agentId = agentMatch[1]
+        const parentConvId = conversation.id.replace(/:agent-.+$/, '')
+
+        const entry = {
+          id: conversation.id,
+          title: conversation.title,
+          agentId,
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          messageCount: conversation.messageCount
+        }
+
+        const existing = result.get(parentConvId)
+        if (existing) {
+          existing.push(entry)
+        } else {
+          result.set(parentConvId, [entry])
+        }
+      } catch (error) {
+        // Skip unreadable files
+      }
+    }
+  } catch (error) {
+    console.error(`[Conversation] Failed to scan for all worker conversations:`, error)
+  }
+
+  return result
 }
 
 /**

@@ -6,6 +6,7 @@ import { ipcMain } from 'electron'
 import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion, compactContext } from '../services/agent'
 import { getMainWindow } from '../services/window.service'
 import { queueInjection } from '../services/agent/stream-processor'
+import { getRemoteWsClient } from '../services/remote-ws/remote-ws-client'
 
 export function registerAgentHandlers(): void {
 
@@ -130,6 +131,18 @@ export function registerAgentHandlers(): void {
       }
     ) => {
       try {
+        // Check if this is a remote session — forward answer via WebSocket
+        const remoteClient = getRemoteWsClient(data.conversationId)
+        if (remoteClient && remoteClient.isConnected()) {
+          remoteClient.send({
+            type: 'ask:answer',
+            sessionId: data.conversationId,
+            payload: { id: data.id, answers: data.answers }
+          })
+          return { success: true }
+        }
+
+        // Local session — resolve the pending question directly
         const resolved = resolveQuestion(data.id, data.answers)
         if (!resolved) {
           return { success: false, error: 'No pending question found for this ID' }
@@ -158,8 +171,8 @@ export function registerAgentHandlers(): void {
     'agent:compact-context',
     async (_event, conversationId: string) => {
       try {
-        const success = await compactContext(conversationId)
-        return { success }
+        const result = await compactContext(conversationId)
+        return result
       } catch (error: unknown) {
         const err = error as Error
         return { success: false, error: err.message }

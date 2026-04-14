@@ -541,6 +541,33 @@ export class SSHManager {
   }
 
   /**
+   * Check if connected and attempt to reconnect if not.
+   * Returns true if connected after the call.
+   */
+  async ensureConnected(config: SSHConfig): Promise<boolean> {
+    if (this._ready && this.client) {
+      // Quick health check — run a lightweight command
+      try {
+        await this.executeCommand('echo ok')
+        return true
+      } catch {
+        // Connection is stale, fall through to reconnect
+        this._ready = false
+      }
+    }
+
+    // Reconnect
+    try {
+      console.log('[SSHManager] Reconnecting...')
+      await this.connect(config)
+      return this._ready
+    } catch (err) {
+      console.error('[SSHManager] Reconnect failed:', err)
+      return false
+    }
+  }
+
+  /**
    * Disconnect from the remote server
    */
   disconnect(): void {

@@ -234,6 +234,8 @@
   "Compress context (free memory)": "Compress context (free memory)",
   "Compressing context...": "Compressing context...",
   "Compression threshold approaching": "Compression threshold approaching",
+  "Context compressed successfully": "Context compressed successfully",
+  "Failed to compress context. Please try sending a message first.": "Failed to compress context. Please try sending a message first.",
   "Configuration": "Configuration",
   "Configuration (JSON)": "Configuration (JSON)",
   "Configuration changes will take effect after starting a new conversation": "Configuration changes will take effect after starting a new conversation",
@@ -1077,5 +1079,7 @@
   "Zoom out": "Zoom out",
   "Zoom out (-)": "Zoom out (-)",
   "技能生成器": "技能生成器",
-  "远程服务器管理": "远程服务器管理"
+  "远程服务器管理": "Remote Servers",
+  "以下远程空间正在使用此服务器，删除后这些空间将无法正常使用：{{names}}": "The following remote spaces use this server and will stop working properly after deletion: {{names}}",
+  "是否仍然删除？": "Delete anyway?"
 }

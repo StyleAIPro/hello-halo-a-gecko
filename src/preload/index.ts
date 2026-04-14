@@ -94,6 +94,7 @@ export interface AicoBotAPI {
     spaceId: string,
     parentConversationId: string
   ) => Promise<IpcResponse>
+  listAllWorkerConversations: (spaceId: string) => Promise<IpcResponse>
 
   // Agent
   sendMessage: (request: {
@@ -419,6 +420,8 @@ export interface AicoBotAPI {
     isAgentRunning: (serverId: string) => Promise<IpcResponse>
     listTasks: (serverId: string) => Promise<IpcResponse>
     cancelTask: (serverId: string, taskId: string) => Promise<IpcResponse>
+    getUpdateStatus: (serverId: string) => Promise<IpcResponse>
+    acknowledgeUpdate: (serverId: string) => Promise<IpcResponse>
   }
 
   // Remote Agent
@@ -634,6 +637,8 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('conversation:get-agent-commands', spaceId, conversationId),
   listChildConversations: (spaceId, parentConversationId) =>
     ipcRenderer.invoke('conversation:list-children', spaceId, parentConversationId),
+  listAllWorkerConversations: (spaceId) =>
+    ipcRenderer.invoke('conversation:list-all-workers', spaceId),
 
   // Agent
   sendMessage: (request) => ipcRenderer.invoke('agent:send-message', request),
@@ -858,6 +863,7 @@ const api: AicoBotAPI = {
   remoteServer: {
     add: (server) => ipcRenderer.invoke('remote-server:add', server),
     update: (server) => ipcRenderer.invoke('remote-server:update', server),
+    updateAiSource: (serverId, aiSourceId) => ipcRenderer.invoke('remote-server:update-ai-source', serverId, aiSourceId),
     list: () => ipcRenderer.invoke('remote-server:list'),
     deploy: (serverId) => ipcRenderer.invoke('remote-server:deploy', serverId),
     connect: (serverId) => ipcRenderer.invoke('remote-server:connect', serverId),
@@ -876,6 +882,8 @@ const api: AicoBotAPI = {
     listTasks: (serverId) => ipcRenderer.invoke('remote-server:list-tasks', serverId),
     subscribeTasks: (serverId) => ipcRenderer.invoke('remote-server:subscribe-tasks', serverId),
     cancelTask: (serverId, taskId) => ipcRenderer.invoke('remote-server:cancel-task', serverId, taskId),
+    getUpdateStatus: (serverId) => ipcRenderer.invoke('remote-server:get-update-status', serverId),
+    acknowledgeUpdate: (serverId) => ipcRenderer.invoke('remote-server:acknowledge-update', serverId),
   },
 
   // Remote Agent
@@ -1006,6 +1014,21 @@ const api: AicoBotAPI = {
   updateHyperSpaceConfig: (spaceId, config) => ipcRenderer.invoke('hyper-space:update-config', { spaceId, config }),
   getHyperSpaceTasks: (conversationId) => ipcRenderer.invoke('hyper-space:get-tasks', conversationId),
   getHyperSpaceMembers: (spaceId) => ipcRenderer.invoke('hyper-space:get-members', spaceId),
+
+  // TaskBoard API
+  getTaskBoard: (spaceId) => ipcRenderer.invoke('hyper-space:get-taskboard', spaceId),
+  postTask: (spaceId, input) => ipcRenderer.invoke('hyper-space:post-task', spaceId, input),
+  claimTask: (spaceId, taskId) => ipcRenderer.invoke('hyper-space:claim-task', spaceId, taskId),
+  updateTaskStatus: (spaceId, taskId, status, result, error) =>
+    ipcRenderer.invoke('hyper-space:update-task-status', spaceId, taskId, status, result, error),
+
+  // Persistent Mode API
+  setPersistentMode: (spaceId, enabled) => ipcRenderer.invoke('hyper-space:set-persistent-mode', spaceId, enabled),
+  getPersistentMode: (spaceId) => ipcRenderer.invoke('hyper-space:get-persistent-mode', spaceId),
+
+  // Permission Forwarding API
+  resolvePermission: (spaceId, workerAgentId, requestId, approved) =>
+    ipcRenderer.invoke('hyper-space:resolve-permission', spaceId, workerAgentId, requestId, approved),
 }
 
 contextBridge.exposeInMainWorld('aicoBot', api)

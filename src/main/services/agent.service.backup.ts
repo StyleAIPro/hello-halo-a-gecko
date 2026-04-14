@@ -567,7 +567,7 @@ export async function ensureSessionWarm(
       apiType
     })
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-20250514'
+    sdkModel = 'claude-sonnet-4-6'
     console.log(`[Agent] ${credentials.provider} provider enabled (warm): routing via ${anthropicBaseUrl}, apiType=${apiType}`)
   }
 
@@ -827,7 +827,7 @@ export async function testMcpConnections(mainWindow?: BrowserWindow | null): Pro
     // Route through OpenAI compat router for non-Anthropic providers
     let anthropicBaseUrl = credentials.baseUrl
     let anthropicApiKey = credentials.apiKey
-    let sdkModel = credentials.model || 'claude-sonnet-4-20250514'
+    let sdkModel = credentials.model || 'claude-sonnet-4-6'
 
     // For non-Anthropic providers (openai or oauth), use the OpenAI compat router
     if (credentials.provider !== 'anthropic') {
@@ -845,7 +845,7 @@ export async function testMcpConnections(mainWindow?: BrowserWindow | null): Pro
         headers: credentials.customHeaders,
         apiType
       })
-      sdkModel = 'claude-sonnet-4-20250514'
+      sdkModel = 'claude-sonnet-4-6'
       console.log(`[Agent] MCP test: ${credentials.provider} provider enabled via ${anthropicBaseUrl}, apiType=${apiType}`)
     }
 
@@ -1141,7 +1141,7 @@ export async function sendMessage(
       apiType
     })
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-20250514'
+    sdkModel = 'claude-sonnet-4-6'
     console.log(`[Agent] ${credentials.provider} provider enabled: routing via ${anthropicBaseUrl}, apiType=${apiType}`)
   }
 

@@ -9,6 +9,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { ChevronDown, Settings2, Cloud, Folder, Blocks } from 'lucide-react'
 import { useAppStore } from '../../stores/app.store'
 import { useSpaceStore } from '../../stores/space.store'
+import { useOtherSpacesHaveActiveTasks, useSpaceHasActiveTasks } from '../../stores/chat.store'
 import { SpaceIcon } from '../icons/ToolIcons'
 import { useTranslation } from '../../i18n'
 import type { Space } from '../../types'
@@ -18,6 +19,58 @@ import { api } from '../../api'
 /** Minimum interval between loadSpaces calls (ms) */
 const LOAD_THROTTLE_MS = 5_000
 
+/**
+ * SpaceItem - Single space row in the dropdown.
+ * Extracted as its own component so it can call useSpaceHasActiveTasks per space.
+ */
+function SpaceItem({
+  space,
+  isActive,
+  remoteServerName,
+  onSelect,
+}: {
+  space: Space
+  isActive: boolean
+  remoteServerName: string | null
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const hasActive = useSpaceHasActiveTasks(isActive ? undefined : space.id)
+  const name = space.isTemp ? t('AICO-Bot Space') : space.name
+
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full px-3 py-2.5 text-left text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2.5 ${
+        isActive ? 'text-primary bg-primary/5' : 'text-foreground'
+      }`}
+    >
+      <SpaceIcon iconId={space.icon || (space.isTemp ? 'sparkles' : 'folder')} size={16} className="flex-shrink-0" />
+      <span className="truncate">{name}</span>
+      {/* Space type icon badge */}
+      {'spaceType' in space && space.spaceType === 'hyper' ? (
+        <Blocks className="ml-1 w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+      ) : space.claudeSource === 'remote' ? (
+        <Cloud className="ml-1 w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+      ) : (
+        <Folder className="ml-1 w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+      )}
+      {space.claudeSource === 'remote' && remoteServerName && (
+        <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={remoteServerName}>
+          @ {remoteServerName}
+        </span>
+      )}
+      {/* Active tasks indicator — small dot for non-current spaces with active conversations */}
+      {!isActive && hasActive && (
+        <span className="ml-auto w-2 h-2 rounded-full bg-blue-500 pulse-dot pulse-dot-generating flex-shrink-0" />
+      )}
+      {isActive && (
+        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+      )}
+    </button>
+  )
+}
+
 export function SpaceSelector() {
   const { t } = useTranslation()
   const { setView } = useAppStore()
@@ -26,6 +79,7 @@ export function SpaceSelector() {
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
   const lastLoadRef = useRef(0)
+  const otherSpacesActive = useOtherSpacesHaveActiveTasks()
 
   // Throttled loadSpaces — skips if called within LOAD_THROTTLE_MS of last call
   const throttledLoadSpaces = useCallback(() => {
@@ -163,6 +217,10 @@ export function SpaceSelector() {
           )}
         </div>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        {/* Active tasks in other spaces indicator */}
+        {otherSpacesActive && !isOpen && (
+          <span className="w-2 h-2 rounded-full bg-blue-500 pulse-dot pulse-dot-generating flex-shrink-0" />
+        )}
       </button>
 
       {isOpen && (
@@ -172,38 +230,18 @@ export function SpaceSelector() {
           )}
           {allSpaces.map(space => {
             const isActive = space.id === currentSpace?.id
-            const name = space.isTemp ? t('AICO-Bot Space') : space.name
             const remoteServerName = space.claudeSource === 'remote' && space.remoteServerId
               ? getRemoteServerName(space.remoteServerId)
               : null
 
             return (
-              <button
+              <SpaceItem
                 key={space.id}
-                onClick={() => handleSelectSpace(space)}
-                className={`w-full px-3 py-2.5 text-left text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2.5 ${
-                  isActive ? 'text-primary bg-primary/5' : 'text-foreground'
-                }`}
-              >
-                <SpaceIcon iconId={space.icon || (space.isTemp ? 'sparkles' : 'folder')} size={16} className="flex-shrink-0" />
-                <span className="truncate">{name}</span>
-                {/* Space type icon badge */}
-                {'spaceType' in space && space.spaceType === 'hyper' ? (
-                  <Blocks className="ml-1 w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
-                ) : space.claudeSource === 'remote' ? (
-                  <Cloud className="ml-1 w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
-                ) : (
-                  <Folder className="ml-1 w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-                )}
-                {space.claudeSource === 'remote' && remoteServerName && (
-                  <span className="text-xs text-muted-foreground truncate max-w-[120px]" title={remoteServerName}>
-                    @ {remoteServerName}
-                  </span>
-                )}
-                {isActive && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-                )}
-              </button>
+                space={space}
+                isActive={isActive}
+                remoteServerName={remoteServerName}
+                onSelect={() => handleSelectSpace(space)}
+              />
             )
           })}
 

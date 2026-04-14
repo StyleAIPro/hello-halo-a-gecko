@@ -6,12 +6,15 @@
 
 import { ipcMain } from 'electron'
 import { agentOrchestrator } from '../services/agent/orchestrator'
+import { taskboardService } from '../services/agent/taskboard'
+import { permissionForwarder } from '../services/agent/permission-forwarder'
 import type {
   AgentConfig,
   OrchestrationConfig,
   SubagentTask,
   CreateHyperSpaceInput
 } from '../../shared/types/hyper-space'
+import type { PostTaskInput } from '../../shared/types/taskboard'
 import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service'
 import type { Space } from '../../shared/types'
 
@@ -352,6 +355,172 @@ export function registerHyperSpaceHandlers(): void {
       ]
 
       return { success: true, data: { members } }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // ============================================
+  // TaskBoard
+  // ============================================
+
+  /**
+   * Get all tasks on the shared TaskBoard
+   */
+  ipcMain.handle('hyper-space:get-taskboard', async (_event, spaceId: string) => {
+    try {
+      const tasks = taskboardService.getTasks(spaceId)
+      return { success: true, data: { tasks } }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  /**
+   * Post a new task to the TaskBoard
+   */
+  ipcMain.handle('hyper-space:post-task', async (_event, spaceId: string, input: PostTaskInput) => {
+    try {
+      const task = taskboardService.postTask(spaceId, input)
+      return { success: true, data: task }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  /**
+   * Claim a task from the TaskBoard
+   */
+  ipcMain.handle('hyper-space:claim-task', async (_event, spaceId: string, taskId: string, agentId: string, agentName?: string) => {
+    try {
+      const task = taskboardService.claimTask(taskId, agentId, agentName, spaceId)
+      if (!task) {
+        return { success: false, error: 'Task not found or not claimable' }
+      }
+      return { success: true, data: task }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  /**
+   * Update task status on the TaskBoard
+   */
+  ipcMain.handle('hyper-space:update-task-status', async (
+    _event,
+    spaceId: string,
+    taskId: string,
+    status: string,
+    result?: string,
+    error?: string
+  ) => {
+    try {
+      const task = taskboardService.updateTaskStatus(
+        taskId,
+        status as any,
+        result,
+        error,
+        spaceId
+      )
+      if (!task) {
+        return { success: false, error: 'Task not found' }
+      }
+      return { success: true, data: task }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // ============================================
+  // Persistent Mode
+  // ============================================
+
+  /**
+   * Enable/disable persistent worker mode for a team.
+   * When enabled, workers stay alive between tasks and auto-claim from TaskBoard.
+   */
+  ipcMain.handle('hyper-space:set-persistent-mode', async (_event, spaceId: string, enabled: boolean) => {
+    try {
+      const team = agentOrchestrator.getTeamBySpace(spaceId)
+      if (!team) {
+        return { success: false, error: 'Team not found for this space' }
+      }
+
+      if (enabled) {
+        await agentOrchestrator.startPersistentWorkers(team.id)
+      } else {
+        await agentOrchestrator.stopPersistentWorkers(team.id)
+      }
+
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  /**
+   * Check if persistent mode is active for a space.
+   */
+  ipcMain.handle('hyper-space:get-persistent-mode', async (_event, spaceId: string) => {
+    try {
+      const team = agentOrchestrator.getTeamBySpace(spaceId)
+      if (!team) {
+        return { success: false, error: 'Team not found' }
+      }
+      return { success: true, data: { persistent: agentOrchestrator.isPersistentMode(team.id) } }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // ============================================
+  // Permission Forwarding
+  // ============================================
+
+  /**
+   * Resolve a worker's permission request (approve/deny from UI).
+   */
+  ipcMain.handle('hyper-space:resolve-permission', async (
+    _event,
+    spaceId: string,
+    workerAgentId: string,
+    requestId: string,
+    approved: boolean
+  ) => {
+    try {
+      // Handle locally (resolve the waiting promise)
+      permissionForwarder.handleResponse({
+        spaceId,
+        respondingAgentId: 'user',
+        requestId,
+        approved
+      })
+
+      // Also post response to worker's mailbox (for remote workers)
+      permissionForwarder.postResponse(spaceId, workerAgentId, requestId, approved)
+
+      return { success: true }
     } catch (error) {
       return {
         success: false,

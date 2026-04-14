@@ -30,6 +30,8 @@ import { DEFAULT_ORCHESTRATION_CONFIG, createOrchestrationConfig } from '../../.
 import { getConversation, getMessageThoughts, updateLastMessage } from '../conversation.service'
 import { extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes'
 import type { Thought } from './types'
+import { mailboxService } from './mailbox'
+import { taskboardService } from './taskboard'
 
 // ============================================
 // Types
@@ -154,6 +156,12 @@ class AgentOrchestrator extends EventEmitter {
     checkInterval: 30000               // 30 seconds
   }
 
+  /** Persistent worker loops indexed by agent ID */
+  private persistentWorkers: Map<string, import('./persistent-worker').PersistentWorkerLoop> = new Map()
+
+  /** Whether persistent mode is enabled for a team (indexed by teamId) */
+  private persistentModeTeams: Set<string> = new Set()
+
   private constructor() {
     super()
     this.startStallDetection()
@@ -215,11 +223,18 @@ class AgentOrchestrator extends EventEmitter {
     this.teams.set(teamId, team)
     this.teamsBySpace.set(params.spaceId, teamId)
 
+    // Initialize mailbox system for this team
+    const allAgentIds = [leader.id, ...workers.map(w => w.id)]
+    mailboxService.initialize(params.spaceId, teamId, allAgentIds)
+
+    // Initialize task board for this team
+    taskboardService.initialize(params.spaceId, teamId)
+
     this.emit('team:created', { teamId, spaceId: params.spaceId })
 
     console.log(
       `[Orchestrator] Created team ${teamId} for space ${params.spaceId} ` +
-      `with 1 leader and ${workers.length} workers`
+      `with 1 leader and ${workers.length} workers (mailbox + taskboard initialized)`
     )
 
     return team
@@ -468,9 +483,10 @@ class AgentOrchestrator extends EventEmitter {
           conversationId,
           rendererConversationId: conversationId,  // Forward events to parent conversation
           messageContent: currentMessageContent,
-          displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-20250514',
+          displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-6',
           abortController,
           t0: Date.now(),
+          contextWindow: resolvedCredentials.contextWindow,
           callbacks: {
             onComplete: (result) => {
               // Use the result parameter directly - NOT streamResult, because
@@ -714,11 +730,13 @@ class AgentOrchestrator extends EventEmitter {
       throw new Error(`Remote server ${remoteServerId} not found`)
     }
 
-    // Get API configuration (same as local remote execution)
+    // Get API configuration — server card config takes precedence, then global AI source
     const config = getConfig()
     const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
-    const apiKey = currentSource?.apiKey || config.api?.apiKey
-    const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+    const apiKeyRaw = serverInfo.claudeApiKey || currentSource?.apiKey || config.api?.apiKey
+    const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined
+    const baseUrl = serverInfo.claudeBaseUrl || currentSource?.apiUrl
+    const model = serverInfo.claudeModel || currentSource?.model || config.api?.model || 'claude-sonnet-4-6'
 
     log.debug(` Using model: ${model}, hasApiKey: ${!!apiKey}`)
 
@@ -776,7 +794,10 @@ class AgentOrchestrator extends EventEmitter {
         host: useSshTunnel ? 'localhost' : serverInfo.host,
         port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
         authToken: serverInfo.authToken || '',
-        useSshTunnel
+        useSshTunnel,
+        apiKey: apiKey || undefined,
+        baseUrl: currentSource?.apiUrl || undefined,
+        model: model || undefined
       }, childConversationId)
 
       // Register this client for interrupt support
@@ -929,7 +950,7 @@ class AgentOrchestrator extends EventEmitter {
         [{ role: 'user', content: task }],
         {
           apiKey,
-          baseUrl: currentSource?.apiUrl || undefined,
+          baseUrl: baseUrl || undefined,
           model,
           maxTokens: config.agent?.maxTokens || 8192,
           system: systemPrompt,
@@ -1014,7 +1035,7 @@ class AgentOrchestrator extends EventEmitter {
    * Destroy a team and clean up all resources.
    * Cascading cleanup: stop workers, remove tasks, clear injections.
    */
-  destroyTeam(teamId: string): boolean {
+  async destroyTeam(teamId: string): Promise<boolean> {
     const team = this.teams.get(teamId)
     if (!team) return false
 
@@ -1029,7 +1050,10 @@ class AgentOrchestrator extends EventEmitter {
       }
     }
 
-    // 2. Fail all running tasks for this team's conversation
+    // 2. Stop persistent workers if active
+    await this.stopPersistentWorkers(teamId)
+
+    // 3. Fail all running tasks for this team's conversation
     for (const [taskId, task] of this.tasks) {
       if (task.parentConversationId === team.conversationId && task.status === 'running') {
         this.updateTaskStatus(taskId, 'failed', undefined, 'Team destroyed')
@@ -1047,7 +1071,13 @@ class AgentOrchestrator extends EventEmitter {
       // stream-processor may not export clearInjectionsForConversation yet
     }
 
-    // 5. Remove from maps
+    // 5. Clean up mailbox system for this space
+    mailboxService.destroy(team.spaceId)
+
+    // 5.5 Clean up task board
+    taskboardService.destroy(team.spaceId)
+
+    // 6. Remove from maps
     this.teams.delete(teamId)
     this.teamsBySpace.delete(team.spaceId)
 
@@ -1073,6 +1103,9 @@ class AgentOrchestrator extends EventEmitter {
       team.workers.push(instance)
     }
 
+    // Add mailbox for the new agent
+    mailboxService.addAgent(team.spaceId, teamId, agentConfig.id)
+
     log.debug(` Added agent ${agentConfig.id} to team ${teamId}`)
     return true
   }
@@ -1094,8 +1127,85 @@ class AgentOrchestrator extends EventEmitter {
     if (index === -1) return false
 
     team.workers.splice(index, 1)
+
+    // Remove mailbox for the removed agent
+    mailboxService.removeAgent(team.spaceId, agentId)
+
     log.debug(` Removed agent ${agentId} from team ${teamId}`)
     return true
+  }
+
+  // ============================================
+  // Persistent Worker Management
+  // ============================================
+
+  /**
+   * Enable persistent mode for a team and start all worker loops.
+   * Workers will stay alive between tasks, poll for messages, and auto-claim from TaskBoard.
+   */
+  async startPersistentWorkers(teamId: string): Promise<boolean> {
+    const team = this.teams.get(teamId)
+    if (!team) {
+      log.warn(`Cannot start persistent workers: team ${teamId} not found`)
+      return false
+    }
+
+    if (this.persistentModeTeams.has(teamId)) {
+      log.debug(`Persistent mode already active for team ${teamId}`)
+      return true
+    }
+
+    const { PersistentWorkerLoop } = await import('./persistent-worker')
+
+    for (const worker of team.workers) {
+      const loop = new PersistentWorkerLoop(worker, team)
+      this.persistentWorkers.set(worker.id, loop as any)
+      await loop.start()
+    }
+
+    this.persistentModeTeams.add(teamId)
+    team.status = 'active'
+
+    log.info(`Started ${team.workers.length} persistent workers for team ${teamId}`)
+    return true
+  }
+
+  /**
+   * Stop all persistent workers for a team.
+   */
+  async stopPersistentWorkers(teamId: string): Promise<void> {
+    const team = this.teams.get(teamId)
+    if (!team) return
+
+    this.persistentModeTeams.delete(teamId)
+
+    // Stop all persistent workers concurrently
+    const stopPromises = team.workers
+      .filter(w => this.persistentWorkers.has(w.id))
+      .map(async w => {
+        const loop = this.persistentWorkers.get(w.id)
+        if (loop) {
+          await (loop as any).stop()
+          this.persistentWorkers.delete(w.id)
+        }
+      })
+
+    await Promise.allSettled(stopPromises)
+    log.info(`Stopped all persistent workers for team ${teamId}`)
+  }
+
+  /**
+   * Check if persistent mode is active for a team.
+   */
+  isPersistentMode(teamId: string): boolean {
+    return this.persistentModeTeams.has(teamId)
+  }
+
+  /**
+   * Check if a specific worker is running in persistent mode.
+   */
+  isWorkerPersistent(agentId: string): boolean {
+    return this.persistentWorkers.has(agentId) && (this.persistentWorkers.get(agentId) as any)?.isActive()
   }
 
   // ============================================
@@ -1445,6 +1555,9 @@ Respond with a JSON array of agent IDs that should handle this task.`
 
     // Inject announcement into leader's session (key OpenClaw pattern)
     await this.injectAnnouncementToLeader(announcement)
+
+    // Persist announcement to mailbox for durability and visibility
+    this.persistAnnouncementToMailbox(announcement)
   }
 
   /**
@@ -1804,9 +1917,10 @@ just complete the task normally — the orchestrator will collect your results a
         suppressComplete: true,  // Don't signal parent conversation as complete
         workerInfo: { agentId: agent.id, agentName: agent.config.name || agent.id },  // Tag events for worker panel
         messageContent: subtask.task,
-        displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-20250514',
+        displayModel: resolvedCredentials.displayModel || 'claude-sonnet-4-6',
         abortController,
         t0: Date.now(),
+        contextWindow: resolvedCredentials.contextWindow,
         callbacks: {
           onComplete: (result) => {
             // Accumulate worker thoughts into team for batch persistence
@@ -1921,11 +2035,13 @@ just complete the task normally — the orchestrator will collect your results a
       throw new Error(`Remote server ${remoteServerId} not found`)
     }
 
-    // Resolve API credentials (same as executeAgentRemotely)
+    // Resolve API credentials — server card config takes precedence, then global AI source
     const config = getConfig()
     const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
-    const apiKey = currentSource?.apiKey || config.api?.apiKey
-    const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+    const apiKeyRaw = serverInfo.claudeApiKey || currentSource?.apiKey || config.api?.apiKey
+    const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined
+    const baseUrl = serverInfo.claudeBaseUrl || currentSource?.apiUrl
+    const model = serverInfo.claudeModel || currentSource?.model || config.api?.model || 'claude-sonnet-4-6'
 
     log.debug(` Remote subtask using model: ${model}, hasApiKey: ${!!apiKey}`)
 
@@ -1975,7 +2091,10 @@ just complete the task normally — the orchestrator will collect your results a
       host: useSshTunnel ? 'localhost' : serverInfo.host,
       port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
       authToken: serverInfo.authToken || '',
-      useSshTunnel
+      useSshTunnel,
+      apiKey: apiKey || undefined,
+      baseUrl: currentSource?.apiUrl || undefined,
+      model: model || undefined
     }, childConversationId)
 
     // Set up event handlers for streaming (forward to parent conversation for UI display)
@@ -2109,7 +2228,7 @@ just complete the task normally — the orchestrator will collect your results a
         [{ role: 'user', content: subtask.task }],
         {
           apiKey,
-          baseUrl: currentSource?.apiUrl || undefined,
+          baseUrl: baseUrl || undefined,
           model,
           maxTokens: config.agent?.maxTokens || 8192,
           system: systemPrompt,
@@ -2563,6 +2682,21 @@ just complete the task normally — the orchestrator will collect your results a
           true // skip UI notification — already sent by sendAgentMessage
         )
       }
+
+      // Persist message to mailbox for durability
+      if (mailboxService.isInitialized(params.spaceId)) {
+        mailboxService.postMessage(
+          params.spaceId,
+          params.recipientId,
+          {
+            type: params.recipientId === 'leader' || params.recipientId === team.leader.id ? 'direct' : 'direct',
+            senderId: params.senderId || 'unknown',
+            senderName: params.senderName || 'Unknown',
+            recipientId: params.recipientId,
+            content: params.content
+          }
+        )
+      }
     }
 
     return messageId
@@ -2611,6 +2745,10 @@ just complete the task normally — the orchestrator will collect your results a
         summary: params.summary
       }))
     }
+
+    // Persist broadcast to mailbox as a single chat message
+    // (individual sendAgentMessage calls also write, so we skip here
+    //  since the per-agent messages are already in the mailbox)
 
     return messageIds
   }
@@ -2946,6 +3084,44 @@ just complete the task normally — the orchestrator will collect your results a
     message += `\nTask ID: ${announcement.taskId}`
 
     return message
+  }
+
+  /**
+   * Persist an announcement to the mailbox system for durability.
+   * This ensures all agents can see the announcement even if they
+   * were not actively streaming when it was sent.
+   */
+  private persistAnnouncementToMailbox(announcement: SubagentAnnouncement): void {
+    const task = this.tasks.get(announcement.taskId)
+    if (!task) return
+
+    const team = this.getTeamByConversation(task.parentConversationId)
+    if (!team) return
+    if (!mailboxService.isInitialized(team.spaceId)) return
+
+    const worker = team.workers.find(w => w.id === announcement.agentId)
+    const workerName = worker?.config.name || announcement.agentId
+
+    const msgType = announcement.status === 'completed' ? 'task_completed' : 'task_completed'
+    const content = announcement.status === 'completed'
+      ? `Worker "${workerName}" completed task ${announcement.taskId}${announcement.summary ? ': ' + announcement.summary : ''}`
+      : `Worker "${workerName}" failed task ${announcement.taskId}${announcement.result ? ': ' + announcement.result : ''}`
+
+    mailboxService.broadcastMessage(
+      team.spaceId,
+      {
+        type: msgType,
+        senderId: announcement.agentId,
+        senderName: workerName,
+        content,
+        payload: {
+          taskId: announcement.taskId,
+          result: announcement.result,
+          error: announcement.status === 'failed' ? announcement.result : undefined
+        }
+      },
+      announcement.agentId // Don't send to self
+    )
   }
 
   /**

@@ -311,3 +311,109 @@ export function groupSubagentThoughts(
     return group
   })
 }
+
+/**
+ * Group thoughts using inline agentId tags (for historical display after restart).
+ *
+ * Unlike `groupSubagentThoughts()` which requires live workerSessions, this function
+ * works purely from persisted data where subagent thoughts have agentId/agentName tags.
+ *
+ * Logic:
+ * 1. Separate thoughts into main (no agentId) and subagent (has agentId)
+ * 2. Group subagent thoughts by agentId
+ * 3. For each main Agent/Task tool_use thought, attach the matching subagent group
+ *    (matched by positional order)
+ */
+export function groupSubagentThoughtsFromPersisted(thoughts: Thought[]): ThoughtGroup[] {
+  // Separate main and subagent thoughts
+  const mainThoughts: Thought[] = []
+  const subagentGroups = new Map<string, Thought[]>()  // agentId -> thoughts
+
+  for (const thought of thoughts) {
+    if (thought.agentId) {
+      const group = subagentGroups.get(thought.agentId) || []
+      group.push(thought)
+      subagentGroups.set(thought.agentId, group)
+    } else {
+      mainThoughts.push(thought)
+    }
+  }
+
+  // If no subagent thoughts, return simple groups
+  if (subagentGroups.size === 0) {
+    return mainThoughts.map(t => ({ main: t }))
+  }
+
+  // Match subagent groups to main Agent/Task tool_use thoughts by positional order
+  const assignedAgentIds = new Set<string>()
+  const agentToolThoughts: Thought[] = []  // Track Agent/Task thoughts in order
+  const agentToolIndices: number[] = []    // Their indices in mainThoughts
+
+  for (let i = 0; i < mainThoughts.length; i++) {
+    const t = mainThoughts[i]
+    if (t.type === 'tool_use' && (t.toolName === 'Agent' || t.toolName === 'Task')) {
+      agentToolThoughts.push(t)
+      agentToolIndices.push(i)
+    }
+  }
+
+  // Get ordered list of subagent groups (by first thought timestamp)
+  const orderedGroups = Array.from(subagentGroups.entries())
+    .sort(([, a], [, b]) => {
+      const timeA = a[0] ? new Date(a[0].timestamp).getTime() : 0
+      const timeB = b[0] ? new Date(b[0].timestamp).getTime() : 0
+      return timeA - timeB
+    })
+
+  // Match by positional order: first Agent tool_use -> first subagent group, etc.
+  for (let i = 0; i < Math.min(agentToolThoughts.length, orderedGroups.length); i++) {
+    const [agentId] = orderedGroups[i]
+    assignedAgentIds.add(agentId)
+  }
+
+  // Build result groups
+  const result: ThoughtGroup[] = mainThoughts.map((thought, index) => {
+    const group: ThoughtGroup = { main: thought }
+
+    // If this is an Agent/Task tool_use, find matching subagent group
+    if (thought.type === 'tool_use' && (thought.toolName === 'Agent' || thought.toolName === 'Task')) {
+      const toolIdx = agentToolIndices.indexOf(index)
+      if (toolIdx !== -1 && toolIdx < orderedGroups.length) {
+        const [agentId, subThoughts] = orderedGroups[toolIdx]
+        // Filter subagent thoughts for display (same filter as groupSubagentThoughts)
+        const displayThoughts = subThoughts.filter(th => {
+          if (th.type === 'result') return false
+          if (th.type === 'tool_result') return false
+          if (th.toolName === 'TodoWrite') return false
+          return true
+        })
+        if (displayThoughts.length > 0) {
+          group.subagentThoughts = displayThoughts
+        }
+        assignedAgentIds.add(agentId)
+      }
+    }
+
+    return group
+  })
+
+  // Append any unmatched subagent thoughts as standalone groups at the end
+  for (const [agentId, subThoughts] of orderedGroups) {
+    if (!assignedAgentIds.has(agentId)) {
+      const displayThoughts = subThoughts.filter(th => {
+        if (th.type === 'result') return false
+        if (th.type === 'tool_result') return false
+        if (th.toolName === 'TodoWrite') return false
+        return true
+      })
+      if (displayThoughts.length > 0) {
+        result.push({
+          main: displayThoughts[0],
+          subagentThoughts: displayThoughts.length > 1 ? displayThoughts.slice(1) : undefined
+        })
+      }
+    }
+  }
+
+  return result
+}

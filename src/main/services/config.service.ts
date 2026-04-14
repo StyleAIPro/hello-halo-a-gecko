@@ -727,7 +727,8 @@ function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
         currentSource.provider || '',
         currentSource.apiUrl || '',
         currentSource.apiKey || '',
-        currentSource.model || ''
+        currentSource.model || '',
+        currentSource.contextWindow || ''
       ].join('|')
     }
 
@@ -738,7 +739,8 @@ function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
       currentSource.accessToken || '',
       currentSource.refreshToken || '',
       currentSource.tokenExpires || '',
-      currentSource.model || ''
+      currentSource.model || '',
+      currentSource.contextWindow || ''
     ].join('|')
   }
 

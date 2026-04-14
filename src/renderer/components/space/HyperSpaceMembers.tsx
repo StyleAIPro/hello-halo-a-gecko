@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, memo } from 'react'
 import { useTranslation } from '../../i18n'
 import { useSpaceStore } from '../../stores/space.store'
 import { api } from '../../api'
-import { Plus, Trash2, Cloud, Monitor, Crown, Wrench } from 'lucide-react'
+import { Plus, Trash2, Cloud, Monitor, Crown, Wrench, Users } from 'lucide-react'
 import type { AgentConfig } from '../../../shared/types/hyper-space'
 import type { RemoteServer, Space } from '../../../shared/types'
 
@@ -33,6 +33,7 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
   const [agents, setAgents] = useState<AgentConfig[]>([])
   const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
   const [isAddingAgent, setIsAddingAgent] = useState(false)
+  const [isPersistentMode, setIsPersistentMode] = useState(false)
   const [newAgent, setNewAgent] = useState<Partial<AgentConfig>>({
     name: '',
     type: 'local',
@@ -108,6 +109,28 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
     }
   }, [currentSpace, agents])
 
+  // Persistent mode toggle
+  const togglePersistentMode = useCallback(async () => {
+    if (!currentSpace) return
+    if (!isPersistentMode) {
+      const result = await api.setPersistentMode(currentSpace.id, true)
+      if (result.success) setIsPersistentMode(true)
+    } else {
+      const result = await api.setPersistentMode(currentSpace.id, false)
+      if (result.success) setIsPersistentMode(false)
+    }
+  }, [currentSpace, isPersistentMode])
+
+  // Load persistent mode state on mount
+  useEffect(() => {
+    if (!currentSpace?.id || !isHyperSpace) return
+    api.getPersistentMode(currentSpace.id).then(result => {
+      if (result.success) {
+        setIsPersistentMode(result.data?.persistent ?? false)
+      }
+    })
+  }, [currentSpace?.id, isHyperSpace])
+
   // Don't render if not a Hyper Space or not visible
   if (!isHyperSpace || !visible) return null
 
@@ -118,13 +141,26 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           {t('Space Members')}
         </span>
-        <button
-          onClick={() => setIsAddingAgent(!isAddingAgent)}
-          className="p-1 hover:bg-secondary rounded transition-colors text-muted-foreground hover:text-foreground"
-          title={t('Add Agent')}
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsAddingAgent(!isAddingAgent)}
+            className="p-1 hover:bg-secondary rounded transition-colors text-muted-foreground hover:text-foreground"
+            title={t('Add Agent')}
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={togglePersistentMode}
+            className={`p-1 rounded transition-colors ${
+              isPersistentMode
+                ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
+                : 'hover:bg-secondary text-muted-foreground hover:text-foreground'
+            }`}
+            title={isPersistentMode ? 'Persistent Mode: ON - Workers stay alive between tasks' : 'Persistent Mode: OFF'}
+          >
+            <Users className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Agent List */}

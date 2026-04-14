@@ -20,6 +20,7 @@ import type { MessageListHandle } from './MessageList'
 import { InputArea, type InputAreaRef } from './InputArea'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { WorkerTabBar, WorkerView, type WorkerTab } from './WorkerTabBar'
+import { TaskBoardPanel } from '../space/TaskBoardPanel'
 import { Sparkles } from '../icons/ToolIcons'
 import {
   ONBOARDING_ARTIFACT_NAME,
@@ -210,6 +211,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
 
   // Track which workers had unread results while user was on another tab
   const [unreadWorkers, setUnreadWorkers] = useState<Set<string>>(new Set())
+  const [taskBoardVisible, setTaskBoardVisible] = useState(false)
 
   // Read workerSessions from store (Map keyed by agentId)
   const workerSessions = useChatStore((s) => {
@@ -465,6 +467,30 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
       <WorkerTabBar tabs={tabs} activeTabId={activeTabId} onTabChange={handleTabChange} unreadWorkers={unreadWorkers} />
 
       {/* Input area — available on both main tab and worker tabs */}
+      {/* TaskBoard toggle button - only for Hyper Space */}
+      {currentSpace?.spaceType === 'hyper' && (
+        <div className="flex items-center justify-end px-4 pt-1">
+          <button
+            onClick={() => setTaskBoardVisible(!taskBoardVisible)}
+            className={`text-xs px-2 py-0.5 rounded transition-colors ${
+              taskBoardVisible
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {taskBoardVisible ? 'Hide' : 'Show'} TaskBoard
+          </button>
+        </div>
+      )}
+
+      {/* TaskBoard Panel */}
+      {currentSpace?.spaceType === 'hyper' && (
+        <TaskBoardPanel
+          spaceId={currentSpace.id}
+          visible={taskBoardVisible}
+        />
+      )}
+
       {/* On worker tabs: handleSend auto-injects activeAgentId so messages route to the selected worker */}
       <InputArea
         ref={inputAreaRef}

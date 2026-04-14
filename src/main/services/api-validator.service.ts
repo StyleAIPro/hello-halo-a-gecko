@@ -152,7 +152,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
   // Step 3: Determine test model
   // For OpenAI compat: use a simple model, SDK will pass through router
   // For Anthropic: use actual model from config or default
-  const testModel = model || (provider === 'anthropic' ? AVAILABLE_MODELS[2].id : 'claude-sonnet-4-20250514')
+  const testModel = model || (provider === 'anthropic' ? AVAILABLE_MODELS[2].id : 'claude-sonnet-4-6')
 
   // Step 4: Get headless Electron path (same as agent module)
   const electronPath = getHeadlessElectronPath()

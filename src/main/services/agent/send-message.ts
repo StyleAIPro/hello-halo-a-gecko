@@ -64,7 +64,6 @@ import {
   formatCanvasContext,
   buildMessageContent,
 } from './message-utils'
-import { uploadImagesForMcp } from '../image-upload.service'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
 import { processStream, getAndClearInjection, type PendingInjection } from './stream-processor'
 import { AicoBotMcpBridge } from '../remote-ws/aico-bot-mcp-bridge'
@@ -459,26 +458,19 @@ export async function sendMessage(
     console.log(`[Agent][${conversationId}] ⏱️ V2 session ready: ${Date.now() - t0}ms`)
 
     // Prepare message content (canvas context prefix + multi-modal images)
-    let finalImages = images
+    // CRITICAL: For local execution, do NOT upload images — pass base64 directly.
+    // The Claude Code SDK natively supports base64 image sources and does not need
+    // to fetch images over HTTP. Uploading to localhost URLs adds unnecessary failure
+    // points (server accessibility, IPv4/IPv6 mismatch, firewall, proxy, etc.) that
+    // can cause the SDK subprocess to crash before the API call is even made.
+    // Image upload is only needed for remote execution where the remote server needs
+    // accessible URLs.
     if (images && images.length > 0) {
-      console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s)`)
-
-      // Upload images to make them accessible via URL for MCP tools
-      // This is essential for non-multimodal models that use MCP tools like analyze_image
-      // to process images, as those tools may run in remote environments
-      try {
-        const uploadedImages = await uploadImagesForMcp(images, spaceId)
-        console.log(`[Agent][${conversationId}] Images uploaded: ${uploadedImages.length} images with URLs`)
-        // Replace images with uploaded versions that have URLs
-        finalImages = uploadedImages
-      } catch (error) {
-        console.error(`[Agent][${conversationId}] Image upload failed:`, error)
-        // Continue with original images (base64) - will work for multimodal models
-      }
+      console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s) (base64)`)
     }
     const canvasPrefix = formatCanvasContext(canvasContext)
     const messageWithContext = canvasPrefix + message
-    const messageContent = buildMessageContent(messageWithContext, finalImages)
+    const messageContent = buildMessageContent(messageWithContext, images)
 
     // Mark session request start for health tracking
     markSessionRequestStart(conversationId)
@@ -495,6 +487,10 @@ export async function sendMessage(
       const maxInjectionCycles = 20  // Safety limit to prevent infinite loops from worker reports
       let injectionCycles = 0
 
+      // Auth retry state — when SDK detects 401 and gives up, rebuild session with fresh credentials
+      const MAX_AUTH_RETRIES = 1
+      let authRetries = 0
+
       // Loop to handle turn-level message injection
       while (true) {
         const result = await processStream({
@@ -506,6 +502,7 @@ export async function sendMessage(
           displayModel: resolvedCredentials.displayModel,
           abortController,
           t0,
+          contextWindow: resolvedCredentials.contextWindow,
           callbacks: {
             onComplete: (streamResult) => {
               // Only mark request complete and unregister if NOT continuing
@@ -597,7 +594,70 @@ export async function sendMessage(
           }
         }
 
-        // No pending injection, we're done
+        // No pending injection, check if auth retry is needed
+        if (result.needsAuthRetry && authRetries < MAX_AUTH_RETRIES) {
+          authRetries++
+          console.warn(`[Agent][${conversationId}] Auth retry #${authRetries}: rebuilding session with fresh credentials`)
+
+          // Notify user that auth recovery is in progress
+          sendToRenderer('agent:auth-retry', spaceId, conversationId, {
+            attempt: authRetries,
+            maxRetries: MAX_AUTH_RETRIES
+          })
+
+          // Unregister active session first (so rebuild is allowed)
+          unregisterActiveSession(conversationId)
+
+          // Re-resolve credentials (triggers token refresh for OAuth providers)
+          const freshCredentials = await getApiCredentials(config)
+          const freshResolved = await resolveCredentialsForSdk(freshCredentials)
+
+          // Close old session (force rebuild — fresh credentials will create a new session)
+          closeV2Session(conversationId)
+
+          // Re-build SDK options with fresh credentials
+          const freshSdkOptions = buildBaseSdkOptions({
+            credentials: freshResolved,
+            workDir,
+            electronPath,
+            spaceId,
+            conversationId,
+            abortController,
+            stderrHandler: (data: string) => {
+              console.error(`[Agent][${conversationId}] CLI stderr (auth retry):`, data)
+              stderrBuffer += data
+            },
+            mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
+            maxTurns: config.agent?.maxTurns,
+            contextWindow: freshResolved.contextWindow
+          })
+
+          // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
+          if (aiBrowserEnabled) {
+            freshSdkOptions.systemPrompt = buildSystemPromptWithAIBrowser(
+              { workDir, modelInfo: freshResolved.displayModel },
+              AI_BROWSER_SYSTEM_PROMPT
+            )
+          }
+          if (thinkingEnabled) {
+            freshSdkOptions.maxThinkingTokens = 10240
+          }
+
+          // Create fresh session (don't resume — safer after auth failure)
+          v2Session = await getOrCreateV2Session(spaceId, conversationId, freshSdkOptions, undefined, sessionConfig, workDir)
+
+          // Re-register as active
+          registerActiveSession(conversationId, sessionState)
+
+          // Reset stream state for retry
+          sessionState.streamingContent = ''
+          sessionState.thoughts = []  // Clear thoughts from failed attempt
+          currentMessageContent = messageContent  // Retry original message
+
+          // Continue the loop to retry with fresh session
+          continue
+        }
+
         break
       }
     } catch (streamError) {
@@ -763,10 +823,15 @@ async function executeRemoteMessage(
   log.info(`Executing on server: ${serverId}, path: ${remotePath}, useSshTunnel=${useSshTunnel}, message: ${message.substring(0, 50)}...`)
 
   // Get API key and model config
+  // Priority: server card config (resolved via aiSourceId) > global AI source > legacy config
+  // Each PC can configure different model services for the same remote server
   const config = getConfig()
-  const apiKey = config.api?.apiKey || config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)?.apiKey
-  const currentSource = config.aiSources?.sources?.find(s => s.id === config.aiSources?.currentId)
-  const model = currentSource?.model || config.api?.model || 'claude-sonnet-4-20250514'
+  const sourceId = server.aiSourceId || config.aiSources?.currentId
+  const currentSource = sourceId ? config.aiSources?.sources?.find(s => s.id === sourceId) : undefined
+  const apiKeyRaw = server.claudeApiKey || currentSource?.apiKey || config.api?.apiKey
+  const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined
+  const baseUrl = server.claudeBaseUrl || currentSource?.apiUrl
+  const model = server.claudeModel || currentSource?.model || config.api?.model || 'claude-sonnet-4-6'
   log.info(`Using model: ${model}`)
 
   // Get conversation for message history and session ID
@@ -807,21 +872,22 @@ async function executeRemoteMessage(
     // Ensure local auth token is registered in the remote whitelist (tokens.json)
     // OPTIMIZATION: Use cached token to avoid SSH connection on every message
     const cachedToken = getCachedAuthToken(serverId)
+    log.info(`Token cache check: cached=${cachedToken ? 'yes' : 'no'}, server.authToken=${server.authToken ? server.authToken.substring(0, 10) + '...' : 'none'}, cacheMatch=${cachedToken === server.authToken}`)
     if (cachedToken && cachedToken === server.authToken) {
       log.debug(`Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
     } else {
       // Cache miss - need to register local token on remote
       try {
-        log.debug(`Ensuring local token is in remote whitelist (cache ${cachedToken ? 'expired' : 'miss'})...`)
+        log.info(`Registering local token on remote (cache ${cachedToken ? 'expired' : 'miss'})...`)
 
         // Use the deploy service's registerTokenOnRemote method
         await deployService.registerTokenOnRemote(serverId)
 
         // Cache the local token (never overwrite with a different token)
         setCachedAuthToken(serverId, server.authToken)
-        log.debug(`Local token registered/cached for server ${serverId}`)
+        log.info(`Local token registered/cached for server ${serverId}`)
       } catch (syncError) {
-        log.warn(`Failed to register token on remote (non-fatal):`, syncError)
+        log.error(`Failed to register token on remote:`, syncError)
         // Continue anyway, using existing local token
         if (server.authToken) {
           setCachedAuthToken(serverId, server.authToken)
@@ -960,7 +1026,11 @@ async function executeRemoteMessage(
       host: useSshTunnel ? 'localhost' : server.host,
       port: useSshTunnel ? localTunnelPort : (server.wsPort || 8080),
       authToken: server.authToken || '',
-      useSshTunnel  // Pass SSH tunnel flag
+      useSshTunnel,  // Pass SSH tunnel flag
+      // Bind local API credentials to this connection
+      apiKey: apiKey || undefined,
+      baseUrl: currentSource?.apiUrl || undefined,
+      model: model || undefined
     }
     log.info(`Creating WebSocket client with config:`, { useSshTunnel: wsConfig.useSshTunnel, host: wsConfig.host, port: wsConfig.port })
 
@@ -1309,6 +1379,22 @@ async function executeRemoteMessage(
       }
     })
 
+    // AskUserQuestion forwarding - remote Claude asks user a question
+    addHandler('ask:question', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        log.debug(`AskUserQuestion: id=${data.data.id}, questions=${data.data.questions?.length || 0}`)
+        sendToRenderer('agent:ask-question', spaceId, conversationId, data.data)
+      }
+    })
+
+    // Auth retry notification from remote proxy
+    addHandler('auth_retry', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        log.info(`Auth retry in progress (remote): ${data.data?.attempt}/${data.data?.maxRetries}`)
+        sendToRenderer('agent:auth-retry', spaceId, conversationId, data.data)
+      }
+    })
+
     // Text block start signal - for proper text block reset in frontend
     addHandler('text:block-start', (data) => {
       if (data.sessionId === effectiveSessionId) {
@@ -1401,10 +1487,15 @@ async function executeRemoteMessage(
     })
 
     // Register MCP tools with remote proxy (only once per connection lifetime)
-    if (mcpToolDefs.length > 0 && !(client as any)._mcpToolsRegistered) {
-      client.registerMcpTools(mcpToolDefs, mcpCapabilities)
-      ;(client as any)._mcpToolsRegistered = true
-      log.info(`Registered ${mcpToolDefs.length} MCP tools with pooled connection`)
+    // registerMcpTools() internally checks send() return value and only sets
+    // the flag when the message is actually sent successfully.
+    if (mcpToolDefs.length > 0 && !client.mcpToolsRegistered) {
+      const sent = client.registerMcpTools(mcpToolDefs, mcpCapabilities)
+      if (sent) {
+        log.info(`Registered ${mcpToolDefs.length} MCP tools with pooled connection`)
+      } else {
+        log.warn(`Failed to register ${mcpToolDefs.length} MCP tools — connection not ready, will retry on next message`)
+      }
     }
 
     // Build message payload - incremental when resuming a session
@@ -1483,13 +1574,14 @@ async function executeRemoteMessage(
       messagesToSend,
       {
         apiKey,
-        baseUrl: currentSource?.apiUrl || undefined,
+        baseUrl: baseUrl || undefined,
         model,
         maxTokens: config.agent?.maxTokens || 8192,
         system: systemPrompt || undefined,  // Custom system prompt from space config
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,
         workDir: remotePath,  // CRITICAL: Pass workDir from Space config
         sdkSessionId: sdkSessionIdForResume,  // Pass SDK session ID for resumption
+        contextWindow: currentSource?.contextWindow,  // Context window for compression and display
         aicoBotMcpUrl: mcpProxyRemotePort ? `http://127.0.0.1:${mcpProxyRemotePort}/mcp` : undefined,
         aicoBotMcpToken: mcpProxyRemotePort ? (await getAccessToken()) : undefined,
       }
@@ -1627,6 +1719,13 @@ async function checkRemoteAgentDeployed(serverId: string): Promise<boolean> {
     return false
   }
 
+  // Ensure SSH connection is established before checking
+  try {
+    await deployService.ensureSshConnection(serverId)
+  } catch {
+    return false
+  }
+
   const manager = deployService.getSSHManagerForServer(serverId)
   if (!manager) {
     return false
@@ -1653,10 +1752,8 @@ async function deployRemoteAgent(serverId: string): Promise<void> {
     throw new Error(`Remote server not found: ${serverId}`)
   }
 
-  const manager = deployService.getSSHManagerForServer(serverId)
-  if (!manager) {
-    throw new Error(`SSH manager not available for server: ${serverId}`)
-  }
+  // Ensure SSH connection is established before deploying
+  await deployService.ensureSshConnection(serverId)
 
   log.debug(' Deploying remote agent to:', server.name)
 
@@ -1674,6 +1771,13 @@ async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
   const server = deployService.getServer(serverId)
 
   if (!server) {
+    return false
+  }
+
+  // Ensure SSH connection is established before checking
+  try {
+    await deployService.ensureSshConnection(serverId)
+  } catch {
     return false
   }
 
@@ -1709,10 +1813,8 @@ async function startRemoteAgent(serverId: string): Promise<void> {
     throw new Error(`Remote server not found: ${serverId}`)
   }
 
-  const manager = deployService.getSSHManagerForServer(serverId)
-  if (!manager) {
-    throw new Error(`SSH manager not available for server: ${serverId}`)
-  }
+  // Ensure SSH connection is established before starting
+  await deployService.ensureSshConnection(serverId)
 
   log.debug(' Starting remote agent on:', server.name)
 

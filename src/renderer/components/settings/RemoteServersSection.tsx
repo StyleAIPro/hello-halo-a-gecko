@@ -4,10 +4,12 @@
  */
 
 import React from 'react'
-import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit, ListChecks } from 'lucide-react'
+import { Server, Plus, Trash2, ExternalLink, Plug, PowerOff, CheckCircle, XCircle, Loader2, Terminal, ChevronDown, ChevronRight, RefreshCw, Edit, AlertTriangle } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
 import { useConfirm } from '../ui/ConfirmDialog'
+import { useChatStore } from '../../stores/chat.store'
+import { useSpaceStore } from '../../stores/space.store'
 
 interface TerminalEntry {
   id: string
@@ -19,7 +21,15 @@ interface TerminalEntry {
 export function RemoteServersSection() {
   const { t } = useTranslation()
   const { confirm: confirmDialog, alert: alertDialog, ConfirmDialogElement } = useConfirm()
+  const stopGeneration = useChatStore((s) => s.stopGeneration)
+  const spaces = useSpaceStore((s) => s.spaces)
   const [servers, setServers] = React.useState<any[]>([])
+  // Active session warning dialog state
+  const [activeSessionWarning, setActiveSessionWarning] = React.useState<{
+    serverId: string
+    serverName: string
+    activeCount: number
+  } | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [showAddDialog, setShowAddDialog] = React.useState(false)
   const [editingServer, setEditingServer] = React.useState<any | null>(null)
@@ -37,7 +47,6 @@ export function RemoteServersSection() {
   })
   const [aiSources, setAiSources] = React.useState<Array<{ id: string; name: string; provider: string; apiUrl: string; apiKey?: string; model: string; authType: string; accessToken?: string }>>([])
   const [saving, setSaving] = React.useState(false)
-  const [checkingAgent, setCheckingAgent] = React.useState<string | null>(null)
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
   const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(() => {
@@ -56,9 +65,15 @@ export function RemoteServersSection() {
   // Track servers that user manually disconnected - don't auto-reconnect these
   const [manuallyDisconnected, setManuallyDisconnected] = React.useState<Set<string>>(new Set())
   // Batch operation state
-  const [batchChecking, setBatchChecking] = React.useState(false)
   const [batchUpdating, setBatchUpdating] = React.useState(false)
   const [batchProgress, setBatchProgress] = React.useState<{ current: number; total: number } | null>(null)
+  // Ref to track if we're awaiting an IPC call (so the event handler doesn't double-handle)
+  const pendingUpdateRef = React.useRef<string | null>(null)
+  // Ref to track which servers' results have already been handled (to prevent double dialogs)
+  const handledUpdateRef = React.useRef<Set<string>>(new Set())
+  // Ref to mirror servers state for use in event handlers without causing re-subscription
+  const serversRef = React.useRef<any[]>([])
+  serversRef.current = servers
 
   // Save terminal entries to localStorage whenever they change
   React.useEffect(() => {
@@ -75,6 +90,60 @@ export function RemoteServersSection() {
     loadServers()
     loadAiSources()
   }, [])
+
+  // On mount (and after servers load), check if any update was in progress
+  // so the spinner can be restored after a tab switch
+  React.useEffect(() => {
+    if (servers.length === 0) return
+
+    const checkUpdateStates = async () => {
+      for (const server of servers) {
+        try {
+          // Skip if already handled (e.g., by the event handler)
+          if (handledUpdateRef.current.has(server.id)) continue
+
+          const result = await api.remoteServerGetUpdateStatus(server.id)
+          if (result.success && result.data) {
+            const state = result.data as { inProgress: boolean; completedAt?: number; success?: boolean; data?: any; error?: string }
+
+            if (state.inProgress) {
+              // Update still running — restore the spinner
+              console.log('[RemoteServersSection] Restoring update spinner for:', server.id)
+              setUpdatingAgent(server.id)
+              expandServer(server.id)
+              addTerminalEntry(server.id, 'output', '（更新进行中...已恢复显示）')
+            } else if (state.completedAt) {
+              // Update completed while we were away — acknowledge and show result
+              handledUpdateRef.current.add(server.id)
+              console.log('[RemoteServersSection] Found completed update for:', server.id, state.success ? 'success' : 'failed')
+              await api.remoteServerAcknowledgeUpdate(server.id)
+              setUpdatingAgent(null)
+
+              if (state.success) {
+                addTerminalEntry(server.id, 'success', 'Agent 更新完成!')
+                const vi = state.data as { remoteVersion?: string; localVersion?: string; remoteBuildTime?: string; localBuildTime?: string } | undefined
+                let msg = `${server.name} Agent 更新成功`
+                if (vi?.remoteVersion) {
+                  msg += `\n\n本地版本: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n本地构建时间: ${vi.localBuildTime}` : ''}`
+                  msg += `\n\n远端版本: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n远端构建时间: ${vi.remoteBuildTime}` : ''}`
+                }
+                await alertDialog(msg)
+              } else {
+                addTerminalEntry(server.id, 'error', `更新失败: ${state.error || '未知错误'}`)
+                await alertDialog(`${server.name} 更新失败: ${state.error || '未知错误'}`)
+              }
+
+              await loadServers()
+            }
+          }
+        } catch (err) {
+          console.error('[RemoteServersSection] Failed to check update status:', server.id, err)
+        }
+      }
+    }
+
+    checkUpdateStates()
+  }, [servers])
 
   const loadAiSources = async () => {
     try {
@@ -98,7 +167,9 @@ export function RemoteServersSection() {
     }
   }
 
-  // Listen for command output and status change events from main process
+  // Listen for command output, status change, and update-complete events from main process
+  // NOTE: Uses empty dependency [] so listeners are registered exactly once on mount.
+  // Uses refs (serversRef, pendingUpdateRef, handledUpdateRef) to access current state.
   React.useEffect(() => {
     const handleCommandOutput = (data: { serverId: string; type: 'command' | 'output' | 'error' | 'success'; content: string; timestamp: number }) => {
       addTerminalEntry(data.serverId, data.type, data.content)
@@ -126,16 +197,57 @@ export function RemoteServersSection() {
       addTerminalEntry(data.serverId, type, `${data.message}${progressText}`)
     }
 
+    // Handle update completion event (for when user is on a different tab)
+    const handleUpdateComplete = async (data: { serverId: string; success: boolean; data?: any; error?: string }) => {
+      console.log('[RemoteServersSection] Update complete event:', data)
+
+      // If we're still awaiting the IPC call for this server, let the promise handler show the dialog
+      if (pendingUpdateRef.current === data.serverId) {
+        return
+      }
+
+      // Skip if already handled by the mount check
+      if (handledUpdateRef.current.has(data.serverId)) {
+        return
+      }
+      handledUpdateRef.current.add(data.serverId)
+
+      // Component was remounted (or user was on a different tab) — handle completion here
+      setUpdatingAgent(null)
+      await api.remoteServerAcknowledgeUpdate(data.serverId)
+
+      const server = serversRef.current.find(s => s.id === data.serverId)
+      const serverName = server?.name || data.serverId
+
+      if (data.success) {
+        addTerminalEntry(data.serverId, 'success', 'Agent 更新完成!')
+        const vi = data.data as { remoteVersion?: string; localVersion?: string; remoteBuildTime?: string; localBuildTime?: string } | undefined
+        let msg = `${serverName} Agent 更新成功`
+        if (vi?.remoteVersion) {
+          msg += `\n\n本地版本: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n本地构建时间: ${vi.localBuildTime}` : ''}`
+          msg += `\n\n远端版本: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n远端构建时间: ${vi.remoteBuildTime}` : ''}`
+        }
+        await alertDialog(msg)
+      } else {
+        addTerminalEntry(data.serverId, 'error', `更新失败: ${data.error || '未知错误'}`)
+        await alertDialog(`${serverName} 更新失败: ${data.error || '未知错误'}`)
+      }
+
+      await loadServers()
+    }
+
     if (window.electron?.ipcRenderer) {
       window.electron.ipcRenderer.on('remote-server:command-output', handleCommandOutput)
       window.electron.ipcRenderer.on('remote-server:status-change', handleStatusChange)
       window.electron.ipcRenderer.on('remote-server:deploy-progress', handleDeployProgress)
+      window.electron.ipcRenderer.on('remote-server:update-complete', handleUpdateComplete)
     }
 
     return () => {
       window.electron.ipcRenderer?.removeListener('remote-server:command-output', handleCommandOutput)
       window.electron.ipcRenderer?.removeListener('remote-server:status-change', handleStatusChange)
       window.electron.ipcRenderer?.removeListener('remote-server:deploy-progress', handleDeployProgress)
+      window.electron.ipcRenderer?.removeListener('remote-server:update-complete', handleUpdateComplete)
     }
   }, [])
 
@@ -226,6 +338,12 @@ export function RemoteServersSection() {
   const handleAddServer = async () => {
     if (saving) return
 
+    // Validate: AI source must be configured
+    if (!formData.aiSourceId) {
+      alert('请选择一个 AI 模型服务')
+      return
+    }
+
     console.log('[RemoteServersSection] Add server clicked, formData:', formData)
 
     setSaving(true)
@@ -293,7 +411,7 @@ export function RemoteServersSection() {
       host: server.host || '',
       sshPort: server.sshPort || 22,
       username: server.username || '',
-      password: '',  // Don't populate password for security
+      password: server.password ? '••••••••••' : '',  // Placeholder dots if password exists
       wsPort: server.wsPort || 8080,
       claudeApiKey: server.claudeApiKey || '',
       claudeBaseUrl: server.claudeBaseUrl || '',
@@ -305,6 +423,12 @@ export function RemoteServersSection() {
   // Handle edit server
   const handleEditServer = async () => {
     if (!editingServer || saving) return
+
+    // Validate: AI source must be configured
+    if (!formData.aiSourceId) {
+      alert('请选择一个 AI 模型服务')
+      return
+    }
 
     console.log('[RemoteServersSection] Edit server:', editingServer.id, 'formData:', formData)
 
@@ -318,7 +442,7 @@ export function RemoteServersSection() {
           host: formData.host,
           port: formData.sshPort,
           username: formData.username,
-          password: formData.password || undefined,  // Only update if provided
+          password: (formData.password && formData.password !== '••••••••••') ? formData.password : undefined,  // Keep unchanged if placeholder
         },
         wsPort: formData.wsPort,
         aiSourceId: formData.aiSourceId || undefined,
@@ -357,7 +481,23 @@ export function RemoteServersSection() {
   }
 
   const handleDeleteServer = async (serverId: string) => {
-    if (!(await confirmDialog(t('Are you sure you want to delete this server?')))) return
+    // Check if any remote spaces reference this server
+    const spacesResult = await api.listSpaces()
+    if (spacesResult.success && spacesResult.data) {
+      const referencedSpaces = (spacesResult.data as any[]).filter(
+        s => s.claudeSource === 'remote' && s.remoteServerId === serverId
+      )
+      if (referencedSpaces.length > 0) {
+        const names = referencedSpaces.map(s => s.name).join('、')
+        const warnMsg = t('以下远程空间正在使用此服务器，删除后这些空间将无法正常使用：{{names}}', { names }) + '\n\n' + t('是否仍然删除？')
+        if (!(await confirmDialog(warnMsg))) return
+      } else {
+        if (!(await confirmDialog(t('Are you sure you want to delete this server?')))) return
+      }
+    } else {
+      // Can't check — proceed anyway
+      if (!(await confirmDialog(t('Are you sure you want to delete this server?')))) return
+    }
     try {
       const result = await api.remoteServerDelete(serverId)
       if (result.success) {
@@ -405,76 +545,68 @@ export function RemoteServersSection() {
     }
   }
 
-  const handleCheckAgent = async (serverId: string): Promise<boolean> => {
-    setCheckingAgent(serverId)
-    expandServer(serverId)
-    // Don't clear terminal - preserve update agent output
-    addTerminalEntry(serverId, 'command', '\n--- Checking agent status ---')
-    console.log('[RemoteServersSection] Checking agent for server:', serverId)
-
-    try {
-      // Check SDK installation
-      addTerminalEntry(serverId, 'output', 'Checking SDK installation...')
-      const sdkResult = await api.remoteServerCheckAgent(serverId)
-      console.log('[RemoteServersSection] SDK check result:', sdkResult)
-
-      if (sdkResult.success && sdkResult.data) {
-        if (sdkResult.data.installed) {
-          addTerminalEntry(serverId, 'success', `SDK installed (version: ${sdkResult.data.version || 'unknown'})`)
-        } else {
-          addTerminalEntry(serverId, 'error', 'SDK not installed')
-        }
-      } else {
-        addTerminalEntry(serverId, 'error', `Failed to check SDK: ${sdkResult.error}`)
+  // Check if any remote spaces linked to a server have active (generating) sessions
+  const getActiveSessionCount = (serverId: string): number => {
+    const relatedSpaces = spaces.filter(s => s.remoteServerId === serverId)
+    let count = 0
+    for (const space of relatedSpaces) {
+      const spaceSessions = useChatStore.getState().spaceStates.get(space.id)
+      if (!spaceSessions) continue
+      for (const conv of spaceSessions.conversations) {
+        const session = useChatStore.getState().sessions.get(conv.id)
+        if (session?.isGenerating && !session.isStopping) count++
       }
+    }
+    return count
+  }
 
-      // Check if agent is running
-      addTerminalEntry(serverId, 'output', 'Checking agent process status...')
-      const runningResult = await api.remoteServerIsAgentRunning(serverId)
-      console.log('[RemoteServersSection] Agent running result:', runningResult)
-
-      if (runningResult.success && runningResult.data) {
-        if (runningResult.data.running) {
-          addTerminalEntry(serverId, 'success', 'Agent process is running')
-        } else {
-          addTerminalEntry(serverId, 'error', 'Agent process is not running')
-        }
-      } else {
-        addTerminalEntry(serverId, 'error', `Failed to check agent process: ${runningResult.error}`)
-      }
-
-      // Get recent logs
-      addTerminalEntry(serverId, 'output', 'Fetching recent agent logs...')
-      const logsResult = await api.remoteServerGetAgentLogs(serverId, 10)
-      console.log('[RemoteServersSection] Agent logs result:', logsResult)
-
-      if (logsResult.success && logsResult.data?.logs) {
-        addTerminalEntry(serverId, 'output', '--- Recent logs ---')
-        logsResult.data.logs.split('\n').slice(-5).forEach((line: string) => {
-          if (line.trim()) {
-            addTerminalEntry(serverId, 'output', line)
+  // Force stop all active sessions for a given server's remote spaces
+  const forceStopServerSessions = async (serverId: string): Promise<void> => {
+    const relatedSpaces = spaces.filter(s => s.remoteServerId === serverId)
+    for (const space of relatedSpaces) {
+      const spaceSessions = useChatStore.getState().spaceStates.get(space.id)
+      if (!spaceSessions) continue
+      for (const conv of spaceSessions.conversations) {
+        const session = useChatStore.getState().sessions.get(conv.id)
+        if (session?.isGenerating && !session.isStopping) {
+          try {
+            await stopGeneration(conv.id)
+          } catch (e) {
+            console.warn(`[RemoteServersSection] Failed to stop session ${conv.id}:`, e)
           }
-        })
-      } else {
-        addTerminalEntry(serverId, 'output', 'No logs available')
+        }
       }
-
-      addTerminalEntry(serverId, 'success', 'Agent status check complete')
-      await loadServers()
-      return true
-    } catch (error) {
-      addTerminalEntry(serverId, 'error', `Error checking agent: ${error}`)
-      console.error('[RemoteServersSection] Check agent error:', error)
-      return false
-    } finally {
-      setCheckingAgent(null)
     }
   }
+
   // Update agent code to latest version
   // Returns true if update succeeded, false if failed
-  const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean): Promise<boolean> => {
-    if (!skipConfirm && !(await confirmDialog(t('Update remote agent to latest version? This will restart the agent service.')))) return true
+  const handleUpdateAgent = async (serverId: string, skipConfirm?: boolean, forceStop?: boolean): Promise<boolean> => {
+    // Pre-check: scan for active sessions related to this server
+    if (!skipConfirm && !forceStop) {
+      const activeCount = getActiveSessionCount(serverId)
+      if (activeCount > 0) {
+        const server = servers.find(s => s.id === serverId)
+        setActiveSessionWarning({
+          serverId,
+          serverName: server?.name || serverId,
+          activeCount
+        })
+        return false
+      }
+    }
+
+    // If force stopping, stop all active sessions first
+    if (forceStop) {
+      setActiveSessionWarning(null)
+      await forceStopServerSessions(serverId)
+      // Brief pause to let sessions clean up
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+
+    if (!skipConfirm && !forceStop && !(await confirmDialog(t('Update remote agent to latest version? This will restart the agent service.')))) return true
     setUpdatingAgent(serverId)
+    pendingUpdateRef.current = serverId
     expandServer(serverId)
     // Clear terminal only when starting a new update (as requested by user)
     clearTerminal(serverId)
@@ -484,6 +616,8 @@ export function RemoteServersSection() {
     try {
       const result = await api.remoteServerUpdateAgent(serverId)
       console.log('[RemoteServersSection] Update result:', result)
+      // Acknowledge the update in main process (clear stored state)
+      try { await api.remoteServerAcknowledgeUpdate(serverId) } catch {}
       if (result.success) {
         // Show version info if available
         const versionInfo = result.data as { remoteVersion?: string; remoteBuildTime?: string; localVersion?: string; localBuildTime?: string } | undefined
@@ -520,39 +654,9 @@ export function RemoteServersSection() {
       }
       return false
     } finally {
+      pendingUpdateRef.current = null
       setUpdatingAgent(null)
     }
-  }
-
-  // Batch check all servers
-  const handleBatchCheck = async () => {
-    if (servers.length === 0) return
-    setBatchChecking(true)
-    // Expand all servers to show terminal output
-    setExpandedServers(prev => new Set([...prev, ...servers.map(s => s.id)]))
-    const total = servers.length
-    setBatchProgress({ current: 0, total })
-    let completed = 0
-    let succeeded = 0
-
-    const results = await Promise.allSettled(
-      servers.map(server =>
-        handleCheckAgent(server.id).then(ok => {
-          if (ok) succeeded++
-        }).finally(() => {
-          completed++
-          setBatchProgress({ current: completed, total })
-        })
-      )
-    )
-
-    const failed = total - succeeded
-    setBatchProgress(null)
-    setBatchChecking(false)
-    if (failed > 0) {
-      addTerminalEntry('batch', 'error', `Batch check completed: ${succeeded}/${total} succeeded, ${failed} failed`)
-    }
-    await loadServers()
   }
 
   // Batch update all servers
@@ -594,13 +698,6 @@ export function RemoteServersSection() {
           <span>{t('SDK Installed')} {server.sdkVersion ? `(${server.sdkVersion})` : ''}</span>
         </span>
       )
-    } else if (checkingAgent === server.id) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-500/10 text-yellow-600 text-xs rounded-full">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          <span>{t('Checking...')}</span>
-        </span>
-      )
     } else {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-600 text-xs rounded-full">
@@ -614,6 +711,45 @@ export function RemoteServersSection() {
   return (
     <>
       {ConfirmDialogElement}
+      {/* Active session warning dialog */}
+      {activeSessionWarning && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+          onClick={() => setActiveSessionWarning(null)}
+        >
+          <div
+            className="relative w-full max-w-md mx-4 bg-background border border-border rounded-xl shadow-xl p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="text-sm font-semibold">{t('Active Sessions Detected')}</h3>
+                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                  {t('{{serverName}} has {{count}} active session(s). Updating the agent will interrupt them and may cause connection errors.', {
+                    serverName: activeSessionWarning.serverName,
+                    count: activeSessionWarning.activeCount
+                  })}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setActiveSessionWarning(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary transition-colors"
+              >
+                {t('Cancel')}
+              </button>
+              <button
+                onClick={() => handleUpdateAgent(activeSessionWarning.serverId, false, true)}
+                className="px-4 py-2 text-sm rounded-lg bg-yellow-600 text-white hover:bg-yellow-700 transition-colors"
+              >
+                {t('Force Stop & Update')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <section id="remote-servers" className="bg-card rounded-xl border border-border p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -622,29 +758,14 @@ export function RemoteServersSection() {
           {batchProgress && (
             <p className="text-xs text-muted-foreground mt-1">
               <Loader2 className="w-3 h-3 inline animate-spin mr-1" />
-              {batchUpdating
-                ? t('Updating agents... {{current}}/{{total}}', { current: batchProgress.current, total: batchProgress.total })
-                : t('Checking agents... {{current}}/{{total}}', { current: batchProgress.current, total: batchProgress.total })}
+              {t('Updating agents... {{current}}/{{total}}', { current: batchProgress.current, total: batchProgress.total })}
             </p>
           )}
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleBatchCheck}
-            disabled={batchChecking || batchUpdating || servers.length === 0}
-            className="px-3 py-2 border border-border rounded-lg flex items-center gap-2 hover:bg-secondary transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
-            title={t('Batch Check All')}
-          >
-            {batchChecking ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <ListChecks className="w-4 h-4" />
-            )}
-            {t('Batch Check')}
-          </button>
-          <button
             onClick={handleBatchUpdate}
-            disabled={batchChecking || batchUpdating || servers.length === 0}
+            disabled={batchUpdating || servers.length === 0}
             className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
             title={t('Batch Update All')}
           >
@@ -751,20 +872,8 @@ export function RemoteServersSection() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleCheckAgent(server.id)}
-                        disabled={checkingAgent === server.id || updatingAgent === server.id || batchChecking || batchUpdating}
-                        className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors disabled:opacity-50"
-                        title={t('Check Agent Status')}
-                      >
-                        {checkingAgent === server.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <ListChecks className="w-4 h-4" />
-                        )}
-                      </button>
-                      <button
                         onClick={() => handleUpdateAgent(server.id)}
-                        disabled={updatingAgent === server.id || checkingAgent === server.id || batchChecking || batchUpdating}
+                        disabled={updatingAgent === server.id || batchUpdating}
                         className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
                         title={t('Update Agent')}
                       >
@@ -902,6 +1011,7 @@ export function RemoteServersSection() {
                   type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onFocus={() => { if (formData.password === '••••••••••') setFormData({ ...formData, password: '' }) }}
                   className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   placeholder="•••••"
                 />
@@ -976,7 +1086,7 @@ export function RemoteServersSection() {
               </button>
               <button
                 onClick={editingServer ? handleEditServer : handleAddServer}
-                disabled={saving || !formData.name.trim() || !formData.host.trim() || !formData.password.trim()}
+                disabled={saving || !formData.name.trim() || !formData.host.trim() || (!editingServer && !formData.password.trim())}
                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground transition-colors"
               >
                 {saving ? (

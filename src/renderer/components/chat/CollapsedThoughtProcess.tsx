@@ -28,6 +28,7 @@ import {
   getThoughtLabelKey,
   getToolFriendlyFormat,
   groupSubagentThoughts,
+  groupSubagentThoughtsFromPersisted,
   type ThoughtGroup,
 } from './thought-utils'
 import { useLazyVisible } from '../../hooks/useLazyVisible'
@@ -472,10 +473,15 @@ export function CollapsedThoughtProcess({ thoughts, defaultExpanded = false, wor
 
   // Group with subagent thoughts if workerMatchMap is provided
   const thoughtGroups = useMemo((): ThoughtGroup[] => {
-    if (!workerMatchMap || workerMatchMap.size === 0) {
-      return displayThoughts.map(t => ({ main: t }))
+    if (workerMatchMap && workerMatchMap.size > 0) {
+      return groupSubagentThoughts(displayThoughts, workerMatchMap)
     }
-    return groupSubagentThoughts(displayThoughts, workerMatchMap)
+    // Fallback: use persisted agentId tags for grouping (after restart)
+    const hasSubagentThoughts = displayThoughts.some(t => t.agentId)
+    if (hasSubagentThoughts) {
+      return groupSubagentThoughtsFromPersisted(displayThoughts)
+    }
+    return displayThoughts.map(t => ({ main: t }))
   }, [displayThoughts, workerMatchMap])
 
   // Check if there's anything to show

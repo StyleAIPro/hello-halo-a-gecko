@@ -304,10 +304,16 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
 
 /**
  * Terminal View - Embedded shared terminal in Canvas
+ * Follows activeAgentId: when a worker is selected, shows that worker's terminal.
  */
 function TerminalView() {
   const currentSpace = useSpaceStore(state => state.currentSpace)
-  const conversationId = useChatStore.getState().getSpaceState(currentSpace?.id ?? '')?.currentConversationId || ''
+  const activeAgentId = useChatStore(state => state.activeAgentId)
+  // Subscribe to workerSessions so this re-renders when a worker gets its childConversationId
+  const workerSessions = useChatStore(state => state.workerSessions)
+  const getActiveTerminalConversationId = useChatStore(state => state.getActiveTerminalConversationId)
+
+  const conversationId = currentSpace?.id ? getActiveTerminalConversationId(currentSpace.id) : ''
 
   if (!currentSpace?.id) {
     return (

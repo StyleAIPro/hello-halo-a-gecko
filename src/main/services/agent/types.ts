@@ -133,6 +133,9 @@ export interface Thought {
     isError: boolean
     timestamp: string
   }
+  // For subagent thought persistence (inline in main thoughts array)
+  agentId?: string      // Subagent identifier
+  agentName?: string    // Subagent display name
 }
 
 // ============================================
@@ -171,6 +174,7 @@ export type V2SDKSession = {
   setModel?: (model: string | undefined) => Promise<void>
   setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>
   setPermissionMode?: (mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan') => Promise<void>
+  compact?: (options?: { force?: boolean }) => Promise<{ compacted: boolean; preCompactTokenCount?: number; postCompactTokenCount?: number }>
 }
 
 /**

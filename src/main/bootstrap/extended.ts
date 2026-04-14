@@ -55,6 +55,7 @@ import * as watcherHost from '../services/watcher-host.service'
 import { getExpressApp } from '../http/server'
 import { getAccessToken } from '../http/auth'
 import { initTerminalGateway, shutdownTerminalGateway } from '../services/terminal'
+import { initTerminalHistory, shutdownTerminalHistory } from '../services/terminal'
 import { getMcpProxy, stopMcpProxy } from '../services/mcp-proxy'
 
 // Module-level reference to db for cleanup
@@ -105,11 +106,16 @@ async function initPlatformAndApps(): Promise<void> {
   platformDb = db
 
   // ── Phase 1: Platform services (parallel) ───────────────────────────────
-  const [scheduler, eventBus, memory] = await Promise.all([
+  const [scheduler, eventBus, memory, terminalHistory] = await Promise.all([
     initScheduler({ db }),
     Promise.resolve(initEventBus()),  // synchronous -- wrapped for uniform parallel pattern
     initMemory(),
+    initTerminalHistory(db),
   ])
+
+  // Wire terminal history store to gateway
+  const { terminalGateway } = await import('../services/terminal/terminal-gateway')
+  terminalGateway.setHistoryStore(terminalHistory)
 
   // Get the background service singleton (already initialized by initBackground())
   const background = getBackgroundService()
@@ -311,6 +317,9 @@ export async function cleanupExtendedServices(): Promise<void> {
 
   // Search: Cancel any ongoing searches
   cleanupSearchHandlers()
+
+  // Terminal History: Flush pending writes before gateway shutdown
+  shutdownTerminalHistory()
 
   // Terminal Gateway: Close WebSocket server
   shutdownTerminalGateway()

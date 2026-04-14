@@ -43,9 +43,6 @@ function loadConfig(): RemoteServerConfig {
     authTokens: whitelistedTokens,
     tokensFilePath: tokensPath,
     workDir: process.env.REMOTE_AGENT_WORK_DIR || process.env.WORK_DIR,
-    claudeApiKey: process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY,
-    claudeBaseUrl: process.env.ANTHROPIC_BASE_URL || process.env.CLAUDE_BASE_URL,
-    model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL,
     pathToClaudeCodeExecutable: process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE
   }
 
@@ -55,10 +52,8 @@ function loadConfig(): RemoteServerConfig {
   console.log(`  - Auth Token Whitelist: ${config.authTokens && config.authTokens.length > 0 ? `${config.authTokens.length} token(s)` : 'none (using bootstrap token only)'}`)
   console.log(`  - Tokens File: ${config.tokensFilePath}`)
   console.log(`  - Work Dir: ${config.workDir || 'default'}`)
-  console.log(`  - API Key: ${config.claudeApiKey ? 'configured' : 'none'}`)
-  console.log(`  - Base URL: ${config.claudeBaseUrl || 'default'}`)
-  console.log(`  - Model: ${config.model || 'default'}`)
   console.log(`  - Claude Code Path: ${config.pathToClaudeCodeExecutable || 'not set (SDK mode)'}`)
+  console.log(`  - Model credentials: per-request only (from AICO-Bot client)`)
 
   return config
 }

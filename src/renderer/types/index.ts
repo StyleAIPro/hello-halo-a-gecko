@@ -227,6 +227,31 @@ export interface Space {
   remotePath?: string;
   useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
   systemPrompt?: string;  // Custom system prompt for remote spaces
+  // Hyper Space support
+  spaceType?: 'local' | 'remote' | 'hyper';
+  agents?: Array<{
+    id: string;
+    name: string;
+    type: 'local' | 'remote';
+    role: 'leader' | 'worker';
+    remoteServerId?: string;
+    remotePath?: string;
+    useSshTunnel?: boolean;
+    capabilities?: string[];
+    model?: string;
+    thinkingEnabled?: boolean;
+    systemPromptAddition?: string;
+  }>;
+  orchestration?: {
+    mode: 'parallel' | 'sequential' | 'adaptive';
+    routing: {
+      strategy: string;
+      defaultAgentId?: string;
+    };
+    aggregation: {
+      strategy: string;
+    };
+  };
 }
 
 export interface CreateSpaceInput {
@@ -401,6 +426,20 @@ export interface Message {
       title?: string;
       content?: string;
     }>;
+    /** Group chat / team message metadata */
+    isTeamMessage?: boolean;
+    fullContent?: string;
+    recipientId?: string;
+    recipientName?: string;
+    /** TaskBoard message metadata */
+    isTaskBoard?: boolean;
+    taskPriority?: 'low' | 'normal' | 'high' | 'urgent';
+    taskStatus?: string;
+    /** Permission request from worker */
+    isPermissionRequest?: boolean;
+    permissionRequestId?: string;
+    requestingAgentName?: string;
+    toolName?: string;
   };
   error?: string;  // Error message when assistant response failed (e.g., 429 rate limit)
 }

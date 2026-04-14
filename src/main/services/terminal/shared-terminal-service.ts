@@ -79,6 +79,7 @@ export interface TerminalSessionState {
 export class SharedTerminalSession extends EventEmitter {
   private state: TerminalSessionState
   private _ready = false
+  private rawOutputDirty = false
 
   constructor(config: TerminalSessionConfig) {
     super()
@@ -361,6 +362,7 @@ export class SharedTerminalSession extends EventEmitter {
       if (this.state.rawOutputBuffer.length > this.state.maxRawBufferSize) {
         this.state.rawOutputBuffer = this.state.rawOutputBuffer.slice(-this.state.maxRawBufferSize)
       }
+      this.rawOutputDirty = true
     }
 
     this.emit('output', { content, source, commandId })
@@ -385,6 +387,35 @@ export class SharedTerminalSession extends EventEmitter {
    */
   getCommandHistory(): TerminalCommandRecord[] {
     return [...this.state.commandHistory]
+  }
+
+  /**
+   * Check if raw output buffer has unsaved changes
+   */
+  isRawOutputDirty(): boolean {
+    return this.rawOutputDirty
+  }
+
+  /**
+   * Mark raw output buffer as saved
+   */
+  markRawOutputClean(): void {
+    this.rawOutputDirty = false
+  }
+
+  /**
+   * Restore command history from persistent storage
+   */
+  restoreCommandHistory(commands: TerminalCommandRecord[]): void {
+    this.state.commandHistory = commands
+  }
+
+  /**
+   * Restore raw output buffer from persistent storage
+   */
+  restoreRawOutput(rawOutput: string): void {
+    this.state.rawOutputBuffer = rawOutput
+    this.rawOutputDirty = false
   }
 
   /**

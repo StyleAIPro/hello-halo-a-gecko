@@ -475,6 +475,16 @@ export const api = {
     )
   },
 
+  listAllWorkerConversations: async (spaceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.listAllWorkerConversations(spaceId)
+    }
+    return httpRequest(
+      'GET',
+      `/api/spaces/${spaceId}/conversations/workers`
+    )
+  },
+
   // ===== Agent =====
   sendMessage: async (request: {
     spaceId: string
@@ -510,9 +520,11 @@ export const api = {
     }
     agentId?: string  // Target agent ID for Hyper Space ('leader' or specific agent ID)
   }): Promise<ApiResponse> => {
-    // Subscribe to conversation events before sending
+    // Subscribe to conversation events and WAIT for server acknowledgment before sending.
+    // This prevents the race condition where events (e.g., worker:started) are
+    // emitted before the server has registered the client's subscription.
     if (!isElectron()) {
-      subscribeToConversation(request.conversationId)
+      await subscribeToConversation(request.conversationId)
     }
 
     if (isElectron()) {
@@ -1824,6 +1836,13 @@ export const api = {
     return httpRequest('PUT', '/api/remote-server', server)
   },
 
+  remoteServerUpdateAiSource: async (serverId: string, aiSourceId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.updateAiSource(serverId, aiSourceId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/update-ai-source`, { aiSourceId })
+  },
+
   remoteServerTestConnection: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.remoteServer.testConnection(serverId)
@@ -1981,6 +2000,20 @@ export const api = {
       return window.aicoBot.remoteServer.updateAgent(serverId)
     }
     return httpRequest('POST', `/api/remote-server/${serverId}/update-agent`)
+  },
+
+  remoteServerGetUpdateStatus: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.getUpdateStatus(serverId)
+    }
+    return httpRequest('GET', `/api/remote-server/${serverId}/update-status`)
+  },
+
+  remoteServerAcknowledgeUpdate: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.acknowledgeUpdate(serverId)
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/acknowledge-update`)
   },
 
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
@@ -2573,6 +2606,72 @@ export const api = {
       return window.aicoBot.getHyperSpaceMembers(spaceId)
     }
     return httpRequest('GET', `/api/hyper-space/${spaceId}/members`)
+  },
+
+  // ============================================
+  // TaskBoard API
+  // ============================================
+
+  getTaskBoard: async (spaceId: string): Promise<ApiResponse<{ tasks: any[] }>> => {
+    if (isElectron()) {
+      return window.aicoBot.getTaskBoard(spaceId)
+    }
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/taskboard`)
+  },
+
+  postTask: async (spaceId: string, input: {
+    title: string
+    description: string
+    priority?: string
+    requiredCapabilities?: string[]
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.postTask(spaceId, input)
+    }
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks`, input)
+  },
+
+  claimTask: async (spaceId: string, taskId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.claimTask(spaceId, taskId)
+    }
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks/${taskId}/claim`)
+  },
+
+  updateTaskStatus: async (spaceId: string, taskId: string, status: string, result?: string, error?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.updateTaskStatus(spaceId, taskId, status, result, error)
+    }
+    return httpRequest('PUT', `/api/hyper-space/${spaceId}/tasks/${taskId}/status`, { status, result, error })
+  },
+
+  // ============================================
+  // Persistent Mode API
+  // ============================================
+
+  setPersistentMode: async (spaceId: string, enabled: boolean): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.setPersistentMode(spaceId, enabled)
+    }
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/persistent-mode`, { enabled })
+  },
+
+  getPersistentMode: async (spaceId: string): Promise<ApiResponse<{ persistent: boolean }>> => {
+    if (isElectron()) {
+      return window.aicoBot.getPersistentMode(spaceId)
+    }
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/persistent-mode`)
+  },
+
+  // ============================================
+  // Permission Forwarding API
+  // ============================================
+
+  resolvePermission: async (spaceId: string, workerAgentId: string, requestId: string, approved: boolean): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.resolvePermission(spaceId, workerAgentId, requestId, approved)
+    }
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/permissions/resolve`, { workerAgentId, requestId, approved })
   },
 
   /**

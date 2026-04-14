@@ -59,6 +59,13 @@ export interface ResolvedSdkCredentials {
 export interface SdkEnvParams {
   anthropicApiKey: string
   anthropicBaseUrl: string
+  /** User-configured context window size (tokens). Passed as CLAUDE_CODE_AUTO_COMPACT_WINDOW
+   *  to the CLI subprocess so its autocompact threshold matches the displayed context. */
+  contextWindow?: number
+  /** Display model name for sub-agent model override */
+  displayModel?: string
+  /** SDK model name for sub-agent model override */
+  sdkModel?: string
 }
 
 /**
@@ -144,7 +151,7 @@ export async function resolveCredentialsForSdk(
     })
 
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-20250514'
+    sdkModel = 'claude-sonnet-4-6'
 
     console.log(`[SDK Config] ${credentials.provider} provider: routing via ${anthropicBaseUrl}, apiType=${apiType}`)
   }
@@ -444,6 +451,11 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     // Performance: skip warmup calls + raise V8 heap ceiling
     CLAUDE_CODE_REMOTE: 'true',
 
+    // Context window: tell CLI subprocess the real context window so autocompact
+    // triggers at the correct threshold (default ~200K, user may configure 1M+).
+    // Without this, CLI uses its internal model DB default and compresses too early.
+    ...(params.contextWindow ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: params.contextWindow } : {}),
+
     // Performance: skip file snapshot I/O (AICO-Bot doesn't expose /rewind)
     CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING: '1',
 
@@ -456,6 +468,17 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     // debug flag to claude code sdk
     // DEBUG: '1',
     // DEBUG_CLAUDE_AGENT_SDK: '1',
+  }
+
+  // Override sub-agent model to inherit parent session model.
+  // Built-in agents like "Explore" hardcode model: "haiku", which the SDK resolves
+  // to claude-haiku-4-5-20251001. Locally the OpenAI Compat Router replaces this with
+  // BackendConfig.model (request-handler.ts:375), but setting this env var explicitly
+  // ensures consistency and avoids unnecessary round-trips through the router for model
+  // substitution. Highest priority in SDK's Ik6() model resolution function.
+  const subagentModel = params.displayModel || params.sdkModel
+  if (subagentModel) {
+    env.CLAUDE_CODE_SUBAGENT_MODEL = subagentModel
   }
 
   return env as Record<string, string | number>
@@ -494,7 +517,10 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
   // Build environment variables
   const env = buildSdkEnv({
     anthropicApiKey: credentials.anthropicApiKey,
-    anthropicBaseUrl: credentials.anthropicBaseUrl
+    anthropicBaseUrl: credentials.anthropicBaseUrl,
+    contextWindow,
+    displayModel: credentials.displayModel,
+    sdkModel: credentials.sdkModel,
   })
 
   // Build base options
@@ -534,16 +560,9 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // instead of passing via SDK's sandbox option → --settings flag → tmpdir temp file.
     // This avoids CLI creating a temp file and chokidar watching the entire tmpdir.
 
-    // === Context Compression Configuration ===
-    // Enable automatic context compaction to prevent token overflow in long conversations
-    // Compact when context reaches 85% of model's configured context window (default 200K)
-    compactThreshold: 0.85,
-    // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
-    compactRetentionRatio: 0.5,
-    // Allow manual compaction via API
-    enableManualCompact: true,
-    // Use configured context window (defaults to 200K if not specified)
-    ...(contextWindow ? { modelContextWindow: contextWindow } : {}),
+    // Context compaction is controlled via CLAUDE_CODE_AUTO_COMPACT_WINDOW env var
+    // (set in buildSdkEnv). The SDK's compactThreshold/modelContextWindow options are
+    // NOT part of SDKSessionOptions and are silently ignored.
   }
 
   // Add MCP servers if provided

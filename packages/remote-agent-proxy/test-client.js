@@ -44,7 +44,7 @@ ws.on('open', () => {
         { role: 'user', content: 'Hello! Please respond with a short greeting.' }
       ],
       options: {
-        model: 'claude-sonnet-4-20250514'
+        model: 'claude-sonnet-4-6'
       },
       stream: true
     }

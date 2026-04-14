@@ -37,6 +37,7 @@ import { TerminalOutput } from '../TerminalOutput'
 import type { Message, Thought, ThoughtsSummary } from '../../types'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chat.store'
+import { AgentMessageBadge } from './AgentMessageBadge'
 
 interface MessageItemProps {
   message: Message
@@ -333,9 +334,16 @@ export const MessageItem = memo(function MessageItem({ message, previousCost = 0
         </div>
       )}
 
-      {/* Agent badge - for Hyper Space messages */}
+      {/* Agent badge - for Hyper Space messages with AgentMessageBadge */}
       {!isUser && (message.agentId || message.agentRole) && (
         <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/30">
+          <AgentMessageBadge
+            agentId={message.agentId || ''}
+            agentName={message.agentName}
+            agentRole={message.agentRole}
+            size="sm"
+          />
+          {/* Keep original badge as fallback for backward compat */}
           {message.agentRole === 'leader' ? (
             <Crown size={12} className="text-purple-500" />
           ) : (

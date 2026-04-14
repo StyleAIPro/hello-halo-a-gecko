@@ -35,10 +35,11 @@ export function setAuthToken(token: string): void {
 }
 
 // Clear auth token
-export function clearAuthToken(): void {
+export function clearAuthToken(): string | null {
   if (typeof localStorage !== 'undefined') {
-    localStorage.removeItem('aico_bot_remote_token')
+    return localStorage.removeItem('aico_bot_remote_token')
   }
+  return null
 }
 
 /**
@@ -99,6 +100,15 @@ let wsConnection: WebSocket | null = null
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
 const wsEventListeners = new Map<string, Set<(data: unknown) => void>>()
 
+// Pending subscribe acknowledgments: conversationId -> { resolve, timer }
+const pendingSubscribeAcks = new Map<string, {
+  resolve: () => void
+  timer: ReturnType<typeof setTimeout>
+}>()
+
+// Timeout for subscribe acknowledgment (ms)
+const SUBSCRIBE_ACK_TIMEOUT_MS = 3000
+
 export function connectWebSocket(): void {
   if (!isRemoteClient()) return
   if (wsConnection?.readyState === WebSocket.OPEN) return
@@ -129,6 +139,18 @@ export function connectWebSocket(): void {
         return
       }
 
+      if (message.type === 'subscribe:success') {
+        const conversationId = message.payload?.conversationId
+        console.log(`[WS] Subscribe ack received for ${conversationId}`)
+        const pending = pendingSubscribeAcks.get(conversationId)
+        if (pending) {
+          clearTimeout(pending.timer)
+          pending.resolve()
+          pendingSubscribeAcks.delete(conversationId)
+        }
+        return
+      }
+
       if (message.type === 'event') {
         // Dispatch to registered listeners
         const listeners = wsEventListeners.get(message.channel)
@@ -147,6 +169,13 @@ export function connectWebSocket(): void {
     console.log('[WS] Disconnected')
     wsConnection = null
 
+    // Clean up any pending subscribe acks so callers don't hang
+    for (const [, pending] of pendingSubscribeAcks) {
+      clearTimeout(pending.timer)
+      pending.resolve()
+    }
+    pendingSubscribeAcks.clear()
+
     // Attempt to reconnect after 3 seconds
     if (isRemoteClient() && getAuthToken()) {
       wsReconnectTimer = setTimeout(connectWebSocket, 3000)
@@ -164,21 +193,71 @@ export function disconnectWebSocket(): void {
     wsReconnectTimer = null
   }
 
+  // Clean up pending subscribe acks
+  for (const [, pending] of pendingSubscribeAcks) {
+    clearTimeout(pending.timer)
+    pending.resolve()
+  }
+  pendingSubscribeAcks.clear()
+
   if (wsConnection) {
     wsConnection.close()
     wsConnection = null
   }
 }
 
-export function subscribeToConversation(conversationId: string): void {
-  if (wsConnection?.readyState === WebSocket.OPEN) {
-    wsConnection.send(
-      JSON.stringify({
-        type: 'subscribe',
-        payload: { conversationId }
-      })
-    )
-  }
+/**
+ * Subscribe to conversation events and wait for server acknowledgment.
+ * Returns a Promise that resolves when the server confirms the subscription,
+ * or after SUBSCRIBE_ACK_TIMEOUT_MS if the ack never arrives (safety net).
+ *
+ * If called multiple times for the same conversationId before ack arrives,
+ * the second call piggybacks on the first pending ack (both callers resolve).
+ */
+export function subscribeToConversation(conversationId: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    // Already waiting for ack on this conversation — piggyback on the existing ack.
+    // Still send a new subscribe frame to ensure the server has it (the previous
+    // frame may still be in the TCP buffer and not processed yet).
+    if (pendingSubscribeAcks.has(conversationId)) {
+      const existing = pendingSubscribeAcks.get(conversationId)!
+      const originalResolve = existing.resolve
+      // When the ack arrives, resolve both callers
+      existing.resolve = () => {
+        originalResolve()
+        resolve()
+      }
+      // Re-send subscribe frame to guarantee server-side registration
+      if (wsConnection?.readyState === WebSocket.OPEN) {
+        wsConnection.send(JSON.stringify({
+          type: 'subscribe',
+          payload: { conversationId }
+        }))
+      }
+      return
+    }
+
+    // If WebSocket is not connected, resolve immediately
+    // (will re-subscribe on reconnect via selectConversation)
+    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
+      resolve()
+      return
+    }
+
+    // Set up timeout fallback — proceed even if ack never arrives
+    const timer = setTimeout(() => {
+      console.warn(`[WS] Subscribe ack timeout for ${conversationId}, proceeding anyway`)
+      pendingSubscribeAcks.delete(conversationId)
+      resolve()
+    }, SUBSCRIBE_ACK_TIMEOUT_MS)
+
+    pendingSubscribeAcks.set(conversationId, { resolve, timer })
+
+    wsConnection.send(JSON.stringify({
+      type: 'subscribe',
+      payload: { conversationId }
+    }))
+  })
 }
 
 export function unsubscribeFromConversation(conversationId: string): void {

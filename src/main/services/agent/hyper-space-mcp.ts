@@ -23,8 +23,10 @@
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { agentOrchestrator } from './orchestrator'
+import { taskboardService } from './taskboard'
 import { getRemoteDeployService } from '../../ipc/remote-server'
 import type { SubagentAnnouncement } from '../../../shared/types/hyper-space'
+import type { TaskBoardTask } from '../../../shared/types/taskboard'
 
 // ============================================
 // Helpers
@@ -656,6 +658,158 @@ function createBroadcastMessageTool(spaceId: string, conversationId: string) {
 }
 
 // ============================================
+// TaskBoard Tool Factories (Shared)
+// ============================================
+
+/**
+ * Create post_task tool for posting tasks to the shared TaskBoard.
+ * Available to both leaders and workers.
+ */
+function createPostTaskTool(spaceId: string, conversationId: string, agentId?: string, agentName?: string) {
+  return tool(
+    'post_task',
+    'Post a task to the shared team TaskBoard. Other team members can see and claim it. ' +
+    'Use this to delegate work to teammates without specifying who should do it.',
+    {
+      title: z.string().describe('Short title for the task'),
+      description: z.string().describe('Detailed description of what needs to be done'),
+      priority: z.enum(['low', 'normal', 'high', 'urgent']).optional().describe('Task priority (default: normal)'),
+      requiredCapabilities: z.array(z.string()).optional().describe(
+        'Required capabilities for the task (e.g. ["NPU操作", "模型训练"]). ' +
+        'Used to route to the right worker.'
+      ),
+      targetServerId: z.string().optional().describe('Target NPU server ID for the task')
+    },
+    async (params: {
+      title: string
+      description: string
+      priority?: 'low' | 'normal' | 'high' | 'urgent'
+      requiredCapabilities?: string[]
+      targetServerId?: string
+    }) => {
+      try {
+        const task = taskboardService.postTask(spaceId, {
+          title: params.title,
+          description: params.description,
+          priority: params.priority,
+          requiredCapabilities: params.requiredCapabilities,
+          targetServerId: params.targetServerId,
+          postedBy: agentId || 'leader',
+          parentConversationId: conversationId
+        })
+
+        // Also broadcast to mailbox so all agents are notified
+        const { mailboxService } = await import('./mailbox')
+        if (mailboxService.isInitialized(spaceId)) {
+          mailboxService.broadcastMessage(
+            spaceId,
+            {
+              type: 'task_assignment',
+              senderId: agentId || 'leader',
+              senderName: agentName || 'Leader',
+              content: `New task posted: "${params.title}"`,
+              payload: {
+                taskId: task.id,
+                priority: params.priority,
+                requiredCapabilities: params.requiredCapabilities
+              }
+            },
+            agentId // Don't send to self
+          )
+        }
+
+        return textResult(
+          `Task posted to the shared TaskBoard.\n\n` +
+          `Task ID: ${task.id}\n` +
+          `Title: ${task.title}\n` +
+          `Priority: ${task.priority}\n` +
+          `Status: ${task.status}\n\n` +
+          `Other team members can now see and claim this task.`
+        )
+      } catch (e) {
+        return textResult(`Error posting task: ${(e as Error).message}`, true)
+      }
+    }
+  )
+}
+
+/**
+ * Create list_tasks tool for viewing tasks on the shared TaskBoard.
+ */
+function createListTasksTool(spaceId: string) {
+  return tool(
+    'list_tasks',
+    'List tasks on the shared team TaskBoard. Shows task status, assignments, and priorities. ' +
+    'Use this to see what work is available or check on task progress.',
+    {
+      status: z.enum(['posted', 'claimed', 'in_progress', 'completed', 'failed']).optional().describe(
+        'Filter by status. If not specified, shows all tasks.'
+      )
+    },
+    async (params: { status?: TaskBoardTask['status'] }) => {
+      try {
+        const tasks = taskboardService.getTasks(spaceId, params.status ? { status: params.status } : undefined)
+
+        if (tasks.length === 0) {
+          return textResult('No tasks found on the TaskBoard.')
+        }
+
+        let result = `## Shared TaskBoard (${tasks.length} tasks)\n\n`
+        result += `| # | Title | Status | Priority | Assigned To | Posted By |\n`
+        result += `|---|-------|--------|----------|-------------|----------|\n`
+
+        for (const task of tasks) {
+          const assigned = task.claimedByName || task.claimedBy || '-'
+          result += `| 1 | ${task.title} | ${task.status} | ${task.priority} | ${assigned} | ${task.postedBy} |\n`
+        }
+
+        result += `\n---\nUse \`claim_task\` to claim a posted task, or \`post_task\` to add a new one.`
+
+        return textResult(result)
+      } catch (e) {
+        return textResult(`Error listing tasks: ${(e as Error).message}`, true)
+      }
+    }
+  )
+}
+
+/**
+ * Create claim_task tool for workers to claim a task from the board.
+ */
+function createClaimTaskTool(spaceId: string, conversationId: string, workerId?: string, workerName?: string) {
+  return tool(
+    'claim_task',
+    'Claim a task from the shared team TaskBoard. Use this to pick up available work. ' +
+    'Once claimed, the task is yours to complete. Other workers will see it as assigned.',
+    {
+      taskId: z.string().describe('The ID of the task to claim (from list_tasks)')
+    },
+    async (params: { taskId: string }) => {
+      try {
+        const task = taskboardService.claimTask(params.taskId, workerId || 'unknown', workerName, spaceId)
+
+        if (!task) {
+          return textResult(
+            `Could not claim task ${params.taskId}. It may already be claimed or not found.`,
+            true
+          )
+        }
+
+        return textResult(
+          `Task claimed successfully.\n\n` +
+          `Task ID: ${task.id}\n` +
+          `Title: ${task.title}\n` +
+          `Description: ${task.description}\n\n` +
+          `You are now responsible for this task. Work on it and use announce_completion when done.`
+        )
+      } catch (e) {
+        return textResult(`Error claiming task: ${(e as Error).message}`, true)
+      }
+    }
+  )
+}
+
+// ============================================
 // Tool Builders by Role
 // ============================================
 
@@ -671,6 +825,11 @@ function buildLeaderTools(spaceId: string, conversationId: string) {
 
     // Team management tools
     createListTeamMembersTool(spaceId, conversationId),
+
+    // TaskBoard tools (SHARED)
+    createPostTaskTool(spaceId, conversationId),
+    createListTasksTool(spaceId),
+    createClaimTaskTool(spaceId, conversationId),
 
     // Communication tools
     createSendMessageTool(spaceId, conversationId),
@@ -694,6 +853,11 @@ function buildWorkerTools(spaceId: string, conversationId: string, workerId?: st
 
     // Team info
     createListTeamMembersTool(spaceId, conversationId),
+
+    // TaskBoard tools (SHARED)
+    createPostTaskTool(spaceId, conversationId, workerId, workerName),
+    createListTasksTool(spaceId),
+    createClaimTaskTool(spaceId, conversationId, workerId, workerName),
 
     // Communication tools
     createSendMessageTool(spaceId, conversationId),

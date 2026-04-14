@@ -229,8 +229,10 @@
   "Completed": "已完成",
   "Compress": "压缩",
   "Compress context (free memory)": "压缩上下文（释放内存）",
-  "Compressing context...": "",
+  "Compressing context...": "正在压缩上下文...",
   "Compression threshold approaching": "",
+  "Context compressed successfully": "上下文压缩成功",
+  "Failed to compress context. Please try sending a message first.": "压缩上下文失败，请先发送一条消息。",
   "Configuration": "配置",
   "Configuration (JSON)": "配置(JSON)",
   "Configuration changes will take effect after starting a new conversation": "配置更改将在开始新对话后生效",
@@ -1103,5 +1105,7 @@
   "Zoom out": "缩小",
   "Zoom out (-)": "缩小 (-)",
   "技能生成器": "",
-  "远程服务器管理": "远程服务器管理"
+  "远程服务器管理": "远程服务器管理",
+  "以下远程空间正在使用此服务器，删除后这些空间将无法正常使用：{{names}}": "以下远程空间正在使用此服务器，删除后这些空间将无法正常使用：{{names}}",
+  "是否仍然删除？": "是否仍然删除？"
 }

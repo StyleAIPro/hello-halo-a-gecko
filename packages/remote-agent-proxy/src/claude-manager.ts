@@ -12,6 +12,7 @@ import http from 'http'
 import * as fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { fileURLToPath } from 'url'
 import type { AicoBotMcpToolDef } from './types.js'
 
 // ============================================
@@ -63,6 +64,7 @@ export interface ChatOptions {
   hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
   aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
+  contextWindow?: number   // Context window size for compression threshold and usage display
 }
 
 export interface ToolCall {
@@ -175,6 +177,7 @@ export interface SessionConfig {
   workDir?: string
   apiKey?: string
   baseUrl?: string
+  contextWindow?: number  // Context window affects autocompact threshold, rebuild on change
 }
 
 /**
@@ -187,6 +190,7 @@ export interface V2SessionInfo {
   lastUsedAt: number
   config: SessionConfig
   configGeneration: number  // For config change detection
+  mcpToolSignature?: string  // Sorted tool names hash for MCP bridge change detection
 }
 
 /**
@@ -469,8 +473,20 @@ function needsSessionRebuild(existing: V2SessionInfo, newConfig: SessionConfig):
     existing.config.model !== newConfig.model ||
     existing.config.workDir !== newConfig.workDir ||
     existing.config.apiKey !== newConfig.apiKey ||
-    existing.config.baseUrl !== newConfig.baseUrl
+    existing.config.baseUrl !== newConfig.baseUrl ||
+    existing.config.contextWindow !== newConfig.contextWindow
   )
+}
+
+/**
+ * Compute a stable signature from MCP tool definitions.
+ * Used to detect tool set changes across turns (e.g., ai-browser toggled on/off).
+ * Only considers tool names and server names — description/schema changes are tolerated.
+ */
+function computeMcpToolSignature(toolDefs: Array<{ name: string; serverName: string }> | undefined): string | undefined {
+  if (!toolDefs || toolDefs.length === 0) return undefined
+  const sorted = toolDefs.map(d => `${d.serverName}:${d.name}`).sort()
+  return sorted.join(',')
 }
 
 // ============================================
@@ -508,6 +524,9 @@ export class ClaudeManager {
   private aicoBotMcpUrl?: string    // AICO-Bot MCP proxy base URL
   private aicoBotMcpToken?: string  // Auth token for AICO-Bot MCP proxy
 
+  // OpenAI Compat Router — lazy-started local HTTP server for protocol translation
+  private routerInfo: import('./openai-compat-router/types/index.js').RouterServerInfo | null = null
+
   // Config generation for change detection
   private configGeneration = 0
 
@@ -541,7 +560,8 @@ export class ClaudeManager {
       model: this.model,
       workDir: this.workDir,
       apiKey: this.apiKey,
-      baseUrl: this.baseUrl
+      baseUrl: this.baseUrl,
+      contextWindow: this.contextWindow
     }
   }
 
@@ -556,6 +576,39 @@ export class ClaudeManager {
     this.contextWindow = contextWindow
     this.configGeneration++
     console.log(`[ClaudeManager] Config updated, generation: ${this.configGeneration}`)
+  }
+
+  // ============================================================================
+  // OpenAI Compat Router
+  // ============================================================================
+
+  /**
+   * Detect whether the backend API is native Anthropic or OpenAI-compatible.
+   * Used to decide whether to route requests through the local protocol translator.
+   */
+  private detectBackendType(baseUrl?: string): 'anthropic' | 'openai_compat' {
+    // Explicit override via env var (e.g., for Anthropic-compatible proxies)
+    if (process.env.REMOTE_AGENT_API_TYPE === 'anthropic_passthrough') return 'anthropic'
+    // No custom URL = default Anthropic
+    if (!baseUrl) return 'anthropic'
+    // Known Anthropic URLs (including Dashscope Claude-as-a-Service /apps/anthropic)
+    if (baseUrl.includes('api.anthropic.com')) return 'anthropic'
+    if (baseUrl.includes('/anthropic')) return 'anthropic'
+    // Everything else is treated as OpenAI-compatible
+    return 'openai_compat'
+  }
+
+  /**
+   * Ensure the local OpenAI Compat Router is running.
+   * Lazy-started on first request when a non-Anthropic backend is detected.
+   * The router listens on 127.0.0.1:0 (OS-assigned random port).
+   */
+  private async ensureRouter(): Promise<import('./openai-compat-router/types/index.js').RouterServerInfo> {
+    if (this.routerInfo) return this.routerInfo
+    const { ensureOpenAICompatRouter } = await import('./openai-compat-router/server/index.js')
+    this.routerInfo = await ensureOpenAICompatRouter({ debug: false })
+    console.log(`[ClaudeManager] OpenAI Compat Router started on ${this.routerInfo!.baseUrl}`)
+    return this.routerInfo!
   }
 
   /**
@@ -693,111 +746,39 @@ export class ClaudeManager {
   }
 
   /**
-   * Create background tasks MCP server.
-   * Lets Claude run long commands (docker pull, model download, etc.) in the background
-   * without blocking the conversation. Tasks are tracked and their output can be queried later.
-   */
-  createBackgroundTasksMcpServer(
-    bgTaskManager: { spawn: (cmd: string, cwd?: string) => any; list: () => any[]; get: (id: string) => any; cancel: (id: string) => boolean }
-  ): any {
-    const textResult = (text: string, isError = false) => ({
-      content: [{ type: 'text' as const, text }],
-      ...(isError ? { isError: true } : {})
-    })
-
-    const tools = [
-      tool(
-        'BackgroundBash',
-        'Run a shell command in the background without blocking. Use this for long-running commands like docker pull, model downloads, training jobs, service startup, etc. The command runs independently and you can check its status later. Returns a task ID immediately.',
-        {
-          command: z.string().describe('The shell command to run in the background'),
-          cwd: z.string().optional().describe('Working directory (defaults to current workDir)')
-        },
-        async (args: any) => {
-          try {
-            const task = bgTaskManager.spawn(args.command, args.cwd)
-            return textResult(`Background task started.\n\nTask ID: ${task.id}\nCommand: ${task.command}\nPID: ${task.pid}\n\nYou can check status later with BackgroundTaskStatus.`)
-          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
-        }
-      ),
-
-      tool(
-        'BackgroundTaskStatus',
-        'Check the status and recent output of a background task.',
-        {
-          task_id: z.string().describe('The task ID returned by BackgroundBash')
-        },
-        async (args: any) => {
-          try {
-            const task = bgTaskManager.get(args.task_id)
-            if (!task) return textResult(`Task not found: ${args.task_id}`, true)
-            const duration = task.completedAt
-              ? `${((task.completedAt - task.startedAt) / 1000).toFixed(0)}s`
-              : `${((Date.now() - task.startedAt) / 1000).toFixed(0)}s (running)`
-            const outputPreview = task.output ? task.output.slice(-2000) : '(no output yet)'
-            return textResult(
-              `Task: ${task.id}\nStatus: ${task.status}\nCommand: ${task.command}\nPID: ${task.pid}\nDuration: ${duration}\nOutput lines: ${task.outputLines}\n\nRecent output:\n${outputPreview}`
-            )
-          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
-        }
-      ),
-
-      tool(
-        'BackgroundTaskList',
-        'List all background tasks and their statuses.',
-        {},
-        async () => {
-          try {
-            const tasks = bgTaskManager.list()
-            if (tasks.length === 0) return textResult('No background tasks.')
-            const lines = tasks.map((t: any) => {
-              const duration = t.completedAt
-                ? `${((t.completedAt - t.startedAt) / 1000).toFixed(0)}s`
-                : `${((Date.now() - t.startedAt) / 1000).toFixed(0)}s`
-              return `[${t.status}] ${t.id} | ${duration} | ${t.command.slice(0, 80)}`
-            })
-            return textResult(`Background tasks (${tasks.length}):\n${lines.join('\n')}`)
-          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
-        }
-      ),
-
-      tool(
-        'BackgroundTaskCancel',
-        'Cancel a running background task.',
-        {
-          task_id: z.string().describe('The task ID to cancel')
-        },
-        async (args: any) => {
-          try {
-            const ok = bgTaskManager.cancel(args.task_id)
-            if (!ok) return textResult(`Cannot cancel task ${args.task_id}. Not found or not running.`, true)
-            return textResult(`Task ${args.task_id} cancelled.`)
-          } catch (e) { return textResult(`Error: ${(e as Error).message}`, true) }
-        }
-      )
-    ]
-
-    return createSdkMcpServer({
-      name: 'background-tasks',
-      version: '1.0.0',
-      tools
-    })
-  }
-
-  /**
-   * Build SDK options for session creation
+   * Build SDK options for session creation.
+   *
+   * For non-Anthropic backends (OpenAI-compatible APIs like Qwen, vLLM, etc.),
+   * starts a local OpenAI Compat Router that translates Anthropic Messages API
+   * to OpenAI Chat Completions API — identical to how local AICO-Bot handles it.
+   *
+   * For native Anthropic backends, passes credentials directly (no translation needed).
+   *
    * @param workDir - Optional override for working directory (per-session)
    * @param customSystemPrompt - Optional custom system prompt (from client space config)
+   * @param contextWindow - Optional context window size (from client AI source config)
+   * @param credentials - Optional per-request credentials (from client), overrides instance config
    */
-  private buildSdkOptions(workDir?: string, customSystemPrompt?: string): any {
+  private async buildSdkOptions(
+    workDir?: string,
+    customSystemPrompt?: string,
+    contextWindow?: number,
+    credentials?: { apiKey?: string; baseUrl?: string; model?: string }
+  ): Promise<any> {
+    // Resolve effective credentials: per-request overrides instance config
+    const effectiveApiKey = credentials?.apiKey || this.apiKey
+    const effectiveBaseUrl = credentials?.baseUrl || this.baseUrl
+    const effectiveModel = credentials?.model || this.model
+
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
-    // If custom system prompt is provided, append it to the base system prompt
-    const basePrompt = buildSystemPrompt(effectiveWorkDir, this.model)
+    // Display the real model name in system prompt (for user-facing info)
+    const basePrompt = buildSystemPrompt(effectiveWorkDir, effectiveModel)
     const systemPrompt = customSystemPrompt
       ? `${basePrompt}\n\n# Additional Instructions (from space configuration)\n\n${customSystemPrompt}`
       : basePrompt
+
     const options: any = {
-      model: this.model || 'claude-sonnet-4-20250514',
+      model: effectiveModel || 'claude-sonnet-4-6',
       cwd: effectiveWorkDir,
       systemPrompt,
       permissionMode: 'bypassPermissions',
@@ -809,17 +790,6 @@ export class ClaudeManager {
       disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 50,
-
-      // === Context Compression Configuration ===
-      // Enable automatic context compaction to prevent token overflow in long conversations
-      // Compact when context reaches 85% of model's context window (default 200K)
-      compactThreshold: 0.85,
-      // After compaction, retain 50% of tokens (keeps recent conversation, summarizes old)
-      compactRetentionRatio: 0.5,
-      // Allow manual compaction via API
-      enableManualCompact: true,
-      // Use configured context window (defaults to 200K if not specified)
-      ...(this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),
     }
 
     if (this.pathToClaudeCodeExecutable) {
@@ -828,10 +798,8 @@ export class ClaudeManager {
 
     // CRITICAL: Inherit process.env (especially PATH)
     // But first, strip AI SDK vars and CLAUDECODE to prevent nested session detection
-    // NOTE: Don't delete ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL if already set from .env
     const cleanEnv = { ...process.env }
     delete cleanEnv.CLAUDECODE
-    // Only delete ANTHROPIC vars if not already set (allow .env to override)
     if (!cleanEnv.ANTHROPIC_AUTH_TOKEN) {
       delete cleanEnv.ANTHROPIC_AUTH_TOKEN
     }
@@ -843,12 +811,59 @@ export class ClaudeManager {
     }
 
     options.env = cleanEnv
-    if (this.apiKey) {
-      options.env.ANTHROPIC_AUTH_TOKEN = this.apiKey
+
+    // ── Route through OpenAI Compat Router for non-Anthropic backends ──
+    const backendType = this.detectBackendType(effectiveBaseUrl)
+
+    if (backendType === 'openai_compat') {
+      // Start local protocol translator (lazy, once per process lifetime)
+      const router = await this.ensureRouter()
+
+      // Encode real backend config into the API key (same as local AICO-Bot)
+      const { encodeBackendConfig } = await import('./openai-compat-router/utils/config.js')
+      const { getApiTypeFromUrl } = await import('./openai-compat-router/server/api-type.js')
+
+      // Determine API type from URL suffix, default to chat_completions
+      const apiType = getApiTypeFromUrl(effectiveBaseUrl || '') || 'chat_completions'
+
+      const encodedConfig = encodeBackendConfig({
+        url: effectiveBaseUrl || '',
+        key: effectiveApiKey || '',
+        model: effectiveModel,
+        apiType,
+      })
+
+      // CRITICAL: Must set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN.
+      // The SDK CLI subprocess reads ANTHROPIC_API_KEY as its primary credential.
+      // ANTHROPIC_AUTH_TOKEN alone is insufficient — if ANTHROPIC_API_KEY is already
+      // set in the process environment (e.g., from remote server .env), the SDK will
+      // use the raw key instead of the encoded config.
+      // This matches local AICO-Bot's approach in sdk-config.ts:381.
+      options.env.ANTHROPIC_API_KEY = encodedConfig
+      options.env.ANTHROPIC_AUTH_TOKEN = encodedConfig
+      options.env.ANTHROPIC_BASE_URL = router.baseUrl
+
+      // Fake Claude model — SDK sends standard Anthropic-format requests to the router,
+      // which then converts to OpenAI format and replaces the model name with the real one.
+      options.model = 'claude-sonnet-4-6'
+
+      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${effectiveBaseUrl} (apiType=${apiType}, model=${effectiveModel})`)
+    } else {
+      // Native Anthropic / Anthropic-compatible proxy — direct passthrough
+      // CRITICAL: Must set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN.
+      // The SDK CLI subprocess reads ANTHROPIC_API_KEY as its primary credential.
+      // Same fix as openai_compat path above (see line 915-922).
+      if (effectiveApiKey) {
+        options.env.ANTHROPIC_API_KEY = effectiveApiKey
+        options.env.ANTHROPIC_AUTH_TOKEN = effectiveApiKey
+      }
+      if (effectiveBaseUrl) {
+        options.env.ANTHROPIC_BASE_URL = effectiveBaseUrl
+      }
+      // Use the real model name — /anthropic endpoints (DashScope, Zhipu, etc.)
+      // accept their own model names, not substituted Claude model names.
     }
-    if (this.baseUrl) {
-      options.env.ANTHROPIC_BASE_URL = this.baseUrl
-    }
+
     // Important env vars
     options.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
     options.env.DISABLE_AUTOUPDATER = '1'
@@ -856,15 +871,27 @@ export class ClaudeManager {
     options.env.DISABLE_TELEMETRY = '1'
     options.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
+    // Override sub-agent model to inherit parent session model.
+    // For openai_compat: set to the real model so the router replaces correctly.
+    // For anthropic: set to the configured model so sub-agents use the same model.
+    // This env var has the highest priority in SDK's Ik6() model resolution function.
+    if (effectiveModel) {
+      options.env.CLAUDE_CODE_SUBAGENT_MODEL = effectiveModel
+    }
+
+    // Context window: tell CLI subprocess the real context window so autocompact
+    // triggers at the correct threshold (default ~200K, client may configure 1M+).
+    const effectiveContextWindow = contextWindow || this.contextWindow
+    if (effectiveContextWindow) {
+      options.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(effectiveContextWindow)
+    }
+
     // Use ~/.agents/claude-config/ for SDK config (consistent with local AICO-Bot)
-    // This ensures session files are stored in a predictable location
     const agentsDir = path.join(os.homedir(), '.agents')
     const configDir = path.join(agentsDir, 'claude-config')
     const skillsDir = path.join(agentsDir, 'skills')
     const configSkillsDir = path.join(configDir, 'skills')
 
-    // Create symlink from claude-config/skills -> agents/skills
-    // SDK looks for skills at $CLAUDE_CONFIG_DIR/skills/, but SkillManager stores them in ~/.agents/skills/
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true })
     }
@@ -873,13 +900,9 @@ export class ClaudeManager {
     }
 
     options.env.CLAUDE_CONFIG_DIR = configDir
-
-    // Enable skills loading from $CLAUDE_CONFIG_DIR/skills/ ONLY (no project-level skills)
-    // All skills are managed globally in ~/.agents/skills/ via symlink
     options.settingSources = ['user']
 
     // CRITICAL: IS_SANDBOX=1 is required for bypass-permissions mode when running as root
-    // This must be passed to the Claude CLI subprocess, not just the remote-agent-proxy process
     options.env.IS_SANDBOX = '1'
 
     return options
@@ -959,6 +982,10 @@ export class ClaudeManager {
    * @param workDir - Optional working directory override for this session
    * @param resumeSessionId - Optional session ID to resume from (for conversation history)
    * @param maxThinkingTokens - Optional max thinking tokens for this session
+   * @param hyperSpaceMcpServer - Optional hyper space MCP server
+   * @param customSystemPrompt - Optional custom system prompt
+   * @param aicoBotBuiltinMcpServer - Optional AICO-Bot built-in MCP server
+   * @param contextWindow - Optional context window size for compression
    */
   async getOrCreateSession(
     conversationId: string,
@@ -968,7 +995,10 @@ export class ClaudeManager {
     hyperSpaceMcpServer?: any,
     customSystemPrompt?: string,
     aicoBotBuiltinMcpServer?: any,
-    bgTasksMcpServer?: any
+    contextWindow?: number,
+    credentials?: { apiKey?: string; baseUrl?: string; model?: string },
+    canUseTool?: any,
+    mcpToolSignature?: string
   ): Promise<SDKSession> {
     const effectiveWorkDir = workDir || this.workDir || process.cwd()
     const existing = this.sessions.get(conversationId)
@@ -1059,7 +1089,18 @@ export class ClaudeManager {
 
     // Create new session
     console.log(`[ClaudeManager][${conversationId}] Creating new V2 session with workDir=${effectiveWorkDir}...`)
-    const options = this.buildSdkOptions(effectiveWorkDir, customSystemPrompt)
+    // Sync contextWindow to instance field so getCurrentConfig() and needsSessionRebuild
+    // can detect changes when the user switches models with different context windows.
+    if (contextWindow !== undefined && contextWindow !== this.contextWindow) {
+      this.contextWindow = contextWindow
+      this.configGeneration++
+    }
+    const options = await this.buildSdkOptions(effectiveWorkDir, customSystemPrompt, contextWindow, credentials)
+
+    // Add canUseTool for AskUserQuestion support (forwarded from streamChat)
+    if (canUseTool) {
+      options.canUseTool = canUseTool
+    }
 
     // Add hyper-space MCP proxy server if provided
     if (hyperSpaceMcpServer) {
@@ -1096,21 +1137,29 @@ export class ClaudeManager {
       console.log(`[ClaudeManager][${conversationId}] Injecting aico-bot-builtin MCP server (WebSocket bridge)`)
     }
 
-    // Add background-tasks MCP server
-    if (bgTasksMcpServer) {
-      const obj = bgTasksMcpServer as any
-      if (obj.instance != null && typeof obj.toJSON !== 'function') {
-        obj.toJSON = () => {
-          const { instance, ...rest } = obj
-          return rest
+    // Add background-tasks MCP server (stdio transport - spawned as child process)
+    // Use the standalone background-tasks-mcp-server.js script which embeds its own TaskManager
+    try {
+      const thisDir = path.dirname(fileURLToPath(import.meta.url))
+      const serverScript = path.resolve(thisDir, 'background-tasks-mcp-server.js')
+      if (fs.existsSync(serverScript)) {
+        options.mcpServers = {
+          ...(options.mcpServers || {}),
+          'background-tasks': {
+            type: 'stdio',
+            command: process.execPath,
+            args: [serverScript],
+          },
         }
+        console.log(`[ClaudeManager][${conversationId}] Injecting background-tasks MCP server (stdio): ${serverScript}`)
+      } else {
+        console.warn(`[ClaudeManager][${conversationId}] background-tasks-mcp-server.js not found at ${serverScript}, skipping`)
       }
-      options.mcpServers = {
-        ...(options.mcpServers || {}),
-        'background-tasks': bgTasksMcpServer,
-      }
-      console.log(`[ClaudeManager][${conversationId}] Injecting background-tasks MCP server`)
-    } else if (this.aicoBotMcpUrl) {
+    } catch (e) {
+      console.error(`[ClaudeManager][${conversationId}] Failed to configure background-tasks MCP server:`, e)
+    }
+
+    if (this.aicoBotMcpUrl) {
       // Fallback: HTTP MCP proxy (legacy, for backward compatibility)
       const mcpConfig: any = {
         type: 'http',
@@ -1167,13 +1216,23 @@ export class ClaudeManager {
     })
 
     // Store session with metadata (use effectiveWorkDir in config)
+    // Merge per-request credentials into stored config so needsSessionRebuild
+    // can detect credential changes across requests.
+    const storedConfig: SessionConfig = {
+      ...this.getCurrentConfig(),
+      workDir: effectiveWorkDir,
+      ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
+      ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
+      ...(credentials?.model ? { model: credentials.model } : {}),
+    }
     this.sessions.set(conversationId, {
       session,
       conversationId,
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
-      config: { ...this.getCurrentConfig(), workDir: effectiveWorkDir },
-      configGeneration: this.configGeneration
+      config: storedConfig,
+      configGeneration: this.configGeneration,
+      mcpToolSignature
     })
 
     return session
@@ -1183,12 +1242,12 @@ export class ClaudeManager {
    * Legacy method for backward compatibility
    * @deprecated Use getOrCreateSession instead
    */
-  getSessionLegacy(sessionId: string): SDKSession {
+  async getSessionLegacy(sessionId: string): Promise<SDKSession> {
     // Synchronous wrapper for backward compatibility
     let session = this.sessions.get(sessionId)?.session
     if (!session) {
       // Create synchronously (for legacy compatibility)
-      const options = this.buildSdkOptions()
+      const options = await this.buildSdkOptions()
       session = unstable_v2_createSession(options as any) as unknown as SDKSession
 
       registerProcessExitListener(session, sessionId, (id) => {
@@ -1238,7 +1297,7 @@ export class ClaudeManager {
    */
   async resumeSession(sessionId: string): Promise<SDKSession> {
     if (!this.sessions.has(sessionId)) {
-      const options = this.buildSdkOptions()
+      const options = await this.buildSdkOptions()
       const session = await unstable_v2_resumeSession(sessionId, options as any)
 
       registerProcessExitListener(session, sessionId, (id) => {
@@ -1292,7 +1351,8 @@ export class ClaudeManager {
     onCompact?: (data: CompactBoundaryEvent) => void,
     hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>,
     aicoBotMcpToolExecutor?: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>,
-    aicoBotMcpToolDefs?: AicoBotMcpToolDef[]
+    aicoBotMcpToolDefs?: AicoBotMcpToolDef[],
+    onAskUserQuestion?: (id: string, questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect: boolean }>) => Promise<Record<string, string>>
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
@@ -1319,10 +1379,66 @@ export class ClaudeManager {
       aicoBotBuiltinMcpServer = this.createAicoBotBuiltinMcpServer(aicoBotMcpToolDefs, aicoBotMcpToolExecutor)
     }
 
-    // Background-tasks MCP server — passed through options from server.ts
-    const bgTasksMcpServer = (options as any).proxyAppsMcpServer
+    // Detect MCP tool set changes — if the AICO-Bot's tool definitions changed
+    // (e.g., ai-browser toggled on/off, tools updated), the existing SDK session's
+    // MCP servers are stale and must be rebuilt. This cannot be hot-swapped.
+    const newMcpToolSignature = computeMcpToolSignature(aicoBotMcpToolDefs)
+    const existingSessionInfo = this.sessions.get(sessionId)
+    if (existingSessionInfo && existingSessionInfo.mcpToolSignature !== newMcpToolSignature) {
+      const wasRebuild = existingSessionInfo.mcpToolSignature !== undefined || newMcpToolSignature !== undefined
+      if (wasRebuild) {
+        console.log(`[ClaudeManager][${sessionId}] MCP tool set changed, rebuilding session`)
+        console.log(`[ClaudeManager][${sessionId}] Old: ${existingSessionInfo.mcpToolSignature || '(none)'}`)
+        console.log(`[ClaudeManager][${sessionId}] New: ${newMcpToolSignature || '(none)'}`)
+        if (!this.activeSessions.has(sessionId)) {
+          this.cleanupSession(sessionId, 'MCP tools changed')
+        } else {
+          console.log(`[ClaudeManager][${sessionId}] MCP tools changed but request in flight, deferring rebuild`)
+        }
+      }
+    }
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, bgTasksMcpServer)
+    // Pass client-sent credentials (apiKey/baseUrl/model) to session creation.
+    // These override the server's instance-level config for per-request routing.
+    const clientCredentials = (options.apiKey || options.baseUrl || options.model)
+      ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model }
+      : undefined
+
+    // Build canUseTool for AskUserQuestion support
+    const askUserQuestionCanUseTool = onAskUserQuestion ? async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
+      if (toolName !== 'AskUserQuestion') {
+        return { behavior: 'allow' as const, updatedInput: input }
+      }
+      const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const questions = input.questions as Array<{
+        question: string
+        header: string
+        options: Array<{ label: string; description: string }>
+        multiSelect: boolean
+      }>
+      console.log(`[ClaudeManager] AskUserQuestion: id=${id}, questions=${questions?.length || 0}`)
+
+      const answerPromise = onAskUserQuestion(id, questions || [])
+
+      // Support abort
+      if (opts.signal) {
+        if (opts.signal.aborted) {
+          return { behavior: 'deny' as const, updatedInput: input }
+        }
+        opts.signal.addEventListener('abort', () => answerPromise.catch(() => {}), { once: true })
+      }
+
+      try {
+        const answers = await answerPromise
+        console.log(`[ClaudeManager] AskUserQuestion answered: id=${id}`, answers)
+        return { behavior: 'allow' as const, updatedInput: { ...input, answers } }
+      } catch (error) {
+        console.log(`[ClaudeManager] AskUserQuestion cancelled: id=${id}`, (error as Error).message)
+        return { behavior: 'deny' as const, updatedInput: input }
+      }
+    } : undefined
+
+    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -1763,6 +1879,27 @@ export class ClaudeManager {
         if (evt.type === 'system') {
           const subtype = evt.subtype as string | undefined
 
+          // ========== API retry events (auth recovery) ==========
+          // When the SDK encounters a 401 authentication_failed, it emits api_retry system events.
+          // Yield auth_retry_required so the caller can rebuild the session and retry.
+          if (subtype === 'api_retry') {
+            const errorStatus = evt.error_status as number | undefined
+            const error = evt.error as string | undefined
+            if (errorStatus === 401 && error === 'authentication_failed') {
+              console.warn(
+                `[ClaudeManager][${sessionId}] SDK auth retry: attempt=${evt.attempt}/${evt.max_retries}, ` +
+                `error_status=${errorStatus}, error=${error}`
+              )
+              yield { type: 'auth_retry_required', data: {
+                attempt: evt.attempt,
+                maxRetries: evt.max_retries,
+                errorStatus,
+                error
+              }}
+            }
+            continue
+          }
+
           // ========== Subagent lifecycle events ==========
           if (subtype === 'task_started') {
             const taskId = evt.task_id as string
@@ -1830,7 +1967,7 @@ export class ClaudeManager {
 
           // Create system thought for connection status (aligned with local message-utils.ts)
           // Shows "Connected | Model: xxx" in the thinking process
-          const modelName = this.model || 'claude'
+          const modelName = options.model || this.model || 'claude'
           const systemThought: ThoughtEvent = {
             id: `thought-system-${sessionId}-${counter++}`,
             type: 'system',
@@ -2017,6 +2154,9 @@ export class ClaudeManager {
           const usage = (evt as any).usage
           if (usage) {
             console.log(`[ClaudeManager] Token usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cache_read=${usage.cache_read_input_tokens}, cache_create=${usage.cache_creation_input_tokens}`)
+            // Use configured contextWindow (from ChatOptions or instance field) as authoritative value,
+            // falling back to SDK's context_window or 200K
+            const effectiveContextWindow = options.contextWindow ?? this.contextWindow ?? usage.context_window ?? 200000
             yield {
               type: 'usage',
               data: {
@@ -2025,7 +2165,7 @@ export class ClaudeManager {
                 cacheReadTokens: usage.cache_read_input_tokens || 0,
                 cacheCreationTokens: usage.cache_creation_input_tokens || 0,
                 totalCostUsd: usage.total_cost_usd || 0,
-                contextWindow: usage.context_window || 200000
+                contextWindow: effectiveContextWindow
               }
             }
           }
@@ -2129,6 +2269,20 @@ export class ClaudeManager {
    */
   closeSession(conversationId: string): void {
     this.cleanupSession(conversationId, 'explicit close')
+  }
+
+  /**
+   * Force session rebuild for a conversation (used for auth retry recovery).
+   * Closes existing session and clears it from active sessions.
+   * Next getOrCreateSession() call will create a fresh session with current credentials.
+   */
+  forceSessionRebuild(conversationId: string): void {
+    const existing = this.sessions.get(conversationId)
+    if (existing) {
+      console.log(`[ClaudeManager][${conversationId}] Force rebuilding session (auth retry)`)
+      this.cleanupSession(conversationId, 'auth retry - credential refresh')
+    }
+    this.activeSessions.delete(conversationId)
   }
 
   /**
@@ -2435,7 +2589,7 @@ export class ClaudeManager {
 
     // Build SDK options with provided MCP servers
     const sdkOptions: any = {
-      model: this.model || 'claude-sonnet-4-20250514',
+      model: this.model || 'claude-sonnet-4-6',
       cwd: workDir,
       systemPrompt: options.system || '',
       permissionMode: 'bypassPermissions',
@@ -2444,7 +2598,7 @@ export class ClaudeManager {
       disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 10,  // App runs should be focused, fewer turns
-      ...(this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),
+      ...(options.contextWindow ? { modelContextWindow: options.contextWindow } : this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),
     }
 
     if (this.pathToClaudeCodeExecutable) {

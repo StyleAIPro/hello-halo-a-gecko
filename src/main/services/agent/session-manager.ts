@@ -936,35 +936,40 @@ onApiConfigChange(() => {
  * @param conversationId - Conversation ID to compact
  * @returns true if compression was triggered, false if session not found or not supported
  */
-export async function compactContext(conversationId: string): Promise<boolean> {
+export async function compactContext(conversationId: string): Promise<{ success: boolean; error?: string }> {
   const sessionInfo = v2Sessions.get(conversationId)
   if (!sessionInfo) {
     console.log(`[Agent][${conversationId}] No session found for manual compact`)
-    return false
+    return { success: false, error: 'No active session. Please send a message first.' }
   }
 
   try {
     console.log(`[Agent][${conversationId}] Manually compacting context...`)
 
-    // Send a compact command to the session
-    // The SDK will handle the actual compaction logic based on compactThreshold config
     const session = sessionInfo.session
 
-    // Access SDK's compact method if available (SDK patch required)
-    // Fallback: send a system message to trigger compaction
-    if (typeof (session as any).compact === 'function') {
-      await (session as any).compact()
-      console.log(`[Agent][${conversationId}] Context compacted successfully`)
-      return true
+    // Use the SDK's compact method (added via SDK patch)
+    if (typeof session.compact === 'function') {
+      const result = await session.compact()
+      if (result.compacted) {
+        console.log(`[Agent][${conversationId}] Context compacted successfully`, {
+          preCompactTokenCount: result.preCompactTokenCount,
+          postCompactTokenCount: result.postCompactTokenCount
+        })
+        return { success: true }
+      } else {
+        console.log(`[Agent][${conversationId}] Compact skipped: threshold not met`)
+        return { success: false, error: 'Context is not large enough to compress. The SDK auto-compacts when needed.' }
+      }
     } else {
       // Fallback: close and recreate session to clear context
       console.log(`[Agent][${conversationId}] SDK compact not available, recreating session to clear context`)
       cleanupSession(conversationId, 'manual compact')
       sessionHealthMap.delete(conversationId)
-      return true
+      return { success: true }
     }
   } catch (error) {
     console.error(`[Agent][${conversationId}] Manual compact failed:`, error)
-    return false
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }

@@ -359,6 +359,12 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     res.json(result)
   })
 
+  // List all worker conversations across all parent conversations in a space (HyperSpace)
+  app.get('/api/spaces/:spaceId/conversations/workers', async (req: Request, res: Response) => {
+    const result = conversationController.listAllWorkerConversations(req.params.spaceId)
+    res.json(result)
+  })
+
   // ===== Agent Routes =====
   app.post('/api/agent/message', async (req: Request, res: Response) => {
     const { spaceId, conversationId, message, resumeSessionId, images, thinkingEnabled, aiBrowserEnabled } = req.body
