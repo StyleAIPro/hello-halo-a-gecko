@@ -39,12 +39,36 @@ async function ensureInitialized(): Promise<void> {
 }
 
 /**
- * Fallback: 直接从 GitHub 下载 SKILL.md 并写入本地目录安装
- * 当 npx 不可用时使用（如新 PC 未安装 Node.js）
+ * Source adapter for downloading skill files from different platforms
  */
-async function installSkillFromGitHub(
-  githubRepo: string,
+type SkillSourceAdapter = {
+  findSkillDirectoryPath: (repo: string, skillName: string, token?: string) => Promise<string | null>;
+  fetchSkillDirectoryContents: (repo: string, dirPath: string, token?: string) => Promise<Array<{ path: string; content: string }>>;
+  getToken: () => string | undefined | Promise<string | undefined>;
+  sourceLabel: string;
+};
+
+const GITHUB_ADAPTER: SkillSourceAdapter = {
+  findSkillDirectoryPath: githubSkillSource.findSkillDirectoryPath,
+  fetchSkillDirectoryContents: githubSkillSource.fetchSkillDirectoryContents,
+  getToken: githubSkillSource.getGitHubToken,
+  sourceLabel: 'GitHub',
+};
+
+const GITCODE_ADAPTER: SkillSourceAdapter = {
+  findSkillDirectoryPath: gitcodeSkillSource.findSkillDirectoryPath,
+  fetchSkillDirectoryContents: gitcodeSkillSource.fetchSkillDirectoryContents,
+  getToken: gitcodeSkillSource.getGitCodeToken,
+  sourceLabel: 'GitCode',
+};
+
+/**
+ * Download skill files from a source (GitHub or GitCode) and install locally
+ */
+async function installSkillFromSource(
+  repo: string,
   skillName: string,
+  adapter: SkillSourceAdapter,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
 ): Promise<{ success: boolean; error?: string }> {
   const nodePath = await import('path');
@@ -52,25 +76,24 @@ async function installSkillFromGitHub(
   const configService = await import('../services/config.service');
   const yamlModule = await import('yaml');
 
-  // skillName can be a full githubPath like "skills/category/skill-name"
+  // skillName can be a full path like "skills/category/skill-name"
   const lastSegment = skillName.split('/').pop() || skillName;
   const skillId = lastSegment.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
   const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
-  onOutput?.({ type: 'stdout', content: `npx not available, downloading directly from GitHub...\n` });
+  onOutput?.({ type: 'stdout', content: `Downloading directly from ${adapter.sourceLabel}...\n` });
 
-  // Get GitHub token for private repo support
-  const token = await githubSkillSource.getGitHubToken();
+  const token = await adapter.getToken();
   if (token) {
-    onOutput?.({ type: 'stdout', content: `  Using authenticated GitHub access\n` });
+    onOutput?.({ type: 'stdout', content: `  Using authenticated ${adapter.sourceLabel} access\n` });
   }
 
-  // Step 1: Find the skill directory on GitHub
+  // Step 1: Find the skill directory
   onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
-  const dirPath = await githubSkillSource.findSkillDirectoryPath(githubRepo, skillName, token);
+  const dirPath = await adapter.findSkillDirectoryPath(repo, skillName, token);
 
   if (!dirPath) {
-    const error = `Could not find skill directory for "${skillName}" in repo ${githubRepo}`;
+    const error = `Could not find skill directory for "${skillName}" in repo ${repo}`;
     onOutput?.({ type: 'error', content: `  ${error}\n` });
     return { success: false, error };
   }
@@ -79,7 +102,7 @@ async function installSkillFromGitHub(
 
   // Step 2: Download all files in the directory recursively
   onOutput?.({ type: 'stdout', content: `  Downloading skill files...\n` });
-  const files = await githubSkillSource.fetchSkillDirectoryContents(githubRepo, dirPath, token);
+  const files = await adapter.fetchSkillDirectoryContents(repo, dirPath, token);
 
   if (files.length === 0) {
     const error = `No files found in skill directory: ${dirPath}`;
@@ -95,7 +118,6 @@ async function installSkillFromGitHub(
 
     for (const file of files) {
       const filePath = nodePath.join(skillDir, file.path);
-      // Ensure parent directories exist (for nested files)
       await nodeFs.mkdir(nodePath.dirname(filePath), { recursive: true });
       await nodeFs.writeFile(filePath, file.content, 'utf-8');
       onOutput?.({ type: 'stdout', content: `    Wrote ${file.path}\n` });
@@ -161,7 +183,7 @@ async function installSkillFromGitHub(
     // Refresh skill list
     await skillManager.refresh();
 
-    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (${files.length} files via GitHub download)!\n` });
+    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (${files.length} files via ${adapter.sourceLabel})!\n` });
     return { success: true };
   } catch (error) {
     const err = error as Error;
@@ -216,9 +238,15 @@ export async function installSkillFromMarket(
       skillName: downloadResult.skillName
     });
 
-    // 2. 使用 npx 命令安装技能
-    // 命令格式：npx skills add <github-repo> --skill <skill-name> -y --global
-    // 默认安装到 ~/.agents/skills/
+    // 2. 根据 sourceType 选择安装方式
+    const { githubRepo: repo, skillName, sourceType } = downloadResult;
+
+    // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
+    if (sourceType === 'gitcode') {
+      return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput);
+    }
+
+    // GitHub / skills.sh: npx 安装 + GitHub fallback
     const { spawn } = await import('child_process');
 
     const command = 'npx';
@@ -226,9 +254,9 @@ export async function installSkillFromMarket(
       '--yes',
       'skills',
       'add',
-      `https://github.com/${downloadResult.githubRepo}`,
+      `https://github.com/${repo}`,
       '--skill',
-      downloadResult.skillName,
+      skillName,
       '-y',
       '--global'
     ];
@@ -268,7 +296,7 @@ export async function installSkillFromMarket(
         onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
         // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
         onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-        installSkillFromGitHub(downloadResult.githubRepo!, downloadResult.skillName!, onOutput)
+        installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
           .then(resolve)
           .catch(() => resolve({ success: false, error: msg }));
       });
@@ -289,7 +317,7 @@ export async function installSkillFromMarket(
         } else {
           // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
           onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-          const result = await installSkillFromGitHub(downloadResult.githubRepo!, downloadResult.skillName!, onOutput);
+          const result = await installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput);
           if (result.success) {
             resolve({ success: true });
           } else {

@@ -551,33 +551,49 @@ export class SkillMarketService {
   }
 
   /**
-   * 下载技能并返回安装信息（GitHub 仓库和技能名称）
+   * 下载技能并返回安装信息（仓库路径和技能名称）
    */
-  async downloadSkill(skillId: string): Promise<{ success: boolean; githubRepo?: string; skillName?: string; error?: string }> {
-    console.log('[SkillMarketService] downloadSkill called:', skillId)
+  async downloadSkill(skillId: string): Promise<{ success: boolean; githubRepo?: string; skillName?: string; sourceType: 'github' | 'gitcode' | 'skills.sh'; error?: string }> {
+    // Determine source type from skillId prefix first (always correct)
+    let sourceType: 'github' | 'gitcode' | 'skills.sh' = 'skills.sh'
+    if (skillId.startsWith('github:')) {
+      sourceType = 'github'
+    } else if (skillId.startsWith('gitcode:')) {
+      sourceType = 'gitcode'
+    }
 
     const skill = await this.getSkillDetail(skillId)
 
     if (!skill) {
-      console.log('[SkillMarketService] Skill not found')
-      return { success: false, error: 'Skill not found' }
+      // getSkillDetail failed, but we can still extract repo/skillName from the ID
+      if ((skillId.startsWith('gitcode:') || skillId.startsWith('github:')) && skillId.split(':').length >= 3) {
+        const parts = skillId.split(':')
+        return {
+          success: true,
+          githubRepo: parts[1],
+          skillName: parts.slice(2).join(':'),
+          sourceType,
+        }
+      }
+      return { success: false, sourceType, error: 'Skill not found' }
     }
 
-    console.log('[SkillMarketService] Skill detail:', {
-      name: skill.name,
-      githubRepo: skill.githubRepo,
-      githubPath: skill.githubPath
-    })
+    // Use skill object's sourceId as secondary check
+    if (skill.sourceId.startsWith('gitcode:')) {
+      sourceType = 'gitcode'
+    } else if (skill.sourceId.startsWith('github:')) {
+      sourceType = 'github'
+    }
 
     if (!skill.githubRepo) {
-      console.log('[SkillMarketService] No GitHub repo available')
-      return { success: false, error: 'No GitHub repo available' }
+      return { success: false, sourceType, error: 'No repo available' }
     }
 
     return {
       success: true,
       githubRepo: skill.githubRepo,
-      skillName: skill.githubPath || skill.name.toLowerCase().replace(/\s+/g, '-')
+      skillName: skill.githubPath || skill.name.toLowerCase().replace(/\s+/g, '-'),
+      sourceType,
     }
   }
 

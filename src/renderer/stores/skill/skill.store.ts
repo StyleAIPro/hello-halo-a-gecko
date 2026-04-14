@@ -586,11 +586,9 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     set({ repoDirsLoading: true })
     try {
       const result = await api.skillMarketListRepoDirs(repo)
-      console.log('[SkillStore] loadRepoDirectories result:', JSON.stringify(result))
       if (result.success && result.data) {
         set({ repoDirs: result.data as string[], repoDirsLoading: false })
       } else {
-        console.warn('[SkillStore] loadRepoDirectories failed:', result.error)
         set({ repoDirs: [], repoDirsLoading: false })
       }
     } catch (error) {
@@ -614,9 +612,7 @@ export const useSkillStore = create<SkillState>((set, get) => ({
 
   validateGitCodeRepo: async (repo: string) => {
     try {
-      console.log('[SkillStore] validateGitCodeRepo called:', repo)
       const result = await api.skillMarketValidateGitCodeRepo(repo)
-      console.log('[SkillStore] validateGitCodeRepo raw result:', JSON.stringify(result))
       if (result.success && result.data) {
         return result.data as { valid: boolean; hasSkillsDir: boolean; skillCount: number; error?: string }
       }
@@ -629,35 +625,27 @@ export const useSkillStore = create<SkillState>((set, get) => ({
 
   addGitHubSource: async (repoUrl: string) => {
     try {
-      // Parse owner/repo from URL (supports both github.com and gitcode.com)
       const githubMatch = repoUrl.match(/github\.com\/([^/]+\/[^/]+)/)
       const gitcodeMatch = repoUrl.match(/gitcode\.com\/([^/]+\/[^/]+)/)
       const match = githubMatch || gitcodeMatch
-      console.log('[SkillStore] addGitHubSource:', { repoUrl, githubMatch: !!githubMatch, gitcodeMatch: !!gitcodeMatch, match: match?.[1] })
       if (!match) return false
 
       const repo = match[1].replace(/\.git$/, '')
       const isGitCode = !!gitcodeMatch
 
-      // Validate the repo
       const validation = isGitCode
         ? await get().validateGitCodeRepo(repo)
         : await get().validateGitHubRepo(repo)
-      console.log('[SkillStore] validation result:', { isGitCode, repo, valid: validation?.valid, skillCount: validation?.skillCount, fullValidation: validation })
       if (!validation?.valid) {
-        console.warn('[SkillStore] Validation failed, aborting addSource')
         return false
       }
 
-      // Add as source
-      console.log('[SkillStore] Calling addMarketSource...')
       await get().addMarketSource({
         name: repo,
         url: repoUrl,
         repos: [repo],
         description: `${isGitCode ? 'GitCode' : 'GitHub'}: ${repo} (${validation.skillCount} skills)`,
       })
-      console.log('[SkillStore] addMarketSource completed, marketSources:', useSkillStore.getState().marketSources.map(s => `${s.name} (${s.type})`))
 
       return true
     } catch (error) {

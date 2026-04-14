@@ -6,11 +6,8 @@
  * Auth via user-provided Personal Access Token stored in config.
  */
 
-import { existsSync } from 'fs'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
 import { parse as parseYaml } from 'yaml'
-import { getAgentsSkillsDir, getGitCodeToken } from '../config.service'
+import { getGitCodeToken } from '../config.service'
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types'
 
 // ── GitCode API fetch ──────────────────────────────────────────────
@@ -65,11 +62,9 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
     ? `${GITCODE_API_BASE}${path}`
     : `${GITCODE_API_BASE}${path}`
 
-  console.log('[GitCodeAPI] fetch:', url, 'hasToken:', !!options?.token)
   const response = await gitcodeFetch(url, { headers })
 
   if (response.status === 404) {
-    console.log('[GitCodeAPI] 404 not found:', url)
     return null
   }
 
@@ -80,7 +75,6 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
   }
 
   const data = await response.json()
-  console.log('[GitCodeAPI] success:', url, Array.isArray(data) ? `array(${data.length})` : typeof data)
   return data
 }
 
@@ -246,6 +240,7 @@ export async function fetchSkillDirectoryContents(
 
 /**
  * Find the skill directory path on GitCode by checking path variants.
+ * Includes case-insensitive fallback via findSkillDirs listing.
  */
 export async function findSkillDirectoryPath(
   repo: string,
@@ -261,6 +256,7 @@ export async function findSkillDirectoryPath(
 
   const skillFileNames = ['SKILL.md', 'SKILL.yaml']
 
+  // Try exact path matches first
   for (const dir of dirVariants) {
     const apiPath = `/repos/${repo}/contents/${dir.replace(/\/$/, '')}`
     try {
@@ -277,6 +273,28 @@ export async function findSkillDirectoryPath(
       // continue
     }
   }
+
+  // Case-insensitive fallback: list all skill dirs and compare lowercased paths
+  try {
+    const allDirs = await findSkillDirs(repo, '/', token)
+    const normalizedTarget = skillName.toLowerCase()
+    for (const { path: dirPath } of allDirs) {
+      if (dirPath.toLowerCase() === normalizedTarget || dirPath.toLowerCase().endsWith(`/${normalizedTarget}`)) {
+        return dirPath
+      }
+    }
+    // Also try matching just the last segment
+    const normalizedLast = lastSegment.toLowerCase()
+    for (const { path: dirPath } of allDirs) {
+      const dirLast = dirPath.split('/').pop() || dirPath
+      if (dirLast.toLowerCase() === normalizedLast) {
+        return dirPath
+      }
+    }
+  } catch {
+    // give up
+  }
+
   return null
 }
 
@@ -433,15 +451,12 @@ export async function validateRepo(
   token?: string
 ): Promise<{ valid: boolean; error?: string; skillCount?: number }> {
   try {
-    console.log('[GitCodeService] validateRepo called:', repo, 'hasToken:', !!token)
     const data = await gitcodeApiFetch(`/repos/${repo}`, { token })
-    console.log('[GitCodeService] repo info:', data ? `name=${data.name || data.path}` : 'null')
     if (!data) {
       return { valid: false, error: 'Repository not found or access denied' }
     }
 
     const skills = await listSkillsFromRepo(repo, token)
-    console.log('[GitCodeService] skills found:', skills.length)
     return {
       valid: true,
       skillCount: skills.length,
@@ -462,7 +477,7 @@ export async function pushSkillAsMR(
   files: Array<{ relativePath: string; content: string }>,
   targetPath?: string,
   token?: string
-): Promise<{ success: boolean; mrUrl?: string; error?: string }> {
+): Promise<{ success: boolean; mrUrl?: string; error?: string; warning?: string }> {
   try {
     if (!token) {
       return { success: false, error: 'GitCode token is required. Please configure it in Settings.' }
@@ -476,7 +491,6 @@ export async function pushSkillAsMR(
     const username: string = userData.login
 
     const branchName = `skill/${skillId}-${Date.now()}`
-    console.log(`[GitCodeSkillSource] Pushing skill ${skillId} as ${username}, branch: ${branchName}`)
 
     let targetRepo = repo
     let mrTargetRepo = repo
@@ -484,12 +498,8 @@ export async function pushSkillAsMR(
     // Check if repo is a fork
     try {
       const repoData = await gitcodeApiFetch(`/repos/${repo}`, { token })
-      console.log(`[GitCodeSkillSource] Repo data: fork=${repoData?.fork}, parent=${repoData?.parent?.full_name}`)
       if (repoData?.fork && repoData?.parent?.full_name) {
-        const parent = repoData.parent.full_name
-        console.log(`[GitCodeSkillSource] ${repo} is a fork of ${parent}`)
-        targetRepo = repo
-        mrTargetRepo = parent
+        mrTargetRepo = repoData.parent.full_name
       }
     } catch {
       // continue
@@ -497,7 +507,6 @@ export async function pushSkillAsMR(
 
     // If not a fork, try fork for non-collaborators
     if (targetRepo === repo && mrTargetRepo === repo) {
-      // Check collaborator
       let isCollaborator = false
       try {
         const collabRes = await gitcodeApiFetch(`/repos/${repo}/collaborators/${username}`, { token })
@@ -507,35 +516,26 @@ export async function pushSkillAsMR(
       }
 
       if (!isCollaborator) {
-        // Fork the repo
-        console.log(`[GitCodeSkillSource] Forking ${repo}...`)
         try {
           const forkResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${repo}/forks?access_token=${encodeURIComponent(token)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           })
-          if (forkResp.ok) {
-            const forkData = await forkResp.json()
-            console.log(`[GitCodeSkillSource] Fork created: ${forkData?.full_name}`)
-          } else {
-            const errText = await forkResp.text()
-            console.warn(`[GitCodeSkillSource] Fork failed (may already exist): ${forkResp.status} ${errText}`)
+          if (!forkResp.ok && forkResp.status !== 409) {
+            console.warn(`[GitCodeSkillSource] Fork failed: ${forkResp.status}`)
           }
         } catch (forkError: any) {
           console.warn('[GitCodeSkillSource] Fork warning:', forkError.message)
         }
         targetRepo = `${username}/${repo.split('/')[1]}`
-        console.log(`[GitCodeSkillSource] Using fork target: ${targetRepo}`)
       }
     }
 
-    // Get base branch SHA - use branches API (GitCode /branches/{branch} returns commit.id)
-    console.log(`[GitCodeSkillSource] Getting base SHA from ${targetRepo}...`)
+    // Get base branch SHA
     let baseBranch = 'main'
     let branchData = await gitcodeApiFetch(`/repos/${targetRepo}/branches/main`, { token })
     let baseSha: string | undefined = branchData?.commit?.id
     if (!baseSha) {
-      console.log(`[GitCodeSkillSource] 'main' not found, trying 'master'...`)
       baseBranch = 'master'
       branchData = await gitcodeApiFetch(`/repos/${targetRepo}/branches/master`, { token })
       baseSha = branchData?.commit?.id
@@ -543,23 +543,16 @@ export async function pushSkillAsMR(
     if (!baseSha) {
       return { success: false, error: 'Failed to get base branch SHA from GitCode repo (tried main and master)' }
     }
-    console.log(`[GitCodeSkillSource] Base branch: ${baseBranch}, SHA: ${baseSha.slice(0, 8)}...`)
-
-    // Create branch - GitCode API: branch_name + refs
-    console.log(`[GitCodeSkillSource] Creating branch ${branchName} on ${targetRepo} from ${baseBranch}...`)
     const branchResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${targetRepo}/branches?access_token=${encodeURIComponent(token)}&refs=${encodeURIComponent(baseBranch)}&branch_name=${encodeURIComponent(branchName)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!branchResp.ok) {
       const errText = await branchResp.text()
-      console.error(`[GitCodeSkillSource] Create branch failed: ${branchResp.status} ${errText}`)
       return { success: false, error: `Failed to create branch: ${branchResp.status} ${errText}` }
     }
-    console.log(`[GitCodeSkillSource] Branch created successfully`)
 
     // Commit all files - GitCode uses POST for new files, PUT for updates
-    console.log(`[GitCodeSkillSource] Committing ${files.length} file(s) to ${targetRepo}:${branchName}...`)
     const commitErrors: string[] = []
     let commitSuccess = 0
     for (const file of files) {
@@ -567,7 +560,6 @@ export async function pushSkillAsMR(
         ? `${targetPath}/${skillId}/${file.relativePath}`
         : `${skillId}/${file.relativePath}`
       const contentBase64 = Buffer.from(file.content).toString('base64')
-      console.log(`[GitCodeSkillSource]   [${commitSuccess + 1}/${files.length}] ${filePath}`)
 
       const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
       const url = `${GITCODE_API_BASE}/repos/${targetRepo}/contents/${encodedPath}?access_token=${encodeURIComponent(token)}`
@@ -609,54 +601,62 @@ export async function pushSkillAsMR(
       }
     }
 
-    console.log(`[GitCodeSkillSource] Committed ${commitSuccess}/${files.length}`)
     if (commitSuccess === 0) {
       return { success: false, error: `All files failed. First: ${commitErrors[0]}` }
     }
 
-    // Create MR via GitCode API
+    // Create MR via GitCode API (non-fatal: if MR fails but files committed, still return success)
     const mrTitle = `Add skill: ${skillId}`
     const partialNote = commitErrors.length > 0 ? `\n\n⚠️ ${commitErrors.length} file(s) failed to upload.` : ''
     const mrBody = `## New Skill: ${skillId}\n\nThis MR adds a new skill submitted via AICO-Bot.\n\nFiles uploaded: ${commitSuccess}/${files.length}${partialNote}\n\n---\n*Submitted by @${username}*`
     const head = targetRepo === mrTargetRepo ? branchName : `${username}:${branchName}`
 
-    console.log(`[GitCodeSkillSource] Creating MR: ${mrTargetRepo} <- ${head}`)
-    const mrResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls?access_token=${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: mrTitle,
-        body: mrBody,
-        head: head,
-        base: baseBranch,
-      }),
-    })
+    const commitWarning = commitErrors.length > 0 ? `${commitErrors.length} file(s) failed: ${commitErrors.slice(0, 3).join('; ')}` : undefined
+    const branchUrl = `https://gitcode.com/${targetRepo}/tree/${branchName}`
 
-    if (!mrResp.ok) {
-      const errText = await mrResp.text()
-      console.error(`[GitCodeSkillSource] MR creation failed: ${mrResp.status} ${errText}`)
-      throw new Error(`Failed to create MR: ${mrResp.status} ${errText}`)
-    }
+    let mrUrl: string | undefined
+    let mrWarnings: string[] = commitWarning ? [commitWarning] : []
 
-    const mrData = await mrResp.json()
-    console.log(`[GitCodeSkillSource] MR response keys:`, Object.keys(mrData || {}))
-    console.log(`[GitCodeSkillSource] MR data:`, JSON.stringify(mrData).slice(0, 500))
-    // GitCode API may use html_url, url, or web_url for the PR link
-    const mrUrl: string = mrData.html_url || mrData.web_url || mrData.url
-    if (!mrUrl) {
-      // Fallback: construct URL from repo + PR number
-      const mrNumber = mrData.number || mrData.iid
-      if (mrNumber) {
-        const constructedUrl = `https://gitcode.com/${mrTargetRepo}/pulls/${mrNumber}`
-        console.log(`[GitCodeSkillSource] No URL field found, constructed: ${constructedUrl}`)
-        const warning = commitErrors.length > 0 ? `${commitErrors.length} file(s) failed: ${commitErrors.slice(0, 3).join('; ')}` : undefined
-        return { success: true, mrUrl: constructedUrl, warning }
+    try {
+      const mrResp = await gitcodeFetch(`${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls?access_token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: mrTitle,
+          body: mrBody,
+          head: head,
+          base: baseBranch,
+        }),
+      })
+
+      if (!mrResp.ok) {
+        const errText = await mrResp.text()
+        console.warn(`[GitCodeSkillSource] MR creation failed: ${mrResp.status} ${errText}`)
+        mrWarnings.push(`MR creation failed (${mrResp.status}). Files committed to branch: ${branchUrl}`)
+      } else {
+        const mrData = await mrResp.json()
+        mrUrl = mrData.html_url || mrData.web_url || mrData.url
+        if (!mrUrl) {
+          const mrNumber = mrData.number || mrData.iid
+          if (mrNumber) {
+            mrUrl = `https://gitcode.com/${mrTargetRepo}/pulls/${mrNumber}`
+          } else {
+            console.warn(`[GitCodeSkillSource] MR response has no URL fields:`, mrData)
+            mrWarnings.push(`MR created but no URL returned. Branch: ${branchUrl}`)
+          }
+        }
       }
-      console.error(`[GitCodeSkillSource] MR response has no URL fields and no number:`, mrData)
-      throw new Error('MR created but no URL returned in response')
+    } catch (mrError: any) {
+      console.warn(`[GitCodeSkillSource] MR creation error: ${mrError.message}`)
+      mrWarnings.push(`MR creation error: ${mrError.message}. Files committed to branch: ${branchUrl}`)
     }
-    const warning = commitErrors.length > 0 ? `${commitErrors.length} file(s) failed: ${commitErrors.slice(0, 3).join('; ')}` : undefined
-    return { success: true, mrUrl, warning }
+
+    // If files were committed, always return success (MR creation is non-fatal)
+    if (commitSuccess > 0) {
+      const fallbackUrl = mrUrl || branchUrl
+      const warning = mrWarnings.length > 0 ? mrWarnings.join('. ') : undefined
+      return { success: true, mrUrl: fallbackUrl, warning }
+    }
   } catch (error: any) {
     console.error('[GitCodeSkillSource] pushSkillAsMR error:', error)
     return {

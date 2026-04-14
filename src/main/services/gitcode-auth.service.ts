@@ -7,7 +7,7 @@
  */
 
 import { getGitCodeToken, setGitCodeToken } from './config.service'
-import { gitcodeFetch } from './gitcode-skill-source.service'
+import { gitcodeFetch } from './skill/gitcode-skill-source.service'
 
 const GITCODE_API_BASE = 'https://gitcode.com/api/v5'
 
