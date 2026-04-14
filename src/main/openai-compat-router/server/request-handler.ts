@@ -288,14 +288,64 @@ async function handleAnthropicPassthrough(
     )
     console.log(`[RequestHandler] Anthropic upstream response: ${upstreamResp.status}`)
 
-    // Handle errors — forward upstream response transparently (status + headers + body)
+    // Handle errors — for 429 rate limits, retry once after wait instead of
+    // letting the SDK retry 10x (each retry consumes quota, creating a death spiral)
     if (!upstreamResp.ok) {
       const errorText = await upstreamResp.text().catch(() => '')
       console.error(`[RequestHandler] Anthropic error ${upstreamResp.status}: ${errorText.slice(0, 200)}`)
 
+      if (upstreamResp.status === 429) {
+        // Parse retry-after from upstream (default 5s)
+        const retryAfter = parseFloat(upstreamResp.headers.get('retry-after') || '') || 5
+        const waitMs = Math.min(retryAfter * 1000, 30_000) // cap at 30s
+        console.log(`[RequestHandler] 429 rate limit, waiting ${waitMs}ms then retrying once...`)
+
+        await new Promise(resolve => setTimeout(resolve, waitMs))
+
+        const retryResp = await fetchAnthropicUpstream(
+          targetUrl, apiKey, fetchBody, timeoutMs, sdkHeaders, customHeaders
+        )
+        console.log(`[RequestHandler] 429 retry result: ${retryResp.status}`)
+
+        if (retryResp.ok) {
+          // Retry succeeded — stream or forward the response
+          if (anthropicRequest.stream && retryResp.body) {
+            forwardResponseHeaders(retryResp, res)
+            res.setHeader('Content-Type', 'text/event-stream')
+            res.setHeader('Cache-Control', 'no-cache')
+            res.setHeader('Connection', 'keep-alive')
+            const reader = retryResp.body.getReader()
+            try {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                res.write(value)
+              }
+            } catch (err: any) {
+              if (err?.name !== 'AbortError') {
+                console.error('[RequestHandler] 429 retry stream pipe error:', err?.message)
+              }
+            } finally {
+              res.end()
+            }
+            return
+          }
+          const body = await retryResp.text()
+          forwardResponseHeaders(retryResp, res)
+          res.end(body)
+          return
+        }
+        // Retry also failed — fall through to return error to SDK
+        const retryErrorText = await retryResp.text().catch(() => '')
+        res.status(retryResp.status)
+        forwardResponseHeaders(retryResp, res)
+        res.setHeader('retry-after', '60') // tell SDK to back off heavily
+        res.end(retryErrorText)
+        return
+      }
+
       res.status(upstreamResp.status)
       forwardResponseHeaders(upstreamResp, res)
-      // Business policy: override retry-after for faster client recovery
       res.setHeader('retry-after', '3')
       res.end(errorText)
       return

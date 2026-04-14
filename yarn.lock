@@ -7,12 +7,12 @@
   resolved "https://registry.npmmirror.com/@alloc/quick-lru/-/quick-lru-5.2.0.tgz"
   integrity sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==
 
-"@anthropic-ai/claude-agent-sdk@^0.2.87":
-  version "0.2.87"
-  resolved "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.2.87.tgz"
-  integrity sha512-WWmgBPxPhBOvNT0ujI8vPTI2lK+w5YEkEZ/y1mH0EDkK/0kBnxVJNhCtG5vnueiAViwLoUOFn66pbkDiivijdA==
+"@anthropic-ai/claude-agent-sdk@^0.2.97":
+  version "0.2.97"
+  resolved "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.2.97.tgz"
+  integrity sha512-754teaU0nfrn9BC0YWzPjSbJj253GfPUtuUnkrde7LGsaKtFSjEEuQJq5skJvpozqcn+B8frrtWVPkvFdnupTw==
   dependencies:
-    "@anthropic-ai/sdk" "^0.74.0"
+    "@anthropic-ai/sdk" "^0.80.0"
     "@modelcontextprotocol/sdk" "^1.27.1"
   optionalDependencies:
     "@img/sharp-darwin-arm64" "^0.34.2"
@@ -25,10 +25,10 @@
     "@img/sharp-win32-arm64" "^0.34.2"
     "@img/sharp-win32-x64" "^0.34.2"
 
-"@anthropic-ai/sdk@^0.74.0", "@anthropic-ai/sdk@latest":
-  version "0.74.0"
-  resolved "https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.74.0.tgz"
-  integrity sha512-srbJV7JKsc5cQ6eVuFzjZO7UR3xEPJqPamHFIe29bs38Ij2IripoAhC0S5NslNbaFUYqBKypmmpzMTpqfHEUDw==
+"@anthropic-ai/sdk@^0.80.0", "@anthropic-ai/sdk@latest":
+  version "0.80.0"
+  resolved "https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.80.0.tgz"
+  integrity sha512-WeXLn7zNVk3yjeshn+xZHvld6AoFUOR3Sep6pSoHho5YbSi6HwcirqgPA5ccFuW8QTVJAAU7N8uQQC6Wa9TG+g==
   dependencies:
     json-schema-to-ts "^3.1.1"
 

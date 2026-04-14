@@ -31,6 +31,7 @@ export type LocalizedText = string | Record<string, string>
  * Falls back: exact match -> prefix match -> 'en' -> first value.
  */
 export function resolveLocalizedText(value: LocalizedText, locale: string): string {
+  if (!value) return ''
   if (typeof value === 'string') return value
   if (value[locale]) return value[locale]
   const prefix = locale.split('-')[0]

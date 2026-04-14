@@ -403,10 +403,13 @@ export async function sendMessage(
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
     // These are specific to sendMessage and not part of base options
     if (aiBrowserEnabled) {
-      sdkOptions.systemPrompt = buildSystemPromptWithAIBrowser(
-        { workDir, modelInfo: resolvedCredentials.displayModel },
-        AI_BROWSER_SYSTEM_PROMPT
-      )
+      sdkOptions.systemPrompt = {
+        type: 'preset' as const,
+        append: buildSystemPromptWithAIBrowser(
+          { workDir, modelInfo: resolvedCredentials.displayModel },
+          AI_BROWSER_SYSTEM_PROMPT
+        )
+      }
     }
     if (thinkingEnabled) {
       sdkOptions.maxThinkingTokens = 10240

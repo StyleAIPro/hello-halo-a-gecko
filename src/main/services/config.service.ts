@@ -379,6 +379,10 @@ interface AicoBotConfig {
     claudeApiKey?: string
     agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
   }>
+  // GitCode Personal Access Token
+  gitcodeToken?: string
+  // GitHub Personal Access Token (direct, no gh CLI required)
+  githubToken?: string
 }
 
 // MCP server configuration types
@@ -461,6 +465,28 @@ export function getAgentsDir(): string {
  */
 export function getAgentsSkillsDir(): string {
   return join(getAgentsDir(), 'skills')
+}
+
+/**
+ * GitCode PAT 管理
+ */
+export function getGitCodeToken(): string | undefined {
+  return getConfig().gitcodeToken
+}
+
+export function setGitCodeToken(token: string | undefined): void {
+  saveConfig({ gitcodeToken: token })
+}
+
+/**
+ * GitHub PAT 管理（直连模式，不依赖 gh CLI）
+ */
+export function getGitHubToken(): string | undefined {
+  return getConfig().githubToken
+}
+
+export function setGitHubToken(token: string | undefined): void {
+  saveConfig({ githubToken: token })
 }
 
 /**

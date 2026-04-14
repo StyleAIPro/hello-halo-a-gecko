@@ -1403,6 +1403,59 @@ export const api = {
     return window.aicoBot.onGithubLoginProgress(callback)
   },
 
+  // ===== GitHub Direct PAT (Electron only) =====
+
+  githubDirectAuthStatus: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectAuthStatus()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectLoginToken: async (token: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectLoginToken(token)
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectLogout: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectLogout()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  githubDirectSetupCredentials: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.githubDirectSetupCredentials()
+    }
+    return { success: false, error: 'Only available in desktop app' }
+  },
+
+  // ===== GitCode Integration (Electron only) =====
+
+  gitcodeGetAuthStatus: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.gitcodeGetAuthStatus()
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
+  gitcodeLoginToken: async (token: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.gitcodeLoginToken(token)
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
+  gitcodeLogout: async (): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.gitcodeLogout()
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
   // ===== Bootstrap Lifecycle (Electron only) =====
   // Used to coordinate renderer initialization with main process service registration.
   // Implements Pull+Push pattern for reliable initialization:
@@ -2182,6 +2235,16 @@ export const api = {
     return httpRequest('POST', '/api/skills/uninstall-multi', input)
   },
 
+  skillSyncToRemote: async (input: {
+    skillId: string;
+    serverId: string;
+  }): Promise<ApiResponse<{ success: boolean; error?: string }>> => {
+    if (isElectron()) {
+      return window.aicoBot.skillSyncToRemote(input)
+    }
+    return httpRequest('POST', '/api/skills/sync-to-remote', input)
+  },
+
   skillMarketList: async (page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
     if (isElectron()) {
       return window.aicoBot.skillMarketList(page, pageSize)
@@ -2236,6 +2299,55 @@ export const api = {
       return window.aicoBot.skillMarketRemoveSource(sourceId)
     }
     return httpRequest('DELETE', `/api/skills/market/sources/${sourceId}`)
+  },
+
+  skillMarketPushToGitHub: async (skillId: string, targetRepo: string, targetPath?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketPushToGitHub(skillId, targetRepo, targetPath)
+    }
+    return httpRequest('POST', '/api/skills/market/push-to-github', { skillId, targetRepo, targetPath })
+  },
+
+  skillMarketListRepoDirs: async (repo: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketListRepoDirs(repo)
+    }
+    return httpRequest('POST', '/api/skills/market/list-repo-dirs', { repo })
+  },
+
+  skillMarketValidateRepo: async (repo: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketValidateRepo(repo)
+    }
+    return httpRequest('POST', '/api/skills/market/validate-repo', { repo })
+  },
+
+  skillMarketPushToGitCode: async (skillId: string, targetRepo: string, targetPath?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketPushToGitCode(skillId, targetRepo, targetPath)
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
+  skillMarketListGitCodeRepoDirs: async (repo: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketListGitCodeRepoDirs(repo)
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
+  skillMarketValidateGitCodeRepo: async (repo: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketValidateGitCodeRepo(repo)
+    }
+    return { success: false, error: 'Not available in web mode' }
+  },
+
+  skillMarketSetGitCodeToken: async (token: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketSetGitCodeToken(token)
+    }
+    return { success: false, error: 'Not available in web mode' }
   },
 
   skillConfigGet: async (): Promise<ApiResponse<{ config: any }>> => {
@@ -2360,6 +2472,16 @@ export const api = {
   onSkillUninstallOutput: (callback: (data: { appId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillUninstallOutput) {
       return window.aicoBot.onSkillUninstallOutput(callback)
+    }
+    return () => {}
+  },
+
+  /**
+   * 监听技能同步到远程服务器输出
+   */
+  onSkillSyncOutput: (callback: (data: { skillId: string; serverId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+    if (isElectron() && window.aicoBot.onSkillSyncOutput) {
+      return window.aicoBot.onSkillSyncOutput(callback)
     }
     return () => {}
   },
