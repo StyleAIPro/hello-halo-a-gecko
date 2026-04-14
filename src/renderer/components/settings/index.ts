@@ -26,3 +26,6 @@ export { RemoteServersSection } from './RemoteServersSection'
 
 // GitHub Integration
 export { GitHubSection } from './GitHubSection'
+
+// GitCode Integration
+export { GitCodeSection } from './GitCodeSection'

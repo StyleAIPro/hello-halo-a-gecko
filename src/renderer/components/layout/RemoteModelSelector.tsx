@@ -141,6 +141,23 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
     handleClose()
   }
 
+  // Handle model selection within the current AI source
+  const handleSelectModel = async (modelId: string) => {
+    if (!space.remoteServerId) return
+
+    const result = await api.remoteServerUpdateModel(space.remoteServerId, modelId)
+    if (result.success) {
+      // Reload remote servers to reflect updated config
+      const serversResult = await api.getRemoteServers()
+      if (serversResult.success && Array.isArray(serversResult.data)) {
+        setRemoteServers(serversResult.data)
+      }
+    } else {
+      console.error('[RemoteModelSelector] Failed to update model:', result.error)
+    }
+    handleClose()
+  }
+
   // Get available models for a source
   const getModelsForSource = (source: AISource): ModelOption[] => {
     if (source.availableModels && source.availableModels.length > 0) {
@@ -202,12 +219,12 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
                 {models.map((model) => {
                   const modelId = typeof model === 'string' ? model : model.id
                   const modelName = typeof model === 'string' ? model : (model.name || model.id)
-                  const isSelected = isActiveSource && source.model === modelId
+                  const isSelected = isActiveSource && (server?.claudeModel || source.model) === modelId
 
                   return (
                     <button
                       key={modelId}
-                      onClick={() => handleSelectSource(source.id)}
+                      onClick={() => handleSelectModel(modelId)}
                       className={`w-full px-3 py-3 text-left text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2 pl-8 ${
                         isSelected ? 'text-primary' : 'text-foreground'
                       }`}

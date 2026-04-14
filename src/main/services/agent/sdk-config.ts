@@ -434,6 +434,24 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
       // For duplicates, the one with the most recent modification time wins
       mergeSkillsDirs([skillsDir, claudeSkillsDir], configSkillsDir)
 
+      // Create .claude/skills junction inside configDir for SDK project-level skill discovery.
+      // The SDK in "bare" mode (SDK subprocess) only loads skills from <add-dir>/.claude/skills/,
+      // NOT from the user-level configDir/skills/. By creating this junction and passing configDir
+      // as an additionalDirectory, the CLI discovers our merged skills through the project path.
+      const dotClaudeDir = path.join(configDir, '.claude')
+      const dotClaudeSkillsDir = path.join(dotClaudeDir, 'skills')
+      if (!existsSync(dotClaudeDir)) {
+        mkdirSync(dotClaudeDir, { recursive: true })
+      }
+      if (!existsSync(dotClaudeSkillsDir)) {
+        try {
+          symlinkSync(configSkillsDir, dotClaudeSkillsDir, 'junction')
+          console.log('[SDK Config] Created .claude/skills junction ->', configSkillsDir)
+        } catch (err) {
+          console.warn('[SDK Config] Failed to create .claude/skills junction:', err)
+        }
+      }
+
       ensureSandboxSettings(configDir)
       return configDir
     })(),
@@ -464,10 +482,6 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     ...(process.env.CLAUDE_CODE_GIT_BASH_PATH
       ? { CLAUDE_CODE_GIT_BASH_PATH: process.env.CLAUDE_CODE_GIT_BASH_PATH }
       : {}),
-
-    // debug flag to claude code sdk
-    // DEBUG: '1',
-    // DEBUG_CLAUDE_AGENT_SDK: '1',
   }
 
   // Override sub-agent model to inherit parent session model.
@@ -535,15 +549,21 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     stderr: stderrHandler || ((data: string) => {
       console.error(`[Agent][${conversationId}] CLI stderr:`, data)
     }),
-    // Use AICO-Bot's custom system prompt instead of SDK's 'claude_code' preset
-    systemPrompt: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
+    // Use SDK's 'claude_code' preset (includes skills injection) with AICO-Bot customizations appended
+    systemPrompt: {
+      type: 'preset' as const,
+      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel })
+    },
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
     // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
     disallowedTools: ['WebFetch', 'WebSearch'],
-    // Enable Skills loading from $CLAUDE_CONFIG_DIR/skills/ ONLY (no project-level skills)
-    // All skills are managed globally in ~/.agents/skills/ via symlink
-    settingSources: ['user'],
+    // Enable both 'user' and 'project' setting sources for skill loading.
+    // The SDK in bare mode (Y9() check) only loads skills via the project path
+    // (<add-dir>/.claude/skills/), not the user path. We pass configDir as an
+    // additionalDirectory and create a .claude/skills junction inside it.
+    settingSources: ['user', 'project'],
+    additionalDirectories: [String(env.CLAUDE_CONFIG_DIR)],
     permissionMode: 'bypassPermissions' as const,
     canUseTool: createCanUseTool({
       sendToRenderer,
@@ -582,6 +602,8 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     }
     sdkOptions.mcpServers = mcpServers
   }
+
+  console.log(`[SDK Config] SDK options: systemPrompt=${JSON.stringify(sdkOptions.systemPrompt)?.slice(0,80)}, settingSources=${JSON.stringify(sdkOptions.settingSources)}, additionalDirs=${JSON.stringify(sdkOptions.additionalDirectories)}, CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}`)
 
   return sdkOptions
 }

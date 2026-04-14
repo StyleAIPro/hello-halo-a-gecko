@@ -33,6 +33,7 @@ import { initializeSearchHandlers, cleanupSearchHandlers } from '../ipc/search'
 import { registerPerfHandlers } from '../ipc/perf'
 import { registerGitBashHandlers, initializeGitBashOnStartup } from '../ipc/git-bash'
 import { registerGitHubHandlers } from '../ipc/github'
+import { registerGitCodeHandlers } from '../ipc/gitcode'
 import { cleanupAllCaches } from '../services/artifact-cache.service'
 import { markExtendedServicesReady } from './state'
 import { getMainWindow, sendToRenderer } from '../services/window.service'
@@ -193,6 +194,9 @@ export function initializeExtendedServices(): void {
 
   // GitHub: Authentication and git configuration
   registerGitHubHandlers()
+
+  // GitCode: Authentication
+  registerGitCodeHandlers()
 
   // Health: System health monitoring and recovery
   // Register IPC handlers for health queries from renderer

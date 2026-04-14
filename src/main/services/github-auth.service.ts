@@ -6,11 +6,40 @@
  */
 
 import { exec, execSync, spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readFile, writeFile } from 'fs'
 import { join } from 'path'
+import { homedir } from 'os'
 import { promisify } from 'util'
+import { getGitHubToken, setGitHubToken } from './config.service'
 
 const execAsync = promisify(exec)
+
+const GITHUB_API_BASE = 'https://api.github.com'
+
+// Proxy support for internal networks
+let _ghProxyDispatcher: any = null
+
+async function getGitHubProxyDispatcher(): Promise<any> {
+  if (_ghProxyDispatcher !== null) return _ghProxyDispatcher
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+  if (!proxyUrl) {
+    _ghProxyDispatcher = false
+    return false
+  }
+  try {
+    const { ProxyAgent } = await import('undici')
+    _ghProxyDispatcher = new ProxyAgent(proxyUrl)
+    return _ghProxyDispatcher
+  } catch {
+    _ghProxyDispatcher = false
+    return false
+  }
+}
+
+async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
+  const dispatcher = await getGitHubProxyDispatcher()
+  return fetch(url, { ...init, ...(dispatcher ? { dispatcher } as any : {}) })
+}
 
 export interface GitHubAuthStatus {
   authenticated: boolean
@@ -287,5 +316,106 @@ export async function getGitConfig(key: string): Promise<{ success: boolean; dat
   } catch {
     // git config --get returns non-zero if key doesn't exist
     return { success: true, data: '' }
+  }
+}
+
+// ── Direct PAT authentication (no gh CLI required) ──────────────────
+
+export interface DirectGitHubAuthStatus {
+  authenticated: boolean
+  user: string | null
+  avatarUrl: string | null
+  error?: string
+}
+
+/**
+ * Validate a GitHub PAT by calling the GitHub REST API.
+ */
+async function validateGitHubToken(token: string): Promise<{ login: string; avatar_url: string } | null> {
+  try {
+    const resp = await proxyFetch(`${GITHUB_API_BASE}/user`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      signal: AbortSignal.timeout(15_000)
+    })
+    if (!resp.ok) return null
+    const data = await resp.json()
+    return { login: data.login, avatar_url: data.avatar_url }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get auth status from directly stored PAT (no gh CLI).
+ */
+export async function getDirectGitHubAuthStatus(): Promise<DirectGitHubAuthStatus> {
+  const token = getGitHubToken()
+  if (!token) {
+    return { authenticated: false, user: null, avatarUrl: null }
+  }
+  const user = await validateGitHubToken(token)
+  if (!user) {
+    // Token is invalid, clear it
+    setGitHubToken(undefined)
+    return { authenticated: false, user: null, avatarUrl: null, error: 'Token is invalid or expired' }
+  }
+  return { authenticated: true, user: user.login, avatarUrl: user.avatar_url }
+}
+
+/**
+ * Login with a GitHub PAT directly (stores in config.json, no gh CLI).
+ */
+export async function loginWithDirectToken(token: string): Promise<{ success: boolean; error?: string; user?: string }> {
+  const user = await validateGitHubToken(token)
+  if (!user) {
+    return { success: false, error: 'Invalid token. Please check your Personal Access Token.' }
+  }
+  setGitHubToken(token)
+  return { success: true, user: user.login }
+}
+
+/**
+ * Logout from direct GitHub PAT mode.
+ */
+export async function logoutDirectGitHub(): Promise<void> {
+  setGitHubToken(undefined)
+}
+
+/**
+ * Configure git to use the stored GitHub PAT for HTTPS operations.
+ * Writes the token to ~/.git-credentials and enables credential.helper store.
+ */
+export async function setupGitCredentialsWithToken(): Promise<{ success: boolean; error?: string }> {
+  const token = getGitHubToken()
+  if (!token) {
+    return { success: false, error: 'No GitHub token configured. Please login first.' }
+  }
+
+  try {
+    // Ensure credential.helper is set to store
+    await execAsync('git config --global credential.helper store')
+
+    // Write token to ~/.git-credentials
+    const credFile = join(homedir(), '.git-credentials')
+    const credLine = `https://${token}@github.com\n`
+    let content = ''
+    try {
+      content = await readFile(credFile, 'utf8')
+    } catch {
+      // File doesn't exist yet
+    }
+
+    // Remove any existing github.com line, then append the new one
+    const lines = content.split('\n').filter((line: string) => !line.includes('github.com'))
+    lines.push(`https://${token}@github.com`)
+    await writeFile(credFile, lines.join('\n') + '\n')
+
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to configure git credentials' }
   }
 }

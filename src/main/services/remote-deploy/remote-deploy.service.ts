@@ -439,6 +439,33 @@ export class RemoteDeployService {
   }
 
   /**
+   * Update only the model within the current AI source bound to a remote server.
+   * Does not change the AI source — only updates the model.
+   */
+  async updateServerModel(serverId: string, model: string): Promise<void> {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      throw new Error(`Server not found: ${serverId}`)
+    }
+
+    if (!server.aiSourceId) {
+      throw new Error(`Server ${server.name} has no AI source configured`)
+    }
+
+    const config = getConfig()
+    const source = config.aiSources?.sources?.find(s => s.id === server.aiSourceId)
+    if (!source) {
+      throw new Error(`AI source not found: ${server.aiSourceId}`)
+    }
+
+    await this.updateServer(serverId, {
+      claudeModel: model,
+    })
+
+    console.log(`[RemoteDeployService] Updated model for server ${server.name}: ${model}`)
+  }
+
+  /**
    * Remove a server
    */
   async removeServer(id: string): Promise<void> {
@@ -2771,6 +2798,62 @@ WRAPPER
         onOutput?.({ type: 'error', content: error + '\n' })
         return { success: false, error }
       }
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+  }
+
+  /**
+   * Sync a local skill to a remote server via SSH.
+   * Reads local skill files and uploads them to ~/.agents/skills/<skillId>/ on the remote.
+   */
+  async syncLocalSkillToRemote(
+    id: string,
+    skillId: string,
+    onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    const server = this.servers.get(id)
+    if (!server) throw new Error(`Server not found: ${id}`)
+
+    let manager: SSHManager
+    try {
+      manager = await this.ensureFreshConnection(id, server.name, onOutput)
+    } catch (error) {
+      const err = error as Error
+      onOutput?.({ type: 'error', content: `[${server.name}] ${err.message}\n` })
+      return { success: false, error: err.message }
+    }
+
+    try {
+      // Read local skill files
+      const { readLocalSkillFiles } = await import('../skill/github-skill-source.service')
+      const files = await readLocalSkillFiles(skillId)
+      if (files.length === 0) {
+        const error = `Skill "${skillId}" not found locally or has no files`
+        onOutput?.({ type: 'error', content: `${error}\n` })
+        return { success: false, error }
+      }
+
+      // Prepare remote directory
+      onOutput?.({ type: 'stdout', content: `[${server.name}] Syncing skill "${skillId}" (${files.length} files)...\n` })
+      const remoteHome = (await manager.executeCommand('echo $HOME')).trim()
+      const remoteSkillDir = `${remoteHome}/.agents/skills/${skillId}`
+      await manager.executeCommand(`mkdir -p ${remoteSkillDir}`)
+
+      // Upload each file via base64 encoding
+      for (const file of files) {
+        const remotePath = `${remoteSkillDir}/${file.relativePath}`
+        const remoteDir = path.dirname(remotePath)
+        await manager.executeCommand(`mkdir -p '${remoteDir}'`)
+        const base64Content = Buffer.from(file.content).toString('base64')
+        await manager.executeCommand(`echo "${base64Content}" | base64 -d > '${remotePath}'`)
+        onOutput?.({ type: 'stdout', content: `  ✓ ${file.relativePath}\n` })
+      }
+
+      onOutput?.({ type: 'complete', content: `[${server.name}] ✓ Skill "${skillId}" synced successfully (${files.length} files)!\n` })
+      return { success: true }
     } catch (error) {
       const err = error as Error
       onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` })

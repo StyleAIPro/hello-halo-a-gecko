@@ -185,7 +185,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
       systemPrompt: 'Reply with exactly: OK',
       maxTurns: 1,
       allowedTools: [],
-      permissionMode: 'default' as const,
+      permissionMode: 'bypassPermissions' as const,
       executable: electronPath,
       executableArgs: ['--no-warnings']
     }

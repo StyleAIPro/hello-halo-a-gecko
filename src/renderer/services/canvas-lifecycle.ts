@@ -1091,7 +1091,7 @@ class CanvasLifecycle {
     const hasBrowserView = (tab?.type === 'browser' || tab?.type === 'pdf') && tab.browserViewId
     if (hasBrowserView) {
       // Force mode on Windows to prevent the click-blocking bug
-      const force = process.platform === 'win32'
+      const force = navigator.platform?.includes('Win') ?? false
       await this.hideBrowserView(tab.browserViewId!, force)
     }
   }
@@ -1102,7 +1102,7 @@ class CanvasLifecycle {
    * Uses force mode on Windows to ensure complete removal.
    */
   async hideAllBrowserViews(): Promise<void> {
-    const force = process.platform === 'win32'
+    const force = navigator.platform?.includes('Win') ?? false
     for (const [, tab] of this.tabs) {
       const hasBrowserView = (tab.type === 'browser' || tab.type === 'pdf') && tab.browserViewId
       if (hasBrowserView) {

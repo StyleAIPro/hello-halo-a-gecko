@@ -143,6 +143,18 @@ export function registerRemoteServerHandlers(): void {
     }
   })
 
+  ipcMain.handle('remote-server:update-model', async (_event, serverId: string, model: string) => {
+    console.log(`[IPC] remote-server:update-model - serverId=${serverId}, model=${model}`)
+    try {
+      await deployService.updateServerModel(serverId, model)
+      return { success: true }
+    } catch (error: unknown) {
+      const err = error as Error
+      console.error('[IPC] remote-server:update-model - Failed:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle('remote-server:delete', async (_event, id: string) => {
     console.log('[IPC] remote-server:delete - Removing server:', id)
     try {

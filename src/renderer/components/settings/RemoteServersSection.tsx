@@ -10,6 +10,7 @@ import { api } from '../../api'
 import { useConfirm } from '../ui/ConfirmDialog'
 import { useChatStore } from '../../stores/chat.store'
 import { useSpaceStore } from '../../stores/space.store'
+import type { ModelOption } from '../../types'
 
 interface TerminalEntry {
   id: string
@@ -74,6 +75,22 @@ export function RemoteServersSection() {
   // Ref to mirror servers state for use in event handlers without causing re-subscription
   const serversRef = React.useRef<any[]>([])
   serversRef.current = servers
+
+  // State for expanded AI sources in the model picker (accordion)
+  const [modelPickerExpanded, setModelPickerExpanded] = React.useState<string | null>(null)
+
+  // Get available models for an AI source
+  const getModelsForSource = (source: any): ModelOption[] => {
+    // If source has its own available models (user fetched or configured), use them
+    if (source.availableModels && source.availableModels.length > 0) {
+      return source.availableModels
+    }
+    // Fallback: return current model as single option
+    if (source.model) {
+      return [{ id: source.model, name: source.model }]
+    }
+    return []
+  }
 
   // Save terminal entries to localStorage whenever they change
   React.useEffect(() => {
@@ -160,6 +177,7 @@ export function RemoteServersSection() {
           accessToken: s.accessToken,
           model: s.model,
           authType: s.authType,
+          availableModels: s.availableModels,
         })))
       }
     } catch (err) {
@@ -406,6 +424,7 @@ export function RemoteServersSection() {
   // Open edit modal with server data
   const openEditModal = (server: any) => {
     setEditingServer(server)
+    setModelPickerExpanded(null)
     setFormData({
       name: server.name || '',
       host: server.host || '',
@@ -1017,9 +1036,9 @@ export function RemoteServersSection() {
                 />
               </div>
               <div className="pt-2 border-t border-border">
-                <h4 className="text-sm font-medium mb-3">Claude API 配置（可选）</h4>
+                <h4 className="text-sm font-medium mb-3">AI 模型配置</h4>
                 <div>
-                  <label className="text-sm font-medium mb-1 block">{t('AI Model')}</label>
+                  <label className="text-sm font-medium mb-1 block">{t('AI Provider')}</label>
                   <select
                     value={formData.aiSourceId}
                     onChange={e => {
@@ -1027,13 +1046,19 @@ export function RemoteServersSection() {
                       if (sourceId) {
                         const source = aiSources.find(s => s.id === sourceId)
                         if (source) {
+                          // Set the source, but don't lock in a model yet — user picks below
                           setFormData(prev => ({
                             ...prev,
                             aiSourceId: sourceId,
                             claudeApiKey: source.authType === 'api-key' ? (source.apiKey || '') : (source.accessToken || ''),
                             claudeBaseUrl: source.apiUrl,
-                            claudeModel: source.model,
+                            // Only set model if source has no availableModels (single-model source)
+                            claudeModel: (source.availableModels && source.availableModels.length > 0)
+                              ? prev.claudeModel || source.model
+                              : source.model,
                           }))
+                          // Auto-expand the source to show model list
+                          setModelPickerExpanded(sourceId)
                         }
                       } else {
                         setFormData(prev => ({
@@ -1043,14 +1068,15 @@ export function RemoteServersSection() {
                           claudeBaseUrl: '',
                           claudeModel: '',
                         }))
+                        setModelPickerExpanded(null)
                       }
                     }}
                     className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
-                    <option value="">{t('-- None --')}</option>
+                    <option value="">{t('-- Select AI Provider --')}</option>
                     {aiSources.map(source => (
                       <option key={source.id} value={source.id}>
-                        {source.name} ({source.provider}) — {source.model}
+                        {source.name || source.provider}
                       </option>
                     ))}
                   </select>
@@ -1059,6 +1085,56 @@ export function RemoteServersSection() {
                       {t('No AI models configured. Go to Settings to add one.')}
                     </p>
                   )}
+
+                  {/* Model list (accordion) for the selected source */}
+                  {formData.aiSourceId && (() => {
+                    const source = aiSources.find(s => s.id === formData.aiSourceId)
+                    if (!source) return null
+                    const models = getModelsForSource(source)
+                    if (models.length <= 1) return null // No need to show single model
+
+                    const isExpanded = modelPickerExpanded === source.id
+                    return (
+                      <div className="mt-3">
+                        <div
+                          className="px-3 py-2 text-xs font-medium flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors text-muted-foreground rounded-lg border border-border mb-1"
+                          onClick={() => setModelPickerExpanded(prev => prev === source.id ? null : source.id)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            <span>{t('Select Model')} ({models.length})</span>
+                          </div>
+                          <span className="text-xs text-primary">{formData.claudeModel || source.model}</span>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="bg-secondary/10 rounded-lg border border-border max-h-48 overflow-auto">
+                            {models.map((model) => {
+                              const modelId = typeof model === 'string' ? model : model.id
+                              const modelName = typeof model === 'string' ? model : (model.name || model.id)
+                              const isSelected = formData.claudeModel === modelId
+
+                              return (
+                                <button
+                                  key={modelId}
+                                  onClick={() => {
+                                    setFormData(prev => ({ ...prev, claudeModel: modelId }))
+                                    setModelPickerExpanded(null)
+                                  }}
+                                  className={`w-full px-3 py-2 text-left text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2 ${
+                                    isSelected ? 'text-primary bg-secondary/30' : 'text-foreground'
+                                  }`}
+                                >
+                                  {isSelected ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-3.5" />}
+                                  {modelName}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             </div>
@@ -1067,6 +1143,7 @@ export function RemoteServersSection() {
                 onClick={() => {
                   setShowAddDialog(false)
                   setEditingServer(null)
+                  setModelPickerExpanded(null)
                   setFormData({
                     name: '',
                     host: '',

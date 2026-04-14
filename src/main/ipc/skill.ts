@@ -105,6 +105,17 @@ export function registerSkillHandlers(
     }
   );
 
+  // ── skill:sync-to-remote ───────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:sync-to-remote',
+    async (event, input: { skillId: string; serverId: string }) => {
+      const onOutput = (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+        event.sender.send('skill:sync-output', input.skillId, input.serverId, data);
+      };
+      return skillController.syncLocalSkillToRemote(input.skillId, input.serverId, onOutput);
+    }
+  );
+
   // ── skill:toggle ───────────────────────────────────────────────────────
   ipcMain.handle(
     'skill:toggle',
@@ -395,6 +406,63 @@ export function registerSkillHandlers(
     'skill:fetch-webpage',
     async (_event, url: string) => {
       return skillController.fetchWebPageContent(url);
+    }
+  );
+
+  // ── skill:market:push-to-github ────────────────────────────────────────────────
+  // 推送本地技能到 GitHub 仓库（通过 PR）
+  ipcMain.handle(
+    'skill:market:push-to-github',
+    async (_event, skillId: string, targetRepo: string, targetPath?: string) => {
+      return skillController.pushSkillToGitHub(skillId, targetRepo, targetPath);
+    }
+  );
+
+  // ── skill:market:list-repo-dirs ────────────────────────────────────────────────
+  // 列出 GitHub 仓库 skills/ 目录下的子目录
+  ipcMain.handle(
+    'skill:market:list-repo-dirs',
+    async (_event, repo: string) => {
+      return skillController.listRepoDirectories(repo);
+    }
+  );
+
+  // ── skill:market:validate-repo ─────────────────────────────────────────────────
+  // 验证 GitHub 仓库是否可用作技能源
+  ipcMain.handle(
+    'skill:market:validate-repo',
+    async (_event, repo: string) => {
+      return skillController.validateGitHubRepo(repo);
+    }
+  );
+
+  // ── GitCode skill operations ────────────────────────────────────────────────
+
+  ipcMain.handle(
+    'skill:market:push-to-gitcode',
+    async (_event, skillId: string, targetRepo: string, targetPath?: string) => {
+      return skillController.pushSkillToGitCode(skillId, targetRepo, targetPath);
+    }
+  );
+
+  ipcMain.handle(
+    'skill:market:list-gitcode-repo-dirs',
+    async (_event, repo: string) => {
+      return skillController.listGitCodeRepoDirectories(repo);
+    }
+  );
+
+  ipcMain.handle(
+    'skill:market:validate-gitcode-repo',
+    async (_event, repo: string) => {
+      return skillController.validateGitCodeRepo(repo);
+    }
+  );
+
+  ipcMain.handle(
+    'skill:market:set-gitcode-token',
+    async (_event, token: string) => {
+      return skillController.setGitCodeToken(token);
     }
   );
 

@@ -1,12 +1,18 @@
 /**
  * Skill Market Service - 技能市场服务
- * 只支持 skills.sh 源
+ *
+ * 支持多种技能来源：
+ * - builtin (skills.sh)
+ * - github (用户指定的 GitHub 仓库)
+ * - custom (自定义源)
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { RemoteSkillItem, SkillMarketSource, SkillMarketConfig } from '../../shared/skill/skill-types';
 import { getAgentsSkillsDir } from '../config.service';
+import * as githubSkillSource from './github-skill-source.service';
+import * as gitcodeSkillSource from './gitcode-skill-source.service';
 
 // 唯一的市场源
 const BUILTIN_SOURCES: SkillMarketSource[] = [
@@ -60,7 +66,7 @@ export class SkillMarketService {
       const savedConfig = JSON.parse(content) as Partial<SkillMarketConfig>;
 
       // 合并内置源和保存的自定义源
-      const customSources = (savedConfig.sources || []).filter(s => s.type === 'custom' || s.type === 'github');
+      const customSources = (savedConfig.sources || []).filter(s => s.type === 'custom' || s.type === 'github' || s.type === 'gitcode');
       const builtinIds = new Set(BUILTIN_SOURCES.map(s => s.id));
 
       // 更新内置源的启用状态
@@ -126,18 +132,36 @@ export class SkillMarketService {
   }
 
   /**
-   * 添加自定义源
+   * 添加自定义源或 GitHub 源
+   * 如果 URL 匹配 GitHub 仓库格式，自动设为 github 类型
    */
-  async addSource(source: Omit<SkillMarketSource, 'id' | 'type'> & { repos?: string[] }): Promise<SkillMarketSource> {
+  async addSource(source: Omit<SkillMarketSource, 'id' | 'type'> & { repos?: string[]; type?: 'custom' | 'github' | 'gitcode' }): Promise<SkillMarketSource> {
     const id = source.url.toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .replace(/-+/g, '-')
       .slice(0, 20);
 
+    // Auto-detect GitHub or GitCode source from URL
+    let sourceType: 'custom' | 'github' | 'gitcode' = source.type || 'custom'
+    let repos = source.repos
+
+    const githubMatch = source.url.match(/github\.com\/([^/]+\/[^/]+)/)
+    if (githubMatch && !source.type) {
+      sourceType = 'github'
+      repos = repos || [githubMatch[1].replace(/\.git$/, '')]
+    }
+
+    const gitcodeMatch = source.url.match(/gitcode\.com\/([^/]+\/[^/]+)/)
+    if (gitcodeMatch && !source.type) {
+      sourceType = 'gitcode'
+      repos = repos || [gitcodeMatch[1].replace(/\.git$/, '')]
+    }
+
     const newSource: SkillMarketSource = {
       ...source,
-      id: `custom-${id}-${Date.now()}`,
-      type: 'custom',
+      id: sourceType === 'github' ? `github-${id}-${Date.now()}` : sourceType === 'gitcode' ? `gitcode-${id}-${Date.now()}` : `custom-${id}-${Date.now()}`,
+      type: sourceType,
+      repos,
       enabled: true
     };
 
@@ -147,10 +171,10 @@ export class SkillMarketService {
   }
 
   /**
-   * 移除自定义源
+   * 移除自定义源或 GitHub 源
    */
   async removeSource(sourceId: string): Promise<boolean> {
-    const index = this.config.sources.findIndex(s => s.id === sourceId && s.type === 'custom');
+    const index = this.config.sources.findIndex(s => s.id === sourceId && (s.type === 'custom' || s.type === 'github' || s.type === 'gitcode'));
     if (index !== -1) {
       this.config.sources.splice(index, 1);
       await this.saveConfig();
@@ -161,11 +185,24 @@ export class SkillMarketService {
 
   /**
    * 获取技能列表（支持无限滚动）
+   * 根据当前活跃源类型分发到不同的获取逻辑
    */
   async getSkills(page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
     console.log('[SkillMarketService] getSkills called:', { page, pageSize });
 
     try {
+      const activeSource = this.getActiveSource();
+      const sourceType = activeSource?.type || 'builtin';
+
+      if (sourceType === 'github') {
+        return await this.fetchFromGitHubRepo(activeSource!, page, pageSize);
+      }
+
+      if (sourceType === 'gitcode') {
+        return await this.fetchFromGitCodeRepo(activeSource!, page, pageSize);
+      }
+
+      // Default: skills.sh
       return await this.fetchFromSkillsShWithInfiniteScroll(page, pageSize);
     } catch (error) {
       console.error('[SkillMarketService] getSkills error:', error);
@@ -183,6 +220,18 @@ export class SkillMarketService {
       this.skillsCache.clear();
     }
     console.log('[SkillMarketService] Cache reset for:', sourceId || 'all');
+  }
+
+  /**
+   * Find a skill in cache by ID to retrieve original-case githubPath.
+   * IDs contain lowercased paths, but cache preserves original casing.
+   */
+  private findSkillInCache(skillId: string): RemoteSkillItem | null {
+    for (const skills of this.skillsCache.values()) {
+      const found = skills.find(s => s.id === skillId)
+      if (found) return found
+    }
+    return null
   }
 
   /**
@@ -369,11 +418,24 @@ export class SkillMarketService {
 
   /**
    * 搜索技能（支持分页）
+   * GitHub 源使用客户端过滤
    */
   async searchSkills(query: string, page: number = 1, pageSize: number = 20): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
     console.log('[SkillMarketService] searchSkills called:', { query, page, pageSize });
 
     try {
+      const activeSource = this.getActiveSource();
+      const sourceType = activeSource?.type || 'builtin';
+
+      if (sourceType === 'github') {
+        return await this.searchGitHubRepo(activeSource!, query, page, pageSize);
+      }
+
+      if (sourceType === 'gitcode') {
+        return await this.searchGitCodeRepo(activeSource!, query, page, pageSize);
+      }
+
+      // Default: skills.sh API search
       const searchCacheKey = `search:${query}`;
 
       // 检查是否有缓存
@@ -404,11 +466,45 @@ export class SkillMarketService {
 
   /**
    * 获取技能详情
+   * 支持 skills.sh: 和 github: 前缀的 ID
    */
   async getSkillDetail(skillId: string): Promise<RemoteSkillItem | null> {
     console.log('[SkillMarketService] getSkillDetail called:', skillId);
 
-    // ID 格式："skills.sh:owner/repo/skillName"
+    // GitHub source: ID format "github:owner/repo:full/path/to/skill"
+    if (skillId.startsWith('github:')) {
+      const parts = skillId.split(':')
+      if (parts.length >= 3) {
+        const repo = parts[1]
+        // Resolve original-case githubPath from cache (ID has lowercased path)
+        let skillPath = parts.slice(2).join(':')
+        const cachedItem = this.findSkillInCache(skillId)
+        if (cachedItem?.githubPath) {
+          skillPath = cachedItem.githubPath
+        }
+        const token = await githubSkillSource.getGitHubToken()
+        return githubSkillSource.getSkillDetailFromRepo(repo, skillPath, token)
+      }
+      return null
+    }
+
+    // GitCode source: ID format "gitcode:owner/repo:full/path/to/skill"
+    if (skillId.startsWith('gitcode:')) {
+      const parts = skillId.split(':')
+      if (parts.length >= 3) {
+        const repo = parts[1]
+        let skillPath = parts.slice(2).join(':')
+        const cachedItem = this.findSkillInCache(skillId)
+        if (cachedItem?.githubPath) {
+          skillPath = cachedItem.githubPath
+        }
+        const token = gitcodeSkillSource.getGitCodeToken()
+        return gitcodeSkillSource.getSkillDetailFromRepo(repo, skillPath, token)
+      }
+      return null
+    }
+
+    // skills.sh source: ID format "skills.sh:owner/repo/skillName"
     if (skillId.startsWith('skills.sh:')) {
       const id = skillId.substring('skills.sh:'.length);
       const parts = id.split('/');
@@ -455,33 +551,49 @@ export class SkillMarketService {
   }
 
   /**
-   * 下载技能并返回安装信息（GitHub 仓库和技能名称）
+   * 下载技能并返回安装信息（仓库路径和技能名称）
    */
-  async downloadSkill(skillId: string): Promise<{ success: boolean; githubRepo?: string; skillName?: string; error?: string }> {
-    console.log('[SkillMarketService] downloadSkill called:', skillId)
+  async downloadSkill(skillId: string): Promise<{ success: boolean; githubRepo?: string; skillName?: string; sourceType: 'github' | 'gitcode' | 'skills.sh'; error?: string }> {
+    // Determine source type from skillId prefix first (always correct)
+    let sourceType: 'github' | 'gitcode' | 'skills.sh' = 'skills.sh'
+    if (skillId.startsWith('github:')) {
+      sourceType = 'github'
+    } else if (skillId.startsWith('gitcode:')) {
+      sourceType = 'gitcode'
+    }
 
     const skill = await this.getSkillDetail(skillId)
 
     if (!skill) {
-      console.log('[SkillMarketService] Skill not found')
-      return { success: false, error: 'Skill not found' }
+      // getSkillDetail failed, but we can still extract repo/skillName from the ID
+      if ((skillId.startsWith('gitcode:') || skillId.startsWith('github:')) && skillId.split(':').length >= 3) {
+        const parts = skillId.split(':')
+        return {
+          success: true,
+          githubRepo: parts[1],
+          skillName: parts.slice(2).join(':'),
+          sourceType,
+        }
+      }
+      return { success: false, sourceType, error: 'Skill not found' }
     }
 
-    console.log('[SkillMarketService] Skill detail:', {
-      name: skill.name,
-      githubRepo: skill.githubRepo,
-      githubPath: skill.githubPath
-    })
+    // Use skill object's sourceId as secondary check
+    if (skill.sourceId.startsWith('gitcode:')) {
+      sourceType = 'gitcode'
+    } else if (skill.sourceId.startsWith('github:')) {
+      sourceType = 'github'
+    }
 
     if (!skill.githubRepo) {
-      console.log('[SkillMarketService] No GitHub repo available')
-      return { success: false, error: 'No GitHub repo available' }
+      return { success: false, sourceType, error: 'No repo available' }
     }
 
     return {
       success: true,
       githubRepo: skill.githubRepo,
-      skillName: skill.githubPath?.split('/').pop() || skill.name.toLowerCase().replace(/\s+/g, '-')
+      skillName: skill.githubPath || skill.name.toLowerCase().replace(/\s+/g, '-'),
+      sourceType,
     }
   }
 
@@ -489,20 +601,14 @@ export class SkillMarketService {
    * 获取技能内容（SKILL.md 或 README.md）
    */
   async fetchSkillContent(repo: string, skillPath: string): Promise<string> {
-    const skillName = skillPath.replace(/^skills\//, '').replace(/^skills-/, '')
+    const lastSegment = skillPath.split('/').pop() || skillPath
 
-    // 生成多种路径变体
-    const skillNameVariations = [
-      skillName,
-      skillName.replace(/^[a-z]+-/, ''),
+    // Build path variants, prioritizing the full skillPath
+    const basePaths: string[] = [
+      skillPath,
+      `skills/${lastSegment}`,
+      lastSegment,
     ]
-
-    const basePaths: string[] = []
-    for (const name of skillNameVariations) {
-      basePaths.push(name)
-      basePaths.push(`skills/${name}`)
-    }
-    basePaths.unshift(skillPath)
 
     // 尝试 SKILL.md 和 README.md
     for (const path of basePaths) {
@@ -537,5 +643,158 @@ export class SkillMarketService {
     return name
       .replace(/[-_]/g, ' ')
       .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // ── GitHub source specific methods ─────────────────────────────────
+
+  /**
+   * 从 GitHub 仓库获取技能列表（分页）
+   */
+  private async fetchFromGitHubRepo(
+    source: SkillMarketSource,
+    page: number,
+    pageSize: number
+  ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    const repos = source.repos || []
+    if (repos.length === 0) {
+      return { skills: [], total: 0, hasMore: false }
+    }
+
+    const sourceId = source.id
+    const offset = (page - 1) * pageSize
+
+    // Use cache
+    let cachedSkills = this.skillsCache.get(sourceId) || []
+
+    if (cachedSkills.length === 0) {
+      const token = await githubSkillSource.getGitHubToken()
+
+      // Fetch from all repos in this source
+      for (const repo of repos) {
+        try {
+          const repoSkills = await githubSkillSource.listSkillsFromRepo(repo, token)
+          cachedSkills.push(...repoSkills)
+        } catch (error) {
+          console.error(`[SkillMarketService] Failed to fetch from GitHub repo ${repo}:`, error)
+        }
+      }
+
+      this.skillsCache.set(sourceId, cachedSkills)
+    }
+
+    const total = cachedSkills.length
+    const hasMore = offset + pageSize < total
+    const skills = cachedSkills.slice(offset, offset + pageSize)
+
+    return { skills, total, hasMore }
+  }
+
+  /**
+   * 在 GitHub 仓库源中搜索技能（客户端过滤）
+   */
+  private async searchGitHubRepo(
+    source: SkillMarketSource,
+    query: string,
+    page: number,
+    pageSize: number
+  ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    const searchCacheKey = `github-search:${source.id}:${query}`
+    let cachedSkills = this.skillsCache.get(searchCacheKey)
+
+    if (!cachedSkills) {
+      // Get all skills from the source cache
+      const allSkills = this.skillsCache.get(source.id) || []
+
+      // If no skills cached yet, fetch them
+      if (allSkills.length === 0) {
+        await this.fetchFromGitHubRepo(source, 1, 999999)
+      }
+
+      const allCached = this.skillsCache.get(source.id) || []
+      const lowerQuery = query.toLowerCase()
+
+      cachedSkills = allCached.filter(skill =>
+        skill.name.toLowerCase().includes(lowerQuery) ||
+        skill.description.toLowerCase().includes(lowerQuery) ||
+        skill.author.toLowerCase().includes(lowerQuery) ||
+        skill.tags?.some(tag => tag.toLowerCase().includes(lowerQuery))
+      )
+
+      this.skillsCache.set(searchCacheKey, cachedSkills)
+    }
+
+    const offset = (page - 1) * pageSize
+    const total = cachedSkills.length
+    const hasMore = offset + pageSize < total
+    const skills = cachedSkills.slice(offset, offset + pageSize)
+
+    return { skills, total, hasMore }
+  }
+
+  /**
+   * 从 GitCode 仓库源获取技能列表
+   */
+  private async fetchFromGitCodeRepo(
+    source: SkillMarketSource,
+    page: number,
+    pageSize: number
+  ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    const sourceId = source.id
+    const offset = (page - 1) * pageSize
+    const repos = source.repos || []
+    const token = gitcodeSkillSource.getGitCodeToken()
+
+    let cachedSkills = this.skillsCache.get(sourceId)
+    if (!cachedSkills) {
+      cachedSkills = []
+      for (const repo of repos) {
+        try {
+          const repoSkills = await gitcodeSkillSource.listSkillsFromRepo(repo, token)
+          cachedSkills.push(...repoSkills)
+        } catch (error) {
+          console.error(`[SkillMarketService] Failed to fetch from GitCode repo ${repo}:`, error)
+        }
+      }
+      this.skillsCache.set(sourceId, cachedSkills)
+    }
+
+    const total = cachedSkills.length
+    const hasMore = offset + pageSize < total
+    const skills = cachedSkills.slice(offset, offset + pageSize)
+    return { skills, total, hasMore }
+  }
+
+  /**
+   * 在 GitCode 仓库源中搜索技能（客户端过滤）
+   */
+  private async searchGitCodeRepo(
+    source: SkillMarketSource,
+    query: string,
+    page: number,
+    pageSize: number
+  ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
+    const searchCacheKey = `gitcode-search:${source.id}:${query}`
+    let cachedSkills = this.skillsCache.get(searchCacheKey)
+
+    if (!cachedSkills) {
+      // Load all skills first
+      const allResult = await this.fetchFromGitCodeRepo(source, 1, 999999)
+      const allCached = allResult.skills
+      const lowerQuery = query.toLowerCase()
+
+      cachedSkills = allCached.filter(skill =>
+        skill.name.toLowerCase().includes(lowerQuery) ||
+        skill.description.toLowerCase().includes(lowerQuery) ||
+        skill.author.toLowerCase().includes(lowerQuery) ||
+        skill.tags?.some(tag => tag.toLowerCase().includes(lowerQuery))
+      )
+      this.skillsCache.set(searchCacheKey, cachedSkills)
+    }
+
+    const offset = (page - 1) * pageSize
+    const total = cachedSkills.length
+    const hasMore = offset + pageSize < total
+    const skills = cachedSkills.slice(offset, offset + pageSize)
+    return { skills, total, hasMore }
   }
 }

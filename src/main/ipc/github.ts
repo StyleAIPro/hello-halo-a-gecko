@@ -10,7 +10,11 @@ import {
   logoutGitHub,
   setupGitCredentialHelper,
   setGitConfig,
-  getGitConfig
+  getGitConfig,
+  getDirectGitHubAuthStatus,
+  loginWithDirectToken,
+  logoutDirectGitHub,
+  setupGitCredentialsWithToken
 } from '../services/github-auth.service'
 import { getMainWindow } from '../services/window.service'
 
@@ -100,6 +104,52 @@ export function registerGitHubHandlers(): void {
   ipcMain.handle('github:get-git-config', async (_event, key: string) => {
     try {
       const result = await getGitConfig(key)
+      return result
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return { success: false, error: msg }
+    }
+  })
+
+  // ── Direct PAT authentication (no gh CLI) ──────────────────────────
+
+  // Get direct PAT auth status
+  ipcMain.handle('github:direct-auth-status', async () => {
+    try {
+      const data = await getDirectGitHubAuthStatus()
+      return { success: true, data }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return { success: false, error: msg }
+    }
+  })
+
+  // Login with direct PAT
+  ipcMain.handle('github:direct-login-token', async (_event, token: string) => {
+    try {
+      const result = await loginWithDirectToken(token)
+      return result
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return { success: false, error: msg }
+    }
+  })
+
+  // Logout from direct PAT mode
+  ipcMain.handle('github:direct-logout', async () => {
+    try {
+      await logoutDirectGitHub()
+      return { success: true }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return { success: false, error: msg }
+    }
+  })
+
+  // Setup git credentials with stored PAT
+  ipcMain.handle('github:direct-setup-credentials', async () => {
+    try {
+      const result = await setupGitCredentialsWithToken()
       return result
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)

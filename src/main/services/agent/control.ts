@@ -52,15 +52,19 @@ export async function stopGeneration(conversationId?: string): Promise<void> {
         console.log(`[Agent][control.ts] v2Session found: ${!!v2Session}`)
         if (v2Session) {
           try {
-            await (v2Session.session as any).interrupt()
-            console.log(`[Agent] V2 session interrupted, draining stale messages...`)
+            if (typeof (v2Session.session as any).interrupt === 'function') {
+              await (v2Session.session as any).interrupt()
+              console.log(`[Agent] V2 session interrupted, draining stale messages...`)
 
-            // Drain stale messages until we hit the result
-            for await (const msg of v2Session.session.stream()) {
-              console.log(`[Agent] Drained: ${msg.type}`)
-              if (msg.type === 'result') break
+              // Drain stale messages until we hit the result
+              for await (const msg of v2Session.session.stream()) {
+                console.log(`[Agent] Drained: ${msg.type}`)
+                if (msg.type === 'result') break
+              }
+              console.log(`[Agent] Drain complete for: ${conversationId}`)
+            } else {
+              console.log(`[Agent] V2 session does not support interrupt(), skipping`)
             }
-            console.log(`[Agent] Drain complete for: ${conversationId}`)
           } catch (e) {
             console.error(`[Agent] Failed to interrupt/drain V2 session:`, e)
           }
@@ -109,7 +113,11 @@ export async function stopGeneration(conversationId?: string): Promise<void> {
       const v2Session = v2Sessions.get(convId)
       if (v2Session) {
         try {
-          await (v2Session.session as any).interrupt()
+          if (typeof (v2Session.session as any).interrupt === 'function') {
+            await (v2Session.session as any).interrupt()
+          } else {
+            console.log(`[Agent] V2 session does not support interrupt() for ${convId}, skipping`)
+          }
         } catch (e) {
           console.error(`[Agent] Failed to interrupt V2 session ${convId}:`, e)
         }

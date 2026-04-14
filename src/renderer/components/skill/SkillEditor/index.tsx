@@ -114,6 +114,7 @@ export function SkillEditorPage() {
   const { t } = useTranslation()
   const { confirm: confirmDialog, alert: alertDialog, ConfirmDialogElement } = useConfirm()
   const spaces = useSpaceStore(state => state.spaces)
+  const defaultSpace = useSpaceStore(state => state.defaultSpace)
   const {
     installedSkills,
     loadInstalledSkills,
@@ -121,9 +122,11 @@ export function SkillEditorPage() {
     setAgentPanelOpen,
   } = useSkillStore()
 
-  // 从 chat store 读取会话状态
+  // 从 chat store 读取会话状态（spaceStates 订阅用于响应式更新对话列表）
   const sessions = useChatStore(state => state.sessions)
   const conversationCache = useChatStore(state => state.conversationCache)
+  const spaceStates = useChatStore(state => state.spaceStates)
+  const loadConversations = useChatStore(state => state.loadConversations)
 
   // 左侧面板视图
   const [leftPanelView, setLeftPanelView] = useState<LeftPanelView>('select')
@@ -216,11 +219,17 @@ export function SkillEditorPage() {
     return false
   }, [sessions])
 
-  // 获取所有空间的对话
+  // 合并默认空间和用户空间（defaultSpace 不在 spaces 数组中）
+  const allSpaces = useMemo(() => {
+    const result = defaultSpace ? [defaultSpace] : []
+    return result.concat(spaces)
+  }, [defaultSpace, spaces])
+
+  // 获取所有空间的对话（响应式：依赖 spaceStates 变化自动更新）
   const allConversations = useMemo(() => {
     const result: ConversationOption[] = []
-    for (const space of spaces) {
-      const convs = useChatStore.getState().spaceStates.get(space.id)?.conversations || []
+    for (const space of allSpaces) {
+      const convs = spaceStates.get(space.id)?.conversations || []
       for (const conv of convs) {
         result.push({
           id: conv.id,
@@ -234,7 +243,7 @@ export function SkillEditorPage() {
     return result.sort((a, b) =>
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     )
-  }, [spaces, t])
+  }, [allSpaces, spaceStates, t])
 
   // 按空间分组
   const conversationsBySpace = useMemo(() => {
@@ -266,10 +275,20 @@ export function SkillEditorPage() {
   // 初始化
   // ============================================
 
+  // 技能列表初始化
   useEffect(() => {
     loadInstalledSkills()
     loadConversationHistoryFn()
   }, [loadInstalledSkills])
+
+  // 独立加载所有空间的对话列表（含默认空间）
+  // 不依赖 spaceStates 快照，直接按空间 ID 强制加载
+  useEffect(() => {
+    if (allSpaces.length === 0) return
+    for (const space of allSpaces) {
+      loadConversations(space.id)
+    }
+  }, [allSpaces, loadConversations])
 
   // ============================================
   // 模式切换时清理状态
@@ -1471,7 +1490,7 @@ ${contextParts.join('\n\n')}
                 </p>
 
                 <div className="max-h-60 overflow-y-auto border border-border rounded-lg">
-                  {spaces.map(space => {
+                  {allSpaces.map(space => {
                     const convs = conversationsBySpace.get(space.id) || []
                     if (convs.length === 0) return null
 
