@@ -423,6 +423,7 @@ export function RemoteServersSection() {
 
   // Open edit modal with server data
   const openEditModal = (server: any) => {
+    loadAiSources()
     setEditingServer(server)
     setModelPickerExpanded(null)
     setFormData({
@@ -796,7 +797,7 @@ export function RemoteServersSection() {
             {t('Batch Update')}
           </button>
           <button
-            onClick={() => setShowAddDialog(true)}
+            onClick={() => { loadAiSources(); setShowAddDialog(true) }}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 hover:bg-primary/90 transition-colors whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
@@ -849,7 +850,7 @@ export function RemoteServersSection() {
                           const source = aiSources.find(s => s.id === server.aiSourceId)
                           return source ? (
                             <span className="inline-flex items-center text-xs text-muted-foreground mt-0.5">
-                              {source.provider} / {source.model}
+                              {source.provider} / {server.claudeModel || source.model}
                             </span>
                           ) : null
                         })()}

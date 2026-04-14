@@ -15,7 +15,6 @@ import {
 } from '../../types'
 import { useTranslation } from '../../i18n'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { isAnthropicProvider } from '../../types'
 
 interface RemoteModelSelectorProps {
   space: {
@@ -46,8 +45,8 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
   const serverSourceId = server?.aiSourceId
   const serverSource = serverSourceId ? aiSources.sources.find(s => s.id === serverSourceId) : undefined
 
-  // Current model display name
-  const currentModelName = serverSource?.model || server?.claudeModel || t('Not configured')
+  // Current model display name — prioritize server's overridden model over source default
+  const currentModelName = server?.claudeModel || serverSource?.model || t('Not configured')
 
   // Initialize expanded section to server's source when opening
   useEffect(() => {
@@ -141,10 +140,21 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
     handleClose()
   }
 
-  // Handle model selection within the current AI source
-  const handleSelectModel = async (modelId: string) => {
+  // Handle model selection — switches AI source if needed, then sets model
+  const handleSelectModel = async (sourceId: string, modelId: string) => {
     if (!space.remoteServerId) return
 
+    // If model is from a different source, switch the source first (updates URL + API key)
+    if (serverSourceId !== sourceId) {
+      const sourceResult = await api.remoteServerUpdateAiSource(space.remoteServerId, sourceId)
+      if (!sourceResult.success) {
+        console.error('[RemoteModelSelector] Failed to switch AI source:', sourceResult.error)
+        handleClose()
+        return
+      }
+    }
+
+    // Then update the model
     const result = await api.remoteServerUpdateModel(space.remoteServerId, modelId)
     if (result.success) {
       // Reload remote servers to reflect updated config
@@ -160,14 +170,11 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
 
   // Get available models for a source
   const getModelsForSource = (source: AISource): ModelOption[] => {
+    // If source has its own available models (user fetched or configured), use them
     if (source.availableModels && source.availableModels.length > 0) {
       return source.availableModels
     }
-    if (isAnthropicProvider(source.provider)) {
-      // Import AVAILABLE_MODELS dynamically to avoid circular dependency
-      const { AVAILABLE_MODELS } = require('../../types')
-      return AVAILABLE_MODELS
-    }
+    // Fallback: return current model as single option
     if (source.model) {
       return [{ id: source.model, name: source.model }]
     }
@@ -178,7 +185,6 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
   const getSourceDisplayName = (source: AISource): string => {
     if (source.name) return source.name
     if (source.authType === 'oauth') return 'OAuth Provider'
-    if (isAnthropicProvider(source.provider)) return 'Claude API'
     return t('Custom API')
   }
 
@@ -219,12 +225,12 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
                 {models.map((model) => {
                   const modelId = typeof model === 'string' ? model : model.id
                   const modelName = typeof model === 'string' ? model : (model.name || model.id)
-                  const isSelected = isActiveSource && (server?.claudeModel || source.model) === modelId
+                  const isSelected = isActiveSource && server?.claudeModel === modelId
 
                   return (
                     <button
                       key={modelId}
-                      onClick={() => handleSelectModel(modelId)}
+                      onClick={() => handleSelectModel(source.id, modelId)}
                       className={`w-full px-3 py-3 text-left text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2 pl-8 ${
                         isSelected ? 'text-primary' : 'text-foreground'
                       }`}

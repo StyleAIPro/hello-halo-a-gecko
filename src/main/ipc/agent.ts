@@ -45,10 +45,16 @@ export function registerAgentHandlers(): void {
   )
 
   // Stop generation for a specific conversation (or all if not specified)
+  // Note: abortController.abort() is synchronous and takes effect immediately.
+  // The interrupt/drain cleanup runs in the background and should not block the IPC response.
   ipcMain.handle('agent:stop', async (_event, conversationId?: string) => {
     console.log(`[IPC] agent:stop called with conversationId=${conversationId || 'undefined'}`)
     try {
-      stopGeneration(conversationId)
+      // Fire-and-forget: abort is already synchronous via abortController.abort()
+      // interrupt/drain may hang, so don't await — let it run in background
+      stopGeneration(conversationId).catch((err) => {
+        console.error(`[IPC] agent:stop background error:`, err)
+      })
       return { success: true }
     } catch (error: unknown) {
       const err = error as Error

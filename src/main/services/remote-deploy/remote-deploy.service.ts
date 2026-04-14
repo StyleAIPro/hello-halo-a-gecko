@@ -16,6 +16,7 @@ import os from 'os'
 import crypto from 'crypto'
 import { parse as parseYaml } from 'yaml'
 import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt'
+import { removePooledConnection } from '../remote-ws/remote-ws-client'
 
 /**
  * Escape a value for use in shell environment variable
@@ -1291,6 +1292,10 @@ WRAPPER
   /**
    * Create a tar.gz deployment package containing dist/, patches/, scripts/, and package.json.
    * Returns the path to the temporary tar.gz file.
+   *
+   * When running from a packaged Electron app, packageDir points inside app.asar.
+   * The system `tar` command cannot traverse into asar archives, so we detect this
+   * case and copy the needed files to a temporary staging directory first.
    */
   private async createDeployPackage(packageDir: string): Promise<string> {
     const { execSync } = require('child_process')
@@ -1302,8 +1307,7 @@ WRAPPER
       throw new Error(`Remote agent proxy not built. Run 'npm run build' first. (looked at: ${distDir})`)
     }
 
-    // Build tar command args
-    // tar -czf <output> -C <packageDir> package.json dist/ patches/ scripts/
+    // Determine which subdirectories to include alongside package.json and dist/
     const includes: string[] = ['package.json', 'dist']
     if (fs.existsSync(path.join(packageDir, 'patches'))) {
       includes.push('patches')
@@ -1312,15 +1316,55 @@ WRAPPER
       includes.push('scripts')
     }
 
+    // Detect asar path — system tar cannot enter app.asar directories.
+    // Copy to a temp staging dir so tar can operate on real filesystem paths.
+    let stagingDir: string | null = null
+    if (packageDir.includes('.asar')) {
+      stagingDir = fs.mkdtempSync(path.join(tmpDir, 'aico-agent-staging-'))
+      for (const name of includes) {
+        const src = path.join(packageDir, name)
+        const dst = path.join(stagingDir, name)
+        this.copyRecursiveSync(src, dst)
+      }
+      // Use staging dir as the tar base
+      packageDir = stagingDir
+    }
+
     const tarArgs = `-czf "${packagePath}" -C "${packageDir}" ${includes.join(' ')}`
 
     try {
       execSync(`tar ${tarArgs}`, { stdio: 'pipe' })
     } catch (err) {
+      // Clean up staging dir on failure
+      if (stagingDir) {
+        try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
+      }
       throw new Error(`Failed to create deployment package: ${err}`)
     }
 
+    // Clean up staging dir on success
+    if (stagingDir) {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
+    }
+
     return packagePath
+  }
+
+  /**
+   * Recursively copy a file or directory.
+   * Handles both regular files and directories (including nested ones).
+   */
+  private copyRecursiveSync(src: string, dst: string): void {
+    const stat = fs.statSync(src)
+    if (stat.isFile()) {
+      fs.mkdirSync(path.dirname(dst), { recursive: true })
+      fs.copyFileSync(src, dst)
+    } else if (stat.isDirectory()) {
+      fs.mkdirSync(dst, { recursive: true })
+      for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+        this.copyRecursiveSync(path.join(src, entry.name), path.join(dst, entry.name))
+      }
+    }
   }
 
   /**
@@ -1559,6 +1603,11 @@ WRAPPER
     if (!server) {
       throw new Error(`Server not found: ${id}`)
     }
+
+    // Disconnect pooled WebSocket connections BEFORE stopping the agent.
+    // This prevents "socket hang up" errors from propagating when the
+    // remote agent process is killed while connections are still active.
+    removePooledConnection(id)
 
     const manager = this.getSSHManager(id)
 

@@ -1009,6 +1009,9 @@ export class ClaudeManager {
     const workDirChanged = existing && existing.config.workDir !== effectiveWorkDir
     const effectiveResumeId = workDirChanged ? undefined : resumeSessionId
 
+    // Pre-declared for resume path (options built in parallel) — visible to session creation below
+    let prebuiltOptions: any = undefined
+
     if (existing) {
       // CRITICAL: Check if workDir changed - if so, need to recreate session
       if (workDirChanged) {
@@ -1022,37 +1025,31 @@ export class ClaudeManager {
         this.cleanupSession(conversationId, 'process not ready')
         // Fall through to create new session
       } else if (effectiveResumeId) {
-        // CRITICAL: When resuming, always create a fresh session.
-        // Reusing an existing session across turns causes SDK internal state corruption:
-        // the previous Query's streamInput() iterator still holds a reference to
-        // session.inputStream, and the new Query's streamInput() conflicts with it,
-        // leading to "Claude Code process aborted by user" errors.
+        // OPTIMIZATION: Try to reuse existing session on resume instead of always
+        // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
+        // conflict) doesn't always manifest — when reuse works, we save the full
+        // process exit wait + MCP initialization + new session creation overhead.
         //
-        // IMPORTANT: We must close the old session AND wait for its process to fully
-        // exit before creating the new one. Otherwise the old process's cleanup
-        // (session file deletion) races with the new --resume process's startup.
-        console.log(`[ClaudeManager][${conversationId}] Resume requested, closing old session before creating new one`)
-        const oldInfo = this.sessions.get(conversationId)
-        this.sessions.delete(conversationId)  // Remove from map immediately (new session will take its place)
+        // If reuse fails (SDK throws "process aborted" or similar), fall back to rebuild.
+        console.log(`[ClaudeManager][${conversationId}] Resume requested, attempting session reuse...`)
+        existing.lastUsedAt = Date.now()
 
-        if (oldInfo) {
-          // Close the old session to signal the process to shut down
-          try {
-            oldInfo.session.close()
-            console.log(`[ClaudeManager][${conversationId}] Old session close() called`)
-          } catch (e: any) {
-            if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
-              console.log(`[ClaudeManager][${conversationId}] Old session close: EPIPE (process already exited)`)
-            }
-          }
-
-          // Wait for the old process to fully exit before creating the new session
-          // This prevents race conditions between old process cleanup and new --resume startup
-          const exitStart = Date.now()
-          await waitForProcessExit(oldInfo.session)
-          console.log(`[ClaudeManager][${conversationId}] Old session process exited in ${Date.now() - exitStart}ms`)
+        // Update stored config to reflect current request parameters
+        const storedConfig: SessionConfig = {
+          ...this.getCurrentConfig(),
+          workDir: effectiveWorkDir,
+          ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
+          ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
+          ...(credentials?.model ? { model: credentials.model } : {}),
         }
-        // Fall through to create new session with --resume
+        existing.config = storedConfig
+        existing.configGeneration = this.configGeneration
+        if (mcpToolSignature !== undefined) {
+          existing.mcpToolSignature = mcpToolSignature
+        }
+
+        console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session for resume (will rebuild on failure)`)
+        return existing.session
       } else {
         // Check if config has changed
         const currentConfig = this.getCurrentConfig()
@@ -1095,11 +1092,14 @@ export class ClaudeManager {
       this.contextWindow = contextWindow
       this.configGeneration++
     }
-    const options = await this.buildSdkOptions(effectiveWorkDir, customSystemPrompt, contextWindow, credentials)
+
+    // options may already be built (resume path: parallelized with process exit wait)
+    // or need to be built now (workDir changed, config changed, or no existing session)
+    const sdkOptions = prebuiltOptions ?? await this.buildSdkOptions(effectiveWorkDir, customSystemPrompt, contextWindow, credentials)
 
     // Add canUseTool for AskUserQuestion support (forwarded from streamChat)
     if (canUseTool) {
-      options.canUseTool = canUseTool
+      sdkOptions.canUseTool = canUseTool
     }
 
     // Add hyper-space MCP proxy server if provided
@@ -1115,7 +1115,7 @@ export class ClaudeManager {
           return rest
         }
       }
-      options.mcpServers = { 'hyper-space': hyperSpaceMcpServer }
+      sdkOptions.mcpServers = { 'hyper-space': hyperSpaceMcpServer }
       console.log(`[ClaudeManager][${conversationId}] Injecting hyper-space MCP proxy server`)
     }
 
@@ -1130,8 +1130,8 @@ export class ClaudeManager {
           return rest
         }
       }
-      options.mcpServers = {
-        ...(options.mcpServers || {}),
+      sdkOptions.mcpServers = {
+        ...(sdkOptions.mcpServers || {}),
         'aico-bot-builtin': aicoBotBuiltinMcpServer,
       }
       console.log(`[ClaudeManager][${conversationId}] Injecting aico-bot-builtin MCP server (WebSocket bridge)`)
@@ -1143,8 +1143,8 @@ export class ClaudeManager {
       const thisDir = path.dirname(fileURLToPath(import.meta.url))
       const serverScript = path.resolve(thisDir, 'background-tasks-mcp-server.js')
       if (fs.existsSync(serverScript)) {
-        options.mcpServers = {
-          ...(options.mcpServers || {}),
+        sdkOptions.mcpServers = {
+          ...(sdkOptions.mcpServers || {}),
           'background-tasks': {
             type: 'stdio',
             command: process.execPath,
@@ -1168,8 +1168,8 @@ export class ClaudeManager {
       if (this.aicoBotMcpToken) {
         mcpConfig.headers = { Authorization: `Bearer ${this.aicoBotMcpToken}` }
       }
-      options.mcpServers = {
-        ...(options.mcpServers || {}),
+      sdkOptions.mcpServers = {
+        ...(sdkOptions.mcpServers || {}),
         'aico-bot-builtin': mcpConfig,
       }
       console.log(`[ClaudeManager][${conversationId}] Injecting AICO-Bot MCP proxy (HTTP fallback): ${this.aicoBotMcpUrl}`)
@@ -1178,30 +1178,30 @@ export class ClaudeManager {
     // CRITICAL: Requires SDK patch for resume and maxThinkingTokens support
     // Native SDK V2 Session doesn't support these parameters
     if (effectiveResumeId) {
-      options.resume = effectiveResumeId
+      sdkOptions.resume = effectiveResumeId
       console.log(`[ClaudeManager][${conversationId}] Resuming session: ${effectiveResumeId}`)
     } else if (resumeSessionId) {
       console.log(`[ClaudeManager][${conversationId}] Skipping resume due to workDir change (old: ${existing?.config.workDir}, new: ${effectiveWorkDir})`)
     }
     if (maxThinkingTokens) {
-      options.maxThinkingTokens = maxThinkingTokens
+      sdkOptions.maxThinkingTokens = maxThinkingTokens
       console.log(`[ClaudeManager][${conversationId}] Max thinking tokens: ${maxThinkingTokens}`)
     }
 
     const startTime = Date.now()
 
     console.log(`[ClaudeManager] Creating V2 session with options:`, {
-      model: options.model,
-      cwd: options.cwd,
+      model: sdkOptions.model,
+      cwd: sdkOptions.cwd,
       hasAuthToken: !!this.apiKey,
       baseUrl: this.baseUrl,
-      permissionMode: options.permissionMode,
-      allowedTools: options.allowedTools?.length,
+      permissionMode: sdkOptions.permissionMode,
+      allowedTools: sdkOptions.allowedTools?.length,
       resume: !!effectiveResumeId,
       maxThinkingTokens: maxThinkingTokens
     })
 
-    const session = unstable_v2_createSession(options as any) as unknown as SDKSession
+    const session = unstable_v2_createSession(sdkOptions as any) as unknown as SDKSession
     const pid = (session as any).pid
     console.log(`[ClaudeManager][${conversationId}] V2 session created in ${Date.now() - startTime}ms, PID: ${pid ?? 'unavailable'}`)
 
@@ -1542,6 +1542,9 @@ export class ClaudeManager {
         buffer.lastFlush = Date.now()
       }
     }
+
+    // Track whether the stream ended abnormally (interrupt/abort)
+    let wasAborted = false
 
     try {
       // CRITICAL: Only send the LAST user message!
@@ -2185,29 +2188,41 @@ export class ClaudeManager {
           break
         }
       }
-
-      // Clean up any active subagents that didn't complete (interrupted/aborted streams)
-      for (const [taskId, state] of subagentStates) {
-        if (!state.isComplete) {
-          yield { type: 'worker:completed', data: {
-            agentId: state.agentId, agentName: state.agentName, taskId,
-            result: '', error: 'Stream interrupted', status: 'failed'
-          }}
-          console.log(`[ClaudeManager] Subagent ${taskId} cleaned up (stream ended)`)
-        }
-      }
     } catch (error) {
       // Check if this is an expected abort/interrupt
       const errorMsg = error instanceof Error ? error.message : String(error)
       if (errorMsg === 'Stream aborted' || errorMsg === 'Stream interrupted') {
-        // Expected interrupt - don't re-throw as error, just log and exit gracefully
+        // Expected interrupt — mark as aborted for cleanup, then exit gracefully
+        wasAborted = true
         console.log(`[ClaudeManager][${sessionId}] Stream stopped: ${errorMsg}`)
         return
       }
-      // Other errors - log and re-throw
+
+      // OPTIMIZATION: Detect SDK session state corruption from reusing a session
+      // across turns (streamInput iterator conflict). When this happens, cleanup
+      // the session so the next message will rebuild fresh.
+      // This is the fallback for the "try reuse first" optimization in getOrCreateSession.
+      if (errorMsg.includes('process aborted') || errorMsg.includes('ECONNRESET') || errorMsg.includes('streamInput')) {
+        console.warn(`[ClaudeManager][${sessionId}] Session reuse failed (SDK state corruption), cleaning up for next message`)
+        this.cleanupSession(sessionId, 'reuse failed - SDK state corruption')
+      }
+
+      // Other errors — log and re-throw
       console.error('[ClaudeManager] Stream chat error:', error)
       throw new Error(`Claude stream error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
+      // Clean up any active subagents that didn't complete
+      // Moved here from try-block to ensure cleanup on ALL exit paths (normal end, interrupt, error)
+      for (const [taskId, state] of subagentStates) {
+        if (!state.isComplete) {
+          yield { type: 'worker:completed', data: {
+            agentId: state.agentId, agentName: state.agentName, taskId,
+            result: '', error: wasAborted ? 'Stopped by user' : 'Stream interrupted', status: 'failed'
+          }}
+          console.log(`[ClaudeManager] Subagent ${taskId} cleaned up (stream ended, aborted=${wasAborted})`)
+        }
+      }
+
       // OPTIMIZATION: Clean up delta flush timer
       if (deltaFlushTimer) {
         clearInterval(deltaFlushTimer)

@@ -18,6 +18,7 @@ import type {
   CustomSourceConfig,
   ModelOption
 } from '../../shared/types'
+import { DEFAULT_MODEL } from '../../shared/types'
 import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants'
 import { decryptString } from './secure-storage.service'
 
@@ -503,16 +504,13 @@ export function getAllSkillsDirs(): string[] {
   return [getAgentsSkillsDir(), getClaudeSkillsDir()]
 }
 
-// Default model (Opus 4.5)
-const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
-
 // Default configuration
 const DEFAULT_CONFIG: AicoBotConfig = {
   api: {
-    provider: 'anthropic',
+    provider: 'openai',
     apiKey: '',
-    apiUrl: 'https://api.anthropic.com',
-    model: DEFAULT_MODEL
+    apiUrl: '',
+    model: ''
   },
   aiSources: {
     version: 2,

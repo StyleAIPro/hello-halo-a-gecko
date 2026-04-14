@@ -53,15 +53,24 @@ export async function stopGeneration(conversationId?: string): Promise<void> {
         if (v2Session) {
           try {
             if (typeof (v2Session.session as any).interrupt === 'function') {
-              await (v2Session.session as any).interrupt()
-              console.log(`[Agent] V2 session interrupted, draining stale messages...`)
+              // Race interrupt + drain against a timeout to prevent hanging
+              const INTERRUPT_TIMEOUT = 5000
+              await Promise.race([
+                (async () => {
+                  await (v2Session.session as any).interrupt()
+                  console.log(`[Agent] V2 session interrupted, draining stale messages...`)
 
-              // Drain stale messages until we hit the result
-              for await (const msg of v2Session.session.stream()) {
-                console.log(`[Agent] Drained: ${msg.type}`)
-                if (msg.type === 'result') break
-              }
-              console.log(`[Agent] Drain complete for: ${conversationId}`)
+                  // Drain stale messages until we hit the result
+                  for await (const msg of v2Session.session.stream()) {
+                    console.log(`[Agent] Drained: ${msg.type}`)
+                    if (msg.type === 'result') break
+                  }
+                  console.log(`[Agent] Drain complete for: ${conversationId}`)
+                })(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error('V2 interrupt/drain timed out')), INTERRUPT_TIMEOUT)
+                ),
+              ])
             } else {
               console.log(`[Agent] V2 session does not support interrupt(), skipping`)
             }

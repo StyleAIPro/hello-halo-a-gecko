@@ -482,7 +482,7 @@ export function RemoteServersPage() {
                           return source ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
                               <Cpu className="w-3.5 h-3.5" />
-                              <span>{source.provider} / {source.model}</span>
+                              <span>{source.provider} / {server.claudeModel || source.model}</span>
                             </div>
                           ) : null
                         })()}

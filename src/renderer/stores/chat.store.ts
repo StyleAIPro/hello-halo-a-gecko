@@ -1348,25 +1348,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
 
     try {
-      // Step 2: Send stop request to backend
-      await api.stopGeneration(targetId)
-      // Note: isGenerating and isStopping will be cleared in handleAgentComplete
-      // This ensures we wait for backend to finish cleanup and save content
+      // Step 2: Send stop request to backend (fire-and-forget)
+      // abortController.abort() is synchronous and takes effect immediately.
+      // The IPC handler also returns right away without waiting for interrupt/drain cleanup.
+      // isGenerating/isStopping will be cleared when handleAgentComplete fires.
+      api.stopGeneration(targetId).catch((error) => {
+        console.error('Failed to stop generation:', error)
+      })
     } catch (error) {
       console.error('Failed to stop generation:', error)
-      // On error, clear stopping state
-      set((state) => {
-        const newSessions = new Map(state.sessions)
-        const session = newSessions.get(targetId)
-        if (session) {
-          newSessions.set(targetId, {
-            ...session,
-            isStopping: false,
-            isGenerating: false,
-          })
-        }
-        return { sessions: newSessions }
-      })
     }
   },
 

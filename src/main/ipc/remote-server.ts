@@ -4,12 +4,10 @@
  */
 
 import { ipcMain, BrowserWindow } from 'electron'
-import { RemoteDeployService, RemoteServerConfigInput } from '../services/remote-deploy'
+import { RemoteServerConfigInput } from '../services/remote-deploy'
+import { remoteDeployService as deployService } from '../services/remote-deploy/remote-deploy.service'
 import type { RemoteServer } from '../../shared/types'
 import { getMainWindow, onMainWindowChange } from '../services/window.service'
-import { removePooledConnection } from '../services/remote-ws/remote-ws-client'
-
-const deployService = new RemoteDeployService()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -512,13 +510,7 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
   }
 
   try {
-    // Disconnect all WebSocket connections for this server BEFORE stopping the agent.
-    // This prevents "socket hang up" errors from propagating to the renderer when
-    // the remote agent process is killed. Active streams will be rejected cleanly.
-    console.log('[IPC] remote-server:update-agent - Disconnecting WebSocket connections...')
-    removePooledConnection(serverId)
-
-    // Stop the agent first
+    // Stop the agent (stopAgent internally disconnects pooled connections first)
     console.log('[IPC] remote-server:update-agent - Stopping agent...')
     await deployService.stopAgent(serverId)
 
