@@ -8,11 +8,13 @@
 
 所有项目文档位于 `.project/` 下，遵循 [vibecoding-doc-standard.md](./docs/vibecoding-doc-standard.md)。Agent **必须**遵守以下铁律：
 
-1. **无 PRD 拒绝工作**：没有需求文档不写代码，Bug 修复也不例外
+1. **无 PRD 拒绝工作**：在每一次的需求开发和bug修改，没有需求文档不写代码，Bug 修复也不例外。这一点一定要记住！！！因为如果没有prd，将来代码开发将无法追溯和管理，这非常可怕！！！
 2. **修改必留痕**：任何文档改动追加变更行
 3. **API 必须最新**：接口改了文档必须立即同步
 4. **合并必解冲突**：合并代码时同步解决文档差异
 5. **先 PRD 后代码**：Agent 必须在写任何代码之前先确认 PRD 已存在或创建 PRD
+6. **写 PRD 操作要独立**：Agent 在写 PRD 时要创建一个subagent去写，主agent在后续开发时去读取这个文件
+7. **中文书写**: Agent在写 PRD 时，使用中文书写
 
 其他规则：
 - 每个模块自包含：功能设计、changelog、bugfix 在 `modules/<name>/features/<feature>/` 下
