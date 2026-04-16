@@ -835,6 +835,7 @@
   "Select a file to edit": "",
   "Select a folder...": "选择文件夹...",
   "Select a skill to view details": "选择一个技能查看详情",
+  "Selected skill not found": "未找到所选技能",
   "Select all": "全选",
   "Select an existing project or folder": "选择现有项目或文件夹",
   "Select conversations to generate a new skill, or edit an existing skill from the left panel.": "",
