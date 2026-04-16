@@ -282,20 +282,10 @@ export function registerHyperSpaceHandlers(): void {
     config: Partial<OrchestrationConfig>
   }) => {
     try {
-      const team = agentOrchestrator.getTeamBySpace(params.spaceId)
-      if (!team) {
+      const ok = agentOrchestrator.updateTeamConfig(params.spaceId, params.config)
+      if (!ok) {
         return { success: false, error: 'Hyper Space team not found' }
       }
-
-      // Update team config
-      team.config = {
-        ...team.config,
-        ...params.config,
-        routing: { ...team.config.routing, ...params.config.routing },
-        aggregation: { ...team.config.aggregation, ...params.config.aggregation },
-        announce: { ...team.config.announce, ...params.config.announce }
-      }
-
       return { success: true }
     } catch (error) {
       return {
@@ -314,47 +304,30 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:get-members', async (_event, spaceId: string) => {
     try {
-      const team = agentOrchestrator.getTeamBySpace(spaceId)
+      const members = agentOrchestrator.getTeamMembers(spaceId)
 
-      if (!team) {
-        // Team not in runtime, try to get from space definition
-        const space = getSpace(spaceId)
-        if (space && space.agents) {
-          return {
-            success: true,
-            data: {
-              members: space.agents.map(a => ({
-                id: a.id,
-                name: a.name,
-                role: a.role,
-                type: a.type,
-                capabilities: a.capabilities
-              }))
-            }
-          }
-        }
-        return { success: false, error: 'Hyper Space team not found' }
+      if (members) {
+        return { success: true, data: { members } }
       }
 
-      // Build members list from team
-      const members = [
-        {
-          id: team.leader.id,
-          name: team.leader.config.name,
-          role: 'leader' as const,
-          type: team.leader.config.type,
-          capabilities: team.leader.config.capabilities
-        },
-        ...team.workers.map(w => ({
-          id: w.id,
-          name: w.config.name,
-          role: 'worker' as const,
-          type: w.config.type,
-          capabilities: w.config.capabilities
-        }))
-      ]
+      // Team not in runtime, try to get from space definition
+      const space = getSpace(spaceId)
+      if (space && space.agents) {
+        return {
+          success: true,
+          data: {
+            members: space.agents.map(a => ({
+              id: a.id,
+              name: a.name,
+              role: a.role,
+              type: a.type,
+              capabilities: a.capabilities
+            }))
+          }
+        }
+      }
 
-      return { success: true, data: { members } }
+      return { success: false, error: 'Hyper Space team not found' }
     } catch (error) {
       return {
         success: false,

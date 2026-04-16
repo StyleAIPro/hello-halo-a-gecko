@@ -18,6 +18,34 @@ interface GitCodeApiOptions {
 
 const GITCODE_API_BASE = 'https://gitcode.com/api/v5'
 
+// ── Rate limiter: GitCode allows ~50 API calls per minute per user ─────
+
+const _rateLimitQueue: Array<() => void> = []
+let _rateLimitProcessing = false
+
+function enqueueApiCall(fn: () => void): void {
+  _rateLimitQueue.push(fn)
+  if (!_rateLimitProcessing) {
+    _rateLimitProcessing = true
+    // 1.2s interval → ~50 calls/minute with margin
+    setInterval(() => {
+      if (_rateLimitQueue.length > 0) {
+        _rateLimitQueue.shift()!()
+      }
+      if (_rateLimitQueue.length === 0) {
+        clearInterval(undefined as any)
+        _rateLimitProcessing = false
+      }
+    }, 1250)
+  }
+}
+
+function rateLimitedFetch(url: string, init?: RequestInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    enqueueApiCall(() => gitcodeFetch(url, init).then(resolve, reject))
+  })
+}
+
 // Proxy support for internal networks
 let _proxyDispatcher: any = null
 
@@ -62,10 +90,24 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
     ? `${GITCODE_API_BASE}${path}`
     : `${GITCODE_API_BASE}${path}`
 
-  const response = await gitcodeFetch(url, { headers })
+  const response = await rateLimitedFetch(url, { headers })
 
   if (response.status === 404) {
     return null
+  }
+
+  // Handle rate limiting (429): wait and retry once
+  if (response.status === 429) {
+    console.warn('[GitCodeAPI] Rate limited (429), waiting 5s before retry...')
+    await new Promise(r => setTimeout(r, 5000))
+    const retryResponse = await rateLimitedFetch(url, { headers })
+    if (!retryResponse.ok) {
+      const text = await retryResponse.text()
+      console.error('[GitCodeAPI] error after retry:', retryResponse.status, text.slice(0, 200))
+      throw new Error(`GitCode API error ${retryResponse.status}: ${text}`)
+    }
+    const data = await retryResponse.json()
+    return data
   }
 
   if (!response.ok) {
@@ -335,12 +377,6 @@ export async function listSkillsFromRepo(
 
   for (const basePath of pathsToCheck) {
     try {
-      const apiPath = basePath === '/'
-        ? `/repos/${repo}/contents`
-        : `/repos/${repo}/contents/${basePath.replace(/\/$/, '')}`
-      const probe = await gitcodeApiFetch(apiPath, { token })
-      if (!Array.isArray(probe)) continue
-
       const skillDirs = await findSkillDirs(repo, basePath, token)
 
       const metadataResults = await Promise.all(

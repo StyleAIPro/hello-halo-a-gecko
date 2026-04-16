@@ -421,6 +421,13 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     res.json(result)
   })
 
+  // Reject a pending AskUserQuestion
+  app.post('/api/agent/reject-question', async (req: Request, res: Response) => {
+    const { id, reason } = req.body
+    const result = agentController.rejectPendingQuestion(id, reason)
+    res.json(result)
+  })
+
   // Test MCP server connections
   app.post('/api/agent/test-mcp', async (req: Request, res: Response) => {
     const result = await agentController.testMcpConnections(mainWindow)

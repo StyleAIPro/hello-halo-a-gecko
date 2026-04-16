@@ -582,13 +582,17 @@ function closeV2SessionForRebuild(conversationId: string): void {
  * @param config - Session configuration for rebuild detection
  * @param workDir - Working directory (required for session migration when sessionId is provided)
  */
+export interface GetOrCreateSessionOptions {
+  sdkOptions: Record<string, any>
+  sessionId?: string
+  config?: SessionConfig
+  workDir?: string
+}
+
 export async function getOrCreateV2Session(
   spaceId: string,
   conversationId: string,
-  sdkOptions: Record<string, any>,
-  sessionId?: string,
-  config?: SessionConfig,
-  workDir?: string
+  options: GetOrCreateSessionOptions
 ): Promise<V2SessionInfo['session']> {
   // Check if we have an existing session for this conversation
   const existing = v2Sessions.get(conversationId)
@@ -607,7 +611,7 @@ export async function getOrCreateV2Session(
       // (e.g., warm-up started before config save completed)
       const currentGen = getCredentialsGeneration()
       const needsCredentialRebuild = existing.credentialsGeneration !== currentGen
-      const needsConfigRebuild = config && needsSessionRebuild(existing, config)
+      const needsConfigRebuild = options.config && needsSessionRebuild(existing, options.config)
 
       if (needsCredentialRebuild || needsConfigRebuild) {
         // If a request is in flight for this conversation, defer rebuild to avoid
@@ -615,7 +619,7 @@ export async function getOrCreateV2Session(
         if (activeSessions.has(conversationId)) {
           const reason = needsCredentialRebuild
             ? `credentials (gen ${existing.credentialsGeneration} → ${currentGen})`
-            : `config (aiBrowser: ${existing.config.aiBrowserEnabled} → ${config!.aiBrowserEnabled})`
+            : `config (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled})`
           console.log(`[Agent][${conversationId}] ${reason} changed but request in flight, deferring rebuild`)
           pendingInvalidations.add(conversationId)
           existing.lastUsedAt = Date.now()
@@ -625,7 +629,7 @@ export async function getOrCreateV2Session(
         if (needsCredentialRebuild) {
           console.log(`[Agent][${conversationId}] Credentials changed (gen ${existing.credentialsGeneration} → ${currentGen}), recreating session`)
         } else {
-          console.log(`[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${config!.aiBrowserEnabled}), rebuilding session...`)
+          console.log(`[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled}), rebuilding session...`)
         }
         closeV2SessionForRebuild(conversationId)
         // Fall through to create new session
@@ -644,41 +648,41 @@ export async function getOrCreateV2Session(
   console.log(`[Agent][${conversationId}] Creating new V2 session...`)
 
   // Handle session resumption with migration support
-  let effectiveSessionId = sessionId
-  if (sessionId && workDir) {
+  let effectiveSessionId = options.sessionId
+  if (options.sessionId && options.workDir) {
     // Attempt to migrate session file from old config directory if needed
-    const sessionExists = migrateSessionIfNeeded(workDir, sessionId)
+    const sessionExists = migrateSessionIfNeeded(options.workDir, options.sessionId)
     if (sessionExists) {
-      console.log(`[Agent][${conversationId}] With resume: ${sessionId}`)
+      console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`)
     } else {
       // Session file not found in either directory - start fresh conversation
-      console.log(`[Agent][${conversationId}] Session ${sessionId} not found, starting fresh conversation`)
+      console.log(`[Agent][${conversationId}] Session ${options.sessionId} not found, starting fresh conversation`)
       effectiveSessionId = undefined
     }
-  } else if (sessionId) {
-    console.log(`[Agent][${conversationId}] With resume: ${sessionId}`)
+  } else if (options.sessionId) {
+    console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`)
   }
   const startTime = Date.now()
 
   // Requires SDK patch: resume parameter lets CC restore history from disk
   // Native SDK V2 Session doesn't support resume parameter
   if (effectiveSessionId) {
-    sdkOptions.resume = effectiveSessionId
+    options.sdkOptions.resume = effectiveSessionId
   }
   // Requires SDK patch: native SDK ignores most sdkOptions parameters
   // Use 'as any' to bypass type check, actual params handled by patched SDK
-  const session = (await unstable_v2_createSession(sdkOptions as any)) as unknown as V2SDKSession
+  const session = (await unstable_v2_createSession(options.sdkOptions as any)) as unknown as V2SDKSession
 
   // WORKAROUND: V2 Session constructor does not register in-process SDK MCP server instances
   // into the Query layer. It only passes mcpServers to the CLI subprocess config.
   // The CLI subprocess tries to connect but finds no transport handler → all MCP servers fail.
   // Fix: manually call setMcpServers() to properly register SDK MCP server instances.
-  if (sdkOptions.mcpServers && Object.keys(sdkOptions.mcpServers).length > 0) {
+  if (options.sdkOptions.mcpServers && Object.keys(options.sdkOptions.mcpServers).length > 0) {
     try {
       const query = (session as any).query
       if (query && typeof query.setMcpServers === 'function') {
-        await query.setMcpServers(sdkOptions.mcpServers)
-        console.log(`[Agent][${conversationId}] SDK MCP servers registered via setMcpServers: ${Object.keys(sdkOptions.mcpServers).join(', ')}`)
+        await query.setMcpServers(options.sdkOptions.mcpServers)
+        console.log(`[Agent][${conversationId}] SDK MCP servers registered via setMcpServers: ${Object.keys(options.sdkOptions.mcpServers).join(', ')}`)
       } else {
         console.warn(`[Agent][${conversationId}] V2 session has no setMcpServers method, SDK MCP servers may not work`)
       }
@@ -715,7 +719,7 @@ export async function getOrCreateV2Session(
     conversationId,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
-    config: config || { aiBrowserEnabled: false },
+    config: options.config || { aiBrowserEnabled: false },
     credentialsGeneration: getCredentialsGeneration()
   })
 
@@ -787,7 +791,7 @@ export async function ensureSessionWarm(
 
   try {
     console.log(`[Agent] Warming up V2 session: ${conversationId}`)
-    await getOrCreateV2Session(spaceId, conversationId, sdkOptions, sessionId, undefined, workDir)
+    await getOrCreateV2Session(spaceId, conversationId, { sdkOptions, sessionId, workDir })
     console.log(`[Agent] V2 session warmed up: ${conversationId}`)
   } catch (error) {
     console.error(`[Agent] Failed to warm up session ${conversationId}:`, error)

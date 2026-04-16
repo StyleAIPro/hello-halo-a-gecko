@@ -954,6 +954,66 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   return newConfig
 }
 
+// ──────────────────────────────────────────────
+// Decrypted config & save+notify (moved from IPC layer)
+// ──────────────────────────────────────────────
+
+/**
+ * Get config with decrypted AI source credentials
+ *
+ * Moves decryption logic from IPC handler into service layer.
+ */
+export function getDecryptedConfig(): Record<string, any> {
+  const config = getConfig() as Record<string, any>
+  const decryptedConfig = { ...config }
+
+  if (decryptedConfig.aiSources?.version === 2 && Array.isArray(decryptedConfig.aiSources.sources)) {
+    decryptedConfig.aiSources = {
+      ...decryptedConfig.aiSources,
+      sources: decryptedConfig.aiSources.sources.map((source: AISource) => ({
+        ...source,
+        apiKey: source.apiKey ? decryptString(source.apiKey) : undefined,
+        accessToken: source.accessToken ? decryptString(source.accessToken) : undefined,
+        refreshToken: source.refreshToken ? decryptString(source.refreshToken) : undefined
+      }))
+    }
+  }
+
+  if (decryptedConfig.api?.apiKey) {
+    decryptedConfig.api = {
+      ...decryptedConfig.api,
+      apiKey: decryptString(decryptedConfig.api.apiKey)
+    }
+  }
+
+  return decryptedConfig
+}
+
+/**
+ * Save config and optionally emit change events + run probe
+ *
+ * Moves post-save orchestration from IPC handler into service layer.
+ */
+export function saveConfigAndNotify(updates: Record<string, unknown>): Record<string, any> {
+  const incomingAiSources = updates.aiSources as AISourcesConfig | undefined
+
+  const config = saveConfig(updates)
+
+  if (incomingAiSources) {
+    // Dynamic import to avoid circular dependency
+    import('./health').then(({ emitConfigChange, runConfigProbe }) => {
+      emitConfigChange(['aiSources'])
+      runConfigProbe().catch(err => {
+        console.error('[Config] Post-save probe failed:', err)
+      })
+    }).catch(() => {
+      // health module not available yet
+    })
+  }
+
+  return config
+}
+
 /**
  * Set auto launch on system startup
  */

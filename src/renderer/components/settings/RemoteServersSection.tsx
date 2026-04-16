@@ -254,18 +254,16 @@ export function RemoteServersSection() {
       await loadServers()
     }
 
-    if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.on('remote-server:command-output', handleCommandOutput)
-      window.electron.ipcRenderer.on('remote-server:status-change', handleStatusChange)
-      window.electron.ipcRenderer.on('remote-server:deploy-progress', handleDeployProgress)
-      window.electron.ipcRenderer.on('remote-server:update-complete', handleUpdateComplete)
-    }
+    const unsubCommandOutput = api.onRemoteServerCommandOutput(handleCommandOutput as (data: any) => void)
+    const unsubStatusChange = api.onRemoteServerStatusChange(handleStatusChange as (data: any) => void)
+    const unsubDeployProgress = api.onRemoteServerDeployProgress(handleDeployProgress as (data: any) => void)
+    const unsubUpdateComplete = api.onRemoteServerUpdateComplete(handleUpdateComplete as (data: any) => void)
 
     return () => {
-      window.electron.ipcRenderer?.removeListener('remote-server:command-output', handleCommandOutput)
-      window.electron.ipcRenderer?.removeListener('remote-server:status-change', handleStatusChange)
-      window.electron.ipcRenderer?.removeListener('remote-server:deploy-progress', handleDeployProgress)
-      window.electron.ipcRenderer?.removeListener('remote-server:update-complete', handleUpdateComplete)
+      unsubCommandOutput()
+      unsubStatusChange()
+      unsubDeployProgress()
+      unsubUpdateComplete()
     }
   }, [])
 

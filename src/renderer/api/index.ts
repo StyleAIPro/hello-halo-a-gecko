@@ -616,6 +616,17 @@ export const api = {
     return httpRequest('POST', '/api/agent/answer-question', data)
   },
 
+  // Reject a pending AskUserQuestion (renderer cannot handle it)
+  rejectQuestion: async (data: {
+    id: string
+    reason?: string
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.rejectQuestion(data)
+    }
+    return httpRequest('POST', '/api/agent/reject-question', data)
+  },
+
   // Test MCP server connections
   testMcpConnections: async (): Promise<{ success: boolean; servers: unknown[]; error?: string }> => {
     if (isElectron()) {
@@ -2146,6 +2157,15 @@ export const api = {
 
   onRemoteTaskUpdate: (callback: (data: { serverId: string; data: any }) => void) =>
     onEvent('remote-server:task-update', callback),
+
+  onRemoteServerCommandOutput: (callback: (data: { serverId: string; type: string; content: string }) => void) =>
+    onEvent('remote-server:command-output', callback),
+  onRemoteServerStatusChange: (callback: (data: { serverId: string; config: any }) => void) =>
+    onEvent('remote-server:status-change', callback),
+  onRemoteServerDeployProgress: (callback: (data: { serverId: string; stage: string; message: string; progress: number }) => void) =>
+    onEvent('remote-server:deploy-progress', callback),
+  onRemoteServerUpdateComplete: (callback: (data: { serverId: string; success: boolean; data?: unknown; error?: string }) => void) =>
+    onEvent('remote-server:update-complete', callback),
 
   remoteServerCancelTask: async (serverId: string, taskId: string): Promise<ApiResponse> => {
     if (isElectron()) {

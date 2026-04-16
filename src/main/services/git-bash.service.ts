@@ -1,5 +1,5 @@
 /**
- * Git Bash Service - Detection and path management for Windows
+ * Git Bash Service - Detection, installation, and path management for Windows
  *
  * Claude Code CLI on Windows requires Git Bash as the shell execution environment.
  * This service detects existing Git Bash installations and manages paths.
@@ -8,6 +8,8 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
+import { createMockBash, cleanupMockBash } from './mock-bash.service'
+import { getConfig, saveConfig } from './config.service'
 
 export interface GitBashDetectionResult {
   found: boolean
@@ -113,4 +115,114 @@ export function isAppLocalInstallation(): boolean {
 export function setGitBashPathEnv(path: string): void {
   process.env.CLAUDE_CODE_GIT_BASH_PATH = path
   console.log('[GitBash] Environment variable set:', path)
+}
+
+// ──────────────────────────────────────────────
+// Status & lifecycle
+// ──────────────────────────────────────────────
+
+export interface GitBashStatus {
+  found: boolean
+  path: string | null
+  source: string | null
+  mockMode: boolean
+}
+
+/**
+ * Get Git Bash status — used by IPC handler
+ *
+ * Checks config (skipped/installed) first, then falls back to fresh detection.
+ */
+export function getGitBashStatus(): GitBashStatus {
+  if (process.platform !== 'win32') {
+    return { found: true, path: '/bin/bash', source: 'system', mockMode: false }
+  }
+
+  const config = getConfig() as any
+  if (config.gitBash?.skipped) {
+    return { found: true, path: null, source: 'mock', mockMode: true }
+  }
+  if (config.gitBash?.installed && config.gitBash?.path) {
+    return { found: true, path: config.gitBash.path, source: 'app-local', mockMode: false }
+  }
+
+  const result = detectGitBash()
+  return { ...result, mockMode: false }
+}
+
+/**
+ * Initialize Git Bash on app startup (Windows only)
+ *
+ * Validates saved config paths and handles edge cases like Git Bash being deleted.
+ */
+export async function initializeGitBashOnStartup(): Promise<{
+  available: boolean
+  needsSetup: boolean
+  mockMode: boolean
+  path: string | null
+  configCleared?: boolean
+}> {
+  if (process.platform !== 'win32') {
+    return { available: true, needsSetup: false, mockMode: false, path: '/bin/bash' }
+  }
+
+  const config = getConfig() as any
+
+  // Case 1: Config says installed with a specific path — VALIDATE it still exists
+  if (config.gitBash?.installed && config.gitBash?.path) {
+    const savedPath = config.gitBash.path
+
+    if (existsSync(savedPath)) {
+      setGitBashPathEnv(savedPath)
+      console.log('[GitBash] Using saved path:', savedPath)
+      return { available: true, needsSetup: false, mockMode: false, path: savedPath }
+    } else {
+      console.log('[GitBash] Saved path no longer exists:', savedPath)
+      saveConfig({ gitBash: { installed: false, path: null, skipped: false } } as any)
+      console.log('[GitBash] Cleared stale config, will re-detect')
+      // Fall through to fresh detection below
+    }
+  }
+
+  // Case 2: User previously skipped — use mock mode
+  if (config.gitBash?.skipped) {
+    const mockPath = createMockBash()
+    setGitBashPathEnv(mockPath)
+    console.log('[GitBash] Mock mode active (user skipped)')
+    return { available: true, needsSetup: false, mockMode: true, path: mockPath }
+  }
+
+  // Case 3: Fresh detection
+  const detection = detectGitBash()
+
+  if (detection.found && detection.path) {
+    setGitBashPathEnv(detection.path)
+    saveConfig({ gitBash: { installed: true, path: detection.path, skipped: false } } as any)
+    console.log('[GitBash] Detected system Git Bash:', detection.path)
+    return { available: true, needsSetup: false, mockMode: false, path: detection.path }
+  }
+
+  // Case 4: Git Bash not found anywhere
+  console.log('[GitBash] Not found, setup required')
+  return { available: false, needsSetup: true, mockMode: false, path: null, configCleared: true }
+}
+
+/**
+ * Set Git Bash as skipped (user chose to skip installation)
+ */
+export function setGitBashSkipped(): void {
+  const mockPath = createMockBash()
+  setGitBashPathEnv(mockPath)
+  saveConfig({ gitBash: { installed: false, path: null, skipped: true } } as any)
+  console.log('[GitBash] User skipped installation, using mock mode')
+}
+
+/**
+ * Complete Git Bash installation — set env, save config, cleanup mock
+ */
+export function completeGitBashInstallation(path: string): void {
+  setGitBashPathEnv(path)
+  saveConfig({ gitBash: { installed: true, path, skipped: false } } as any)
+  cleanupMockBash()
+  console.log('[GitBash] Installation completed, path saved to config')
 }

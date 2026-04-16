@@ -249,74 +249,51 @@ export function registerRemoteServerHandlers(): void {
   ipcMain.handle(
     'remote-agent:fs-list',
     async (_event, serverId: string, directory?: string) => {
-      const dir = directory || '/opt/remote-agent-proxy'
-      console.log('[IPC] remote-agent:fs-list - Listing files:', dir)
       try {
-        // Execute ls command via SSH
-        const output = await deployService.executeCommand(serverId, `ls -la "${dir}"`)
-        const lines = output.trim().split('\n').slice(1) // Skip total line
-        const files = lines.map((line) => {
-          const parts = line.trim().split(/\s+/)
-          const name = parts[parts.length - 1]
-          const isDir = line.startsWith('d')
-          return {
-            name,
-            isDirectory: isDir,
-            size: parseInt(parts[4] || '0', 10),
-            modifiedTime: new Date(), // ls doesn't give full date in short format
-          }
-        }).filter((f) => f.name !== '.' && f.name !== '..')
-
+        const files = await deployService.listRemoteFiles(serverId, directory)
         return { success: true, data: { files } }
-      } catch (error: unknown) {
-        const err = error as Error
-        console.error('[IPC] remote-agent:fs-list - Failed:', err.message)
-        return { success: false, error: err.message }
+      } catch (error) {
+        return { success: false, error: (error as Error).message }
       }
     }
   )
 
   ipcMain.handle('remote-agent:fs-read', async (_event, serverId: string, path: string) => {
-    console.log('[IPC] remote-agent:fs-read - Reading file:', path)
     try {
-      const content = await deployService.executeCommand(serverId, `cat "${path}"`)
+      const content = await deployService.readRemoteFile(serverId, path)
       return { success: true, data: { content } }
-    } catch (error: unknown) {
-      const err = error as Error
-      console.error('[IPC] remote-agent:fs-read - Failed:', err.message)
-      return { success: false, error: err.message }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   })
 
   ipcMain.handle(
     'remote-agent:fs-write',
     async (_event, serverId: string, path: string, content: string) => {
-      console.log('[IPC] remote-agent:fs-write - Writing file:', path)
       try {
-        // Escape single quotes in content
-        const escapedContent = content.replace(/'/g, "'\\''")
-        await deployService.executeCommand(
-          serverId,
-          `echo '${escapedContent}' > "${path}"`
-        )
+        await deployService.writeRemoteFile(serverId, path, content)
         return { success: true }
-      } catch (error: unknown) {
-        const err = error as Error
-        console.error('[IPC] remote-agent:fs-write - Failed:', err.message)
-        return { success: false, error: err.message }
+      } catch (error) {
+        return { success: false, error: (error as Error).message }
       }
     }
   )
 
   ipcMain.handle('remote-agent:fs-delete', async (_event, serverId: string, path: string) => {
-    console.log('[IPC] remote-agent:fs-delete - Deleting file:', path)
     try {
-      await deployService.executeCommand(serverId, `rm -rf "${path}"`)
+      await deployService.deleteRemoteFile(serverId, path)
       return { success: true }
-    } catch (error: unknown) {
-      const err = error as Error
-      console.error('[IPC] remote-agent:fs-delete - Failed:', err.message)
-      return { success: false, error: err.message }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('remote-agent:fs-delete', async (_event, serverId: string, path: string) => {
+    try {
+      await deployService.deleteRemoteFile(serverId, path)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   })
 
@@ -488,14 +465,12 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
   console.log('[IPC] remote-server:update-agent - Updating agent code:', serverId)
   deployService.startUpdate(serverId)
 
-  // Helper: send completion event to renderer
-  const sendCompleteEvent = (success: boolean, data?: any, error?: string) => {
+  const sendCompleteEvent = (success: boolean, data?: unknown, error?: string) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('remote-server:update-complete', {
         serverId, success, data, error
       })
     }
-    // Show system notification so user sees it even on a different page
     try {
       const { Notification } = require('electron')
       const server = deployService.getServer(serverId)
@@ -510,41 +485,14 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
   }
 
   try {
-    // Stop the agent (stopAgent internally disconnects pooled connections first)
-    console.log('[IPC] remote-server:update-agent - Stopping agent...')
-    await deployService.stopAgent(serverId)
-
-    // Deploy the latest agent code (use fast incremental update)
-    // updateAgentCode internally restarts the agent at the end
-    console.log('[IPC] remote-server:update-agent - Deploying latest code (incremental)...')
-    await deployService.updateAgentCode(serverId)
-
-    // Get the remote agent version after update
-    // (skip startAgent — updateAgentCode already restarted the agent)
-    console.log('[IPC] remote-server:update-agent - Getting remote version...')
-    const agentCheckResult = await deployService.checkAgentInstalled(serverId)
-
-    // Also get the local package.json version for comparison
-    const localVersionInfo = deployService.getLocalAgentVersion()
-
-    const result = {
-      message: 'Agent updated and restarted successfully',
-      remoteVersion: agentCheckResult.version || 'unknown',
-      remoteBuildTime: agentCheckResult.buildTime,
-      localVersion: localVersionInfo?.version || 'unknown',
-      localBuildTime: localVersionInfo?.buildTime
-    }
-
-    console.log('[IPC] remote-server:update-agent - Update complete', result)
-    deployService.completeUpdate(serverId, result)
+    const result = await deployService.updateAgent(serverId)
     sendCompleteEvent(true, result)
     return { success: true, data: result }
-  } catch (error: unknown) {
-    const err = error as Error
-    console.error('[IPC] remote-server:update-agent - Failed:', err.message)
-    deployService.failUpdate(serverId, err.message)
-    sendCompleteEvent(false, undefined, err.message)
-    return { success: false, error: err.message }
+  } catch (error) {
+    const msg = (error as Error).message
+    deployService.failUpdate(serverId, msg)
+    sendCompleteEvent(false, undefined, msg)
+    return { success: false, error: msg }
   }
 })
 

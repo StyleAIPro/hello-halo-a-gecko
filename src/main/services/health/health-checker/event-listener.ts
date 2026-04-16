@@ -40,23 +40,25 @@ export function onHealthEvent(handler: HealthEventHandler): () => void {
   }
 }
 
+export interface EmitHealthEventOptions {
+  type: HealthEventType
+  category: HealthEventCategory
+  source: string
+  message: string
+  data?: Record<string, unknown>
+}
+
 /**
  * Emit a health event
  */
-export function emitHealthEvent(
-  type: HealthEventType,
-  category: HealthEventCategory,
-  source: string,
-  message: string,
-  data?: Record<string, unknown>
-): void {
+export function emitHealthEvent(options: EmitHealthEventOptions): void {
   const event: HealthEvent = {
-    type,
-    category,
+    type: options.type,
+    category: options.category,
     timestamp: Date.now(),
-    source,
-    message,
-    data
+    source: options.source,
+    message: options.message,
+    data: options.data
   }
 
   // Add to recent events buffer
@@ -66,8 +68,8 @@ export function emitHealthEvent(
   }
 
   // Log the event
-  const icon = category === 'critical' ? '🔴' : category === 'warning' ? '🟡' : '🔵'
-  console.log(`[Health][Event] ${icon} ${type}: ${message} (source: ${source})`)
+  const icon = options.category === 'critical' ? '🔴' : options.category === 'warning' ? '🟡' : '🔵'
+  console.log(`[Health][Event] ${icon} ${options.type}: ${options.message} (source: ${options.source})`)
 
   // Notify all handlers
   for (const handler of eventHandlers) {
@@ -162,13 +164,13 @@ export function emitAgentError(
   data?: Record<string, unknown>
 ): void {
   const count = trackError(`agent:${conversationId}`)
-  emitHealthEvent(
-    'agent_error',
-    count >= 3 ? 'critical' : 'warning',
-    `agent:${conversationId}`,  // Include 'agent' prefix for S2 strategy matching
-    error,
-    { ...data, consecutiveErrors: count, conversationId }
-  )
+  emitHealthEvent({
+    type: 'agent_error',
+    category: count >= 3 ? 'critical' : 'warning',
+    source: `agent:${conversationId}`,  // Include 'agent' prefix for S2 strategy matching
+    message: error,
+    data: { ...data, consecutiveErrors: count, conversationId }
+  })
 }
 
 /**
@@ -179,38 +181,38 @@ export function emitProcessExit(
   exitCode: number | null,
   signal: string | null
 ): void {
-  emitHealthEvent(
-    'process_exit',
-    'critical',
-    processId,
-    `Process exited with code ${exitCode}, signal ${signal}`,
-    { exitCode, signal }
-  )
+  emitHealthEvent({
+    type: 'process_exit',
+    category: 'critical',
+    source: processId,
+    message: `Process exited with code ${exitCode}, signal ${signal}`,
+    data: { exitCode, signal }
+  })
 }
 
 /**
  * Emit renderer crash event
  */
 export function emitRendererCrash(reason: string): void {
-  emitHealthEvent(
-    'renderer_crash',
-    'critical',
-    'renderer',
-    `Renderer crashed: ${reason}`,
-    { reason }
-  )
+  emitHealthEvent({
+    type: 'renderer_crash',
+    category: 'critical',
+    source: 'renderer',
+    message: `Renderer crashed: ${reason}`,
+    data: { reason }
+  })
 }
 
 /**
  * Emit renderer unresponsive event
  */
 export function emitRendererUnresponsive(): void {
-  emitHealthEvent(
-    'renderer_unresponsive',
-    'warning',
-    'renderer',
-    'Renderer became unresponsive'
-  )
+  emitHealthEvent({
+    type: 'renderer_unresponsive',
+    category: 'warning',
+    source: 'renderer',
+    message: 'Renderer became unresponsive'
+  })
 }
 
 /**
@@ -224,26 +226,26 @@ export function emitNetworkError(
   const count = trackError(`network:${source}`)
   const isCritical = status >= 500 || message.includes('ECONNREFUSED')
 
-  emitHealthEvent(
-    'network_error',
-    isCritical ? 'critical' : 'warning',
-    source,
-    `Network error: ${status} - ${message}`,
-    { status, consecutiveErrors: count }
-  )
+  emitHealthEvent({
+    type: 'network_error',
+    category: isCritical ? 'critical' : 'warning',
+    source: source,
+    message: `Network error: ${status} - ${message}`,
+    data: { status, consecutiveErrors: count }
+  })
 }
 
 /**
  * Emit config change event
  */
 export function emitConfigChange(changedFields: string[]): void {
-  emitHealthEvent(
-    'config_change',
-    'info',
-    'config',
-    `Config changed: ${changedFields.join(', ')}`,
-    { changedFields }
-  )
+  emitHealthEvent({
+    type: 'config_change',
+    category: 'info',
+    source: 'config',
+    message: `Config changed: ${changedFields.join(', ')}`,
+    data: { changedFields }
+  })
 }
 
 /**
@@ -253,12 +255,12 @@ export function emitRecoverySuccess(
   strategyId: string,
   message: string
 ): void {
-  emitHealthEvent(
-    'recovery_success',
-    'info',
-    strategyId,
-    message
-  )
+  emitHealthEvent({
+    type: 'recovery_success',
+    category: 'info',
+    source: strategyId,
+    message: message
+  })
 
   // Reset error counters on successful recovery
   errorCounters.clear()
@@ -271,11 +273,11 @@ export function emitStartupCheck(
   status: string,
   duration: number
 ): void {
-  emitHealthEvent(
-    'startup_check',
-    status === 'healthy' ? 'info' : 'warning',
-    'startup',
-    `Startup checks completed: ${status} (${duration}ms)`,
-    { duration }
-  )
+  emitHealthEvent({
+    type: 'startup_check',
+    category: status === 'healthy' ? 'info' : 'warning',
+    source: 'startup',
+    message: `Startup checks completed: ${status} (${duration}ms)`,
+    data: { duration }
+  })
 }

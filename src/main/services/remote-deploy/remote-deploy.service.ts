@@ -1829,6 +1829,100 @@ WRAPPER
     return manager.executeCommand(command)
   }
 
+  // ──────────────────────────────────────────────
+  // Remote file operations (moved from IPC layer)
+  // ──────────────────────────────────────────────
+
+  /**
+   * List remote files via `ls -la`, parsed into structured FileInfo objects
+   */
+  async listRemoteFiles(id: string, directory?: string): Promise<Array<{
+    name: string
+    isDirectory: boolean
+    size: number
+    modifiedTime: Date
+  }>> {
+    const dir = directory || '/opt/remote-agent-proxy'
+    const output = await this.executeCommand(id, `ls -la "${dir}"`)
+    const lines = output.trim().split('\n').slice(1) // Skip total line
+    return lines
+      .map((line) => {
+        const parts = line.trim().split(/\s+/)
+        const name = parts[parts.length - 1]
+        const isDir = line.startsWith('d')
+        return {
+          name,
+          isDirectory: isDir,
+          size: parseInt(parts[4] || '0', 10),
+          modifiedTime: new Date(),
+        }
+      })
+      .filter((f) => f.name !== '.' && f.name !== '..')
+  }
+
+  /**
+   * Read a remote file via SSH
+   */
+  async readRemoteFile(id: string, filePath: string): Promise<string> {
+    return this.executeCommand(id, `cat "${filePath}"`)
+  }
+
+  /**
+   * Write content to a remote file via SSH (single-quote escaped)
+   */
+  async writeRemoteFile(id: string, filePath: string, content: string): Promise<void> {
+    const escapedContent = content.replace(/'/g, "'\\''")
+    await this.executeCommand(id, `echo '${escapedContent}' > "${filePath}"`)
+  }
+
+  /**
+   * Delete a remote file/directory via SSH
+   */
+  async deleteRemoteFile(id: string, filePath: string): Promise<void> {
+    await this.executeCommand(id, `rm -rf "${filePath}"`)
+  }
+
+  // ──────────────────────────────────────────────
+  // Agent update orchestration (moved from IPC layer)
+  // ──────────────────────────────────────────────
+
+  /**
+   * Full agent update: stop → deploy code → verify → return version info
+   *
+   * This orchestrates the multi-step update that was previously in the IPC handler.
+   */
+  async updateAgent(id: string): Promise<{
+    message: string
+    remoteVersion: string
+    remoteBuildTime?: string
+    localVersion: string
+    localBuildTime?: string
+  }> {
+    console.log(`[RemoteDeploy] Updating agent for ${id}...`)
+
+    // Stop the agent
+    await this.stopAgent(id)
+
+    // Deploy the latest code (incremental update, restarts agent internally)
+    await this.updateAgentCode(id)
+
+    // Verify remote agent version
+    const agentCheckResult = await this.checkAgentInstalled(id)
+    const localVersionInfo = this.getLocalAgentVersion()
+
+    const result = {
+      message: 'Agent updated and restarted successfully',
+      remoteVersion: agentCheckResult.version || 'unknown',
+      remoteBuildTime: agentCheckResult.buildTime,
+      localVersion: localVersionInfo?.version || 'unknown',
+      localBuildTime: localVersionInfo?.buildTime,
+    }
+
+    console.log(`[RemoteDeploy] Agent update complete for ${id}`, result)
+    this.completeUpdate(id, result)
+    return result
+  }
+
   /**
    * Get the SSH manager for a server (for streaming execution)
    */

@@ -408,7 +408,7 @@ class AgentOrchestrator extends EventEmitter {
     //   - createSubtask stores the correct parentConversationId
     const { createHyperSpaceMcpServer } = await import('./hyper-space-mcp')
     const agentRole = agent.config.role || 'worker'
-    const hyperSpaceMcp = createHyperSpaceMcpServer(spaceId, conversationId, agentRole, agent.id, agent.config.name)
+    const hyperSpaceMcp = createHyperSpaceMcpServer(spaceId, conversationId, { agentRole, workerId: agent.id, workerName: agent.config.name })
 
     // Also register standard MCP servers (same as non-Hyper-Space path)
     const { getEnabledMcpServers } = await import('./helpers')
@@ -450,10 +450,7 @@ class AgentOrchestrator extends EventEmitter {
     const session = await getOrCreateV2Session(
       spaceId,
       childConversationId,
-      sdkOptions,
-      workerSdkSessionId,
-      undefined,
-      workDir
+      { sdkOptions, sessionId: workerSdkSessionId, workDir }
     )
 
     if (!session) {
@@ -1133,6 +1130,65 @@ class AgentOrchestrator extends EventEmitter {
 
     log.debug(` Removed agent ${agentId} from team ${teamId}`)
     return true
+  }
+
+  // ============================================
+  // Team Configuration
+  // ============================================
+
+  /**
+   * Deep-merge partial orchestration config into a team's existing config.
+   * Nested objects (routing, aggregation, announce) are merged individually.
+   */
+  updateTeamConfig(spaceId: string, updates: Partial<OrchestrationConfig>): boolean {
+    const team = this.getTeamBySpace(spaceId)
+    if (!team) return false
+
+    team.config = {
+      ...team.config,
+      ...updates,
+      routing: { ...team.config.routing, ...updates.routing },
+      aggregation: { ...team.config.aggregation, ...updates.aggregation },
+      announce: { ...team.config.announce, ...updates.announce }
+    }
+
+    log.debug(`Updated config for team ${team.id} in space ${spaceId}`)
+    return true
+  }
+
+  /**
+   * Get a flat members list for @ mention autocomplete.
+   * Tries runtime team first, falls back to space definition on disk.
+   */
+  getTeamMembers(spaceId: string): Array<{
+    id: string
+    name: string
+    role: 'leader' | 'worker'
+    type: string
+    capabilities: string[]
+  }> | null {
+    const team = this.getTeamBySpace(spaceId)
+
+    if (team) {
+      return [
+        {
+          id: team.leader.id,
+          name: team.leader.config.name,
+          role: 'leader' as const,
+          type: team.leader.config.type,
+          capabilities: team.leader.config.capabilities
+        },
+        ...team.workers.map(w => ({
+          id: w.id,
+          name: w.config.name,
+          role: 'worker' as const,
+          type: w.config.type,
+          capabilities: w.config.capabilities
+        }))
+      ]
+    }
+
+    return null
   }
 
   // ============================================
@@ -1860,7 +1916,7 @@ just complete the task normally — the orchestrator will collect your results a
       const { createHyperSpaceMcpServer } = await import('./hyper-space-mcp')
       // Pass parentConversationId (not childConversationId) to MCP tools so that
       // report_to_leader and announce_completion inject into the correct leader session
-      const hyperSpaceMcp = createHyperSpaceMcpServer(team.spaceId, subtask.parentConversationId, 'worker', agent.id, agent.config.name)
+      const hyperSpaceMcp = createHyperSpaceMcpServer(team.spaceId, subtask.parentConversationId, { agentRole: 'worker', workerId: agent.id, workerName: agent.config.name })
 
       const sdkOptions = buildBaseSdkOptions({
         credentials: resolvedCredentials,
@@ -1884,10 +1940,7 @@ just complete the task normally — the orchestrator will collect your results a
       const session = await getOrCreateV2Session(
         team.spaceId,
         childConversationId,
-        sdkOptions,
-        workerSdkSessionId,
-        undefined,
-        workDir
+        { sdkOptions, sessionId: workerSdkSessionId, workDir }
       )
 
       if (!session) {
@@ -3162,7 +3215,7 @@ just complete the task normally — the orchestrator will collect your results a
       // Use the existing turn-level injection system to queue the announcement
       // This will be picked up by processStream's turn-boundary detection
       const { queueInjection } = await import('./stream-processor')
-      queueInjection(conversationId, message)
+      queueInjection(conversationId, { content: message })
 
       // NOTE: We do NOT persist the worker announcement as a user message here.
       // The injection is for the Leader's LLM to process internally.
@@ -3246,7 +3299,7 @@ just complete the task normally — the orchestrator will collect your results a
 
           // Inject into leader's session
           const { queueInjection } = await import('./stream-processor')
-          queueInjection(parentConversationId, reportMessage)
+          queueInjection(parentConversationId, { content: reportMessage })
 
           result = `Report sent to leader. Type: ${reportType}`
           break
@@ -3280,7 +3333,7 @@ just complete the task normally — the orchestrator will collect your results a
           const announcementMessage = `[Subagent Announcement] Worker "${agent.config.name || agent.id}" reports:\n\n**Status**: ${status}\n${taskResult ? `**Result**:\n${taskResult}\n` : ''}${summary ? `**Summary**: ${summary}\n` : ''}Task ID: ${taskId}`
 
           const { queueInjection } = await import('./stream-processor')
-          queueInjection(parentConversationId, announcementMessage)
+          queueInjection(parentConversationId, { content: announcementMessage })
 
           // Also emit for UI
           const { sendToRenderer } = await import('./helpers')
@@ -3312,7 +3365,7 @@ just complete the task normally — the orchestrator will collect your results a
           const questionMsg = `[Question from ${agent.config.name || agent.id}]\n${toolInput.question}`
 
           const { queueInjection } = await import('./stream-processor')
-          queueInjection(parentConversationId, questionMsg)
+          queueInjection(parentConversationId, { content: questionMsg })
 
           result = `Question sent to ${toolInput.target || 'leader'}. Continue working on your task.`
           break
@@ -3323,7 +3376,7 @@ just complete the task normally — the orchestrator will collect your results a
           const msgContent = `[Message from ${agent.config.name || agent.id} to ${toolInput.recipient}]\n${toolInput.content}`
 
           const { queueInjection } = await import('./stream-processor')
-          queueInjection(parentConversationId, msgContent)
+          queueInjection(parentConversationId, { content: msgContent })
 
           result = `Message sent to ${toolInput.recipient}.`
           break
@@ -3438,7 +3491,7 @@ just complete the task normally — the orchestrator will collect your results a
     // Inject into the leader's session via queueInjection
     // The leader's while(true) loop in executeAgentLocally will pick this up
     const { queueInjection } = await import('./stream-processor')
-    queueInjection(leaderConversationId, params.content)
+    queueInjection(leaderConversationId, { content: params.content })
 
     // NOTE: We do NOT persist the worker report as a user message here.
     // The Leader's LLM processes the report internally via queueInjection.

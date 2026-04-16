@@ -431,7 +431,7 @@ export async function sendMessage(
     // Get or create persistent V2 session for this conversation
     // Pass config for rebuild detection when aiBrowserEnabled changes
     // Pass workDir for session migration support (from old ~/.claude to new config dir)
-    const v2Session = await getOrCreateV2Session(spaceId, conversationId, sdkOptions, sessionId, sessionConfig, workDir)
+    const v2Session = await getOrCreateV2Session(spaceId, conversationId, { sdkOptions, sessionId, config: sessionConfig, workDir })
 
     // Register as active AFTER session is ready, so getOrCreateV2Session's
     // in-flight check doesn't mistake the current request as a concurrent one
@@ -647,7 +647,7 @@ export async function sendMessage(
           }
 
           // Create fresh session (don't resume — safer after auth failure)
-          v2Session = await getOrCreateV2Session(spaceId, conversationId, freshSdkOptions, undefined, sessionConfig, workDir)
+          v2Session = await getOrCreateV2Session(spaceId, conversationId, { sdkOptions: freshSdkOptions, config: sessionConfig, workDir })
 
           // Re-register as active
           registerActiveSession(conversationId, sessionState)

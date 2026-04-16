@@ -38,19 +38,34 @@ export function registerPerfHandlers(mainWindow: BrowserWindow): void {
   })
 
   // Get current state
-  ipcMain.handle('perf:get-state', async (): Promise<PerfServiceState> => {
-    return perfService.getState()
+  ipcMain.handle('perf:get-state', async () => {
+    try {
+      return { success: true, data: perfService.getState() }
+    } catch (error) {
+      console.error('[Perf IPC] Get state failed:', error)
+      return { success: false, error: (error as Error).message }
+    }
   })
 
   // Get history
-  ipcMain.handle('perf:get-history', async (): Promise<PerfSnapshot[]> => {
-    return perfService.getHistory()
+  ipcMain.handle('perf:get-history', async () => {
+    try {
+      return { success: true, data: perfService.getHistory() }
+    } catch (error) {
+      console.error('[Perf IPC] Get history failed:', error)
+      return { success: false, error: (error as Error).message }
+    }
   })
 
   // Clear history
   ipcMain.handle('perf:clear-history', async () => {
-    perfService.clearHistory()
-    return { success: true }
+    try {
+      perfService.clearHistory()
+      return { success: true }
+    } catch (error) {
+      console.error('[Perf IPC] Clear history failed:', error)
+      return { success: false, error: (error as Error).message }
+    }
   })
 
   // Update config
@@ -64,8 +79,13 @@ export function registerPerfHandlers(mainWindow: BrowserWindow): void {
   })
 
   // Export data
-  ipcMain.handle('perf:export', async (): Promise<string> => {
-    return perfService.export()
+  ipcMain.handle('perf:export', async () => {
+    try {
+      return { success: true, data: perfService.export() }
+    } catch (error) {
+      console.error('[Perf IPC] Export failed:', error)
+      return { success: false, error: (error as Error).message }
+    }
   })
 
   // Receive renderer metrics (one-way, no response needed)

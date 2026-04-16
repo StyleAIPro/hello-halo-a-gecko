@@ -150,6 +150,7 @@ export interface AicoBotAPI {
   ensureSessionWarm: (spaceId: string, conversationId: string) => Promise<IpcResponse>
   testMcpConnections: () => Promise<{ success: boolean; servers: unknown[]; error?: string }>
   answerQuestion: (data: { conversationId: string; id: string; answers: Record<string, string> }) => Promise<IpcResponse>
+  rejectQuestion: (data: { id: string; reason?: string }) => Promise<IpcResponse>
   compactContext: (conversationId: string) => Promise<IpcResponse>
 
   // Event listeners
@@ -452,6 +453,10 @@ export interface AicoBotAPI {
   onRemoteAgentError: (callback: (data: unknown) => void) => () => void
   onRemoteAgentFsResult: (callback: (data: unknown) => void) => () => void
   onRemoteTaskUpdate: (callback: (data: unknown) => void) => () => void
+  onRemoteServerCommandOutput: (callback: (data: unknown) => void) => () => void
+  onRemoteServerStatusChange: (callback: (data: unknown) => void) => () => void
+  onRemoteServerDeployProgress: (callback: (data: unknown) => void) => () => void
+  onRemoteServerUpdateComplete: (callback: (data: unknown) => void) => () => void
 
   // Store (App Registry)
   storeListApps: (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
@@ -671,6 +676,7 @@ const api: AicoBotAPI = {
   ensureSessionWarm: (spaceId, conversationId) => ipcRenderer.invoke('agent:ensure-session-warm', spaceId, conversationId),
   testMcpConnections: () => ipcRenderer.invoke('agent:test-mcp'),
   answerQuestion: (data) => ipcRenderer.invoke('agent:answer-question', data),
+  rejectQuestion: (data) => ipcRenderer.invoke('agent:reject-question', data),
   compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
 
   // Event listeners
@@ -935,6 +941,10 @@ const api: AicoBotAPI = {
   onRemoteAgentError: (callback) => createEventListener('remote-agent:error', callback),
   onRemoteAgentFsResult: (callback) => createEventListener('remote-agent:fs:result', callback),
   onRemoteTaskUpdate: (callback) => createEventListener('remote-server:task-update', callback),
+  onRemoteServerCommandOutput: (callback) => createEventListener('remote-server:command-output', callback),
+  onRemoteServerStatusChange: (callback) => createEventListener('remote-server:status-change', callback),
+  onRemoteServerDeployProgress: (callback) => createEventListener('remote-server:deploy-progress', callback),
+  onRemoteServerUpdateComplete: (callback) => createEventListener('remote-server:update-complete', callback),
 
   // Store (App Registry)
   storeListApps: (query) => ipcRenderer.invoke('store:list-apps', query),

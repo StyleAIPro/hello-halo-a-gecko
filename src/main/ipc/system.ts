@@ -160,20 +160,13 @@ export function registerSystemHandlers(): void {
   // Get terminal WebSocket URL
   ipcMain.handle('system:get-terminal-websocket-url', async (_event, spaceId: string, conversationId: string) => {
     try {
-      // For local Electron mode, use a simple local token
-      // Token validation in TerminalGateway will accept this for local connections
       const serverInfo = getServerInfo()
       const token = serverInfo.token || 'local-electron-mode'
-
-      // Construct WebSocket URL
       const wsUrl = `ws://localhost:8765/terminal?spaceId=${spaceId}&conversationId=${conversationId}&token=${token}`
-
       console.log(`[Terminal] WebSocket URL generated for space=${spaceId}, conv=${conversationId}`)
       return { success: true, data: { wsUrl } }
     } catch (error) {
-      const err = error as Error
-      console.error('[Terminal] Failed to get terminal WebSocket URL:', err.message)
-      return { success: false, error: err.message }
+      return { success: false, error: (error as Error).message }
     }
   })
 
@@ -207,13 +200,9 @@ export function registerSystemHandlers(): void {
       }
 
       const outputLines = session.getRecentOutput(lines || 50)
-      const lineContents = outputLines.map(line => line.content)
-
-      return { success: true, data: { lines: lineContents } }
+      return { success: true, data: { lines: outputLines.map(line => line.content) } }
     } catch (error) {
-      const err = error as Error
-      console.error('[Terminal] Failed to get terminal output:', err.message)
-      return { success: false, error: err.message }
+      return { success: false, error: (error as Error).message }
     }
   })
 

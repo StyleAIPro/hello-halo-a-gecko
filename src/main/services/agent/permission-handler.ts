@@ -45,9 +45,13 @@ interface CanUseToolDeps {
 // Pending Questions Registry
 // ============================================
 
+/** Timeout for unanswered questions (5 minutes, matches design spec) */
+const QUESTION_TIMEOUT_MS = 5 * 60 * 1000
+
 interface PendingQuestionEntry {
   resolve: (answers: Record<string, string>) => void
   reject: (reason?: unknown) => void
+  timeoutId: ReturnType<typeof setTimeout>
 }
 
 /** Map of question ID -> Promise handlers. Module-level for IPC handler access. */
@@ -63,6 +67,7 @@ export function resolveQuestion(id: string, answers: Record<string, string>): bo
     console.warn(`[PermissionHandler] No pending question found for id: ${id}`)
     return false
   }
+  clearTimeout(entry.timeoutId)
   entry.resolve(answers)
   pendingQuestions.delete(id)
   return true
@@ -75,6 +80,7 @@ export function resolveQuestion(id: string, answers: Record<string, string>): bo
 export function rejectQuestion(id: string, reason?: string): boolean {
   const entry = pendingQuestions.get(id)
   if (!entry) return false
+  clearTimeout(entry.timeoutId)
   entry.reject(new Error(reason || 'Question cancelled'))
   pendingQuestions.delete(id)
   return true
@@ -86,6 +92,7 @@ export function rejectQuestion(id: string, reason?: string): boolean {
  */
 export function rejectAllQuestions(): void {
   for (const [id, entry] of pendingQuestions) {
+    clearTimeout(entry.timeoutId)
     entry.reject(new Error('Generation stopped'))
     pendingQuestions.delete(id)
   }
@@ -138,12 +145,23 @@ export function createCanUseTool(deps?: CanUseToolDeps): CanUseToolFn {
 
     // Create promise that will be resolved by IPC handler
     const answersPromise = new Promise<Record<string, string>>((resolve, reject) => {
-      pendingQuestions.set(id, { resolve, reject })
+      // Set up timeout — if unanswered after 5 minutes, auto-reject
+      const timeoutId = setTimeout(() => {
+        if (pendingQuestions.has(id)) {
+          pendingQuestions.delete(id)
+          reject(new Error('Question timed out (5 min)'))
+          console.warn(`[PermissionHandler] AskUserQuestion timed out: id=${id}`)
+        }
+      }, QUESTION_TIMEOUT_MS)
+
+      pendingQuestions.set(id, { resolve, reject, timeoutId })
 
       // Clean up on abort (user stops generation)
       if (options.signal) {
         const onAbort = () => {
-          if (pendingQuestions.has(id)) {
+          const entry = pendingQuestions.get(id)
+          if (entry) {
+            clearTimeout(entry.timeoutId)
             pendingQuestions.delete(id)
             reject(new Error('Aborted'))
           }

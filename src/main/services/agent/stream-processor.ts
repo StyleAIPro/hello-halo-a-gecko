@@ -56,19 +56,23 @@ interface PendingInjection {
 // Map: conversationId -> PendingInjection[] (queue to prevent message loss from concurrent workers)
 const pendingInjectionQueues = new Map<string, PendingInjection[]>()
 
+export interface QueueInjectionOptions {
+  content: string
+  images?: Array<{ type: string; data: string; mediaType: string }>
+  thinkingEnabled?: boolean
+  aiBrowserEnabled?: boolean
+}
+
 /**
  * Queue a message for turn-level injection.
  * Supports multiple pending injections per conversation (e.g., from concurrent workers).
  */
 export function queueInjection(
   conversationId: string,
-  content: string,
-  images?: Array<{ type: string; data: string; mediaType: string }>,
-  thinkingEnabled?: boolean,
-  aiBrowserEnabled?: boolean
+  options: QueueInjectionOptions
 ): void {
   const queue = pendingInjectionQueues.get(conversationId) || []
-  queue.push({ content, images, thinkingEnabled, aiBrowserEnabled })
+  queue.push({ content: options.content, images: options.images, thinkingEnabled: options.thinkingEnabled, aiBrowserEnabled: options.aiBrowserEnabled })
   pendingInjectionQueues.set(conversationId, queue)
   console.log(`[Agent][${conversationId}] Queued injection message (queue size: ${queue.length}): ${content.slice(0, 50)}...`)
 }

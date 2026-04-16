@@ -26,18 +26,11 @@ import { useAIBrowserStore } from '../../stores/ai-browser.store'
 import { useSpaceStore } from '../../stores/space.store'
 import { getOnboardingPrompt } from '../onboarding/onboardingData'
 import { ImageAttachmentPreview } from './ImageAttachmentPreview'
-import { processImage, isValidImageType, formatFileSize } from '../../utils/imageProcessor'
 import type { ImageAttachment } from '../../types'
 import { useTranslation } from '../../i18n'
 import { api } from '../../api'
-
-interface AgentMember {
-  id: string
-  name: string
-  role: 'leader' | 'worker'
-  type: 'local' | 'remote'
-  capabilities?: string[]
-}
+import { useMentionSystem, type AgentMember } from '../../hooks/useMentionSystem'
+import { useImageAttachments, MAX_IMAGES } from '../../hooks/useImageAttachments'
 
 interface InputAreaProps {
   onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabled?: boolean, agentId?: string) => void
@@ -52,16 +45,6 @@ interface InputAreaProps {
   conversationId?: string
 }
 
-// Image constraints
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024  // 20MB max per image (before compression)
-const MAX_IMAGES = 10  // Max images per message
-
-// Error message type
-interface ImageError {
-  id: string
-  message: string
-}
-
 export interface InputAreaRef {
   appendContent: (newContent: string) => void
   setContent: (newContent: string) => void
@@ -74,27 +57,13 @@ function InputAreaInternal(
   const { t } = useTranslation()
   const [content, setContent] = useState('')
   const [isFocused, setIsFocused] = useState(false)
-  const [images, setImages] = useState<ImageAttachment[]>([])
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isProcessingImages, setIsProcessingImages] = useState(false)
-  const [imageError, setImageError] = useState<ImageError | null>(null)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
   const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
   const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
   const [compactResult, setCompactResult] = useState<'success' | 'error' | null>(null)  // Compression result notification
-  const [targetAgentIds, setTargetAgentIds] = useState<string[]>([])  // Target agents for Hyper Space (multi-mention)
-
-  // @ Mention state
-  const [agentMembers, setAgentMembers] = useState<AgentMember[]>([])
-  const [showMentionPopup, setShowMentionPopup] = useState(false)
-  const [mentionQuery, setMentionQuery] = useState('')
-  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
-  const [mentionPosition, setMentionPosition] = useState<{ start: number; end: number } | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const attachMenuRef = useRef<HTMLDivElement>(null)
-  const mentionPopupRef = useRef<HTMLDivElement>(null)
 
   // AI Browser state
   const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore()
@@ -106,14 +75,50 @@ function InputAreaInternal(
     return {
       isTemp: state.currentSpace.isTemp,
       claudeSource: state.currentSpace.claudeSource,
-      spaceType: state.currentSpace.spaceType  // 'local', 'remote', or 'hyper'
+      spaceType: state.currentSpace.spaceType
     }
   })
   const isHyperSpace = currentSpaceType?.spaceType === 'hyper'
 
+  // ===== Hooks =====
+
+  // Mention system (@ autocomplete for Hyper Space agents)
+  const {
+    targetAgentIds,
+    setTargetAgentIds,
+    showMentionPopup,
+    mentionPopupRef,
+    filteredMembers,
+    selectedMentionIndex,
+    handleTextChange: handleMentionTextChange,
+    selectAgent,
+    handleMentionKeyDown
+  } = useMentionSystem({
+    spaceId,
+    isHyperSpace,
+    content,
+    setContent,
+    textareaRef
+  })
+
+  // Image attachments (paste/drop/file-input with compression)
+  const {
+    images,
+    isDragOver,
+    isProcessingImages,
+    imageError,
+    fileInputRef,
+    removeImage,
+    handlePaste,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleFileInputChange,
+    clearImages,
+    hasImages
+  } = useImageAttachments()
+
   // Initialize AI Browser based on space type
-  // Local space (isTemp or claudeSource === 'local'): enable AI Browser by default
-  // Remote space (claudeSource === 'remote'): disable AI Browser by default
   useEffect(() => {
     if (!spaceId || !currentSpaceType) return
 
@@ -146,58 +151,6 @@ function InputAreaInternal(
     }
   }), [])
 
-  // Load agent members for Hyper Space only
-  useEffect(() => {
-    // Only load members in Hyper Space
-    if (!spaceId || !isHyperSpace) {
-      setAgentMembers([])  // Clear members when not in Hyper Space
-      return
-    }
-
-    api.getHyperSpaceMembers(spaceId).then(result => {
-      // API returns { success: true, data: { members: [...] } }
-      if (result.success && result.data?.members) {
-        setAgentMembers(result.data.members)
-        console.log('[InputArea] Loaded Hyper Space members:', result.data.members.length)
-      }
-    }).catch(console.error)
-  }, [spaceId, isHyperSpace])
-
-  // Filter members based on query; include @all special option
-  const allAgentOption: AgentMember = { id: '__all__', name: 'all', role: 'worker', type: 'local' }
-  const filteredMembers = agentMembers.filter(member =>
-    member.name.toLowerCase().includes(mentionQuery.toLowerCase())
-  )
-  const allInResults = filteredMembers.some(m => m.id === '__all__') || mentionQuery.toLowerCase().includes('all')
-  const displayMembers = allInResults ? filteredMembers : [allAgentOption, ...filteredMembers]
-
-  // Close mention popup when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (mentionPopupRef.current && !mentionPopupRef.current.contains(event.target as Node)) {
-        setShowMentionPopup(false)
-      }
-    }
-
-    if (showMentionPopup) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showMentionPopup])
-
-  // Reset selection when query changes
-  useEffect(() => {
-    setSelectedMentionIndex(0)
-  }, [mentionQuery])
-
-  // Auto-clear error after 3 seconds
-  useEffect(() => {
-    if (imageError) {
-      const timer = setTimeout(() => setImageError(null), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [imageError])
-
   // Close attachment menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -212,11 +165,6 @@ function InputAreaInternal(
     }
   }, [showAttachMenu])
 
-  // Show error to user
-  const showError = (message: string) => {
-    setImageError({ id: `err-${Date.now()}`, message })
-  }
-
   // Onboarding state
   const { isActive: isOnboarding, currentStep } = useOnboardingStore()
   const isOnboardingSendStep = isOnboarding && currentStep === 'send-message'
@@ -224,122 +172,6 @@ function InputAreaInternal(
   // In onboarding send step, show prefilled prompt
   const onboardingPrompt = getOnboardingPrompt(t)
   const displayContent = isOnboardingSendStep ? onboardingPrompt : content
-
-  // Process file to ImageAttachment with professional compression
-  const processFileWithCompression = async (file: File): Promise<ImageAttachment | null> => {
-    // Validate type
-    if (!isValidImageType(file)) {
-      showError(t('Unsupported image format: {{type}}', { type: file.type || t('Unknown') }))
-      return null
-    }
-
-    // Validate size (before compression)
-    if (file.size > MAX_IMAGE_SIZE) {
-      showError(t('Image too large ({{size}}), max 20MB', { size: formatFileSize(file.size) }))
-      return null
-    }
-
-    try {
-      // Use professional image processor for compression
-      const processed = await processImage(file)
-
-      return {
-        id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'image',
-        mediaType: processed.mediaType,
-        data: processed.data,
-        name: file.name,
-        size: processed.compressedSize
-      }
-    } catch (error) {
-      console.error(`Failed to process image: ${file.name}`, error)
-      showError(t('Failed to process image: {{name}}', { name: file.name }))
-      return null
-    }
-  }
-
-  // Add images (with limit check and loading state)
-  const addImages = async (files: File[]) => {
-    const remainingSlots = MAX_IMAGES - images.length
-    if (remainingSlots <= 0) return
-
-    const filesToProcess = files.slice(0, remainingSlots)
-
-    // Show loading state during compression
-    setIsProcessingImages(true)
-
-    try {
-      const newImages = await Promise.all(filesToProcess.map(processFileWithCompression))
-      const validImages = newImages.filter((img): img is ImageAttachment => img !== null)
-
-      if (validImages.length > 0) {
-        setImages(prev => [...prev, ...validImages])
-      }
-    } finally {
-      setIsProcessingImages(false)
-    }
-  }
-
-  // Remove image
-  const removeImage = (id: string) => {
-    setImages(prev => prev.filter(img => img.id !== id))
-  }
-
-  // Handle paste event
-  const handlePaste = async (e: ClipboardEvent) => {
-    const items = e.clipboardData?.items
-    if (!items) return
-
-    const imageFiles: File[] = []
-
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile()
-        if (file) {
-          imageFiles.push(file)
-        }
-      }
-    }
-
-    if (imageFiles.length > 0) {
-      e.preventDefault()  // Prevent default only if we're handling images
-      await addImages(imageFiles)
-    }
-  }
-
-  // Handle drag events
-  const handleDragOver = (e: DragEvent) => {
-    e.preventDefault()
-    if (!isDragOver) setIsDragOver(true)
-  }
-
-  const handleDragLeave = (e: DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }
-
-  const handleDrop = async (e: DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-
-    const files = Array.from(e.dataTransfer.files).filter(file => isValidImageType(file))
-
-    if (files.length > 0) {
-      await addImages(files)
-    }
-  }
-
-  // Handle file input change
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length > 0) {
-      await addImages(files)
-    }
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }
 
   // Handle image button click (from attachment menu)
   const handleImageButtonClick = () => {
@@ -376,7 +208,7 @@ function InputAreaInternal(
 
       if (!isOnboardingSendStep) {
         setContent('')
-        setImages([])  // Clear images after send
+        clearImages()  // Clear images after send
         setTargetAgentIds([])  // Clear target agents
         // Don't reset thinkingEnabled - user might want to keep it on
         // Reset height
@@ -392,131 +224,10 @@ function InputAreaInternal(
     return 'ontouchstart' in window && window.innerWidth < 768
   }
 
-  // Parse @ mention position in text
-  const parseMentionPosition = useCallback((text: string, cursorPosition: number) => {
-    const atIndex = text.lastIndexOf('@', cursorPosition - 1)
-    if (atIndex === -1) return null
-
-    const betweenAtAndCursor = text.substring(atIndex + 1, cursorPosition)
-    if (/\s/.test(betweenAtAndCursor)) return null
-
-    return {
-      start: atIndex,
-      end: cursorPosition,
-      query: betweenAtAndCursor
-    }
-  }, [])
-
-  // Handle text change - check for @ mention and sync targetAgentIds
-  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value
-    const cursorPosition = e.target.selectionStart
-
-    setContent(newValue)
-
-    // Check for @ mention - only in Hyper Space
-    if (isHyperSpace && agentMembers.length > 0) {
-      const mentionInfo = parseMentionPosition(newValue, cursorPosition)
-
-      if (mentionInfo) {
-        setMentionQuery(mentionInfo.query)
-        setMentionPosition({ start: mentionInfo.start, end: mentionInfo.end })
-        setShowMentionPopup(true)
-      } else {
-        setShowMentionPopup(false)
-        setMentionQuery('')
-        setMentionPosition(null)
-      }
-
-      // Sync targetAgentIds with remaining @mentions in text
-      // Find all @AgentName patterns that match known agents
-      const remainingIds: string[] = []
-      for (const agent of agentMembers) {
-        if (newValue.includes(`@${agent.name}`)) {
-          remainingIds.push(agent.id)
-        }
-      }
-      setTargetAgentIds(remainingIds)
-    }
-  }, [parseMentionPosition, agentMembers.length, isHyperSpace, agentMembers])
-
-  // Select agent from mention popup
-  const selectAgent = useCallback((agent: AgentMember) => {
-    if (!mentionPosition || !textareaRef.current) return
-
-    const textarea = textareaRef.current
-    const beforeText = content.substring(0, mentionPosition.start)
-    const afterText = content.substring(mentionPosition.end)
-
-    const mentionText = agent.id === '__all__'
-      ? '@all '
-      : `@${agent.name} `
-    const newValue = beforeText + mentionText + afterText
-
-    setContent(newValue)
-
-    // Handle @all: set a special marker so the store knows to broadcast
-    if (agent.id === '__all__') {
-      setTargetAgentIds(['__all__'])
-    } else {
-      // Add to target agent list (avoid duplicates)
-      setTargetAgentIds(prev =>
-        prev.includes(agent.id) ? prev : [...prev, agent.id]
-      )
-    }
-
-    // Update cursor position after the mention
-    const newCursorPos = mentionPosition.start + mentionText.length
-    setTimeout(() => {
-      textarea.focus()
-      textarea.setSelectionRange(newCursorPos, newCursorPos)
-    }, 0)
-
-    // Close popup
-    setShowMentionPopup(false)
-    setMentionQuery('')
-    setMentionPosition(null)
-  }, [mentionPosition, content])
-
   // Handle key press - include mention popup navigation
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Ignore key events during IME composition
-    if (e.nativeEvent.isComposing) return
-
-    // Handle mention popup navigation
-    if (showMentionPopup) {
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault()
-          setSelectedMentionIndex(prev =>
-            prev < filteredMembers.length - 1 ? prev + 1 : 0
-          )
-          return
-
-        case 'ArrowUp':
-          e.preventDefault()
-          setSelectedMentionIndex(prev =>
-            prev > 0 ? prev - 1 : filteredMembers.length - 1
-          )
-          return
-
-        case 'Enter':
-        case 'Tab':
-          if (filteredMembers.length > 0 && mentionPosition) {
-            e.preventDefault()
-            selectAgent(filteredMembers[selectedMentionIndex])
-            return
-          }
-          break
-
-        case 'Escape':
-          e.preventDefault()
-          setShowMentionPopup(false)
-          setMentionQuery('')
-          setMentionPosition(null)
-          return
-      }
-    }
+    // Let mention system handle keys first (returns true if consumed)
+    if (handleMentionKeyDown(e)) return
 
     // Mobile: Enter for newline, send via button only
     // PC: Enter to send, Shift+Enter for newline
@@ -534,8 +245,7 @@ function InputAreaInternal(
   // In onboarding mode, can always send (prefilled content)
   // Can send if has text OR has images (and not processing images)
   // Note: isGenerating is not checked here - queuing is handled in store
-  const canSend = isOnboardingSendStep || ((content.trim().length > 0 || images.length > 0) && !isProcessingImages)
-  const hasImages = images.length > 0
+  const canSend = isOnboardingSendStep || ((content.trim().length > 0 || hasImages) && !isProcessingImages)
 
   // Handle context compression
   const handleCompactContext = async () => {
@@ -651,7 +361,7 @@ function InputAreaInternal(
             <textarea
               ref={textareaRef}
               value={displayContent}
-              onChange={handleTextChange}
+              onChange={handleMentionTextChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onFocus={() => setIsFocused(true)}

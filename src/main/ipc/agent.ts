@@ -3,7 +3,7 @@
  */
 
 import { ipcMain } from 'electron'
-import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion, compactContext } from '../services/agent'
+import { sendMessage, stopGeneration, getSessionState, ensureSessionWarm, testMcpConnections, resolveQuestion, rejectQuestion, rejectAllQuestions, compactContext } from '../services/agent'
 import { getMainWindow } from '../services/window.service'
 import { queueInjection } from '../services/agent/stream-processor'
 import { getRemoteWsClient } from '../services/remote-ws/remote-ws-client'
@@ -83,10 +83,7 @@ export function registerAgentHandlers(): void {
         console.log(`[IPC] agent:inject-message called for conversationId=${request.conversationId}`)
         queueInjection(
           request.conversationId,
-          request.content,
-          request.images,
-          request.thinkingEnabled,
-          request.aiBrowserEnabled
+          { content: request.content, images: request.images, thinkingEnabled: request.thinkingEnabled, aiBrowserEnabled: request.aiBrowserEnabled }
         )
         return { success: true }
       } catch (error: unknown) {
@@ -151,6 +148,29 @@ export function registerAgentHandlers(): void {
         // Local session — resolve the pending question directly
         const resolved = resolveQuestion(data.id, data.answers)
         if (!resolved) {
+          return { success: false, error: 'No pending question found for this ID' }
+        }
+        return { success: true }
+      } catch (error: unknown) {
+        const err = error as Error
+        return { success: false, error: err.message }
+      }
+    }
+  )
+
+  // Reject a pending AskUserQuestion (renderer cannot handle it)
+  ipcMain.handle(
+    'agent:reject-question',
+    async (
+      _event,
+      data: {
+        id: string
+        reason?: string
+      }
+    ) => {
+      try {
+        const rejected = rejectQuestion(data.id, data.reason || 'Rejected by renderer')
+        if (!rejected) {
           return { success: false, error: 'No pending question found for this ID' }
         }
         return { success: true }
