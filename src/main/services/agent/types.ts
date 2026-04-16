@@ -5,7 +5,7 @@
  * This file has no dependencies and is imported by all other agent modules.
  */
 
-import { BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron';
 
 // ============================================
 // API Credentials
@@ -16,36 +16,36 @@ import { BrowserWindow } from 'electron'
  * Unified structure for custom API and OAuth sources
  */
 export interface ApiCredentials {
-  baseUrl: string
-  apiKey: string
-  model: string
-  displayModel?: string
-  provider: 'anthropic' | 'openai' | 'oauth'
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  displayModel?: string;
+  provider: 'anthropic' | 'openai' | 'oauth';
   /** Custom headers for OAuth providers */
-  customHeaders?: Record<string, string>
+  customHeaders?: Record<string, string>;
   /** API type for OpenAI compatible providers */
-  apiType?: 'chat_completions' | 'responses'
+  apiType?: 'chat_completions' | 'responses';
   /** Force streaming mode (for providers that only support streaming) */
-  forceStream?: boolean
+  forceStream?: boolean;
   /** Filter sensitive content from messages (e.g., GitHub URLs) */
-  filterContent?: boolean
+  filterContent?: boolean;
   /** Context window size in tokens (for compression threshold calculation) */
-  contextWindow?: number
+  contextWindow?: number;
 }
 
 // ============================================
 // Image Attachments
 // ============================================
 
-export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 export interface ImageAttachment {
-  id: string
-  type: 'image'
-  mediaType: ImageMediaType
-  data: string  // Base64 encoded
-  name?: string
-  size?: number
+  id: string;
+  type: 'image';
+  mediaType: ImageMediaType;
+  data: string; // Base64 encoded
+  name?: string;
+  size?: number;
 }
 
 // ============================================
@@ -57,21 +57,21 @@ export interface ImageAttachment {
  * This allows AI to naturally understand what the user is currently viewing
  */
 export interface CanvasContext {
-  isOpen: boolean
-  tabCount: number
+  isOpen: boolean;
+  tabCount: number;
   activeTab: {
-    type: string  // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
-    title: string
-    url?: string   // For browser/pdf tabs
-    path?: string  // For file tabs
-  } | null
+    type: string; // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
+    title: string;
+    url?: string; // For browser/pdf tabs
+    path?: string; // For file tabs
+  } | null;
   tabs: Array<{
-    type: string
-    title: string
-    url?: string
-    path?: string
-    isActive: boolean
-  }>
+    type: string;
+    title: string;
+    url?: string;
+    path?: string;
+    isActive: boolean;
+  }>;
 }
 
 // ============================================
@@ -79,16 +79,16 @@ export interface CanvasContext {
 // ============================================
 
 export interface AgentRequest {
-  spaceId: string
-  conversationId: string
-  message: string
-  resumeSessionId?: string
-  images?: ImageAttachment[]  // Optional images for multi-modal messages
-  aiBrowserEnabled?: boolean  // Enable AI Browser tools for this request
-  thinkingEnabled?: boolean   // Enable extended thinking mode (maxThinkingTokens: 10240)
-  model?: string              // Model to use (for future model switching)
-  canvasContext?: CanvasContext  // Current canvas state for AI awareness
-  agentId?: string  // Target agent ID for Hyper Space ('leader' or specific agent ID)
+  spaceId: string;
+  conversationId: string;
+  message: string;
+  resumeSessionId?: string;
+  images?: ImageAttachment[]; // Optional images for multi-modal messages
+  aiBrowserEnabled?: boolean; // Enable AI Browser tools for this request
+  thinkingEnabled?: boolean; // Enable extended thinking mode (maxThinkingTokens: 10240)
+  model?: string; // Model to use (for future model switching)
+  canvasContext?: CanvasContext; // Current canvas state for AI awareness
+  agentId?: string; // Target agent ID for Hyper Space ('leader' or specific agent ID)
 }
 
 // ============================================
@@ -96,46 +96,53 @@ export interface AgentRequest {
 // ============================================
 
 export interface ToolCall {
-  id: string
-  name: string
-  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval'
-  input: Record<string, unknown>
-  output?: string
-  error?: string
-  progress?: number
-  requiresApproval?: boolean
-  description?: string
+  id: string;
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval';
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  progress?: number;
+  requiresApproval?: boolean;
+  description?: string;
 }
 
 // ============================================
 // Thoughts (Agent Reasoning Process)
 // ============================================
 
-export type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error'
+export type ThoughtType =
+  | 'thinking'
+  | 'text'
+  | 'tool_use'
+  | 'tool_result'
+  | 'system'
+  | 'result'
+  | 'error';
 
 export interface Thought {
-  id: string
-  type: ThoughtType
-  content: string
-  timestamp: string
-  toolName?: string
-  toolInput?: Record<string, unknown>
-  toolOutput?: string
-  isError?: boolean
-  errorCode?: string  // Original SDK error code (rate_limit, authentication_failed, etc.)
-  duration?: number
+  id: string;
+  type: ThoughtType;
+  content: string;
+  timestamp: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  isError?: boolean;
+  errorCode?: string; // Original SDK error code (rate_limit, authentication_failed, etc.)
+  duration?: number;
   // For streaming state (real-time updates)
-  isStreaming?: boolean  // True while content is being streamed
-  isReady?: boolean      // True when tool params are complete (for tool_use)
+  isStreaming?: boolean; // True while content is being streamed
+  isReady?: boolean; // True when tool params are complete (for tool_use)
   // For merged tool result display (tool_use contains its result)
   toolResult?: {
-    output: string
-    isError: boolean
-    timestamp: string
-  }
+    output: string;
+    isError: boolean;
+    timestamp: string;
+  };
   // For subagent thought persistence (inline in main thoughts array)
-  agentId?: string      // Subagent identifier
-  agentName?: string    // Subagent display name
+  agentId?: string; // Subagent identifier
+  agentName?: string; // Subagent display name
 }
 
 // ============================================
@@ -147,12 +154,12 @@ export interface Thought {
  * Used to track in-flight requests and accumulated thoughts
  */
 export interface SessionState {
-  abortController: AbortController
-  spaceId: string
-  conversationId: string
-  thoughts: Thought[]  // Backend accumulates thoughts (Single Source of Truth)
-  streamingContent?: string  // Accumulated streaming text content (for remote sessions)
-  isRemote?: boolean  // Mark if this is a remote session (for stopGeneration handling)
+  abortController: AbortController;
+  spaceId: string;
+  conversationId: string;
+  thoughts: Thought[]; // Backend accumulates thoughts (Single Source of Truth)
+  streamingContent?: string; // Accumulated streaming text content (for remote sessions)
+  isRemote?: boolean; // Mark if this is a remote session (for stopGeneration handling)
 }
 
 // ============================================
@@ -166,16 +173,22 @@ export interface SessionState {
  * using minimal interface for type safety and maintainability, avoiding inference to never.
  */
 export type V2SDKSession = {
-  send: (message: any) => void
-  stream: () => AsyncIterable<any>
-  close: () => void
-  interrupt?: () => Promise<void> | void
+  send: (message: any) => void;
+  stream: () => AsyncIterable<any>;
+  close: () => void;
+  interrupt?: () => Promise<void> | void;
   // Dynamic runtime methods (exposed via patch)
-  setModel?: (model: string | undefined) => Promise<void>
-  setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>
-  setPermissionMode?: (mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan') => Promise<void>
-  compact?: (options?: { force?: boolean }) => Promise<{ compacted: boolean; preCompactTokenCount?: number; postCompactTokenCount?: number }>
-}
+  setModel?: (model: string | undefined) => Promise<void>;
+  setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>;
+  setPermissionMode?: (
+    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
+  ) => Promise<void>;
+  compact?: (options?: { force?: boolean }) => Promise<{
+    compacted: boolean;
+    preCompactTokenCount?: number;
+    postCompactTokenCount?: number;
+  }>;
+};
 
 /**
  * Session configuration that requires session rebuild when changed
@@ -185,7 +198,7 @@ export type V2SDKSession = {
  * (model is part of the aiSources signature), not through SessionConfig.
  */
 export interface SessionConfig {
-  aiBrowserEnabled: boolean
+  aiBrowserEnabled: boolean;
   // thinkingEnabled is dynamic via setMaxThinkingTokens, no rebuild needed
 }
 
@@ -193,16 +206,16 @@ export interface SessionConfig {
  * V2 Session info stored in the sessions map
  */
 export interface V2SessionInfo {
-  session: V2SDKSession
-  spaceId: string
-  conversationId: string
-  createdAt: number
-  lastUsedAt: number
+  session: V2SDKSession;
+  spaceId: string;
+  conversationId: string;
+  createdAt: number;
+  lastUsedAt: number;
   // Track config at session creation time for rebuild detection
-  config: SessionConfig
+  config: SessionConfig;
   // Credentials generation at session creation time
   // Used to detect stale credentials (session created before config change)
-  credentialsGeneration: number
+  credentialsGeneration: number;
 }
 
 // ============================================
@@ -213,13 +226,13 @@ export interface V2SessionInfo {
  * MCP server status type (matches SDK)
  */
 export interface McpServerStatusInfo {
-  name: string
-  status: 'connected' | 'failed' | 'needs-auth' | 'pending'
+  name: string;
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending';
   serverInfo?: {
-    name: string
-    version: string
-  }
-  error?: string
+    name: string;
+    version: string;
+  };
+  error?: string;
 }
 
 // ============================================
@@ -227,19 +240,19 @@ export interface McpServerStatusInfo {
 // ============================================
 
 export interface TokenUsage {
-  inputTokens: number
-  outputTokens: number
-  cacheReadTokens: number
-  cacheCreationTokens: number
-  totalCostUsd: number
-  contextWindow: number
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  contextWindow: number;
 }
 
 export interface SingleCallUsage {
-  inputTokens: number
-  outputTokens: number
-  cacheReadTokens: number
-  cacheCreationTokens: number
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 // ============================================
@@ -249,4 +262,4 @@ export interface SingleCallUsage {
 /**
  * Main window reference for IPC communication
  */
-export type MainWindowRef = BrowserWindow | null
+export type MainWindowRef = BrowserWindow | null;

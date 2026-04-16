@@ -16,20 +16,20 @@
  * @module permission-forwarder
  */
 
-import { createLogger } from '../../utils/logger'
-import { mailboxService } from './mailbox'
+import { createLogger } from '../../utils/logger';
+import { mailboxService } from './mailbox';
 
-const log = createLogger('permission-forwarder')
+const log = createLogger('permission-forwarder');
 
 // ============================================
 // Types
 // ============================================
 
 interface PendingPermissionRequest {
-  id: string
-  resolve: (approved: boolean) => void
-  reject: (reason?: unknown) => void
-  createdAt: number
+  id: string;
+  resolve: (approved: boolean) => void;
+  reject: (reason?: unknown) => void;
+  createdAt: number;
 }
 
 // ============================================
@@ -41,10 +41,10 @@ interface PendingPermissionRequest {
  */
 export class PermissionForwarder {
   /** Pending permission requests waiting for responses */
-  private pendingRequests: Map<string, PendingPermissionRequest> = new Map()
+  private pendingRequests: Map<string, PendingPermissionRequest> = new Map();
 
   /** Default timeout for permission requests (5 minutes) */
-  private defaultTimeout: number = 5 * 60 * 1000
+  private defaultTimeout: number = 5 * 60 * 1000;
 
   /**
    * Forward a permission request from a worker to the leader.
@@ -53,41 +53,41 @@ export class PermissionForwarder {
    * @returns true if approved, false if denied or timed out
    */
   async forwardRequest(params: {
-    spaceId: string
-    teamId: string
-    requestingAgentId: string
-    requestingAgentName: string
-    toolName: string
-    toolInput: Record<string, unknown>
-    taskId?: string
-    timeout?: number
+    spaceId: string;
+    teamId: string;
+    requestingAgentId: string;
+    requestingAgentName: string;
+    toolName: string;
+    toolInput: Record<string, unknown>;
+    taskId?: string;
+    timeout?: number;
   }): Promise<boolean> {
-    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Create promise for the response
     const promise = new Promise<boolean>((resolve, reject) => {
-      const timeout = params.timeout || this.defaultTimeout
+      const timeout = params.timeout || this.defaultTimeout;
 
       // Set up timeout
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(requestId)
-        log.warn(`Permission request ${requestId} timed out after ${timeout}ms`)
-        resolve(false) // Timeout = denied
-      }, timeout)
+        this.pendingRequests.delete(requestId);
+        log.warn(`Permission request ${requestId} timed out after ${timeout}ms`);
+        resolve(false); // Timeout = denied
+      }, timeout);
 
       this.pendingRequests.set(requestId, {
         id: requestId,
         resolve: (approved) => {
-          clearTimeout(timer)
-          resolve(approved)
+          clearTimeout(timer);
+          resolve(approved);
         },
         reject: (reason) => {
-          clearTimeout(timer)
-          reject(reason)
+          clearTimeout(timer);
+          reject(reason);
         },
-        createdAt: Date.now()
-      })
-    })
+        createdAt: Date.now(),
+      });
+    });
 
     // Post permission request to leader's mailbox
     mailboxService.postMessage(
@@ -102,17 +102,19 @@ export class PermissionForwarder {
           permissionRequestId: requestId,
           toolName: params.toolName,
           toolInput: params.toolInput,
-          taskId: params.taskId
-        }
-      }
-    )
+          taskId: params.taskId,
+        },
+      },
+    );
 
     // Also emit event for IPC forwarding to renderer
     // (The orchestrator's handleHyperSpaceToolCall will pick this up for remote workers)
 
-    log.info(`Permission request ${requestId} forwarded: tool=${params.toolName} agent=${params.requestingAgentName}`)
+    log.info(
+      `Permission request ${requestId} forwarded: tool=${params.toolName} agent=${params.requestingAgentName}`,
+    );
 
-    return promise
+    return promise;
   }
 
   /**
@@ -120,50 +122,41 @@ export class PermissionForwarder {
    * Resolves the pending request promise.
    */
   handleResponse(params: {
-    spaceId: string
-    respondingAgentId: string
-    requestId: string
-    approved: boolean
+    spaceId: string;
+    respondingAgentId: string;
+    requestId: string;
+    approved: boolean;
   }): void {
-    const request = this.pendingRequests.get(params.requestId)
+    const request = this.pendingRequests.get(params.requestId);
     if (!request) {
-      log.warn(`No pending permission request found: ${params.requestId}`)
-      return
+      log.warn(`No pending permission request found: ${params.requestId}`);
+      return;
     }
 
-    request.resolve(params.approved)
-    this.pendingRequests.delete(params.requestId)
+    request.resolve(params.approved);
+    this.pendingRequests.delete(params.requestId);
 
     log.info(
       `Permission response ${params.requestId}: ` +
-      `${params.approved ? 'APPROVED' : 'DENIED'} by ${params.respondingAgentId}`
-    )
+        `${params.approved ? 'APPROVED' : 'DENIED'} by ${params.respondingAgentId}`,
+    );
   }
 
   /**
    * Post a permission response to a worker's mailbox.
    * Called when the user approves/denies in the UI.
    */
-  postResponse(
-    spaceId: string,
-    workerAgentId: string,
-    requestId: string,
-    approved: boolean
-  ): void {
-    mailboxService.postMessage(
-      spaceId,
-      workerAgentId,
-      {
-        type: 'permission_response',
-        senderId: 'leader',
-        senderName: 'Leader',
-        content: approved ? 'Permission approved' : 'Permission denied',
-        payload: {
-          permissionRequestId: requestId,
-          approved
-        }
-      }
-    )
+  postResponse(spaceId: string, workerAgentId: string, requestId: string, approved: boolean): void {
+    mailboxService.postMessage(spaceId, workerAgentId, {
+      type: 'permission_response',
+      senderId: 'leader',
+      senderName: 'Leader',
+      content: approved ? 'Permission approved' : 'Permission denied',
+      payload: {
+        permissionRequestId: requestId,
+        approved,
+      },
+    });
   }
 
   /**
@@ -171,17 +164,17 @@ export class PermissionForwarder {
    */
   rejectAll(): void {
     for (const [id, request] of this.pendingRequests) {
-      request.resolve(false)
-      this.pendingRequests.delete(id)
+      request.resolve(false);
+      this.pendingRequests.delete(id);
     }
-    log.info(`Rejected ${this.pendingRequests.size} pending permission requests`)
+    log.info(`Rejected ${this.pendingRequests.size} pending permission requests`);
   }
 
   /**
    * Get count of pending permission requests.
    */
   getPendingCount(): number {
-    return this.pendingRequests.size
+    return this.pendingRequests.size;
   }
 }
 
@@ -190,4 +183,4 @@ export class PermissionForwarder {
 // ============================================
 
 /** Global permission forwarder instance */
-export const permissionForwarder = new PermissionForwarder()
+export const permissionForwarder = new PermissionForwarder();
