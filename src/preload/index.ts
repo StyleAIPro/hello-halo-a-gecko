@@ -150,6 +150,7 @@ export interface AicoBotAPI {
   ensureSessionWarm: (spaceId: string, conversationId: string) => Promise<IpcResponse>
   testMcpConnections: () => Promise<{ success: boolean; servers: unknown[]; error?: string }>
   answerQuestion: (data: { conversationId: string; id: string; answers: Record<string, string> }) => Promise<IpcResponse>
+  rejectQuestion: (data: { id: string; reason?: string }) => Promise<IpcResponse>
   compactContext: (conversationId: string) => Promise<IpcResponse>
 
   // Event listeners
@@ -296,27 +297,6 @@ export interface AicoBotAPI {
   hideChatCapsuleOverlay: () => Promise<IpcResponse>
   onCanvasExitMaximized: (callback: () => void) => () => void
 
-  // Performance Monitoring (Developer Tools)
-  perfStart: (config?: { sampleInterval?: number; maxSamples?: number }) => Promise<IpcResponse>
-  perfStop: () => Promise<IpcResponse>
-  perfGetState: () => Promise<IpcResponse>
-  perfGetHistory: () => Promise<IpcResponse>
-  perfClearHistory: () => Promise<IpcResponse>
-  perfSetConfig: (config: { enabled?: boolean; sampleInterval?: number; warnOnThreshold?: boolean }) => Promise<IpcResponse>
-  perfExport: () => Promise<IpcResponse<string>>
-  perfReportRendererMetrics: (metrics: {
-    fps: number
-    frameTime: number
-    renderCount: number
-    domNodes: number
-    eventListeners: number
-    jsHeapUsed: number
-    jsHeapLimit: number
-    longTasks: number
-  }) => void
-  onPerfSnapshot: (callback: (data: unknown) => void) => () => void
-  onPerfWarning: (callback: (data: unknown) => void) => () => void
-
   // Git Bash (Windows only)
   getGitBashStatus: () => Promise<IpcResponse<{
     found: boolean
@@ -367,10 +347,6 @@ export interface AicoBotAPI {
   generateHealthReportText: () => Promise<IpcResponse<string>>
   exportHealthReport: (filePath?: string) => Promise<IpcResponse<HealthExportResponse>>
   runHealthCheck: () => Promise<IpcResponse<HealthCheckResponse>>
-
-  // Notification Channels
-  testNotificationChannel: (channelType: string) => Promise<IpcResponse>
-  clearNotificationChannelCache: () => Promise<IpcResponse>
 
   // Apps Management
   appList: (filter?: { spaceId?: string; status?: string; type?: string }) => Promise<IpcResponse>
@@ -452,6 +428,10 @@ export interface AicoBotAPI {
   onRemoteAgentError: (callback: (data: unknown) => void) => () => void
   onRemoteAgentFsResult: (callback: (data: unknown) => void) => () => void
   onRemoteTaskUpdate: (callback: (data: unknown) => void) => () => void
+  onRemoteServerCommandOutput: (callback: (data: unknown) => void) => () => void
+  onRemoteServerStatusChange: (callback: (data: unknown) => void) => () => void
+  onRemoteServerDeployProgress: (callback: (data: unknown) => void) => () => void
+  onRemoteServerUpdateComplete: (callback: (data: unknown) => void) => () => void
 
   // Store (App Registry)
   storeListApps: (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }) => Promise<IpcResponse>
@@ -671,6 +651,7 @@ const api: AicoBotAPI = {
   ensureSessionWarm: (spaceId, conversationId) => ipcRenderer.invoke('agent:ensure-session-warm', spaceId, conversationId),
   testMcpConnections: () => ipcRenderer.invoke('agent:test-mcp'),
   answerQuestion: (data) => ipcRenderer.invoke('agent:answer-question', data),
+  rejectQuestion: (data) => ipcRenderer.invoke('agent:reject-question', data),
   compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
 
   // Event listeners
@@ -781,18 +762,6 @@ const api: AicoBotAPI = {
   hideChatCapsuleOverlay: () => ipcRenderer.invoke('overlay:hide-chat-capsule'),
   onCanvasExitMaximized: (callback) => createEventListener('canvas:exit-maximized', callback as (data: unknown) => void),
 
-  // Performance Monitoring (Developer Tools)
-  perfStart: (config) => ipcRenderer.invoke('perf:start', config),
-  perfStop: () => ipcRenderer.invoke('perf:stop'),
-  perfGetState: () => ipcRenderer.invoke('perf:get-state'),
-  perfGetHistory: () => ipcRenderer.invoke('perf:get-history'),
-  perfClearHistory: () => ipcRenderer.invoke('perf:clear-history'),
-  perfSetConfig: (config) => ipcRenderer.invoke('perf:set-config', config),
-  perfExport: () => ipcRenderer.invoke('perf:export'),
-  perfReportRendererMetrics: (metrics) => ipcRenderer.send('perf:renderer-metrics', metrics),
-  onPerfSnapshot: (callback) => createEventListener('perf:snapshot', callback),
-  onPerfWarning: (callback) => createEventListener('perf:warning', callback),
-
   // Git Bash (Windows only)
   getGitBashStatus: () => ipcRenderer.invoke('git-bash:status'),
   installGitBash: async (onProgress) => {
@@ -847,10 +816,6 @@ const api: AicoBotAPI = {
   generateHealthReportText: () => ipcRenderer.invoke('health:generate-report-text'),
   exportHealthReport: (filePath) => ipcRenderer.invoke('health:export-report', filePath),
   runHealthCheck: () => ipcRenderer.invoke('health:run-check'),
-
-  // Notification Channels
-  testNotificationChannel: (channelType: string) => ipcRenderer.invoke('notify-channels:test', channelType),
-  clearNotificationChannelCache: () => ipcRenderer.invoke('notify-channels:clear-cache'),
 
   // Apps Management
   appList: (filter) => ipcRenderer.invoke('app:list', filter),
@@ -935,6 +900,10 @@ const api: AicoBotAPI = {
   onRemoteAgentError: (callback) => createEventListener('remote-agent:error', callback),
   onRemoteAgentFsResult: (callback) => createEventListener('remote-agent:fs:result', callback),
   onRemoteTaskUpdate: (callback) => createEventListener('remote-server:task-update', callback),
+  onRemoteServerCommandOutput: (callback) => createEventListener('remote-server:command-output', callback),
+  onRemoteServerStatusChange: (callback) => createEventListener('remote-server:status-change', callback),
+  onRemoteServerDeployProgress: (callback) => createEventListener('remote-server:deploy-progress', callback),
+  onRemoteServerUpdateComplete: (callback) => createEventListener('remote-server:update-complete', callback),
 
   // Store (App Registry)
   storeListApps: (query) => ipcRenderer.invoke('store:list-apps', query),
@@ -1081,38 +1050,6 @@ const api: AicoBotAPI = {
 }
 
 contextBridge.exposeInMainWorld('aicoBot', api)
-
-// Analytics: Listen for tracking events from main process
-// Baidu Tongji SDK is loaded in index.html, we just need to call _hmt.push()
-// Note: _hmt is initialized as an array in index.html before SDK loads
-// The SDK will process queued commands when it loads
-ipcRenderer.on('analytics:track', (_event, data: {
-  type: string
-  category: string
-  action: string
-  label?: string
-  value?: number
-  customVars?: Record<string, unknown>
-}) => {
-  try {
-    // _hmt is defined in index.html as: var _hmt = _hmt || []
-    // We can push commands to it before SDK fully loads - SDK will process them
-    const win = window as unknown as { _hmt?: unknown[][] }
-
-    // Ensure _hmt exists
-    if (!win._hmt) {
-      win._hmt = []
-    }
-
-    if (data.type === 'trackEvent') {
-      // _hmt.push(['_trackEvent', category, action, opt_label, opt_value])
-      win._hmt.push(['_trackEvent', data.category, data.action, data.label || '', data.value || 0])
-      console.log('[Analytics] Baidu event queued:', data.action)
-    }
-  } catch (error) {
-    console.warn('[Analytics] Failed to track Baidu event:', error)
-  }
-})
 
 // Expose platform info for cross-platform UI adjustments
 const platformInfo = {

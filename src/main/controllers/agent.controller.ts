@@ -11,7 +11,8 @@ import {
   getActiveSessions,
   getSessionState as agentGetSessionState,
   testMcpConnections as agentTestMcpConnections,
-  resolveQuestion
+  resolveQuestion,
+  rejectQuestion as agentRejectQuestion
 } from '../services/agent'
 
 // Image attachment type for multi-modal messages
@@ -130,6 +131,25 @@ export function answerQuestion(
   try {
     const resolved = resolveQuestion(id, answers)
     if (!resolved) {
+      return { success: false, error: `No pending question found for id: ${id}` }
+    }
+    return { success: true }
+  } catch (error: unknown) {
+    const err = error as Error
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * Reject a pending AskUserQuestion
+ */
+export function rejectPendingQuestion(
+  id: string,
+  reason?: string
+): ControllerResponse {
+  try {
+    const rejected = agentRejectQuestion(id, reason || 'Rejected by client')
+    if (!rejected) {
       return { success: false, error: `No pending question found for id: ${id}` }
     }
     return { success: true }

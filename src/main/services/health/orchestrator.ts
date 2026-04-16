@@ -327,13 +327,13 @@ export function onAgentError(conversationId: string, error: string): void {
  * Handle process exit (called from session manager)
  */
 export function onProcessExit(processId: string, code: number | null): void {
-  emitHealthEvent(
-    'process_exit',
-    'critical',
-    processId,
-    `Process exited with code ${code}`,
-    { exitCode: code }
-  )
+  emitHealthEvent({
+    type: 'process_exit',
+    category: 'critical',
+    source: processId,
+    message: `Process exited with code ${code}`,
+    data: { exitCode: code }
+  })
 }
 
 /**

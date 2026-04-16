@@ -553,27 +553,53 @@ export async function deleteSpace(spaceId: string): Promise<{ success: boolean; 
         rmSync(spaceDataDir, { recursive: true, force: true })
       }
     }
+  } catch (error: any) {
+    const code = error?.code || ''
+    // On Windows, file handles may still be releasing even after watcher close.
+    // Retry once with a short delay before giving up.
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+      console.log(`[Space] Retrying delete for ${spaceId} (error: ${code})...`)
+      await new Promise((r) => setTimeout(r, 500))
+      try {
+        if (isCentralized) {
+          rmSync(spacePath, { recursive: true, force: true })
+        } else {
+          const spaceDataDir = join(spacePath, '.aico-bot')
+          if (existsSync(spaceDataDir)) {
+            rmSync(spaceDataDir, { recursive: true, force: true })
+          }
+        }
+      } catch (retryError: any) {
+        const retryCode = retryError?.code || ''
+        console.error(`[Space] Failed to delete space ${spaceId} on retry:`, retryError)
+
+        let errorMessage: string
+        if (retryCode === 'EBUSY' || retryCode === 'EPERM' || retryCode === 'EACCES') {
+          errorMessage = 'Failed to delete space. Some files may be in use. Please close any active sessions and try again.'
+        } else if (retryCode === 'ENOTEMPTY') {
+          errorMessage = 'Failed to delete space. Directory is not empty.'
+        } else {
+          errorMessage = `Failed to delete space: ${retryError?.message || 'Unknown error'}`
+        }
+        return { success: false, error: errorMessage }
+      }
+    } else {
+      console.error(`[Space] Failed to delete space ${spaceId}:`, error)
+      let errorMessage: string
+      if (code === 'ENOTEMPTY') {
+        errorMessage = 'Failed to delete space. Directory is not empty.'
+      } else {
+        errorMessage = `Failed to delete space: ${error?.message || 'Unknown error'}`
+      }
+      return { success: false, error: errorMessage }
+    }
+  }
 
     // Unregister from index (memory + disk)
     getRegistry().delete(spaceId)
     persistIndex(getRegistry())
 
     return { success: true }
-  } catch (error: any) {
-    const code = error?.code || ''
-    console.error(`[Space] Failed to delete space ${spaceId}:`, error)
-
-    let errorMessage: string
-    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
-      errorMessage = 'Failed to delete space. Some files may be in use. Please close any active sessions and try again.'
-    } else if (code === 'ENOTEMPTY') {
-      errorMessage = 'Failed to delete space. Directory is not empty.'
-    } else {
-      errorMessage = `Failed to delete space: ${error?.message || 'Unknown error'}`
-    }
-
-    return { success: false, error: errorMessage }
-  }
 }
 
 /**

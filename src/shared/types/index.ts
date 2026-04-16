@@ -54,9 +54,6 @@ export * from './health'
 // Artifact types (shared between main process and file-watcher worker)
 export * from './artifact'
 
-// Notification channel types (shared between main process and renderer)
-export * from './notification-channels'
-
 // File changes types (shared between main process agent and renderer diff)
 export type { FileChangesSummary, ThoughtLike } from '../file-changes'
 export { countChangedLines, calculateDiffStats, extractFileChangesSummaryFromThoughts } from '../file-changes'
@@ -69,7 +66,6 @@ export interface RemoteServer {
   sshPort: number
   username: string
   password: string  // encrypted
-  wsPort: number
   authToken: string
   status: 'disconnected' | 'connected' | 'deploying' | 'error'
   error?: string
@@ -80,7 +76,15 @@ export interface RemoteServer {
   aiSourceId?: string     // Reference to AISource.id for preset selection
   sdkInstalled?: boolean  // Whether claude-agent-sdk is installed
   sdkVersion?: string  // Installed SDK version
+  sdkVersionMismatch?: boolean  // Whether installed SDK version differs from required version
+  proxyRunning?: boolean  // Whether the remote agent proxy is running and healthy
+  apiReachable?: boolean  // Whether the proxy can successfully call the configured API
   agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
+
+  // Per-PC Isolation fields
+  clientId?: string        // This PC's machine identity (e.g., "client-7f3a1b9c2e4d")
+  assignedPort?: number    // Actual port allocated on remote server (30000-40000 range)
+  deployPath?: string      // Full path on remote server (e.g., "/opt/claude-deployment-client-7f3a1b9c")
 }
 
 export interface RemoteServerConnection {

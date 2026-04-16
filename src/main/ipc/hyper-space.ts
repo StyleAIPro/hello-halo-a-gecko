@@ -17,6 +17,7 @@ import type {
 import type { PostTaskInput } from '../../shared/types/taskboard'
 import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service'
 import type { Space } from '../../shared/types'
+import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service'
 
 /**
  * Register Hyper Space IPC handlers
@@ -35,6 +36,23 @@ export function registerHyperSpaceHandlers(): void {
     try {
       // Use createHyperSpace for hyper spaces
       if (input.spaceType === 'hyper') {
+        // Validate all remote worker agents: their servers must be ready (SDK + Bot Proxy)
+        const remoteAgents = (input.agents || []).filter(a => a.type === 'remote' && a.remoteServerId)
+        const invalidAgents: string[] = []
+        for (const agent of remoteAgents) {
+          const server = remoteDeployService.getServer(agent.remoteServerId!)
+          if (!server) {
+            invalidAgents.push(`Agent "${agent.name}": remote server not found`)
+          } else if (!server.sdkInstalled) {
+            invalidAgents.push(`Agent "${agent.name}": SDK not installed on "${server.name}"`)
+          } else if (!server.proxyRunning) {
+            invalidAgents.push(`Agent "${agent.name}": Bot Proxy not running on "${server.name}"`)
+          }
+        }
+        if (invalidAgents.length > 0) {
+          return { success: false, error: `Remote servers not ready:\n${invalidAgents.join('\n')}` }
+        }
+
         const space = createHyperSpace(input)
 
         if (!space) {
@@ -47,6 +65,19 @@ export function registerHyperSpaceHandlers(): void {
       }
 
       // Fallback to regular space creation
+      if (input.claudeSource === 'remote' && input.remoteServerId) {
+        const server = remoteDeployService.getServer(input.remoteServerId)
+        if (!server) {
+          return { success: false, error: 'Remote server not found' }
+        }
+        if (!server.sdkInstalled) {
+          return { success: false, error: `Remote server "${server.name}" is not ready: SDK is not installed. Please deploy the agent first.` }
+        }
+        if (!server.proxyRunning) {
+          return { success: false, error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.` }
+        }
+      }
+
       const space = createSpace({
         name: input.name,
         icon: input.icon,
@@ -282,20 +313,10 @@ export function registerHyperSpaceHandlers(): void {
     config: Partial<OrchestrationConfig>
   }) => {
     try {
-      const team = agentOrchestrator.getTeamBySpace(params.spaceId)
-      if (!team) {
+      const ok = agentOrchestrator.updateTeamConfig(params.spaceId, params.config)
+      if (!ok) {
         return { success: false, error: 'Hyper Space team not found' }
       }
-
-      // Update team config
-      team.config = {
-        ...team.config,
-        ...params.config,
-        routing: { ...team.config.routing, ...params.config.routing },
-        aggregation: { ...team.config.aggregation, ...params.config.aggregation },
-        announce: { ...team.config.announce, ...params.config.announce }
-      }
-
       return { success: true }
     } catch (error) {
       return {
@@ -314,47 +335,30 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:get-members', async (_event, spaceId: string) => {
     try {
-      const team = agentOrchestrator.getTeamBySpace(spaceId)
+      const members = agentOrchestrator.getTeamMembers(spaceId)
 
-      if (!team) {
-        // Team not in runtime, try to get from space definition
-        const space = getSpace(spaceId)
-        if (space && space.agents) {
-          return {
-            success: true,
-            data: {
-              members: space.agents.map(a => ({
-                id: a.id,
-                name: a.name,
-                role: a.role,
-                type: a.type,
-                capabilities: a.capabilities
-              }))
-            }
-          }
-        }
-        return { success: false, error: 'Hyper Space team not found' }
+      if (members) {
+        return { success: true, data: { members } }
       }
 
-      // Build members list from team
-      const members = [
-        {
-          id: team.leader.id,
-          name: team.leader.config.name,
-          role: 'leader' as const,
-          type: team.leader.config.type,
-          capabilities: team.leader.config.capabilities
-        },
-        ...team.workers.map(w => ({
-          id: w.id,
-          name: w.config.name,
-          role: 'worker' as const,
-          type: w.config.type,
-          capabilities: w.config.capabilities
-        }))
-      ]
+      // Team not in runtime, try to get from space definition
+      const space = getSpace(spaceId)
+      if (space && space.agents) {
+        return {
+          success: true,
+          data: {
+            members: space.agents.map(a => ({
+              id: a.id,
+              name: a.name,
+              role: a.role,
+              type: a.type,
+              capabilities: a.capabilities
+            }))
+          }
+        }
+      }
 
-      return { success: true, data: { members } }
+      return { success: false, error: 'Hyper Space team not found' }
     } catch (error) {
       return {
         success: false,

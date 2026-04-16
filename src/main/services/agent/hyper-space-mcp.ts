@@ -879,13 +879,18 @@ function buildWorkerTools(spaceId: string, conversationId: string, workerId?: st
  * @param workerId - Optional worker ID (for accurate identification in worker tools)
  * @param workerName - Optional worker name (for accurate identification in worker tools)
  */
+export interface HyperSpaceMcpOptions {
+  agentRole?: 'leader' | 'worker'
+  workerId?: string
+  workerName?: string
+}
+
 export function createHyperSpaceMcpServer(
   spaceId: string,
   conversationId: string,
-  agentRole: 'leader' | 'worker' = 'leader',
-  workerId?: string,
-  workerName?: string
+  options: HyperSpaceMcpOptions = {}
 ) {
+  const { agentRole = 'leader', workerId, workerName } = options
   // Select tools based on agent role
   const tools = agentRole === 'leader'
     ? buildLeaderTools(spaceId, conversationId)

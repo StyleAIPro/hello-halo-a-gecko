@@ -8,8 +8,6 @@ import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, cpSync, rmSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 
-// Import analytics config type
-import type { AnalyticsConfig } from './analytics/types'
 import type {
   AISourcesConfig,
   AISource,
@@ -18,7 +16,6 @@ import type {
   CustomSourceConfig,
   ModelOption
 } from '../../shared/types'
-import { DEFAULT_MODEL } from '../../shared/types'
 import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants'
 import { decryptString } from './secure-storage.service'
 
@@ -336,10 +333,8 @@ interface AicoBotConfig {
   // MCP servers configuration (compatible with Cursor / Claude Desktop format)
   mcpServers: Record<string, McpServerConfig>
   isFirstLaunch: boolean
-  // External notification channels (email, WeCom, DingTalk, Feishu, webhook)
-  notificationChannels?: import('../../shared/types/notification-channels').NotificationChannelsConfig
-  // Analytics configuration (auto-generated on first launch)
-  analytics?: AnalyticsConfig
+  // Analytics configuration (auto-generated on first launch, no longer actively used)
+  analytics?: Record<string, unknown>
   // Global layout preferences (panel sizes and visibility)
   layout?: {
     sidebarOpen?: boolean
@@ -372,7 +367,6 @@ interface AicoBotConfig {
     sshPort: number
     username: string
     password: string  // encrypted
-    wsPort: number
     authToken: string
     status: 'disconnected' | 'connected' | 'deploying' | 'error'
     error?: string
@@ -504,13 +498,16 @@ export function getAllSkillsDirs(): string[] {
   return [getAgentsSkillsDir(), getClaudeSkillsDir()]
 }
 
+// Default model (Opus 4.5)
+const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
+
 // Default configuration
 const DEFAULT_CONFIG: AicoBotConfig = {
   api: {
-    provider: 'openai',
+    provider: 'anthropic',
     apiKey: '',
-    apiUrl: '',
-    model: ''
+    apiUrl: 'https://api.anthropic.com',
+    model: DEFAULT_MODEL
   },
   aiSources: {
     version: 2,
@@ -857,7 +854,7 @@ export function getConfig(): AicoBotConfig {
       onboarding: { ...DEFAULT_CONFIG.onboarding, ...parsed.onboarding },
       // mcpServers is a flat map, just use parsed value or default
       mcpServers: parsed.mcpServers || DEFAULT_CONFIG.mcpServers,
-      // analytics: keep as-is (managed by analytics.service.ts)
+      // analytics: keep as-is (no longer actively managed)
       analytics: parsed.analytics,
       // layout: keep persisted values (panel sizes and visibility)
       layout: parsed.layout
@@ -897,7 +894,7 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   if (config.mcpServers !== undefined) {
     newConfig.mcpServers = config.mcpServers
   }
-  // analytics: replace entirely when provided (managed by analytics.service.ts)
+  // analytics: replace entirely when provided (no longer actively managed)
   if (config.analytics !== undefined) {
     newConfig.analytics = config.analytics
   }
@@ -952,6 +949,66 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   }
 
   return newConfig
+}
+
+// ──────────────────────────────────────────────
+// Decrypted config & save+notify (moved from IPC layer)
+// ──────────────────────────────────────────────
+
+/**
+ * Get config with decrypted AI source credentials
+ *
+ * Moves decryption logic from IPC handler into service layer.
+ */
+export function getDecryptedConfig(): Record<string, any> {
+  const config = getConfig() as Record<string, any>
+  const decryptedConfig = { ...config }
+
+  if (decryptedConfig.aiSources?.version === 2 && Array.isArray(decryptedConfig.aiSources.sources)) {
+    decryptedConfig.aiSources = {
+      ...decryptedConfig.aiSources,
+      sources: decryptedConfig.aiSources.sources.map((source: AISource) => ({
+        ...source,
+        apiKey: source.apiKey ? decryptString(source.apiKey) : undefined,
+        accessToken: source.accessToken ? decryptString(source.accessToken) : undefined,
+        refreshToken: source.refreshToken ? decryptString(source.refreshToken) : undefined
+      }))
+    }
+  }
+
+  if (decryptedConfig.api?.apiKey) {
+    decryptedConfig.api = {
+      ...decryptedConfig.api,
+      apiKey: decryptString(decryptedConfig.api.apiKey)
+    }
+  }
+
+  return decryptedConfig
+}
+
+/**
+ * Save config and optionally emit change events + run probe
+ *
+ * Moves post-save orchestration from IPC handler into service layer.
+ */
+export function saveConfigAndNotify(updates: Record<string, unknown>): Record<string, any> {
+  const incomingAiSources = updates.aiSources as AISourcesConfig | undefined
+
+  const config = saveConfig(updates)
+
+  if (incomingAiSources) {
+    // Dynamic import to avoid circular dependency
+    import('./health').then(({ emitConfigChange, runConfigProbe }) => {
+      emitConfigChange(['aiSources'])
+      runConfigProbe().catch(err => {
+        console.error('[Config] Post-save probe failed:', err)
+      })
+    }).catch(() => {
+      // health module not available yet
+    })
+  }
+
+  return config
 }
 
 /**

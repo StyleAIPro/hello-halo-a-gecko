@@ -12,19 +12,16 @@
  * - Delete source with confirmation
  */
 
-import { useState } from 'react'
 import {
   Plus, Check, ChevronRight, Edit2, Trash2, Key
 } from 'lucide-react'
 import type {
   AISource,
-  AISourcesConfig,
   AicoBotConfig
 } from '../../types'
-import { getBuiltinProvider } from '../../types'
 import { useTranslation } from '../../i18n'
-import { api } from '../../api'
 import { ProviderSelector } from './ProviderSelector'
+import { useAISources } from '../../hooks/useAISources'
 
 interface AISourcesSectionProps {
   config: AicoBotConfig
@@ -34,83 +31,23 @@ interface AISourcesSectionProps {
 export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
   const { t } = useTranslation()
 
-  // Get v2 aiSources
-  const aiSources: AISourcesConfig = config.aiSources || {
-    version: 2,
-    currentId: null,
-    sources: []
-  }
-
-  // State
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [editingSourceId, setEditingSourceId] = useState<string | null>(null)
-  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
-  const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null)
-
-  // Reload config from backend
-  const reloadConfig = async () => {
-    const result = await api.getConfig()
-    if (result.success && result.data) {
-      setConfig(result.data as AicoBotConfig)
-    }
-  }
-
-  // Get current source
-  const currentSource = aiSources.sources.find(s => s.id === aiSources.currentId)
-
-  // Handle switch source (atomic: backend reads latest tokens from disk)
-  const handleSwitchSource = async (sourceId: string) => {
-    const result = await api.aiSourcesSwitchSource(sourceId)
-    if (result.success && result.data) {
-      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
-    }
-  }
-
-  // Handle save source (add or update)
-  const handleSaveSource = async (source: AISource) => {
-    const existingIndex = aiSources.sources.findIndex(s => s.id === source.id)
-
-    // Add or update source atomically (backend reads from disk, preserves tokens)
-    const saveResult = existingIndex >= 0
-      ? await api.aiSourcesUpdateSource(source.id, source)
-      : await api.aiSourcesAddSource(source)
-
-    if (!saveResult.success) {
-      console.error('[AISourcesSection] Failed to save source:', saveResult.error)
-      return
-    }
-
-    // Switch to saved source as current, get latest data from disk
-    const switchResult = await api.aiSourcesSwitchSource(source.id)
-    if (switchResult.success && switchResult.data) {
-      setConfig({ ...config, aiSources: switchResult.data as AISourcesConfig, isFirstLaunch: false })
-    }
-
-    // Persist isFirstLaunch flag (no aiSources in payload, safe)
-    await api.setConfig({ isFirstLaunch: false })
-
-    setShowAddForm(false)
-    setEditingSourceId(null)
-  }
-
-  // Handle delete source
-  const handleDeleteSource = async (sourceId: string) => {
-    const result = await api.aiSourcesDeleteSource(sourceId)
-    if (result.success && result.data) {
-      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
-    }
-    setDeletingSourceId(null)
-  }
-
-  // Get display info for a source
-  const getSourceDisplayInfo = (source: AISource) => {
-    const builtin = getBuiltinProvider(source.provider)
-    return {
-      name: source.name || builtin?.name || source.provider,
-      icon: builtin?.icon || 'key',
-      description: builtin?.description || ''
-    }
-  }
+  const {
+    aiSources,
+    currentSource,
+    showAddForm,
+    editingSourceId,
+    deletingSourceId,
+    expandedSourceId,
+    switchSource: handleSwitchSource,
+    saveSource: handleSaveSource,
+    deleteSource: handleDeleteSource,
+    openAddForm,
+    cancelForm,
+    setEditingSourceId,
+    setDeletingSourceId,
+    setExpandedSourceId,
+    getSourceDisplayInfo
+  } = useAISources({ config, setConfig })
 
   // Render source card
   const renderSourceCard = (source: AISource) => {
@@ -225,10 +162,7 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
         <ProviderSelector
           aiSources={aiSources}
           onSave={handleSaveSource}
-          onCancel={() => {
-            setShowAddForm(false)
-            setEditingSourceId(null)
-          }}
+          onCancel={cancelForm}
           editingSourceId={editingSourceId}
         />
       </div>
@@ -277,7 +211,7 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
 
       {/* Add Source Button */}
       <button
-        onClick={() => setShowAddForm(true)}
+        onClick={openAddForm}
         className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed
                  border-border-secondary hover:border-primary text-text-secondary hover:text-primary
                  rounded-lg transition-colors"

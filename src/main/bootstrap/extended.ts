@@ -30,7 +30,6 @@ import { registerBrowserHandlers } from '../ipc/browser'
 import { registerAIBrowserHandlers, cleanupAIBrowserHandlers } from '../ipc/ai-browser'
 import { registerOverlayHandlers, cleanupOverlayHandlers } from '../ipc/overlay'
 import { initializeSearchHandlers, cleanupSearchHandlers } from '../ipc/search'
-import { registerPerfHandlers } from '../ipc/perf'
 import { registerGitBashHandlers, initializeGitBashOnStartup } from '../ipc/git-bash'
 import { registerGitHubHandlers } from '../ipc/github'
 import { registerGitCodeHandlers } from '../ipc/gitcode'
@@ -47,7 +46,6 @@ import { initScheduler, shutdownScheduler } from '../platform/scheduler'
 import { initEventBus, shutdownEventBus, FileWatcherSource, WebhookSource } from '../platform/event-bus'
 import type { WebhookSecretResolver } from '../platform/event-bus'
 import { initMemory } from '../platform/memory'
-import { registerNotificationChannelHandlers } from '../ipc/notification-channels'
 import { registerStoreHandlers } from '../ipc/store'
 import { registerSkillHandlers } from '../ipc/skill'
 import { registerHyperSpaceHandlers } from '../ipc/hyper-space'
@@ -184,11 +182,6 @@ export function initializeExtendedServices(): void {
   // Search: Global search functionality
   initializeSearchHandlers()
 
-  // Performance: Developer monitoring tools (only if window is available)
-  if (mainWindow) {
-    registerPerfHandlers(mainWindow)
-  }
-
   // GitBash: Windows Git Bash detection and setup
   registerGitBashHandlers()
 
@@ -207,9 +200,6 @@ export function initializeExtendedServices(): void {
   // and access a shared hidden BrowserWindow with stealth injection
   const backgroundService = initBackground()
   backgroundService.initTray()
-
-  // Notification channel IPC handlers (notify-channels:test, etc.)
-  registerNotificationChannelHandlers()
 
   // Store: IPC handlers for App Store registry operations
   registerStoreHandlers()

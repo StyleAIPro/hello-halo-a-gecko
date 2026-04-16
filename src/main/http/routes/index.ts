@@ -15,8 +15,6 @@ import * as spaceController from '../../controllers/space.controller'
 import * as conversationController from '../../controllers/conversation.controller'
 import * as configController from '../../controllers/config.controller'
 import { getEnabledAuthProviderConfigs, getAISourceManager } from '../../services/ai-sources'
-import { testChannel, clearAllTokenCaches } from '../../services/notify-channels'
-import type { NotificationChannelType } from '../../../shared/types/notification-channels'
 import {
   listArtifacts,
   listArtifactsTree,
@@ -421,6 +419,13 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
     res.json(result)
   })
 
+  // Reject a pending AskUserQuestion
+  app.post('/api/agent/reject-question', async (req: Request, res: Response) => {
+    const { id, reason } = req.body
+    const result = agentController.rejectPendingQuestion(id, reason)
+    res.json(result)
+  })
+
   // Test MCP server connections
   app.post('/api/agent/test-mcp', async (req: Request, res: Response) => {
     const result = await agentController.testMcpConnections(mainWindow)
@@ -634,36 +639,6 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
       res.json({ success: true, data: info })
     } catch (error) {
       res.status(500).json({ success: false, error: (error as Error).message })
-    }
-  })
-
-  // ===== Notification Channels Routes =====
-  app.post('/api/notify-channels/test', async (req: Request, res: Response) => {
-    try {
-      const { channelType } = req.body as { channelType?: string }
-      if (!channelType) {
-        res.status(400).json({ success: false, error: 'Missing channelType' })
-        return
-      }
-      const config = getServiceConfig()
-      const channelsConfig = config.notificationChannels
-      if (!channelsConfig) {
-        res.json({ success: false, error: 'No notification channels configured' })
-        return
-      }
-      const result = await testChannel(channelType as NotificationChannelType, channelsConfig)
-      res.json({ success: true, data: result })
-    } catch (error) {
-      res.json({ success: false, error: (error as Error).message })
-    }
-  })
-
-  app.post('/api/notify-channels/clear-cache', async (req: Request, res: Response) => {
-    try {
-      clearAllTokenCaches()
-      res.json({ success: true })
-    } catch (error) {
-      res.json({ success: false, error: (error as Error).message })
     }
   })
 

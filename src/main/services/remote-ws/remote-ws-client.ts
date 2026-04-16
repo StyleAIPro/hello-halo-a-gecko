@@ -165,31 +165,11 @@ export class RemoteWsClient extends EventEmitter {
           return
         }
 
-        // Before auth, register our token on the server's in-memory whitelist
-        // to avoid timing issues with the tokens.json file watcher.
-        // The server's 'register-token-disk' handler does NOT require auth.
-        const registerResolve = () => {
-          log.info(`[${this.config.serverId}] Token registered on server, sending auth...`)
-          this.send({ type: 'auth', payload: { token: this.config.authToken } })
-        }
-        const registerReject = (err: Error) => {
-          log.warn(`[${this.config.serverId}] register-token-disk failed: ${err.message}, trying auth anyway...`)
-          this.send({ type: 'auth', payload: { token: this.config.authToken } })
-        }
-        this.sendWithResponse(
-          {
-            type: 'register-token-disk',
-            payload: {
-              token: this.config.authToken,
-              clientId: this.config.serverId,
-            }
-          },
-          'register-token-disk:success',
-          'register-token-disk:error',
-          3000
-        ).then(registerResolve, registerReject)
+        // Send explicit auth message
+        log.debug(`[${this.config.serverId}] Sending auth message...`)
+        this.send({ type: 'auth', payload: { token: this.config.authToken } })
 
-        // Otherwise wait for the auth response from the explicit auth message
+        // Wait for the auth response
         log.debug(`[${this.config.serverId}] Waiting for auth confirmation...`)
         const authTimeout = setTimeout(() => {
           if (!this.authenticated) {
@@ -502,45 +482,6 @@ export class RemoteWsClient extends EventEmitter {
       log.error(`[${this.config.serverId}] Failed to send message:`, error)
       return false
     }
-  }
-
-  /**
-   * Send a message and wait for a specific response type.
-   * Used for request-response patterns like register-token-disk.
-   */
-  private sendWithResponse(
-    message: ClientMessage,
-    successType: string,
-    errorType: string,
-    timeoutMs: number = 5000
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.ws?.off('message', onMessage)
-        reject(new Error(`Timeout waiting for ${successType}`))
-      }, timeoutMs)
-
-      const onMessage = (data: Buffer) => {
-        try {
-          const parsed = JSON.parse(data.toString())
-          if (parsed.type === successType) {
-            clearTimeout(timeout)
-            this.ws?.off('message', onMessage)
-            resolve()
-          } else if (parsed.type === errorType) {
-            clearTimeout(timeout)
-            this.ws?.off('message', onMessage)
-            reject(new Error(parsed.data?.message || 'Unknown error'))
-          }
-          // Ignore other message types (let handleMessage process them normally)
-        } catch {
-          // Invalid JSON, ignore
-        }
-      }
-
-      this.ws?.on('message', onMessage)
-      this.send(message)
-    })
   }
 
   /**
@@ -1134,10 +1075,6 @@ const POOL_MAX_AGE_MS = 30 * 60 * 1000  // 30 minutes - recycle stale connection
  * Acquire a pooled WebSocket connection for a server.
  * Returns an existing alive connection or creates a new one.
  * The caller must call releaseConnection() when done.
- *
- * Multi-PC support: if authentication fails, retries once after a brief
- * delay to allow the proxy's fs.watch token hot-reload to pick up the
- * newly registered token from tokens.json.
  */
 export async function acquireConnection(
   serverId: string,
@@ -1188,36 +1125,8 @@ export async function acquireConnection(
     }
   })
 
-  // Connect with retry for multi-PC token sync scenarios.
-  // When a second PC adds the same remote server, its token is written to
-  // tokens.json via SSH, but the running proxy may not have reloaded it yet
-  // (fs.watch debounce: 100ms). The first connect attempt may fail with
-  // auth rejection; we retry once after a short delay.
-  const MAX_CONNECT_ATTEMPTS = 2
-  for (let attempt = 1; attempt <= MAX_CONNECT_ATTEMPTS; attempt++) {
-    try {
-      await client.connect()
-      return client
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      const isAuthFailure = errorMsg.includes('Authentication') || errorMsg.includes('Unauthorized')
-
-      if (isAuthFailure && attempt < MAX_CONNECT_ATTEMPTS) {
-        log.info(`[${serverId}] Auth failed on attempt ${attempt}, retrying after 500ms to allow token reload...`)
-        // Wait for proxy's fs.watch debounce (100ms) + a safety margin
-        await new Promise(resolve => setTimeout(resolve, 500))
-        // Reset client state for reconnection
-        client.authenticated = false
-        ;(client as any).ws = null
-        continue
-      }
-      // Not an auth failure, or last attempt — let it propagate
-      throw err
-    }
-  }
-
-  // Should not reach here, but just in case
-  throw new Error(`Failed to connect after ${MAX_CONNECT_ATTEMPTS} attempts`)
+  await client.connect()
+  return client
 }
 
 /**

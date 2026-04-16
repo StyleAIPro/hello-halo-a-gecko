@@ -23,7 +23,7 @@ import { create } from 'zustand'
 import { api } from '../api'
 import type { Conversation, ConversationMeta, Message, ToolCall, Artifact, Thought, AgentEventBase, ImageAttachment, CompactInfo, CanvasContext, AgentErrorType, PendingQuestion, Question, TaskStatus, PulseItem } from '../types'
 import { PULSE_READ_GRACE_PERIOD_MS } from '../types'
-import { canvasLifecycle } from '../services/canvas-lifecycle'
+import { useCanvasStore } from './canvas.store'
 import { getActionSummary, getStepCounts } from '../components/chat/thought-utils'
 import { useTerminalStore } from './terminal.store'
 import { useSpaceStore } from './space.store'
@@ -33,6 +33,31 @@ const CONVERSATION_CACHE_SIZE = 10
 
 // Store-level timer for pulseReadAt cleanup (independent of UI components)
 let _pulseCleanupTimer: ReturnType<typeof setTimeout> | null = null
+
+// Extract canvas context for AI awareness (single definition, used in sendMessage paths)
+function buildCanvasContext(): CanvasContext | undefined {
+  const cs = useCanvasStore.getState()
+  if (!cs.isOpen || cs.tabs.length === 0) return undefined
+
+  const activeTab = cs.getActiveTab()
+  return {
+    isOpen: true,
+    tabCount: cs.tabs.length,
+    activeTab: activeTab ? {
+      type: activeTab.type,
+      title: activeTab.title,
+      url: activeTab.url,
+      path: activeTab.path
+    } : null,
+    tabs: cs.tabs.map(t => ({
+      type: t.type,
+      title: t.title,
+      url: t.url,
+      path: t.path,
+      isActive: t.id === cs.activeTabId
+    }))
+  }
+}
 
 // Per-space state (conversations metadata belong to a space)
 interface SpaceState {
@@ -687,9 +712,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // If Canvas is open, close it before switching conversations
     // This ensures clean terminal state for the new conversation
-    const { isOpen: canvasIsOpen } = canvasLifecycle
-    if (canvasIsOpen) {
-      canvasLifecycle.setOpen(false)
+    const canvasState = useCanvasStore.getState()
+    if (canvasState.isOpen) {
+      canvasState.setOpen(false)
     }
 
     // Subscribe to conversation events (for remote mode).
@@ -1228,34 +1253,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })
 
       // Build Canvas Context for AI awareness
-      // This allows AI to naturally understand what the user is currently viewing
-      const buildCanvasContext = (): CanvasContext | undefined => {
-        if (!canvasLifecycle.getIsOpen() || canvasLifecycle.getTabCount() === 0) {
-          return undefined
-        }
-
-        const tabs = canvasLifecycle.getTabs()
-        const activeTabId = canvasLifecycle.getActiveTabId()
-        const activeTab = canvasLifecycle.getActiveTab()
-
-        return {
-          isOpen: true,
-          tabCount: tabs.length,
-          activeTab: activeTab ? {
-            type: activeTab.type,
-            title: activeTab.title,
-            url: activeTab.url,
-            path: activeTab.path
-          } : null,
-          tabs: tabs.map(t => ({
-            type: t.type,
-            title: t.title,
-            url: t.url,
-            path: t.path,
-            isActive: t.id === activeTabId
-          }))
-        }
-      }
 
       // Send to agent (with images, AI Browser state, thinking mode, and canvas context)
       // For Hyper Space: agentId routes to specific agent ('leader' or agent ID)
@@ -1849,32 +1846,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             return { spaceStates: newSpaceStates, conversationCache: newCache }
           })
 
-          // Build canvas context
-          const buildCanvasContext = (): CanvasContext | undefined => {
-            if (!canvasLifecycle.getIsOpen() || canvasLifecycle.getTabCount() === 0) {
-              return undefined
-            }
-            const tabs = canvasLifecycle.getTabs()
-            const activeTabId = canvasLifecycle.getActiveTabId()
-            const activeTab = canvasLifecycle.getActiveTab()
-            return {
-              isOpen: true,
-              tabCount: tabs.length,
-              activeTab: activeTab ? {
-                type: activeTab.type,
-                title: activeTab.title,
-                url: activeTab.url,
-                path: activeTab.path
-              } : null,
-              tabs: tabs.map(t => ({
-                type: t.type,
-                title: t.title,
-                url: t.url,
-                path: t.path,
-                isActive: t.id === activeTabId
-              }))
-            }
-          }
+          // Build canvas context (uses module-level buildCanvasContext)
 
           // Send the pending message
           await api.sendMessage({
@@ -2151,10 +2123,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { conversationId, id, questions, agentId } = data
     console.log(`[ChatStore] handleAskQuestion [${conversationId}]: id=${id}, questions=${questions?.length || 0}, agentId=${agentId || 'none'}`)
 
+    let rejected = false
+    let rejectReason = ''
+
     set((state) => {
       const newSessions = new Map(state.sessions)
       const session = resolveSessionId(newSessions, conversationId)
-      if (!session) return state
+
+      if (!session) {
+        // Session not found — reject back to main process to prevent deadlock
+        console.warn(`[ChatStore] No session for ask question: ${conversationId}, rejecting`)
+        rejected = true
+        rejectReason = 'Session not found'
+        return state
+      }
 
       const resolvedConvId = baseConvId(conversationId)
 
@@ -2163,6 +2145,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const ws = session.workerSessions.get(agentId)!
         if (ws.status !== 'running') {
           console.log(`[ChatStore] Ignoring ask question - worker not running: ${agentId}`)
+          rejected = true
+          rejectReason = 'Worker not running'
           return state
         }
 
@@ -2176,9 +2160,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       // Main session routing (standard behavior)
-      // CRITICAL: Ignore events if not generating or if stopping
-      if (!session?.isGenerating || session?.isStopping) {
-        console.log(`[ChatStore] Ignoring ask question - not generating or stopping: ${conversationId}`)
+      // Trust the main process: if it sends an ask-question event, the agent IS running.
+      // Only skip if actively stopping (user clicked Stop).
+      if (session?.isStopping) {
+        console.log(`[ChatStore] Rejecting ask question - stopping: ${conversationId}`)
+        rejected = true
+        rejectReason = 'Generation stopping'
         return state
       }
 
@@ -2192,6 +2179,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       })
       return { sessions: newSessions }
     })
+
+    // If the question was rejected by the guard, notify the main process
+    // to prevent the permission handler promise from hanging forever
+    if (rejected) {
+      api.rejectQuestion({ id, reason: rejectReason }).catch((err) => {
+        console.error('[ChatStore] Failed to reject question:', err)
+      })
+    }
   },
 
   // Answer a pending AskUserQuestion

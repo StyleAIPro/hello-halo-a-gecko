@@ -102,40 +102,6 @@ extract the price from the product listing, and return it as JSON: { price: numb
 `.trim()
 
 // ============================================
-// Notification Instructions (when channels are configured)
-// ============================================
-
-const NOTIFICATION_INSTRUCTIONS = `
-## External Notifications (MCP server: aico-bot-notify)
-
-You can send notifications to external channels (email, WeCom, DingTalk, Feishu, webhook)
-when you discover something important that the user should know about immediately.
-
-### Tools
-
-- \`mcp__aico-bot-notify__list_notification_channels\` — Check which channels are configured and enabled
-- \`mcp__aico-bot-notify__send_notification\` — Send a notification to a specific channel
-
-### When to Use
-
-- **Important discoveries**: Price drops, anomalies, urgent changes detected
-- **User-requested alerts**: When the app's purpose is to monitor and alert
-- **Critical errors**: Issues that require immediate user attention
-
-### When NOT to Use
-
-- For routine run completion reports — use report_to_user instead
-- If the app's output.notify already covers the channel — the system will send automatically on completion
-- For every run — only notify when there's genuinely noteworthy information
-
-### Tips
-
-- Call list_notification_channels first to check availability
-- Write notification body for humans — clear, specific, actionable
-- Include key data points (prices, dates, names) directly in the body
-`.trim()
-
-// ============================================
 // Public API
 // ============================================
 
@@ -194,10 +160,7 @@ export function buildAppSystemPrompt(options: AppPromptOptions): string {
   // 5. Reporting rules
   sections.push(REPORTING_RULES)
 
-  // 6. Notification instructions (always included — the AI can check availability)
-  sections.push(NOTIFICATION_INSTRUCTIONS)
-
-  // 7. Sub-agent instructions (only if App uses AI Browser)
+  // 6. Sub-agent instructions (only if App uses AI Browser)
   if (options.usesAIBrowser) {
     sections.push(SUB_AGENT_INSTRUCTIONS)
   }

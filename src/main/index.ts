@@ -11,7 +11,8 @@
 // Logs are written to: ~/Library/Logs/AICO-Bot/ (macOS), %USERPROFILE%\AppData\Roaming\AICO-Bot\logs (Windows)
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import log from 'electron-log/main.js'
 
 // ESM compat shims — electron-vite bundles main process as ESM where
@@ -38,6 +39,15 @@ const isDev = process.env.NODE_ENV === 'development'
 log.transports.file.level = 'info'           // Always log info+ to file
 log.transports.console.level = isDev ? 'debug' : 'info'
 log.transports.file.maxSize = 5 * 1024 * 1024 // 5MB per file, auto-rotate
+
+// Isolate log directory: dev writes to ~/.aico-bot-dev/logs,
+// packaged writes to ~/.aico-bot/logs — prevents log file conflicts
+// when running both simultaneously.
+if (isDev) {
+  log.transports.file.resolvePathFn = () => {
+    return join(homedir(), '.aico-bot-dev', 'logs')
+  }
+}
 
 // Handle EPIPE errors gracefully (must be registered BEFORE electron-log's errorHandler)
 // electron-log's startCatching() registers its own uncaughtException handler that shows
@@ -154,7 +164,6 @@ app.on('second-instance', () => {
   }
 })
 
-import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initializeEssentialServices,
@@ -166,7 +175,6 @@ import { flushAllPendingIndexWrites } from './services/conversation.service'
 import { disableRemoteAccess } from './services/remote.service'
 import { stopOpenAICompatRouter } from './openai-compat-router'
 import { manualCheckForUpdates } from './services/updater.service'
-import { initAnalytics } from './services/analytics'
 import { registerProtocols } from './services/protocol.service'
 import { setMainWindow } from './services/window.service'
 import { initInstanceId, shutdownHealthSystem, onRendererCrash, onRendererUnresponsive } from './services/health'
@@ -447,7 +455,7 @@ app.whenReady().then(async () => {
   // Create application menu
   createAppMenu()
 
-  // Create window first (before analytics, so Baidu provider can find the window)
+  // Create window first
   createWindow()
 
   // ========================================
@@ -470,9 +478,6 @@ app.whenReady().then(async () => {
       // requestIdleCallback equivalent for Node.js
       setImmediate(() => {
         initializeExtendedServices()
-
-        // Initialize analytics (after IPC handlers registered and window created)
-        initAnalytics().catch(err => console.warn('[Analytics] Init failed:', err))
       })
     })
   }

@@ -7,15 +7,7 @@
 
 import { ipcMain, BrowserWindow, Menu, shell, MenuItemConstructorOptions } from 'electron'
 import { browserViewManager, type BrowserViewBounds } from '../services/browser-view.service'
-
-/**
- * Browser context menu options from renderer
- */
-interface BrowserMenuOptions {
-  viewId: string
-  url?: string
-  zoomLevel: number
-}
+import type { BrowserMenuOptions, CanvasTabMenuOptions } from '../services/browser-menu.service'
 
 /**
  * Register all browser-related IPC handlers
@@ -260,154 +252,31 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
 
   /**
    * Show native context menu for browser
-   * Uses Electron Menu.popup() which renders above BrowserView
    */
-  ipcMain.handle(
-    'browser:show-context-menu',
-    async (_event, options: BrowserMenuOptions) => {
-      const { viewId, url, zoomLevel } = options
-
-      // Build zoom submenu
-      const zoomSubmenu: MenuItemConstructorOptions[] = [
-        {
-          label: 'Zoom In',
-          accelerator: 'CmdOrCtrl+Plus',
-          enabled: zoomLevel < 200,
-          click: () => {
-            const newZoom = Math.min(200, zoomLevel + 10)
-            browserViewManager.setZoom(viewId, newZoom / 100)
-            mainWindow?.webContents.send('browser:zoom-changed', { viewId, zoomLevel: newZoom })
-          }
-        },
-        {
-          label: 'Zoom Out',
-          accelerator: 'CmdOrCtrl+-',
-          enabled: zoomLevel > 50,
-          click: () => {
-            const newZoom = Math.max(50, zoomLevel - 10)
-            browserViewManager.setZoom(viewId, newZoom / 100)
-            mainWindow?.webContents.send('browser:zoom-changed', { viewId, zoomLevel: newZoom })
-          }
-        },
-        {
-          label: `Reset (${zoomLevel}%)`,
-          accelerator: 'CmdOrCtrl+0',
-          enabled: zoomLevel !== 100,
-          click: () => {
-            browserViewManager.setZoom(viewId, 1)
-            mainWindow?.webContents.send('browser:zoom-changed', { viewId, zoomLevel: 100 })
-          }
-        }
-      ]
-
-      // Build main menu
-      const menuTemplate: MenuItemConstructorOptions[] = [
-        {
-          label: 'Zoom',
-          submenu: zoomSubmenu
-        },
-        { type: 'separator' },
-        {
-          label: 'Developer Tools',
-          accelerator: 'F12',
-          click: () => {
-            browserViewManager.toggleDevTools(viewId)
-          }
-        }
-      ]
-
-      const menu = Menu.buildFromTemplate(menuTemplate)
+  ipcMain.handle('browser:show-context-menu', async (_event, options: BrowserMenuOptions) => {
+    try {
+      const { buildBrowserContextMenu } = await import('../services/browser-menu.service')
+      const menu = buildBrowserContextMenu(options, mainWindow)
       menu.popup({ window: mainWindow || undefined })
-
       return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
-  )
-
-  /**
-   * Canvas Tab context menu options from renderer
-   */
-  interface CanvasTabMenuOptions {
-    tabId: string
-    tabIndex: number
-    tabTitle: string
-    tabPath?: string
-    tabCount: number
-    hasTabsToRight: boolean
-  }
+  })
 
   /**
    * Show native context menu for canvas tabs
-   * Uses Electron Menu.popup() which renders above BrowserView
    */
-  ipcMain.handle(
-    'canvas:show-tab-context-menu',
-    async (_event, options: CanvasTabMenuOptions) => {
-      const { tabId, tabIndex, tabTitle, tabPath, tabCount, hasTabsToRight } = options
-      const hasOtherTabs = tabCount > 1
-
-      console.log('[Browser IPC] canvas:show-tab-context-menu received:', { tabId, tabIndex, tabTitle })
-
-      // Build menu template
-      const menuTemplate: MenuItemConstructorOptions[] = [
-        {
-          label: 'Close',
-          accelerator: 'CmdOrCtrl+W',
-          click: () => {
-            console.log('[Browser IPC] Menu click: close tab', tabId)
-            mainWindow?.webContents.send('canvas:tab-action', { action: 'close', tabId })
-          }
-        }
-      ]
-
-      // Close others (only if there are other tabs)
-      if (hasOtherTabs) {
-        menuTemplate.push({
-          label: 'Close Others',
-          click: () => {
-            mainWindow?.webContents.send('canvas:tab-action', { action: 'closeOthers', tabId })
-          }
-        })
-      }
-
-      // Close to right (only if there are tabs to the right)
-      if (hasTabsToRight) {
-        menuTemplate.push({
-          label: 'Close to the Right',
-          click: () => {
-            mainWindow?.webContents.send('canvas:tab-action', { action: 'closeToRight', tabId, tabIndex })
-          }
-        })
-      }
-
-      // Separator and copy path (if path exists)
-      if (tabPath) {
-        menuTemplate.push(
-          { type: 'separator' },
-          {
-            label: 'Copy Path',
-            click: () => {
-              mainWindow?.webContents.send('canvas:tab-action', { action: 'copyPath', tabPath })
-            }
-          }
-        )
-      }
-
-      // Refresh option (if path exists - for file tabs)
-      if (tabPath) {
-        menuTemplate.push({
-          label: 'Refresh',
-          click: () => {
-            mainWindow?.webContents.send('canvas:tab-action', { action: 'refresh', tabId })
-          }
-        })
-      }
-
-      const menu = Menu.buildFromTemplate(menuTemplate)
+  ipcMain.handle('canvas:show-tab-context-menu', async (_event, options: CanvasTabMenuOptions) => {
+    try {
+      const { buildCanvasTabContextMenu } = await import('../services/browser-menu.service')
+      const menu = buildCanvasTabContextMenu(options, mainWindow)
       menu.popup({ window: mainWindow || undefined })
-
       return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
-  )
+  })
 
   console.log('[Browser IPC] Handlers registered')
 }

@@ -16,7 +16,6 @@ import type { ActivityEntryType, ActivityEntryContent } from './types'
 import { broadcastToAll } from '../../http/websocket'
 import { sendToRenderer } from '../../services/window.service'
 import { notifyAppEvent } from '../../services/notification.service'
-import type { NotificationChannelType } from '../../../shared/types/notification-channels'
 
 // ============================================
 // Types
@@ -32,8 +31,6 @@ export interface ReportToolContext {
   sessionKey: string
   /** Notification level: 'all' | 'important' | 'none'. Defaults to 'important'. */
   notificationLevel?: 'all' | 'important' | 'none'
-  /** External notification channels from output.notify.channels */
-  notifyChannels?: NotificationChannelType[]
 }
 
 /** Callback invoked when an escalation entry is created */
@@ -186,7 +183,6 @@ export function createReportToolServer(
       if (shouldNotify) {
         notifyAppEvent(runContext.appName, safeSummary, {
           appId: runContext.appId,
-          channels: runContext.notifyChannels,
         })
       }
 

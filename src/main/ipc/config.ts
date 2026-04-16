@@ -3,105 +3,37 @@
  */
 
 import { ipcMain } from 'electron'
-import { getConfig, saveConfig } from '../services/config.service'
+import { saveConfig, getDecryptedConfig, saveConfigAndNotify } from '../services/config.service'
 import { getAISourceManager } from '../services/ai-sources'
-import { decryptString } from '../services/secure-storage.service'
 import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service'
-import { runConfigProbe, emitConfigChange } from '../services/health'
-import type { AISourcesConfig, AISource } from '../../shared/types'
+import { emitConfigChange, runConfigProbe } from '../services/health'
+import type { AISourcesConfig } from '../../shared/types'
 
 export function registerConfigHandlers(): void {
   // Get configuration
   ipcMain.handle('config:get', async () => {
     console.log('[Settings] config:get - Loading settings')
     try {
-      const config = getConfig() as Record<string, any>
-
-      // For v2 aiSources, decrypt API keys and tokens in sources array
-      const decryptedConfig = { ...config }
-      if (decryptedConfig.aiSources?.version === 2 && Array.isArray(decryptedConfig.aiSources.sources)) {
-        decryptedConfig.aiSources = {
-          ...decryptedConfig.aiSources,
-          sources: decryptedConfig.aiSources.sources.map((source: AISource) => ({
-            ...source,
-            apiKey: source.apiKey ? decryptString(source.apiKey) : undefined,
-            accessToken: source.accessToken ? decryptString(source.accessToken) : undefined,
-            refreshToken: source.refreshToken ? decryptString(source.refreshToken) : undefined
-          }))
-        }
-      }
-
-      // Also handle legacy api.apiKey
-      if (decryptedConfig.api?.apiKey) {
-        decryptedConfig.api = {
-          ...decryptedConfig.api,
-          apiKey: decryptString(decryptedConfig.api.apiKey)
-        }
-      }
-
+      const decryptedConfig = getDecryptedConfig()
       console.log('[Settings] config:get - Loaded, aiSources v2, currentId:', decryptedConfig.aiSources?.currentId || 'none')
       return { success: true, data: decryptedConfig }
-    } catch (error: unknown) {
-      const err = error as Error
-      console.error('[Settings] config:get - Failed:', err.message)
-      return { success: false, error: err.message }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   })
 
   // Save configuration
   ipcMain.handle('config:set', async (_event, updates: Record<string, unknown>) => {
-    // Log what's being updated (without sensitive data)
     const updateKeys = Object.keys(updates)
-    const incomingAiSources = (updates.aiSources as AISourcesConfig | undefined)
-    const aiSourcesCurrentId = incomingAiSources?.currentId
-    console.log('[Settings] config:set - Saving:', updateKeys.join(', '), aiSourcesCurrentId ? `(currentId: ${aiSourcesCurrentId})` : '')
-
-    // Log detailed source info for debugging provider configuration issues
-    if (incomingAiSources?.sources) {
-      const currentSource = incomingAiSources.sources.find(s => s.id === aiSourcesCurrentId)
-      if (currentSource) {
-        console.log('[Settings] config:set - Current source:', {
-          name: currentSource.name,
-          provider: currentSource.provider,
-          apiUrl: currentSource.apiUrl,
-          model: currentSource.model,
-          hasApiKey: !!currentSource.apiKey,
-          availableModels: currentSource.availableModels?.length || 0
-        })
-      }
-      console.log('[Settings] config:set - Total sources:', incomingAiSources.sources.length,
-        'names:', incomingAiSources.sources.map(s => s.name).join(', '))
-    }
+    const incomingAiSources = updates.aiSources as AISourcesConfig | undefined
+    console.log('[Settings] config:set - Saving:', updateKeys.join(', '), incomingAiSources?.currentId ? `(currentId: ${incomingAiSources.currentId})` : '')
 
     try {
-      const processedUpdates = { ...updates }
-
-      // v2 format: aiSources is replaced entirely (sources array is the source of truth)
-      // No deep merging needed - frontend manages the complete sources array
-
-      const config = saveConfig(processedUpdates)
+      const config = saveConfigAndNotify(updates)
       console.log('[Settings] config:set - Saved successfully')
-
-      // Check if aiSources changed - run config validation
-      if (incomingAiSources) {
-        // Emit config change event for health monitoring
-        emitConfigChange(['aiSources'])
-
-        // Run config probe to validate (async, don't block response)
-        runConfigProbe().then(result => {
-          if (!result.healthy) {
-            console.warn('[Settings] config:set - Validation warning:', result.message)
-          }
-        }).catch(err => {
-          console.error('[Settings] config:set - Probe failed:', err)
-        })
-      }
-
       return { success: true, data: config }
-    } catch (error: unknown) {
-      const err = error as Error
-      console.error('[Settings] config:set - Failed:', err.message)
-      return { success: false, error: err.message }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   })
 

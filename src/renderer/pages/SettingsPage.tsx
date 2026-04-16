@@ -25,7 +25,6 @@ import {
   RemoteAccessSection,
   RemoteServersSection,
   AboutSection,
-  NotificationChannelsSection,
   RegistrySection
 } from '../components/settings'
 
@@ -144,9 +143,6 @@ export function SettingsPage() {
 
               {/* Appearance Section */}
               <AppearanceSection config={config} setConfig={setConfig} />
-
-              {/* Notification Channels Section */}
-              <NotificationChannelsSection config={config} setConfig={setConfig} />
 
               {/* Remote Access Section */}
               <RemoteAccessSection />

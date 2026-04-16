@@ -388,25 +388,11 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
     const markdownContent = markdownParts.join('\n')
 
-    // Save to file using IPC
-    try {
-      const result = await window.aicoBot?.saveFile?.(spaceId, fileName, markdownContent)
-      if (result?.success) {
-        console.log(`[AgentCommandStore] Exported ${commands.length} commands to ${fileName}`)
-        window.aicoBot?.showMessage?.('info', `Exported ${commands.length} commands to ${fileName}`)
-      } else {
-        // Fallback: download directly
-        downloadMarkdown(markdownContent, fileName)
-      }
-    } catch (error) {
-      console.error('[AgentCommandStore] Failed to export:', error)
-      // Fallback: download directly
-      downloadMarkdown(markdownContent, fileName)
-    }
+    downloadMarkdown(markdownContent, fileName)
+    console.log(`[AgentCommandStore] Exported ${commands.length} commands to ${fileName}`)
   }
 }))
 
-// Helper function to download markdown file
 function downloadMarkdown(content: string, filename: string): void {
   const blob = new Blob([content], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)

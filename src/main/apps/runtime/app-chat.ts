@@ -205,10 +205,7 @@ export async function sendAppChatMessage(
     const v2Session = await getOrCreateV2Session(
       spaceId,
       conversationId,
-      sdkOptions,
-      undefined, // no sessionId for resumption
-      { aiBrowserEnabled: usesAIBrowser },
-      workDir
+      { sdkOptions, config: { aiBrowserEnabled: usesAIBrowser }, workDir }
     )
 
     registerActiveSession(conversationId, sessionState)

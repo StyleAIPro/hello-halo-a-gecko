@@ -31,6 +31,8 @@ import {
 import { api } from '../../api'
 import type { ImageAttachment } from '../../types'
 import { useTranslation } from '../../i18n'
+import { useWorkerTabs } from '../../hooks/useWorkerTabs'
+import { useSearchNavigation } from '../../hooks/useSearchNavigation'
 
 interface ChatViewProps {
   isCompact?: boolean
@@ -105,96 +107,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   // With Virtuoso, we first scroll the target message into view by index,
   // then apply DOM-based highlighting once it's rendered.
   const displayMessagesRef = useRef<{ id: string }[]>([])
-
-  useEffect(() => {
-    const handleNavigateToMessage = (event: Event) => {
-      const customEvent = event as CustomEvent<{ messageId: string; query: string }>
-      const { messageId, query } = customEvent.detail
-
-      console.log(`[ChatView] Attempting to navigate to message: ${messageId}`)
-
-      // Remove previous highlights from all messages
-      document.querySelectorAll('.search-highlight').forEach(el => {
-        el.classList.remove('search-highlight')
-      })
-      document.querySelectorAll('.search-term-highlight').forEach(el => {
-        const textNode = document.createTextNode(el.textContent || '')
-        el.replaceWith(textNode)
-      })
-
-      // Find message index in displayMessages
-      const messageIndex = displayMessagesRef.current.findIndex(m => m.id === messageId)
-      if (messageIndex === -1) {
-        console.warn(`[ChatView] Message not found in displayMessages for ID: ${messageId}`)
-        return
-      }
-
-      // Scroll to the message via Virtuoso
-      messageListRef.current?.scrollToIndex(messageIndex, 'smooth')
-
-      // Wait for Virtuoso to render the item, then apply DOM highlighting
-      const applyHighlight = (retries = 0) => {
-        const messageElement = document.querySelector(`[data-message-id="${messageId}"]`)
-        if (!messageElement) {
-          if (retries < 10) {
-            setTimeout(() => applyHighlight(retries + 1), 100)
-          } else {
-            console.warn(`[ChatView] Message element not found after scrollToIndex for ID: ${messageId}`)
-          }
-          return
-        }
-
-        console.log(`[ChatView] Found message element, highlighting`)
-
-        // Add highlight animation
-        messageElement.classList.add('search-highlight')
-        setTimeout(() => {
-          messageElement.classList.remove('search-highlight')
-        }, 2000)
-
-        // Highlight search terms in the message (simple text highlight)
-        const contentElement = messageElement.querySelector('[data-message-content]')
-        if (contentElement && query) {
-          try {
-            const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-            const originalHTML = contentElement.innerHTML
-
-            if (!originalHTML.includes('search-term-highlight')) {
-              contentElement.innerHTML = originalHTML.replace(
-                regex,
-                '<mark class="search-term-highlight bg-yellow-400/30 font-semibold rounded px-0.5">$1</mark>'
-              )
-              console.log(`[ChatView] Highlighted search term: "${query}"`)
-            }
-          } catch (error) {
-            console.error(`[ChatView] Error highlighting search term:`, error)
-          }
-        }
-      }
-
-      // Small delay to allow Virtuoso to scroll and render
-      setTimeout(() => applyHighlight(), 150)
-    }
-
-    // Clear all search highlights when requested
-    const handleClearHighlights = () => {
-      console.log(`[ChatView] Clearing all search highlights`)
-      document.querySelectorAll('.search-highlight').forEach(el => {
-        el.classList.remove('search-highlight')
-      })
-      document.querySelectorAll('.search-term-highlight').forEach(el => {
-        const textNode = document.createTextNode(el.textContent || '')
-        el.replaceWith(textNode)
-      })
-    }
-
-    window.addEventListener('search:navigate-to-message', handleNavigateToMessage)
-    window.addEventListener('search:clear-highlights', handleClearHighlights)
-    return () => {
-      window.removeEventListener('search:navigate-to-message', handleNavigateToMessage)
-      window.removeEventListener('search:clear-highlights', handleClearHighlights)
-    }
-  }, [])
+  useSearchNavigation(messageListRef, displayMessagesRef)
 
   // Get current conversation and its session state
   const currentConversation = getCurrentConversation()
@@ -204,78 +117,23 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
   const pendingCount = pendingMessages?.length || 0
 
   // ===== Hyper Space Worker Tab System =====
-  // Active tab: 'main' (group chat view) or a worker agentId — driven by store (AgentPanel)
-  const activeAgentId = useChatStore((s) => s.activeAgentId)
-  const activeTabId = activeAgentId || 'main'
-  const setActiveAgentId = useChatStore((s) => s.setActiveAgentId)
-
-  // Track which workers had unread results while user was on another tab
-  const [unreadWorkers, setUnreadWorkers] = useState<Set<string>>(new Set())
   const [taskBoardVisible, setTaskBoardVisible] = useState(false)
+  const spaceName = currentSpace?.name || 'Chat'
 
-  // Read workerSessions from store (Map keyed by agentId)
+  const {
+    activeTabId,
+    tabs,
+    unreadWorkers,
+    activeWorkerSession,
+    isViewingWorker,
+    handleTabChange
+  } = useWorkerTabs({ spaceName, isGenerating })
+
+  // workerSessions still needed for MessageList and WorkerView props
   const workerSessions = useChatStore((s) => {
     const convId = s.getCurrentSpaceState().currentConversationId
     return convId ? s.sessions.get(convId)?.workerSessions : undefined
   })
-
-  // Get space name for main tab display
-  const spaceName = currentSpace?.name || 'Chat'
-
-  // Build tabs: always main group chat + one per active worker
-  const tabs: WorkerTab[] = useMemo(() => {
-    const result: WorkerTab[] = [
-      { id: 'main', name: spaceName, role: 'leader', status: isGenerating ? 'running' : 'idle' }
-    ]
-    if (workerSessions && workerSessions.size > 0) {
-      for (const [agentId, ws] of workerSessions) {
-        result.push({
-          id: agentId,
-          name: ws.agentName,
-          role: 'worker',
-          type: ws.type,
-          status: ws.status,
-          workerSession: ws
-        })
-      }
-    }
-    return result
-  }, [workerSessions, isGenerating, spaceName])
-
-  // When a worker completes while user is viewing a different tab, mark it unread
-  useEffect(() => {
-    if (!workerSessions) return
-    for (const [agentId, ws] of workerSessions) {
-      if (ws.status === 'completed' && !ws.isRunning && activeTabId !== agentId) {
-        setUnreadWorkers(prev => {
-          if (prev.has(agentId)) return prev
-          const next = new Set(prev)
-          next.add(agentId)
-          return next
-        })
-      }
-    }
-  }, [workerSessions, activeTabId])
-
-  // Clear unread when user clicks on a worker tab
-  const handleTabChange = useCallback((tabId: string) => {
-    setActiveAgentId(tabId === 'main' ? null : tabId)
-    if (tabId !== 'main') {
-      setUnreadWorkers(prev => {
-        const next = new Set(prev)
-        next.delete(tabId)
-        return next
-      })
-    }
-  }, [setActiveAgentId])
-
-  // Get the currently active worker session (if viewing a worker)
-  const activeWorkerSession = useMemo(() => {
-    if (activeTabId === 'main') return null
-    return workerSessions?.get(activeTabId) || null
-  }, [activeTabId, workerSessions])
-
-  const isViewingWorker = activeTabId !== 'main' && activeWorkerSession !== null
 
   const onboardingPrompt = getOnboardingPrompt(t)
   const onboardingResponse = getOnboardingAiResponse(t)

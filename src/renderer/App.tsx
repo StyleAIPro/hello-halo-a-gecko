@@ -7,7 +7,6 @@ import { useAppStore } from './stores/app.store'
 import { useChatStore } from './stores/chat.store'
 import { useOnboardingStore } from './stores/onboarding.store'
 import { initAIBrowserStoreListeners } from './stores/ai-browser.store'
-import { initPerfStoreListeners } from './stores/perf.store'
 import { useSpaceStore } from './stores/space.store'
 import { useSearchStore } from './stores/search.store'
 import { useAppsStore } from './stores/apps.store'
@@ -203,7 +202,6 @@ export default function App() {
   // Initialize AI Browser IPC listeners for active view sync
   useEffect(() => {
     console.log('[App] Initializing AI Browser store listeners')
-    initPerfStoreListeners()
     const cleanup = initAIBrowserStoreListeners()
     return cleanup
   }, [])

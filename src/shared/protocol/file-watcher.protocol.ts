@@ -74,6 +74,10 @@ export type WorkerToMainMessage =
       level: 'info' | 'warn' | 'error'
       message: string
     }
+  | {
+      type: 'space-destroyed'
+      spaceId: string
+    }
 
 /**
  * Processed file system event from the worker.

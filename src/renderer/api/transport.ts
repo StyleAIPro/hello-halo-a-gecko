@@ -297,8 +297,6 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'canvas:tab-action': 'onCanvasTabAction',
       'ai-browser:active-view-changed': 'onAIBrowserActiveViewChanged',
       'artifact:tree-update': 'onArtifactTreeUpdate',
-      'perf:snapshot': 'onPerfSnapshot',
-      'perf:warning': 'onPerfWarning',
       'app:status_changed': 'onAppStatusChanged',
       'app:activity_entry:new': 'onAppActivityEntry',
       'app:escalation:new': 'onAppEscalation',
@@ -309,7 +307,11 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'terminal:agent-command-output': 'onTerminalAgentCommandOutput',
       'terminal:agent-command-complete': 'onTerminalAgentCommandComplete',
       'worker:started': 'onWorkerStarted',
-      'worker:completed': 'onWorkerCompleted'
+      'worker:completed': 'onWorkerCompleted',
+      'remote-server:command-output': 'onRemoteServerCommandOutput',
+      'remote-server:status-change': 'onRemoteServerStatusChange',
+      'remote-server:deploy-progress': 'onRemoteServerDeployProgress',
+      'remote-server:update-complete': 'onRemoteServerUpdateComplete'
     }
 
     const method = methodMap[channel]

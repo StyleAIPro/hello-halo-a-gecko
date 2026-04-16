@@ -9,7 +9,6 @@ import {
   getCurrentModelName,
   hasAnyAISource
 } from '../../shared/types/ai-sources';
-import { NotificationChannelsConfig }  from '../../shared/types/notification-channels';
 // Re-export them
 export { DEFAULT_MODEL, getCurrentModelName, hasAnyAISource };
 
@@ -191,7 +190,6 @@ export interface AicoBotConfig {
   remoteAccess: RemoteAccessConfig;
   mcpServers: McpServersConfig;  // MCP servers configuration
   notifications?: NotificationConfig;  // Notification preferences
-  notificationChannels?: NotificationChannelsConfig;  // External notification channels
   agent?: AgentConfig;  // Agent behavior settings
   layout?: LayoutConfig;  // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;

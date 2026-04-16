@@ -16,6 +16,130 @@ import { fileURLToPath } from 'url'
 import type { AicoBotMcpToolDef } from './types.js'
 
 // ============================================
+// Zod Schema Reconstruction
+// ============================================
+
+/**
+ * Reconstruct a Zod schema from its JSON-serialized form.
+ *
+ * When tool definitions are sent over WebSocket (JSON), Zod class instances
+ * become plain objects. The SDK's tool() + createSdkMcpServer() validate
+ * inputSchema using instanceof checks, which fail on deserialized objects.
+ * This function walks the serialized structure and creates real Zod types.
+ */
+function reconstructZod(val: any): any {
+  if (val === null || val === undefined) return val
+
+  // Detect serialized Zod type by _def.typeName
+  if (val && typeof val === 'object' && val._def && typeof val._def.typeName === 'string') {
+    const typeName = val._def.typeName
+    switch (typeName) {
+      case 'ZodString':
+        return z.string()
+      case 'ZodNumber': {
+        let s = z.number()
+        const d = val._def
+        if (d.checks) {
+          for (const check of d.checks) {
+            switch (check.kind) {
+              case 'int': s = s.int(); break
+              case 'min': s = s.min(check.value); break
+              case 'max': s = s.max(check.value); break
+              case 'positive': s = s.positive(); break
+              case 'negative': s = s.negative(); break
+              case 'nonpositive': s = s.nonpositive(); break
+              case 'nonnegative': s = s.nonnegative(); break
+              case 'multipleOf': s = s.multipleOf(check.value); break
+              case 'finite': s = s.finite(); break
+            }
+          }
+        }
+        if (d.description) s = s.describe(d.description)
+        return s
+      }
+      case 'ZodBoolean':
+        return z.boolean()
+      case 'ZodOptional':
+        return reconstructZod(val._def.innerType).optional()
+      case 'ZodNullable':
+        return reconstructZod(val._def.innerType).nullable()
+      case 'ZodDefault':
+        return reconstructZod(val._def.innerType).default(val._def.defaultValue())
+      case 'ZodArray':
+        return z.array(reconstructZod(val._def.type))
+      case 'ZodObject': {
+        // After JSON serialization, the shape (a function) is lost.
+        // Fall back to z.record(z.string(), z.any()) which accepts any object.
+        // This is safe because the SDK uses inputSchema for tool registration,
+        // not runtime validation — the LLM decides what arguments to send.
+        if (val._def.shape) {
+          const shapeRaw = typeof val._def.shape === 'function' ? val._def.shape() : val._def.shape
+          if (shapeRaw && typeof shapeRaw === 'object') {
+            const shape: Record<string, any> = {}
+            for (const [key, fieldVal] of Object.entries(shapeRaw)) {
+              shape[key] = reconstructZod(fieldVal)
+            }
+            return z.object(shape)
+          }
+        }
+        console.warn(`[ZodReconstruct] ZodObject shape lost during serialization, using z.record(z.string(), z.any())`)
+        return z.record(z.string(), z.any())
+      }
+      case 'ZodEnum':
+        return z.enum(val._def.values)
+      case 'ZodLiteral':
+        return z.literal(val._def.value)
+      case 'ZodUnion':
+        return z.union(val._def.options.map((o: any) => reconstructZod(o)))
+      case 'ZodRecord':
+        return z.record(reconstructZod(val._def.keyType), reconstructZod(val._def.valueType))
+      case 'ZodTuple':
+        return z.tuple(val._def.items.map((i: any) => reconstructZod(i)))
+      case 'ZodAny':
+        return z.any()
+      case 'ZodUnknown':
+        return z.unknown()
+      case 'ZodVoid':
+        return z.void()
+      case 'ZodDate':
+        return z.date()
+      case 'ZodBigInt':
+        return z.bigint()
+      default:
+        console.warn(`[ZodReconstruct] Unknown typeName: ${typeName}, falling back to z.any()`)
+        return z.any()
+    }
+  }
+
+  // Raw shape object: { fieldName: ZodType, ... }
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    // Check if this looks like a raw Zod shape (values have _def.typeName)
+    const keys = Object.keys(val)
+    if (keys.length > 0 && val[keys[0]] && typeof val[keys[0]] === 'object' && val[keys[0]]._def?.typeName) {
+      const shape: Record<string, any> = {}
+      for (const [key, fieldVal] of Object.entries(val)) {
+        shape[key] = reconstructZod(fieldVal)
+      }
+      return shape
+    }
+  }
+
+  return val
+}
+
+/**
+ * Reconstruct a Zod raw shape from its JSON-serialized form.
+ * Top-level entry point: inputSchema is a Record<string, ZodType>.
+ */
+function reconstructZodRawShape(inputSchema: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {}
+  for (const [key, val] of Object.entries(inputSchema)) {
+    result[key] = reconstructZod(val)
+  }
+  return result
+}
+
+// ============================================
 // Types
 // ============================================
 
@@ -697,7 +821,6 @@ export class ClaudeManager {
    * Create aico-bot-builtin MCP server for tools from the AICO-Bot client.
    * Tools delegate execution to the AICO-Bot client via WebSocket (mcp:tool:call).
    *
-   * This replaces the HTTP MCP proxy approach for multi-PC isolation.
    * Each PC's WebSocket connection provides its own set of tools.
    *
    * @param toolDefs - Serialized tool definitions from the AICO-Bot client
@@ -714,13 +837,16 @@ export class ClaudeManager {
 
     const generateCallId = () => `mcp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
-    // Build tool definitions from the serialized AICO-Bot tool definitions
-    // Each tool delegates to the executeTool callback via WebSocket
-    const tools = toolDefs.map(def =>
-      tool(
+    // Build tool definitions from the serialized AICO-Bot tool definitions.
+    // inputSchema was Zod on the AICO-Bot side but lost class identity after
+    // JSON serialization over WebSocket. Reconstruct real Zod objects before
+    // passing to SDK tool() which validates via instanceof checks.
+    const tools = toolDefs.map(def => {
+      const rawShape = reconstructZodRawShape(def.inputSchema)
+      return tool(
         def.name,
         def.description,
-        def.inputSchema as any,  // Zod raw shape
+        rawShape,
         async (args: any) => {
           try {
             const callId = generateCallId()
@@ -736,7 +862,7 @@ export class ClaudeManager {
           }
         }
       )
-    )
+    })
 
     return createSdkMcpServer({
       name: 'aico-bot-builtin',

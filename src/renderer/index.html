@@ -35,23 +35,6 @@
         }
       })();
     </script>
-    <!-- Baidu Tongji Analytics SDK -->
-    <script>
-      var _hmt = _hmt || [];
-      (function() {
-        // Skip Baidu Analytics in remote access mode to prevent leaking sensitive info (token, URL)
-        // Detection: Electron env has nodeIntegration or preload-injected APIs, remote browsers don't
-        var isElectron = typeof process !== 'undefined' || navigator.userAgent.includes('Electron');
-        if (!isElectron) {
-          console.log('[Analytics] Remote mode detected, Baidu Analytics disabled for security');
-          return;
-        }
-        var hm = document.createElement("script");
-        hm.src = "https://hm.baidu.com/hm.js?ba1b0224eb934176ead125ffccc8861b";
-        var s = document.getElementsByTagName("script")[0];
-        s.parentNode.insertBefore(hm, s);
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>

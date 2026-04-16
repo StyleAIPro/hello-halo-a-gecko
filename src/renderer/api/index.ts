@@ -616,6 +616,17 @@ export const api = {
     return httpRequest('POST', '/api/agent/answer-question', data)
   },
 
+  // Reject a pending AskUserQuestion (renderer cannot handle it)
+  rejectQuestion: async (data: {
+    id: string
+    reason?: string
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.rejectQuestion(data)
+    }
+    return httpRequest('POST', '/api/agent/reject-question', data)
+  },
+
   // Test MCP server connections
   testMcpConnections: async (): Promise<{ success: boolean; servers: unknown[]; error?: string }> => {
     if (isElectron()) {
@@ -931,21 +942,6 @@ export const api = {
     return window.aicoBot.onWindowMaximizeChange(callback)
   },
 
-  // ===== Notification Channels =====
-  testNotificationChannel: async (channelType: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.aicoBot.testNotificationChannel(channelType)
-    }
-    return httpRequest('POST', '/api/notify-channels/test', { channelType })
-  },
-
-  clearNotificationChannelCache: async (): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.aicoBot.clearNotificationChannelCache()
-    }
-    return httpRequest('POST', '/api/notify-channels/clear-cache')
-  },
-
   // ===== Event Listeners =====
   onAgentMessage: (callback: (data: unknown) => void) =>
     onEvent('agent:message', callback),
@@ -1249,78 +1245,6 @@ export const api = {
       return () => { } // No-op in remote mode
     }
     return window.aicoBot.onCanvasExitMaximized(callback)
-  },
-
-  // ===== Performance Monitoring (Electron only, Developer Tools) =====
-  perfStart: async (config?: { sampleInterval?: number; maxSamples?: number }): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfStart(config)
-  },
-
-  perfStop: async (): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfStop()
-  },
-
-  perfGetState: async (): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfGetState()
-  },
-
-  perfGetHistory: async (): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfGetHistory()
-  },
-
-  perfClearHistory: async (): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfClearHistory()
-  },
-
-  perfSetConfig: async (config: { enabled?: boolean; sampleInterval?: number; warnOnThreshold?: boolean }): Promise<ApiResponse> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfSetConfig(config)
-  },
-
-  perfExport: async (): Promise<ApiResponse<string>> => {
-    if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
-    }
-    return window.aicoBot.perfExport()
-  },
-
-  onPerfSnapshot: (callback: (data: unknown) => void) =>
-    onEvent('perf:snapshot', callback),
-
-  onPerfWarning: (callback: (data: unknown) => void) =>
-    onEvent('perf:warning', callback),
-
-  // Report renderer metrics to main process (for combined monitoring)
-  perfReportRendererMetrics: (metrics: {
-    fps: number
-    frameTime: number
-    renderCount: number
-    domNodes: number
-    eventListeners: number
-    jsHeapUsed: number
-    jsHeapLimit: number
-    longTasks: number
-  }): void => {
-    if (isElectron()) {
-      window.aicoBot.perfReportRendererMetrics(metrics)
-    }
   },
 
   // ===== Git Bash (Windows only, Electron only) =====
@@ -2146,6 +2070,15 @@ export const api = {
 
   onRemoteTaskUpdate: (callback: (data: { serverId: string; data: any }) => void) =>
     onEvent('remote-server:task-update', callback),
+
+  onRemoteServerCommandOutput: (callback: (data: { serverId: string; type: string; content: string }) => void) =>
+    onEvent('remote-server:command-output', callback),
+  onRemoteServerStatusChange: (callback: (data: { serverId: string; config: any }) => void) =>
+    onEvent('remote-server:status-change', callback),
+  onRemoteServerDeployProgress: (callback: (data: { serverId: string; stage: string; message: string; progress: number }) => void) =>
+    onEvent('remote-server:deploy-progress', callback),
+  onRemoteServerUpdateComplete: (callback: (data: { serverId: string; success: boolean; data?: unknown; error?: string }) => void) =>
+    onEvent('remote-server:update-complete', callback),
 
   remoteServerCancelTask: async (serverId: string, taskId: string): Promise<ApiResponse> => {
     if (isElectron()) {
