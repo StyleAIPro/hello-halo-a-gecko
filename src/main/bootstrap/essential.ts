@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Essential Services - First Screen Dependencies
  *
  * These services are REQUIRED for the initial screen render.
@@ -19,15 +19,17 @@
  *   - Updater: Auto-update checks (lightweight, needs early start)
  */
 
-import { registerConfigHandlers } from '../ipc/config'
-import { registerSpaceHandlers } from '../ipc/space'
-import { registerConversationHandlers } from '../ipc/conversation'
-import { registerAgentHandlers } from '../ipc/agent'
-import { registerArtifactHandlers } from '../ipc/artifact'
-import { registerSystemHandlers } from '../ipc/system'
-import { registerUpdaterHandlers, initAutoUpdater } from '../services/updater.service'
-import { registerAuthHandlers } from '../ipc/auth'
-import { registerBootstrapStatusHandler } from './state'
+import { registerConfigHandlers } from '../ipc/config';
+import { registerSpaceHandlers } from '../ipc/space';
+import { registerConversationHandlers } from '../ipc/conversation';
+import { registerAgentHandlers } from '../ipc/agent';
+import { registerArtifactHandlers } from '../ipc/artifact';
+import { registerSystemHandlers } from '../ipc/system';
+import { registerUpdaterHandlers, initAutoUpdater } from '../services/updater.service';
+import { registerAuthHandlers } from '../ipc/auth';
+import { registerBootstrapStatusHandler } from './state';
+import { execFileSync } from 'child_process';
+import path from 'path';
 
 /**
  * Initialize essential services required for first screen render
@@ -38,42 +40,57 @@ import { registerBootstrapStatusHandler } from './state'
  * Only add services that are absolutely required for the initial UI.
  */
 export function initializeEssentialServices(): void {
-  const start = performance.now()
+  const start = performance.now();
+
+  // === SDK PATCH ===
+  // Must run before any SDK module is imported. Patches sdk.mjs to forward options
+  // (cwd, systemPrompt, etc.) and enable turn-level message injection.
+  try {
+    // __dirname in electron-vite dev points to out/main/, in packaged build points to resources/app/
+    // Both cases: project root is two levels up from the compiled output directory.
+    const projectRoot = path.join(__dirname, '..', '..');
+    const patchScript = path.join(projectRoot, 'scripts', 'patch-sdk.mjs');
+    console.log(`[Bootstrap] SDK patch script: ${patchScript}`);
+    execFileSync(process.execPath, [patchScript], { stdio: 'pipe' });
+    console.log('[Bootstrap] SDK patch applied');
+  } catch (e) {
+    console.error('[Bootstrap] SDK patch failed:', e);
+  }
 
   // === BOOTSTRAP STATUS ===
   // Register early so renderer can query status even before extended services are ready.
   // This enables Pull+Push pattern for reliable initialization.
-  registerBootstrapStatusHandler()
+  registerBootstrapStatusHandler();
 
   // === ESSENTIAL SERVICES ===
   // Each service below is required for the first screen render.
   // Do NOT add new services without architecture review.
 
   // Config: Must be first - other services may depend on configuration
-  registerConfigHandlers()
+  registerConfigHandlers();
 
   // Auth: OAuth login handlers for multi-platform login (generic + backward compat)
-  registerAuthHandlers()
+  registerAuthHandlers();
 
   // Space: Workspace list is displayed immediately on the left sidebar
-  registerSpaceHandlers()
+  registerSpaceHandlers();
 
   // Conversation: Chat history is displayed in the main content area
-  registerConversationHandlers()
+  registerConversationHandlers();
 
   // Agent: Message sending is the core feature, must be ready immediately
-  registerAgentHandlers()
+  registerAgentHandlers();
 
   // Artifact: File list is displayed in the right sidebar
-  registerArtifactHandlers()
+  registerArtifactHandlers();
 
   // System: Window controls (maximize/minimize/close) are basic functionality
-  registerSystemHandlers()
+  registerSystemHandlers();
 
   // Updater: Lightweight, starts checking for updates in background
-  registerUpdaterHandlers()
-  initAutoUpdater()
+  registerUpdaterHandlers();
+  initAutoUpdater();
 
-  const duration = performance.now() - start
-  console.log(`[Bootstrap] Essential services initialized in ${duration.toFixed(1)}ms`)
+  const duration = performance.now() - start;
+  console.log(`[Bootstrap] Essential services initialized in ${duration.toFixed(1)}ms`);
 }

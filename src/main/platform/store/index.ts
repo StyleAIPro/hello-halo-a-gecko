@@ -34,19 +34,19 @@
  *   }
  */
 
-import { join } from 'path'
-import { getAicoBotDir } from '../../services/config.service'
-import { createDatabaseManager } from './database-manager'
-import type { DatabaseManager, Migration } from './types'
+import { join } from 'path';
+import { getAicoBotDir } from '../../services/config.service';
+import { createDatabaseManager } from './database-manager';
+import type { DatabaseManager, Migration } from './types';
 
 // Re-export types for consumers
-export type { DatabaseManager, Migration }
+export type { DatabaseManager, Migration };
 
 // Re-export createDatabaseManager for testing with :memory: databases
-export { createDatabaseManager }
+export { createDatabaseManager };
 
 /** Name of the application-level database file. */
-const APP_DB_FILENAME = 'aico-bot.db'
+const APP_DB_FILENAME = 'aico-bot.db';
 
 /**
  * Initialize the platform store module.
@@ -60,24 +60,24 @@ const APP_DB_FILENAME = 'aico-bot.db'
  * @returns A configured DatabaseManager instance.
  */
 export async function initStore(): Promise<DatabaseManager> {
-  const start = performance.now()
+  const start = performance.now();
 
-  const spaceDataDir = getAicoBotDir()
-  const appDbPath = join(spaceDataDir, APP_DB_FILENAME)
+  const spaceDataDir = getAicoBotDir();
+  const appDbPath = join(spaceDataDir, APP_DB_FILENAME);
 
-  console.log(`[Store] Initializing store at: ${appDbPath}`)
+  console.log(`[Store] Initializing store at: ${appDbPath}`);
 
-  const manager = createDatabaseManager(appDbPath)
+  const manager = createDatabaseManager(appDbPath);
 
   // Eagerly open the app database to verify it works at startup time.
   // This catches corruption/permission issues early, before other modules
   // try to use the database.
-  manager.getAppDatabase()
+  manager.getAppDatabase();
 
-  const duration = performance.now() - start
-  console.log(`[Store] Store initialized in ${duration.toFixed(1)}ms`)
+  const duration = performance.now() - start;
+  console.log(`[Store] Store initialized in ${duration.toFixed(1)}ms`);
 
-  return manager
+  return manager;
 }
 
 /**
@@ -89,7 +89,7 @@ export async function initStore(): Promise<DatabaseManager> {
  * @param manager - The DatabaseManager instance to shut down.
  */
 export async function shutdownStore(manager: DatabaseManager): Promise<void> {
-  console.log('[Store] Shutting down store...')
-  manager.closeAll()
-  console.log('[Store] Store shutdown complete')
+  console.log('[Store] Shutting down store...');
+  manager.closeAll();
+  console.log('[Store] Store shutdown complete');
 }

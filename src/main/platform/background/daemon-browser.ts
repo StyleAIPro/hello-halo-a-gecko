@@ -9,31 +9,31 @@
  * - Safety timeout for hung callers
  */
 
-import { BrowserWindow, session } from 'electron'
-import { injectStealthScripts } from '../../services/stealth'
-import { extractPartition } from './partition'
+import { BrowserWindow, session } from 'electron';
+import { injectStealthScripts } from '../../services/stealth';
+import { extractPartition } from './partition';
 
 /**
  * Default user agent matching a real Chrome browser.
  * This is used to avoid detection as an Electron app.
  */
 const CHROME_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 /**
  * Maximum time (ms) a caller can hold the daemon browser before auto-release.
  * Default: 5 minutes. This prevents a hung caller from permanently blocking
  * the queue.
  */
-const AUTO_RELEASE_TIMEOUT_MS = 5 * 60 * 1000
+const AUTO_RELEASE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Queued request waiting for the daemon browser.
  */
 interface QueueEntry {
-  url: string
-  resolve: (win: BrowserWindow) => void
-  reject: (error: Error) => void
+  url: string;
+  resolve: (win: BrowserWindow) => void;
+  reject: (error: Error) => void;
 }
 
 /**
@@ -44,13 +44,13 @@ interface QueueEntry {
  * Future: Could be extended to a window pool.
  */
 export class DaemonBrowserManager {
-  private daemonWindow: BrowserWindow | null = null
-  private currentPartition: string | null = null
-  private isInUse = false
-  private queue: QueueEntry[] = []
-  private releaseTimer: ReturnType<typeof setTimeout> | null = null
-  private isShuttingDown = false
-  private stealthInjected = false
+  private daemonWindow: BrowserWindow | null = null;
+  private currentPartition: string | null = null;
+  private isInUse = false;
+  private queue: QueueEntry[] = [];
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private isShuttingDown = false;
+  private stealthInjected = false;
 
   /**
    * Acquire the daemon BrowserWindow for a given URL.
@@ -64,26 +64,26 @@ export class DaemonBrowserManager {
    */
   async getDaemonBrowserWindow(url: string): Promise<BrowserWindow> {
     if (this.isShuttingDown) {
-      throw new Error('[DaemonBrowser] Service is shutting down')
+      throw new Error('[DaemonBrowser] Service is shutting down');
     }
 
-    const partition = extractPartition(url)
+    const partition = extractPartition(url);
 
     // If the window is currently in use, queue this request
     if (this.isInUse) {
       return new Promise<BrowserWindow>((resolve, reject) => {
-        this.queue.push({ url, resolve, reject })
-        console.log(`[DaemonBrowser] Request queued (queue depth: ${this.queue.length})`)
-      })
+        this.queue.push({ url, resolve, reject });
+        console.log(`[DaemonBrowser] Request queued (queue depth: ${this.queue.length})`);
+      });
     }
 
     // Mark as in use and serve the request
-    this.isInUse = true
+    this.isInUse = true;
     try {
-      return await this.prepareWindow(url, partition)
+      return await this.prepareWindow(url, partition);
     } catch (err) {
-      this.isInUse = false
-      throw err
+      this.isInUse = false;
+      throw err;
     }
   }
 
@@ -92,31 +92,31 @@ export class DaemonBrowserManager {
    * Serves the next queued request if any.
    */
   releaseDaemonBrowserWindow(): void {
-    this.clearReleaseTimer()
+    this.clearReleaseTimer();
 
     if (!this.isInUse) {
-      console.warn('[DaemonBrowser] Release called but window is not in use')
-      return
+      console.warn('[DaemonBrowser] Release called but window is not in use');
+      return;
     }
 
-    console.log('[DaemonBrowser] Window released')
+    console.log('[DaemonBrowser] Window released');
 
     // Serve next queued request
     if (this.queue.length > 0) {
-      const next = this.queue.shift()!
-      const partition = extractPartition(next.url)
-      console.log(`[DaemonBrowser] Serving next queued request (remaining: ${this.queue.length})`)
+      const next = this.queue.shift()!;
+      const partition = extractPartition(next.url);
+      console.log(`[DaemonBrowser] Serving next queued request (remaining: ${this.queue.length})`);
 
       this.prepareWindow(next.url, partition)
         .then(next.resolve)
         .catch((err) => {
-          this.isInUse = false
-          next.reject(err)
+          this.isInUse = false;
+          next.reject(err);
           // Try to serve the next queued request
-          this.drainQueue()
-        })
+          this.drainQueue();
+        });
     } else {
-      this.isInUse = false
+      this.isInUse = false;
     }
   }
 
@@ -125,16 +125,16 @@ export class DaemonBrowserManager {
    */
   private drainQueue(): void {
     if (this.queue.length > 0 && !this.isInUse) {
-      const next = this.queue.shift()!
-      const partition = extractPartition(next.url)
-      this.isInUse = true
+      const next = this.queue.shift()!;
+      const partition = extractPartition(next.url);
+      this.isInUse = true;
       this.prepareWindow(next.url, partition)
         .then(next.resolve)
         .catch((err) => {
-          this.isInUse = false
-          next.reject(err)
-          this.drainQueue()
-        })
+          this.isInUse = false;
+          next.reject(err);
+          this.drainQueue();
+        });
     }
   }
 
@@ -143,36 +143,36 @@ export class DaemonBrowserManager {
    * Called during shutdown.
    */
   destroy(): void {
-    this.isShuttingDown = true
-    this.clearReleaseTimer()
+    this.isShuttingDown = true;
+    this.clearReleaseTimer();
 
     // Reject all queued requests
     for (const entry of this.queue) {
-      entry.reject(new Error('[DaemonBrowser] Service is shutting down'))
+      entry.reject(new Error('[DaemonBrowser] Service is shutting down'));
     }
-    this.queue = []
+    this.queue = [];
 
     // Destroy the window
     if (this.daemonWindow && !this.daemonWindow.isDestroyed()) {
       try {
-        this.daemonWindow.destroy()
-        console.log('[DaemonBrowser] Window destroyed')
+        this.daemonWindow.destroy();
+        console.log('[DaemonBrowser] Window destroyed');
       } catch (error) {
-        console.error('[DaemonBrowser] Error destroying window:', error)
+        console.error('[DaemonBrowser] Error destroying window:', error);
       }
     }
 
-    this.daemonWindow = null
-    this.currentPartition = null
-    this.isInUse = false
-    this.stealthInjected = false
+    this.daemonWindow = null;
+    this.currentPartition = null;
+    this.isInUse = false;
+    this.stealthInjected = false;
   }
 
   /**
    * Check if the daemon window currently exists.
    */
   hasWindow(): boolean {
-    return this.daemonWindow !== null && !this.daemonWindow.isDestroyed()
+    return this.daemonWindow !== null && !this.daemonWindow.isDestroyed();
   }
 
   /**
@@ -182,14 +182,18 @@ export class DaemonBrowserManager {
    */
   private async prepareWindow(url: string, partition: string): Promise<BrowserWindow> {
     // Start the auto-release safety timer
-    this.startReleaseTimer()
+    this.startReleaseTimer();
 
     // If partition changed or window does not exist, (re)create the window
-    if (!this.daemonWindow || this.daemonWindow.isDestroyed() || this.currentPartition !== partition) {
-      await this.createWindow(partition)
+    if (
+      !this.daemonWindow ||
+      this.daemonWindow.isDestroyed() ||
+      this.currentPartition !== partition
+    ) {
+      await this.createWindow(partition);
     }
 
-    return this.daemonWindow!
+    return this.daemonWindow!;
   }
 
   /**
@@ -198,15 +202,15 @@ export class DaemonBrowserManager {
   private async createWindow(partition: string): Promise<void> {
     // Destroy existing window if any
     if (this.daemonWindow && !this.daemonWindow.isDestroyed()) {
-      this.daemonWindow.destroy()
-      this.stealthInjected = false
+      this.daemonWindow.destroy();
+      this.stealthInjected = false;
     }
 
     // Ensure the partition session exists
-    const sess = session.fromPartition(partition, { cache: true })
+    const sess = session.fromPartition(partition, { cache: true });
 
     // Set a realistic user agent on the session
-    sess.setUserAgent(CHROME_USER_AGENT)
+    sess.setUserAgent(CHROME_USER_AGENT);
 
     this.daemonWindow = new BrowserWindow({
       show: false,
@@ -220,36 +224,36 @@ export class DaemonBrowserManager {
         // Offscreen rendering is not needed; we just need a hidden window
         // that can load and interact with web pages via CDP.
         webSecurity: true,
-        allowRunningInsecureContent: false
-      }
-    })
+        allowRunningInsecureContent: false,
+      },
+    });
 
-    this.currentPartition = partition
+    this.currentPartition = partition;
 
     // Prevent the daemon window from appearing in the taskbar / dock
-    this.daemonWindow.setSkipTaskbar(true)
+    this.daemonWindow.setSkipTaskbar(true);
 
     // Handle unexpected close
     this.daemonWindow.on('closed', () => {
-      this.daemonWindow = null
-      this.currentPartition = null
-      this.stealthInjected = false
-    })
+      this.daemonWindow = null;
+      this.currentPartition = null;
+      this.stealthInjected = false;
+    });
 
     // Inject stealth scripts via CDP
     if (!this.stealthInjected) {
       try {
-        await injectStealthScripts(this.daemonWindow.webContents)
-        this.stealthInjected = true
-        console.log(`[DaemonBrowser] Stealth scripts injected (partition: ${partition})`)
+        await injectStealthScripts(this.daemonWindow.webContents);
+        this.stealthInjected = true;
+        console.log(`[DaemonBrowser] Stealth scripts injected (partition: ${partition})`);
       } catch (error) {
-        console.error('[DaemonBrowser] Stealth injection failed:', error)
+        console.error('[DaemonBrowser] Stealth injection failed:', error);
         // Continue anyway -- stealth is best-effort for the daemon window.
         // The window is still usable without it.
       }
     }
 
-    console.log(`[DaemonBrowser] Window created (partition: ${partition})`)
+    console.log(`[DaemonBrowser] Window created (partition: ${partition})`);
   }
 
   /**
@@ -257,15 +261,15 @@ export class DaemonBrowserManager {
    * does not release it within AUTO_RELEASE_TIMEOUT_MS.
    */
   private startReleaseTimer(): void {
-    this.clearReleaseTimer()
+    this.clearReleaseTimer();
     this.releaseTimer = setTimeout(() => {
       if (this.isInUse) {
         console.warn(
-          `[DaemonBrowser] Auto-releasing after ${AUTO_RELEASE_TIMEOUT_MS / 1000}s timeout`
-        )
-        this.releaseDaemonBrowserWindow()
+          `[DaemonBrowser] Auto-releasing after ${AUTO_RELEASE_TIMEOUT_MS / 1000}s timeout`,
+        );
+        this.releaseDaemonBrowserWindow();
       }
-    }, AUTO_RELEASE_TIMEOUT_MS)
+    }, AUTO_RELEASE_TIMEOUT_MS);
   }
 
   /**
@@ -273,8 +277,8 @@ export class DaemonBrowserManager {
    */
   private clearReleaseTimer(): void {
     if (this.releaseTimer) {
-      clearTimeout(this.releaseTimer)
-      this.releaseTimer = null
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
     }
   }
 }

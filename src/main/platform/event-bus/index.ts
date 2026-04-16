@@ -22,8 +22,8 @@
  *   eventBus.stop()
  */
 
-import { createEventBus } from './event-bus'
-import type { EventBusDeps, EventBusService } from './types'
+import { createEventBus } from './event-bus';
+import type { EventBusDeps, EventBusService } from './types';
 
 // Re-export types for consumers
 export type {
@@ -38,28 +38,28 @@ export type {
   EventEmitFn,
   Unsubscribe,
   DedupConfig,
-  EventBusDeps
-} from './types'
+  EventBusDeps,
+} from './types';
 
 // Re-export source adapters for bootstrap wiring
-export { FileWatcherSource } from './sources/file-watcher.source'
-export type { WatcherHostLike } from './sources/file-watcher.source'
-export { WebhookSource } from './sources/webhook.source'
-export type { WebhookSecretResolver } from './sources/webhook.source'
-export { ScheduleBridgeSource } from './sources/schedule-bridge.source'
-export type { SchedulerLike, ScheduledJobInfo } from './sources/schedule-bridge.source'
+export { FileWatcherSource } from './sources/file-watcher.source';
+export type { WatcherHostLike } from './sources/file-watcher.source';
+export { WebhookSource } from './sources/webhook.source';
+export type { WebhookSecretResolver } from './sources/webhook.source';
+export { ScheduleBridgeSource } from './sources/schedule-bridge.source';
+export type { SchedulerLike, ScheduledJobInfo } from './sources/schedule-bridge.source';
 
 // Re-export filter utilities for testing
-export { matchesFilter, matchTypeGlob, getByPath } from './filter'
+export { matchesFilter, matchTypeGlob, getByPath } from './filter';
 
 // Re-export dedup for testing
-export { createDedupCache } from './dedup'
+export { createDedupCache } from './dedup';
 
 // ---------------------------------------------------------------------------
 // Module State
 // ---------------------------------------------------------------------------
 
-let serviceInstance: EventBusService | null = null
+let serviceInstance: EventBusService | null = null;
 
 // ---------------------------------------------------------------------------
 // Initialization
@@ -76,17 +76,17 @@ let serviceInstance: EventBusService | null = null
  */
 export function initEventBus(deps?: EventBusDeps): EventBusService {
   if (serviceInstance) {
-    return serviceInstance
+    return serviceInstance;
   }
 
-  const start = performance.now()
+  const start = performance.now();
 
-  serviceInstance = createEventBus(deps?.dedup)
+  serviceInstance = createEventBus(deps?.dedup);
 
-  const duration = performance.now() - start
-  console.log(`[EventBus] Initialized in ${duration.toFixed(1)}ms`)
+  const duration = performance.now() - start;
+  console.log(`[EventBus] Initialized in ${duration.toFixed(1)}ms`);
 
-  return serviceInstance
+  return serviceInstance;
 }
 
 /**
@@ -96,8 +96,8 @@ export function initEventBus(deps?: EventBusDeps): EventBusService {
  */
 export function shutdownEventBus(): void {
   if (serviceInstance) {
-    serviceInstance.stop()
-    serviceInstance = null
-    console.log('[EventBus] Shutdown complete')
+    serviceInstance.stop();
+    serviceInstance = null;
+    console.log('[EventBus] Shutdown complete');
   }
 }

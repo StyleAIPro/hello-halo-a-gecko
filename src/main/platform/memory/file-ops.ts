@@ -6,9 +6,9 @@
  * Path resolution and permission checks happen in the calling layer.
  */
 
-import { readFile, writeFile, appendFile, mkdir, readdir, rename, stat } from 'fs/promises'
-import { existsSync } from 'fs'
-import { join, dirname } from 'path'
+import { readFile, writeFile, appendFile, mkdir, readdir, rename, stat } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join, dirname } from 'path';
 
 // ============================================================================
 // Read
@@ -22,12 +22,12 @@ import { join, dirname } from 'path'
  */
 export async function readMemoryFile(filePath: string): Promise<string | null> {
   try {
-    return await readFile(filePath, 'utf-8')
+    return await readFile(filePath, 'utf-8');
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
-      return null
+      return null;
     }
-    throw err
+    throw err;
   }
 }
 
@@ -43,24 +43,24 @@ export async function readMemoryFile(filePath: string): Promise<string | null> {
  * @returns Heading lines with line numbers, or null if file does not exist
  */
 export async function readMemoryHeadings(filePath: string): Promise<string | null> {
-  const content = await readMemoryFile(filePath)
-  if (content === null) return null
+  const content = await readMemoryFile(filePath);
+  if (content === null) return null;
 
-  const lines = content.split('\n')
-  const headings: string[] = []
+  const lines = content.split('\n');
+  const headings: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+    const line = lines[i];
     if (/^#{1,6}\s/.test(line)) {
-      headings.push(`L${i + 1}: ${line}`)
+      headings.push(`L${i + 1}: ${line}`);
     }
   }
 
   if (headings.length === 0) {
-    return '(No markdown headings found in memory file)'
+    return '(No markdown headings found in memory file)';
   }
 
-  return headings.join('\n')
+  return headings.join('\n');
 }
 
 /**
@@ -76,40 +76,40 @@ export async function readMemoryHeadings(filePath: string): Promise<string | nul
  * @returns Section content including the heading line, or null if file/section not found
  */
 export async function readMemorySection(filePath: string, heading: string): Promise<string | null> {
-  const content = await readMemoryFile(filePath)
-  if (content === null) return null
+  const content = await readMemoryFile(filePath);
+  if (content === null) return null;
 
-  const lines = content.split('\n')
-  const needle = heading.toLowerCase()
+  const lines = content.split('\n');
+  const needle = heading.toLowerCase();
 
   // Find the first heading line that matches
-  let startIdx = -1
-  let startLevel = 0
+  let startIdx = -1;
+  let startLevel = 0;
 
   for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/^(#{1,6})\s+(.*)/)
+    const match = lines[i].match(/^(#{1,6})\s+(.*)/);
     if (match && match[2].toLowerCase().includes(needle)) {
-      startIdx = i
-      startLevel = match[1].length
-      break
+      startIdx = i;
+      startLevel = match[1].length;
+      break;
     }
   }
 
   if (startIdx === -1) {
-    return null // Section not found
+    return null; // Section not found
   }
 
   // Find the end: next heading at same or higher level (fewer or equal #)
-  let endIdx = lines.length
+  let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
-    const match = lines[i].match(/^(#{1,6})\s/)
+    const match = lines[i].match(/^(#{1,6})\s/);
     if (match && match[1].length <= startLevel) {
-      endIdx = i
-      break
+      endIdx = i;
+      break;
     }
   }
 
-  return lines.slice(startIdx, endIdx).join('\n')
+  return lines.slice(startIdx, endIdx).join('\n');
 }
 
 /**
@@ -120,18 +120,18 @@ export async function readMemorySection(filePath: string, heading: string): Prom
  * @returns Last N lines as string, or null if file does not exist
  */
 export async function readMemoryTail(filePath: string, limit: number = 50): Promise<string | null> {
-  const content = await readMemoryFile(filePath)
-  if (content === null) return null
+  const content = await readMemoryFile(filePath);
+  if (content === null) return null;
 
-  const lines = content.split('\n')
-  const startLine = Math.max(0, lines.length - limit)
-  const tailLines = lines.slice(startLine)
+  const lines = content.split('\n');
+  const startLine = Math.max(0, lines.length - limit);
+  const tailLines = lines.slice(startLine);
 
   if (startLine > 0) {
-    return `... (showing last ${limit} of ${lines.length} lines)\n` + tailLines.join('\n')
+    return `... (showing last ${limit} of ${lines.length} lines)\n` + tailLines.join('\n');
   }
 
-  return tailLines.join('\n')
+  return tailLines.join('\n');
 }
 
 // ============================================================================
@@ -151,15 +151,15 @@ export async function readMemoryTail(filePath: string, limit: number = 50): Prom
 export async function appendToMemoryFile(
   filePath: string,
   content: string,
-  source: string
+  source: string,
 ): Promise<void> {
-  await ensureDir(dirname(filePath))
+  await ensureDir(dirname(filePath));
 
-  const timestamp = new Date().toISOString()
-  const header = `\n<!-- ${timestamp} by ${source} -->\n`
-  const payload = header + content.trimEnd() + '\n'
+  const timestamp = new Date().toISOString();
+  const header = `\n<!-- ${timestamp} by ${source} -->\n`;
+  const payload = header + content.trimEnd() + '\n';
 
-  await appendFile(filePath, payload, 'utf-8')
+  await appendFile(filePath, payload, 'utf-8');
 }
 
 /**
@@ -171,15 +171,12 @@ export async function appendToMemoryFile(
  * @param filePath - Absolute path to the file
  * @param content  - New content
  */
-export async function replaceMemoryFile(
-  filePath: string,
-  content: string
-): Promise<void> {
-  await ensureDir(dirname(filePath))
+export async function replaceMemoryFile(filePath: string, content: string): Promise<void> {
+  await ensureDir(dirname(filePath));
 
-  const tmpPath = filePath + '.tmp'
-  await writeFile(tmpPath, content, 'utf-8')
-  await rename(tmpPath, filePath)
+  const tmpPath = filePath + '.tmp';
+  await writeFile(tmpPath, content, 'utf-8');
+  await rename(tmpPath, filePath);
 }
 
 // ============================================================================
@@ -194,23 +191,21 @@ export async function replaceMemoryFile(
  */
 export async function listMemoryFiles(dirPath: string): Promise<string[]> {
   if (!existsSync(dirPath)) {
-    return []
+    return [];
   }
 
   try {
-    const entries = await readdir(dirPath, { withFileTypes: true })
-    const files = entries
-      .filter(e => e.isFile() && e.name.endsWith('.md'))
-      .map(e => e.name)
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    const files = entries.filter((e) => e.isFile() && e.name.endsWith('.md')).map((e) => e.name);
 
     // Sort newest first (lexicographic descending works for YYYY-MM-DD format)
-    files.sort((a, b) => b.localeCompare(a))
-    return files
+    files.sort((a, b) => b.localeCompare(a));
+    return files;
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
-      return []
+      return [];
     }
-    throw err
+    throw err;
   }
 }
 
@@ -225,26 +220,23 @@ export async function listMemoryFiles(dirPath: string): Promise<string[]> {
  * @param archiveDir - Path to the memory/ archive directory
  * @returns Path to the archived file
  */
-export async function archiveMemoryFile(
-  filePath: string,
-  archiveDir: string
-): Promise<string> {
-  await ensureDir(archiveDir)
+export async function archiveMemoryFile(filePath: string, archiveDir: string): Promise<string> {
+  await ensureDir(archiveDir);
 
-  const now = new Date()
-  const slug = formatTimestamp(now)
-  const archiveName = `${slug}.md`
-  const archivePath = join(archiveDir, archiveName)
+  const now = new Date();
+  const slug = formatTimestamp(now);
+  const archiveName = `${slug}.md`;
+  const archivePath = join(archiveDir, archiveName);
 
   // Handle name collision (very unlikely -- same minute)
-  let finalPath = archivePath
+  let finalPath = archivePath;
   if (existsSync(archivePath)) {
-    const deduped = `${slug}-${now.getSeconds().toString().padStart(2, '0')}.md`
-    finalPath = join(archiveDir, deduped)
+    const deduped = `${slug}-${now.getSeconds().toString().padStart(2, '0')}.md`;
+    finalPath = join(archiveDir, deduped);
   }
 
-  await rename(filePath, finalPath)
-  return finalPath
+  await rename(filePath, finalPath);
+  return finalPath;
 }
 
 /**
@@ -254,13 +246,13 @@ export async function archiveMemoryFile(
  */
 export async function getFileSize(filePath: string): Promise<number> {
   try {
-    const stats = await stat(filePath)
-    return stats.size
+    const stats = await stat(filePath);
+    return stats.size;
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
-      return 0
+      return 0;
     }
-    throw err
+    throw err;
   }
 }
 
@@ -270,19 +262,19 @@ export async function getFileSize(filePath: string): Promise<number> {
 
 async function ensureDir(dirPath: string): Promise<void> {
   if (!existsSync(dirPath)) {
-    await mkdir(dirPath, { recursive: true })
+    await mkdir(dirPath, { recursive: true });
   }
 }
 
 function formatTimestamp(date: Date): string {
-  const y = date.getFullYear()
-  const m = (date.getMonth() + 1).toString().padStart(2, '0')
-  const d = date.getDate().toString().padStart(2, '0')
-  const h = date.getHours().toString().padStart(2, '0')
-  const min = date.getMinutes().toString().padStart(2, '0')
-  return `${y}-${m}-${d}-${h}${min}`
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const d = date.getDate().toString().padStart(2, '0');
+  const h = date.getHours().toString().padStart(2, '0');
+  const min = date.getMinutes().toString().padStart(2, '0');
+  return `${y}-${m}-${d}-${h}${min}`;
 }
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err
+  return err instanceof Error && 'code' in err;
 }

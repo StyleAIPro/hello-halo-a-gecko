@@ -19,11 +19,11 @@
  *   scheduler.stop()
  */
 
-import { randomUUID } from 'crypto'
-import type { DatabaseManager } from '../store/types'
-import { SchedulerStore } from './store'
-import { SchedulerTimer } from './timer'
-import { computeNextRun } from './schedule'
+import { randomUUID } from 'crypto';
+import type { DatabaseManager } from '../store/types';
+import { SchedulerStore } from './store';
+import { SchedulerTimer } from './timer';
+import { computeNextRun } from './schedule';
 import type {
   SchedulerService,
   SchedulerJob,
@@ -32,8 +32,8 @@ import type {
   JobDueHandler,
   JobFilter,
   RunLogEntry,
-  RunStats
-} from './types'
+  RunStats,
+} from './types';
 
 // Re-export types for consumers
 export type {
@@ -51,24 +51,29 @@ export type {
   ScheduleOnce,
   ScheduleKind,
   JobStatus,
-  RunOutcome
-} from './types'
+  RunOutcome,
+} from './types';
 
 // Re-export for testing
-export { computeNextRun, computeNextRunEvery, computeNextRunCron, parseEveryString } from './schedule'
+export {
+  computeNextRun,
+  computeNextRunEvery,
+  computeNextRunCron,
+  parseEveryString,
+} from './schedule';
 
 // ---------------------------------------------------------------------------
 // Module State
 // ---------------------------------------------------------------------------
 
-let serviceInstance: SchedulerService | null = null
+let serviceInstance: SchedulerService | null = null;
 
 // ---------------------------------------------------------------------------
 // Initialization
 // ---------------------------------------------------------------------------
 
 export interface SchedulerDeps {
-  db: DatabaseManager
+  db: DatabaseManager;
 }
 
 /**
@@ -82,31 +87,31 @@ export interface SchedulerDeps {
  */
 export async function initScheduler(deps: SchedulerDeps): Promise<SchedulerService> {
   if (serviceInstance) {
-    return serviceInstance
+    return serviceInstance;
   }
 
-  const start = performance.now()
+  const start = performance.now();
 
-  const store = new SchedulerStore(deps.db)
-  const timer = new SchedulerTimer(store)
+  const store = new SchedulerStore(deps.db);
+  const timer = new SchedulerTimer(store);
 
   const service: SchedulerService = {
     // -- Job CRUD --
 
     addJob(input: SchedulerJobCreate): string {
-      const now = Date.now()
-      const id = input.id || randomUUID()
-      const anchorMs = now
+      const now = Date.now();
+      const id = input.id || randomUUID();
+      const anchorMs = now;
 
       // Compute the first run time
-      let nextRunAtMs: number
+      let nextRunAtMs: number;
       try {
-        const next = computeNextRun(input.schedule, anchorMs, now)
-        nextRunAtMs = next ?? 0
+        const next = computeNextRun(input.schedule, anchorMs, now);
+        nextRunAtMs = next ?? 0;
       } catch (err) {
         throw new Error(
-          `Failed to compute initial run time for job "${input.name}": ${err instanceof Error ? err.message : String(err)}`
-        )
+          `Failed to compute initial run time for job "${input.name}": ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       const job: SchedulerJob = {
@@ -120,177 +125,176 @@ export async function initScheduler(deps: SchedulerDeps): Promise<SchedulerServi
         consecutiveErrors: 0,
         status: 'idle',
         createdAt: now,
-        updatedAt: now
-      }
+        updatedAt: now,
+      };
 
-      store.insertJob(job)
-      timer.rearm()
+      store.insertJob(job);
+      timer.rearm();
 
       console.log(
         `[Scheduler] Job added: "${job.name}" (${job.id}), ` +
-        `schedule: ${job.schedule.kind}, next run: ${new Date(nextRunAtMs).toISOString()}`
-      )
+          `schedule: ${job.schedule.kind}, next run: ${new Date(nextRunAtMs).toISOString()}`,
+      );
 
-      return id
+      return id;
     },
 
     removeJob(jobId: string): void {
-      const job = store.getJob(jobId)
-      if (!job) return
+      const job = store.getJob(jobId);
+      if (!job) return;
 
-      store.deleteJob(jobId)
-      timer.rearm()
+      store.deleteJob(jobId);
+      timer.rearm();
 
-      console.log(`[Scheduler] Job removed: "${job.name}" (${jobId})`)
+      console.log(`[Scheduler] Job removed: "${job.name}" (${jobId})`);
     },
 
     updateJob(jobId: string, updates: SchedulerJobUpdate): void {
-      const job = store.getJob(jobId)
+      const job = store.getJob(jobId);
       if (!job) {
-        throw new Error(`Scheduler job not found: ${jobId}`)
+        throw new Error(`Scheduler job not found: ${jobId}`);
       }
 
-      const now = Date.now()
-      let scheduleChanged = false
+      const now = Date.now();
+      let scheduleChanged = false;
 
       if (updates.name !== undefined) {
-        job.name = updates.name
+        job.name = updates.name;
       }
 
       if (updates.schedule !== undefined) {
-        job.schedule = updates.schedule
-        scheduleChanged = true
+        job.schedule = updates.schedule;
+        scheduleChanged = true;
       }
 
       if (updates.enabled !== undefined) {
-        job.enabled = updates.enabled
+        job.enabled = updates.enabled;
         if (updates.enabled && (job.status === 'paused' || job.status === 'disabled')) {
-          job.status = 'idle'
-          job.consecutiveErrors = 0
-          scheduleChanged = true
+          job.status = 'idle';
+          job.consecutiveErrors = 0;
+          scheduleChanged = true;
         }
       }
 
       if (updates.metadata !== undefined) {
-        job.metadata = updates.metadata
+        job.metadata = updates.metadata;
       }
 
       // Recompute next run if schedule changed
       if (scheduleChanged && job.enabled) {
         try {
-          const next = computeNextRun(job.schedule, job.anchorMs, now)
+          const next = computeNextRun(job.schedule, job.anchorMs, now);
           if (next !== undefined) {
-            job.nextRunAtMs = next
+            job.nextRunAtMs = next;
           }
         } catch {
           // Keep existing nextRunAtMs
         }
       }
 
-      job.updatedAt = now
-      store.updateJob(job)
-      timer.rearm()
+      job.updatedAt = now;
+      store.updateJob(job);
+      timer.rearm();
 
-      console.log(`[Scheduler] Job updated: "${job.name}" (${jobId})`)
+      console.log(`[Scheduler] Job updated: "${job.name}" (${jobId})`);
     },
 
     pauseJob(jobId: string): void {
-      const job = store.getJob(jobId)
+      const job = store.getJob(jobId);
       if (!job) {
-        throw new Error(`Scheduler job not found: ${jobId}`)
+        throw new Error(`Scheduler job not found: ${jobId}`);
       }
 
       if (job.status === 'running') {
-        console.warn(`[Scheduler] Cannot pause running job "${job.name}" (${jobId})`)
-        return
+        console.warn(`[Scheduler] Cannot pause running job "${job.name}" (${jobId})`);
+        return;
       }
 
-      job.status = 'paused'
-      job.updatedAt = Date.now()
-      store.updateJob(job)
-      timer.rearm()
+      job.status = 'paused';
+      job.updatedAt = Date.now();
+      store.updateJob(job);
+      timer.rearm();
 
-      console.log(`[Scheduler] Job paused: "${job.name}" (${jobId})`)
+      console.log(`[Scheduler] Job paused: "${job.name}" (${jobId})`);
     },
 
     resumeJob(jobId: string): void {
-      const job = store.getJob(jobId)
+      const job = store.getJob(jobId);
       if (!job) {
-        throw new Error(`Scheduler job not found: ${jobId}`)
+        throw new Error(`Scheduler job not found: ${jobId}`);
       }
 
       if (job.status !== 'paused' && job.status !== 'disabled') {
-        return // Already active
+        return; // Already active
       }
 
-      const now = Date.now()
-      job.status = 'idle'
-      job.enabled = true
-      job.consecutiveErrors = 0
+      const now = Date.now();
+      job.status = 'idle';
+      job.enabled = true;
+      job.consecutiveErrors = 0;
 
       // Recompute next run from now
       try {
-        const next = computeNextRun(job.schedule, job.anchorMs, now)
+        const next = computeNextRun(job.schedule, job.anchorMs, now);
         if (next !== undefined) {
-          job.nextRunAtMs = next
+          job.nextRunAtMs = next;
         }
       } catch {
         // Keep existing
       }
 
-      job.updatedAt = now
-      store.updateJob(job)
-      timer.rearm()
+      job.updatedAt = now;
+      store.updateJob(job);
+      timer.rearm();
 
       console.log(
         `[Scheduler] Job resumed: "${job.name}" (${jobId}), ` +
-        `next run: ${new Date(job.nextRunAtMs).toISOString()}`
-      )
+          `next run: ${new Date(job.nextRunAtMs).toISOString()}`,
+      );
     },
 
     getJob(jobId: string): SchedulerJob | null {
-      return store.getJob(jobId)
+      return store.getJob(jobId);
     },
 
     listJobs(filter?: JobFilter): SchedulerJob[] {
-      return store.listJobs(filter)
+      return store.listJobs(filter);
     },
 
     // -- Execution --
 
     onJobDue(handler: JobDueHandler): void {
-      timer.setHandler(handler)
+      timer.setHandler(handler);
     },
 
     start(): void {
-      timer.start()
+      timer.start();
     },
 
     stop(): void {
-      timer.stop()
+      timer.stop();
     },
 
     // -- Observability --
 
     getRunLog(jobId: string, limit?: number): RunLogEntry[] {
-      return store.getRunLog(jobId, limit)
+      return store.getRunLog(jobId, limit);
     },
 
     getRunStats(jobId: string, since?: number): RunStats {
-      return store.getRunStats(jobId, since)
-    }
-  }
+      return store.getRunStats(jobId, since);
+    },
+  };
 
-  serviceInstance = service
+  serviceInstance = service;
 
-  const duration = performance.now() - start
-  const jobCount = store.getEnabledJobs().length
+  const duration = performance.now() - start;
+  const jobCount = store.getEnabledJobs().length;
   console.log(
-    `[Scheduler] Initialized in ${duration.toFixed(1)}ms ` +
-    `(${jobCount} existing job(s))`
-  )
+    `[Scheduler] Initialized in ${duration.toFixed(1)}ms ` + `(${jobCount} existing job(s))`,
+  );
 
-  return service
+  return service;
 }
 
 /**
@@ -301,8 +305,8 @@ export async function initScheduler(deps: SchedulerDeps): Promise<SchedulerServi
  */
 export async function shutdownScheduler(): Promise<void> {
   if (serviceInstance) {
-    serviceInstance.stop()
-    serviceInstance = null
-    console.log('[Scheduler] Shutdown complete')
+    serviceInstance.stop();
+    serviceInstance = null;
+    console.log('[Scheduler] Shutdown complete');
   }
 }
