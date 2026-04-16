@@ -6,6 +6,10 @@
 - BUG-001: AskUserQuestion 工具导致 Bot 卡死 — `src/main/services/agent/permission-handler.ts`、`src/renderer/stores/chat.store.ts`
 - BUG-001: MAX_IMAGES 未定义导致 InputArea 崩溃 — `src/renderer/hooks/useImageAttachments.ts`、`src/renderer/components/chat/InputArea.tsx`
 - BUG-001: sessionId 未定义导致 sendMessage 崩溃 — `src/main/services/agent/session-manager.ts`
+- BUG-001: dev/packaged 多实例共享远端 proxy 时 auth token 冲突（401 认证失败） — `packages/remote-agent-proxy/src/server.ts`、`src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: connectServer 重连后不检测代理状态，UI 错误显示"Bot 代理已停止" — `src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: Windows 下 tar 命令因反斜杠路径失败导致远程部署不可用 — `src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: startAgent pgrep 误判代理已运行导致更新后代理未启动 — `src/main/services/remote-deploy/remote-deploy.service.ts`
 
 ### Added
 - 文档模块：skill（3 功能）、terminal（2 功能）、health（2 功能）、ai-sources（2 功能）、settings（3 功能）、onboarding（2 功能） — `.project/modules/`

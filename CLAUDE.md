@@ -38,6 +38,7 @@
 - React：只允许函数组件，Zustand 按功能拆分 store
 - 命名：文件夹 kebab-case，组件 PascalCase，接口不加 `I` 前缀
 - 提交前运行 `npm run lint:fix`；pre-commit hooks 会自动处理
+- **编辑文件后必须运行 `npx eslint --fix <file>`**：项目强制 LF 行尾（`.prettierrc` + `.gitattributes`），Windows 环境下 Prettier 会全文件重写行尾。编辑后必须立即执行 lint:fix 并**重新 Read 被修改的文件确认逻辑改动未被覆盖**，尤其是 `eslint --fix` 输出大量 `Delete ␍` 时
 
 ## 项目概述
 
@@ -64,12 +65,35 @@ npm run i18n:translate   # 仅 AI 翻译
 npm run prepare          # 下载当前平台的二进制文件
 npm run prepare:all      # 下载所有平台的二进制文件
 
+# 发布
+npm run release:win      # 构建并发布 Windows 版本到 GitHub Releases（需 GH_TOKEN）
+npm run release          # 同时构建并发布多平台版本
+
 # 代码质量
 npm run typecheck        # TypeScript 类型检查
 npm run lint             # ESLint 检查
 npm run lint:fix         # ESLint 自动修复
 npm run format           # Prettier 格式化
 ```
+
+### Windows 打包流程
+
+详见 `docs/WINDOWS_DEV.md`。核心步骤：
+
+1. **环境准备**：安装 Node.js 20.x、Python 3.x、Visual Studio Build Tools 2022+
+2. **安装依赖**：`npm install`（会自动执行 postinstall 应用补丁）
+3. **下载二进制**：`npm run prepare`（下载 cloudflared、gh CLI、better-sqlite3 prebuild 等）
+4. **构建打包**：`npm run build:win`（构建 proxy → electron-vite build → electron-builder 打包 NSIS 安装包）
+5. **发布**（可选）：在 `.env.local` 配置 `GH_TOKEN`，然后 `npm run release:win`
+
+构建产物：
+- `out/` — electron-vite 编译输出
+- `dist/` — electron-builder 打包输出（`AICO-Bot Setup x.x.x.exe`）
+
+常见问题：
+- 原生模块编译失败 → `npm config set msvs_version 2022 && npm install`
+- better-sqlite3/node-pty 报错 → `npx electron-rebuild && npm run prepare`
+- `npm run prepare` 下载失败 → 设置 `HTTPS_PROXY` 或手动下载
 
 ## 架构概述
 
