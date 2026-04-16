@@ -641,13 +641,17 @@ export function HomePage() {
                     className="w-full mt-1 px-3 py-2 bg-input rounded-lg border border-border focus:border-primary focus:outline-none transition-colors"
                   >
                     <option value="">{t('Select server...')}</option>
-                    {remoteServers.map((server: RemoteServer) => (
+                    {remoteServers
+                      .filter((s: RemoteServer) => s.sdkInstalled && s.proxyRunning)
+                      .map((server: RemoteServer) => (
                       <option key={server.id} value={server.id}>
                         {server.name}
-                        {server.status === 'connected' ? ` (${t('Connected')})` : ` (${t('Disconnected')})`}
                       </option>
                     ))}
                   </select>
+                  {remoteServers.length > 0 && remoteServers.filter((s: RemoteServer) => s.sdkInstalled && s.proxyRunning).length === 0 && (
+                    <p className="text-xs text-amber-500 mt-1">{t('No servers with SDK and Bot Proxy ready. Please deploy the agent first.')}</p>
+                  )}
                 </div>
 
                 <div className="mb-4">

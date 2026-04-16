@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
-import * as fs from 'fs'
-import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, TokensFile, TokenEntry, AicoBotMcpToolDef } from './types.js'
+import * as https from 'https'
+import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, AicoBotMcpToolDef } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 import { BackgroundTaskManager } from './background-tasks.js'
 
@@ -29,8 +29,8 @@ export class RemoteAgentServer {
   // BackgroundTaskManager for HTTP/WS API tasks (separate from MCP server's own manager)
   private bgTaskManager: BackgroundTaskManager
 
-  // Token whitelist: merged from tokens.json and bootstrap env var
-  private authTokens: Set<string> = new Set()
+  // Single auth token for this per-PC proxy instance
+  private authToken: string | undefined
 
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
   private pendingHyperSpaceTools = new Map<string, {
@@ -50,26 +50,19 @@ export class RemoteAgentServer {
     reject: (error: Error) => void
   }>()
 
+  // Idle timeout: auto-stop after 7 days with no connected clients
+  private lastClientActivity: Date = new Date()
+  private idleCheckInterval?: NodeJS.Timeout
+  private static readonly IDLE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000  // 7 days
+
   constructor(config: RemoteServerConfig) {
     this.config = config
     // Explicitly listen on IPv4 to ensure compatibility
     this.server = new WebSocketServer({ port: config.port, host: '0.0.0.0' })
 
-    // Build token whitelist: tokens.json entries + bootstrap env var fallback
-    if (config.authTokens) {
-      for (const t of config.authTokens) {
-        this.authTokens.add(t)
-      }
-    }
-    if (config.authToken) {
-      this.authTokens.add(config.authToken)
-    }
-    console.log(`[RemoteAgentServer] Auth whitelist initialized with ${this.authTokens.size} token(s)`)
-
-    // Watch tokens.json for hot-reload — supports new clients adding tokens while proxy is running
-    if (config.tokensFilePath) {
-      this.watchTokensFile(config.tokensFilePath)
-    }
+    // Single auth token for this per-PC proxy instance
+    this.authToken = config.authToken
+    console.log(`[RemoteAgentServer] Auth configured: ${this.authToken ? 'yes' : 'no (open access)'}`)
 
     // Use pathToClaudeCodeExecutable from config or environment variable
     // If not set, the SDK will use its default behavior (SDK mode)
@@ -93,50 +86,62 @@ export class RemoteAgentServer {
     })
 
     this.setupServer()
+
+    // Start idle timeout check (hourly)
+    this.idleCheckInterval = setInterval(() => this.checkIdleTimeout(), 60 * 60 * 1000)
+  }
+
+  private checkIdleTimeout(): void {
+    // If there are connected clients, reset the timer
+    let hasConnectedClients = false
+    for (const [ws, state] of this.clients) {
+      if (ws.readyState === WebSocket.OPEN && state.authenticated) {
+        hasConnectedClients = true
+        break
+      }
+    }
+
+    if (hasConnectedClients) {
+      this.lastClientActivity = new Date()
+      return
+    }
+
+    const idleMs = Date.now() - this.lastClientActivity.getTime()
+    if (idleMs >= RemoteAgentServer.IDLE_TIMEOUT_MS) {
+      console.log(`[RemoteAgentServer] No clients connected for 7 days, shutting down`)
+      this.close()
+      process.exit(0)
+    }
   }
 
   private setupServer(): void {
     this.server.on('connection', (ws: WebSocket, req) => {
       // Check for Authorization header authentication
-      // HTTP headers are case-insensitive, check both 'authorization' and 'Authorization'
       const authHeader = req.headers['authorization'] || req.headers['Authorization']
-      let authGraceTimer: NodeJS.Timeout | null = null
 
-      if (this.authTokens.size > 0 && typeof authHeader === 'string') {
-        const token = authHeader.split(' ')[1]
-        if (this.isTokenValid(token)) {
-          console.log('Client authenticated via Authorization header')
-          this.clients.set(ws, { authenticated: true, authToken: token })
-          // Send auth:success to the client so it knows immediately
-          ws.send(JSON.stringify({ type: 'auth:success' }))
+      if (this.authToken) {
+        if (typeof authHeader === 'string') {
+          const token = authHeader.split(' ')[1]
+          if (token === this.authToken) {
+            console.log('Client authenticated via Authorization header')
+            this.clients.set(ws, { authenticated: true, authToken: token })
+            this.lastClientActivity = new Date()
+            ws.send(JSON.stringify({ type: 'auth:success' }))
+          } else {
+            console.log('Authentication failed via Authorization header, closing connection')
+            ws.close(1008, 'Unauthorized')
+            return
+          }
         } else {
-          // Header auth failed — don't close immediately.
-          // Store as unauthenticated and allow register-token-disk to register the token.
-          console.log('Authentication failed via Authorization header, waiting for register-token-disk...')
           this.clients.set(ws, { authenticated: false })
-          // Grace period: close the connection if still unauthenticated after 5 seconds
-          authGraceTimer = setTimeout(() => {
-            const client = this.clients.get(ws)
-            if (client && !client.authenticated) {
-              console.log('Auth grace period expired, closing unauthenticated connection')
-              ws.close(1008, 'Unauthorized')
-            }
-          }, 5000)
         }
-      } else if (this.authTokens.size === 0) {
-        // No auth required, auto-authenticate
+      } else {
+        // No auth configured, auto-authenticate
         console.log('No auth required, auto-authenticating')
         this.clients.set(ws, { authenticated: true })
-      } else {
-        this.clients.set(ws, { authenticated: false })
+        this.lastClientActivity = new Date()
       }
       console.log('New client connected')
-
-      // Store authGraceTimer on the client so handleMessage can clear it on register-token-disk success
-      const clientInfo = this.clients.get(ws)
-      if (clientInfo && authGraceTimer) {
-        ;(clientInfo as any)._authGraceTimer = authGraceTimer
-      }
 
       ws.on('message', (data: Buffer) => {
         try {
@@ -215,12 +220,15 @@ export class RemoteAgentServer {
         const ok = this.bgTaskManager.cancel(taskId)
         res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ success: ok }))
+      } else if (req.url === '/health/api' && req.method === 'POST') {
+        // API reachability check: validates that the proxy can call the configured API
+        this.handleHealthApiCheck(req, res)
       } else if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
           name: 'remote-agent-proxy',
           version: '1.0.0',
-          endpoints: ['/health', '/healthz', '/tasks']
+          endpoints: ['/health', '/healthz', '/health/api', '/tasks']
         }))
       } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -237,13 +245,102 @@ export class RemoteAgentServer {
     })
   }
 
+  /**
+   * Handle POST /health/api — validate API connectivity by making a minimal
+   * API call with the provided credentials. Returns quickly with success/failure.
+   */
+  private handleHealthApiCheck(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const timeout = setTimeout(() => {
+      res.writeHead(504, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'error', error: 'API check timed out' }))
+    }, 15000)
+
+    let body = ''
+    req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+    req.on('end', async () => {
+      clearTimeout(timeout)
+      try {
+        const { apiKey, baseUrl, model } = JSON.parse(body)
+        if (!apiKey) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ status: 'error', error: 'Missing apiKey' }))
+          return
+        }
+
+        const start = Date.now()
+        const url = new URL(baseUrl
+          ? `${baseUrl.replace(/\/+$/, '')}/v1/messages`
+          : 'https://api.anthropic.com/v1/messages')
+
+        const reqOpts: http.RequestOptions | https.RequestOptions = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          timeout: 10000,
+        }
+
+        const transport = url.protocol === 'https:' ? https : http
+        const apiReq = transport.request(reqOpts, (apiRes) => {
+          let data = ''
+          apiRes.on('data', (chunk: Buffer) => { data += chunk.toString() })
+          apiRes.on('end', () => {
+            const latency = Date.now() - start
+            if (apiRes.statusCode && apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ status: 'ok', model, latency }))
+            } else {
+              let errorMsg = `HTTP ${apiRes.statusCode}`
+              try {
+                const parsed = JSON.parse(data)
+                errorMsg = parsed.error?.message || parsed.message || errorMsg
+              } catch { /* use default */ }
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ status: 'error', error: errorMsg, latency }))
+            }
+          })
+        })
+
+        apiReq.on('timeout', () => {
+          apiReq.destroy()
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ status: 'error', error: 'API request timed out', latency: Date.now() - start }))
+        })
+        apiReq.on('error', (err) => {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ status: 'error', error: err.message, latency: Date.now() - start }))
+        })
+
+        // Send a minimal messages request (max_tokens:1 to minimize token usage)
+        apiReq.write(JSON.stringify({
+          model: model || 'claude-sonnet-4-20250514',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        }))
+        apiReq.end()
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'error', error: err.message || 'Invalid request' }))
+      }
+    })
+    req.on('error', () => {
+      clearTimeout(timeout)
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'error', error: 'Request body read error' }))
+    })
+  }
+
   private async handleMessage(ws: WebSocket, message: ClientMessage): Promise<void> {
     const client = this.clients.get(ws)
     if (!client) return
 
     // Check authentication for non-auth messages
-    // register-token-disk is exempt: it allows clients to register their token before auth
-    if (message.type !== 'auth' && message.type !== 'register-token-disk' && !client.authenticated) {
+    if (message.type !== 'auth' && !client.authenticated) {
       this.sendMessage(ws, {
         type: 'auth:failed',
         data: { message: 'Not authenticated' }
@@ -342,60 +439,6 @@ export class RemoteAgentServer {
       } else {
         console.log(`[ask:answer] No pending question found for id: ${questionId}`)
       }
-    } else if (message.type === 'reload-tokens') {
-      // Force-reload tokens from disk — can be used by clients to ensure their token is in the whitelist
-      const tokensPath = this.config.tokensFilePath
-      if (tokensPath) {
-        this.reloadTokens(tokensPath)
-      }
-      this.sendMessage(ws, { type: 'reload-tokens:success', data: { count: this.authTokens.size } })
-    } else if (message.type === 'register-token-disk') {
-      // Register a token directly to both disk and in-memory whitelist
-      // Does NOT require prior authentication — used by clients to register their token
-      // before the proxy's whitelist includes it (e.g. after re-adding a server)
-      const token = message.payload?.token
-      const clientId = message.payload?.clientId || 'unknown'
-      const hostname = message.payload?.hostname || 'unknown'
-      if (!token) {
-        this.sendMessage(ws, { type: 'register-token-disk:error', data: { message: 'Missing token' } })
-        return
-      }
-      // Add to in-memory whitelist immediately (no file watcher needed)
-      if (!this.authTokens.has(token)) {
-        this.authTokens.add(token)
-        console.log(`[RemoteAgentServer] Token added to whitelist via register-token-disk (clientId: ${clientId})`)
-      }
-      // Also persist to disk for persistence across proxy restarts
-      this.handleRegisterToken({ token, clientId, hostname })
-      this.sendMessage(ws, { type: 'register-token-disk:success' })
-
-      // If the client was not yet authenticated, authenticate it now
-      // since we just registered its token. Also cancel the grace timer.
-      if (!client.authenticated) {
-        client.authenticated = true
-        client.authToken = token
-        // Clear the auth grace timer
-        const graceTimer = (client as any)._authGraceTimer
-        if (graceTimer) {
-          clearTimeout(graceTimer)
-          delete (client as any)._authGraceTimer
-        }
-        // Notify the client that it is now authenticated
-        this.sendMessage(ws, { type: 'auth:success' })
-        console.log(`[RemoteAgentServer] Client authenticated via register-token-disk (clientId: ${clientId})`)
-      }
-    } else if (message.type === 'register-token') {
-      // Register a new token to the whitelist
-      // Client must already be authenticated to register a new token
-      if (!client.authenticated) {
-        this.sendMessage(ws, {
-          type: 'register-token:error',
-          data: { message: 'Must be authenticated to register a token' }
-        })
-        return
-      }
-      await this.handleRegisterToken(message.payload)
-      this.sendMessage(ws, { type: 'register-token:success' })
     } else if (message.type === 'mcp:tools:register') {
       // WebSocket MCP Bridge: AICO-Bot client registers its available MCP tools
       const client = this.clients.get(ws)
@@ -445,8 +488,8 @@ export class RemoteAgentServer {
   }
 
   private handleAuth(ws: WebSocket, token: string): void {
-    if (this.authTokens.size > 0) {
-      if (this.isTokenValid(token)) {
+    if (this.authToken) {
+      if (token === this.authToken) {
         const client = this.clients.get(ws)
         if (client) {
           client.authenticated = true
@@ -468,187 +511,6 @@ export class RemoteAgentServer {
         this.sendMessage(ws, { type: 'auth:success' })
         console.log('Client authenticated (no auth required)')
       }
-    }
-  }
-
-  /**
-   * Check if a token is valid against the whitelist.
-   * Returns true if whitelist is empty (no auth required).
-   */
-  private isTokenValid(token: string | undefined): boolean {
-    if (this.authTokens.size === 0) {
-      return true
-    }
-    return token !== undefined && this.authTokens.has(token)
-  }
-
-  /**
-   * Handle token registration: add a new token to the whitelist and persist to tokens.json.
-   * If the token already exists, update lastSeen.
-   */
-  private handleRegisterToken(payload: any): void {
-    const token = payload?.token
-    const clientId = payload?.clientId || 'unknown'
-    const hostname = payload?.hostname || 'unknown'
-
-    if (!token) {
-      console.log('[RemoteAgentServer] register-token: missing token in payload')
-      return
-    }
-
-    if (this.authTokens.has(token)) {
-      console.log(`[RemoteAgentServer] Token already in whitelist (clientId: ${clientId})`)
-      this.updateLastSeen(token, hostname)
-      return
-    }
-
-    // Add to in-memory whitelist
-    this.authTokens.add(token)
-    console.log(`[RemoteAgentServer] New token registered (clientId: ${clientId}, hostname: ${hostname})`)
-
-    // Persist to tokens.json
-    this.persistTokenEntry({ token, clientId, hostname, createdAt: new Date().toISOString(), lastSeen: new Date().toISOString() })
-  }
-
-  /**
-   * Update the lastSeen timestamp for an existing token in tokens.json.
-   */
-  private updateLastSeen(token: string, hostname: string): void {
-    const tokensPath = this.config.tokensFilePath
-    if (!tokensPath) return
-
-    try {
-      let data: TokensFile
-      try {
-        data = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
-      } catch {
-        data = { version: 1, tokens: [] }
-      }
-
-      const entry = data.tokens.find(t => t.token === token)
-      if (entry) {
-        entry.lastSeen = new Date().toISOString()
-        if (hostname && hostname !== 'unknown') {
-          entry.hostname = hostname
-        }
-        // Atomic write
-        fs.writeFileSync(tokensPath + '.tmp', JSON.stringify(data, null, 2))
-        fs.renameSync(tokensPath + '.tmp', tokensPath)
-      }
-    } catch (e) {
-      console.error('[RemoteAgentServer] Failed to update lastSeen in tokens.json:', e)
-    }
-  }
-
-  /**
-   * Persist a new token entry to tokens.json (or update existing).
-   * Uses atomic write (.tmp + rename) for crash safety.
-   */
-  private persistTokenEntry(entry: TokenEntry): void {
-    const tokensPath = this.config.tokensFilePath
-    if (!tokensPath) {
-      console.warn('[RemoteAgentServer] No tokensFilePath configured, token not persisted to disk')
-      return
-    }
-
-    try {
-      let data: TokensFile
-      try {
-        data = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
-      } catch {
-        data = { version: 1, tokens: [] }
-      }
-
-      // Ensure version
-      data.version = 1
-
-      // Check if already exists
-      const existing = data.tokens.find(t => t.token === entry.token)
-      if (!existing) {
-        data.tokens.push(entry)
-      } else {
-        existing.lastSeen = entry.lastSeen
-        existing.hostname = entry.hostname
-      }
-
-      // Atomic write
-      fs.writeFileSync(tokensPath + '.tmp', JSON.stringify(data, null, 2))
-      fs.renameSync(tokensPath + '.tmp', tokensPath)
-      console.log(`[RemoteAgentServer] tokens.json updated with ${data.tokens.length} token(s)`)
-    } catch (e) {
-      console.error('[RemoteAgentServer] Failed to persist token to tokens.json:', e)
-    }
-  }
-
-  /**
-   * Watch tokens.json for changes and hot-reload the whitelist.
-   * Uses debouncing to handle atomic writes (.tmp + rename) and multiple inotify events.
-   */
-  private tokenReloadTimer: NodeJS.Timeout | null = null
-
-  private watchTokensFile(tokensPath: string): void {
-    try {
-      // Watch the directory containing tokens.json — atomic rename triggers 'rename' event
-      const dir = require('path').dirname(tokensPath)
-      const watcher = fs.watch(dir, (eventType: string, filename: string | null) => {
-        if (filename === 'tokens.json' || filename === 'tokens.json.tmp') {
-          this.scheduleTokenReload(tokensPath)
-        }
-      })
-      console.log(`[RemoteAgentServer] Watching ${tokensPath} for changes`)
-
-      // Clean up watcher on server close
-      this.server.on('close', () => {
-        watcher.close()
-        if (this.tokenReloadTimer) {
-          clearTimeout(this.tokenReloadTimer)
-          this.tokenReloadTimer = null
-        }
-      })
-    } catch (e) {
-      console.warn('[RemoteAgentServer] Failed to set up tokens.json watcher:', e)
-    }
-  }
-
-  /**
-   * Debounced token reload — coalesces multiple rapid fs.watch events into one re-read.
-   */
-  private scheduleTokenReload(tokensPath: string): void {
-    if (this.tokenReloadTimer) return
-    // Wait 100ms for the atomic write to complete
-    this.tokenReloadTimer = setTimeout(() => {
-      this.tokenReloadTimer = null
-      this.reloadTokens(tokensPath)
-    }, 100)
-  }
-
-  /**
-   * Reload tokens from disk and update the in-memory whitelist.
-   * New tokens are added; removed tokens are kept (graceful degradation).
-   */
-  private reloadTokens(tokensPath: string): void {
-    try {
-      if (!fs.existsSync(tokensPath)) return
-      const data: TokensFile = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
-      if (data.version !== 1 || !Array.isArray(data.tokens)) {
-        console.warn('[RemoteAgentServer] tokens.json has invalid format, skipping reload')
-        return
-      }
-
-      let added = 0
-      for (const t of data.tokens) {
-        if (t.token && !this.authTokens.has(t.token)) {
-          this.authTokens.add(t.token)
-          added++
-        }
-      }
-
-      if (added > 0) {
-        console.log(`[RemoteAgentServer] Token whitelist hot-reloaded: ${added} new token(s), total: ${this.authTokens.size}`)
-      }
-    } catch (e) {
-      // Could be a partially-written file — ignore, next event will retry
-      console.debug('[RemoteAgentServer] tokens.json reload failed (may be in-progress write):', (e as Error).message)
     }
   }
 
@@ -1158,6 +1020,9 @@ export class RemoteAgentServer {
   }
 
   close(): void {
+    if (this.idleCheckInterval) {
+      clearInterval(this.idleCheckInterval)
+    }
     this.clients.forEach((client, ws) => {
       if (client.sessionId) {
         this.claudeManager.closeSession(client.sessionId)

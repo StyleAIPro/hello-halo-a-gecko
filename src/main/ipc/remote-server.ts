@@ -519,10 +519,10 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
     console.log('[IPC] remote-server:update-agent - Deploying latest code (incremental)...')
     await deployService.updateAgentCode(serverId)
 
-    // Get the remote agent version after update
-    // (skip startAgent — updateAgentCode already restarted the agent)
-    console.log('[IPC] remote-server:update-agent - Getting remote version...')
-    const agentCheckResult = await deployService.checkAgentInstalled(serverId)
+    // Detect full agent status after update (SDK + proxy + API)
+    // This also refreshes proxyRunning/apiReachable fields on the server config
+    console.log('[IPC] remote-server:update-agent - Detecting agent status...')
+    const agentCheckResult = await deployService.detectAgentInstalled(serverId)
 
     // Also get the local package.json version for comparison
     const localVersionInfo = deployService.getLocalAgentVersion()
@@ -530,7 +530,6 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
     const result = {
       message: 'Agent updated and restarted successfully',
       remoteVersion: agentCheckResult.version || 'unknown',
-      remoteBuildTime: agentCheckResult.buildTime,
       localVersion: localVersionInfo?.version || 'unknown',
       localBuildTime: localVersionInfo?.buildTime
     }
@@ -592,6 +591,32 @@ ipcMain.handle('remote-server:read-skill-file', async (_event, serverId: string,
   } catch (error: unknown) {
     const err = error as Error
     console.error('[IPC] remote-server:read-skill-file - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+// Per-PC Isolation: scan for orphan deployments
+ipcMain.handle('remote-server:cleanup-scan', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:cleanup-scan - Scanning for orphan deployments:', serverId)
+  try {
+    const result = await deployService.cleanupOrphanDeployments(serverId)
+    return { success: true, data: result }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:cleanup-scan - Failed:', err.message)
+    return { success: false, error: err.message }
+  }
+})
+
+// Per-PC Isolation: delete an inactive deployment
+ipcMain.handle('remote-server:delete-deployment', async (_event, serverId: string, clientId: string) => {
+  console.log('[IPC] remote-server:delete-deployment - Deleting deployment:', serverId, clientId)
+  try {
+    await deployService.deleteDeployment(serverId, clientId)
+    return { success: true }
+  } catch (error: unknown) {
+    const err = error as Error
+    console.error('[IPC] remote-server:delete-deployment - Failed:', err.message)
     return { success: false, error: err.message }
   }
 })

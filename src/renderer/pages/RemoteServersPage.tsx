@@ -2,7 +2,7 @@
  * Remote Servers Page - Manage remote SSH servers
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { ArrowLeft, Plus, Server, Trash2, Edit, Globe, FolderOpen, Terminal, AlertCircle, CheckCircle, Loader2, MessageSquare, Rocket, Link as LinkIcon, Info, X, Cpu } from 'lucide-react'
 import { Header } from '../components/layout/Header'
 import { api } from '../api'
@@ -28,6 +28,8 @@ export interface RemoteServer {
   claudeBaseUrl?: string
   claudeModel?: string
   aiSourceId?: string
+  proxyRunning?: boolean
+  apiReachable?: boolean
 }
 
 export function RemoteServersPage() {
@@ -48,6 +50,15 @@ export function RemoteServersPage() {
   const [deployingId, setDeployingId] = useState<string | null>(null)
   const [connectingId, setConnectingId] = useState<string | null>(null)
 
+  // Add server progress tracking
+  const [addProgress, setAddProgress] = useState<{
+    serverName: string
+    stage: string
+    message: string
+    progress: number
+    error?: boolean
+  } | null>(null)
+
   // Form state
   const [serverName, setServerName] = useState('')
   const [serverHost, setServerHost] = useState('')
@@ -65,6 +76,35 @@ export function RemoteServersPage() {
   useEffect(() => {
     loadServers()
     loadAiSources()
+  }, [])
+
+  // Listen for add-server progress events from the backend
+  useEffect(() => {
+    const handleProgress = (_event: any, data: { serverId: string; stage: string; message: string; progress?: number; timestamp: number }) => {
+      setAddProgress(prev => {
+        if (data.stage === 'complete' || data.stage === 'error') {
+          // Clear progress after a short delay to show completion
+          setTimeout(() => {
+            setAddProgress(null)
+            loadServers()
+          }, 1500)
+          return prev ? { ...prev, stage: data.stage, message: data.message, progress: data.progress ?? (data.stage === 'complete' ? 100 : prev.progress), error: data.stage === 'error' } : null
+        }
+        return {
+          serverName: prev?.serverName || data.serverId,
+          stage: data.stage,
+          message: data.message,
+          progress: data.progress ?? (prev?.progress ?? 0),
+        }
+      })
+    }
+
+    if ((window as any).electron?.ipcRenderer) {
+      ;(window as any).electron.ipcRenderer.on('remote-server:deploy-progress', handleProgress)
+    }
+    return () => {
+      ;(window as any).electron.ipcRenderer?.removeListener('remote-server:deploy-progress', handleProgress)
+    }
   }, [])
 
   const loadAiSources = async () => {
@@ -166,7 +206,7 @@ export function RemoteServersPage() {
     setShowAddModal(false)
 
     setSaving(true)
-    setSaveStatus(t('Adding server...'))
+    setAddProgress({ serverName: serverName.trim(), stage: 'add', message: t('Adding server...'), progress: 0 })
     try {
       const newServer: Omit<RemoteServer, 'id'> = {
         name: serverName.trim(),
@@ -181,20 +221,18 @@ export function RemoteServersPage() {
         aiSourceId: (editingServer as any)?.aiSourceId || undefined,
       }
 
-      setSaveStatus(t('Connecting to server...'))
       const result = await api.addRemoteServer(newServer)
       if (result.success) {
-        setSaveStatus(t('Verifying installation...'))
         await loadServers()
         resetForm()
+      } else {
+        setAddProgress({ serverName: serverName.trim(), stage: 'error', message: result.error || t('Failed to add server'), progress: 0, error: true })
       }
     } catch (err) {
       console.error('[RemoteServersPage] Failed to add server:', err)
-      // Re-open modal on failure so user can retry
-      setShowAddModal(true)
+      setAddProgress({ serverName: serverName.trim(), stage: 'error', message: String(err), progress: 0, error: true })
     } finally {
       setSaving(false)
-      setSaveStatus(null)
     }
   }
 
@@ -315,8 +353,10 @@ export function RemoteServersPage() {
             ? { ...s, status: 'connected', agentStatus: 'running' }
             : s
         ))
-        // Navigate to chat view (unified with local space)
-        openRemoteSpaceChat(server)
+        // Navigate to chat view only if SDK and Bot Proxy are ready
+        if (server.sdkInstalled && server.proxyRunning) {
+          openRemoteSpaceChat(server)
+        }
       } else {
         setServers(prev => prev.map(s =>
           s.id === server.id ? { ...s, status: 'error' } : s
@@ -412,6 +452,49 @@ export function RemoteServersPage() {
             {t('Manage remote SSH servers for running AI agents. Connect to servers to deploy and manage remote agents.')}
           </div>
 
+          {/* Add server progress card */}
+          {addProgress && (
+            <div className="mb-4 border border-border rounded-xl p-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  addProgress.error ? 'bg-red-500/10' : 'bg-blue-500/10'
+                }`}>
+                  {addProgress.error ? (
+                    <AlertCircle className="w-5 h-5 text-red-500" />
+                  ) : addProgress.stage === 'complete' ? (
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  ) : (
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="font-medium text-foreground text-sm truncate">
+                      {addProgress.serverName}
+                    </h3>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {addProgress.progress}%
+                    </span>
+                  </div>
+                  <p className={`text-sm truncate ${
+                    addProgress.error ? 'text-red-500' : addProgress.stage === 'complete' ? 'text-green-500' : 'text-muted-foreground'
+                  }`}>
+                    {addProgress.message}
+                  </p>
+                  {/* Progress bar */}
+                  {!addProgress.error && addProgress.stage !== 'complete' && (
+                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${Math.max(addProgress.progress, 2)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Server list */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -477,6 +560,11 @@ export function RemoteServersPage() {
                             <span className="truncate">{server.workDir}</span>
                           </div>
                         )}
+                        {server.clientId && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground/60 font-mono mt-0.5">
+                            <span>{t('Client ID')}: {server.clientId}</span>
+                          </div>
+                        )}
                         {server.aiSourceId && (() => {
                           const source = aiSources.find(s => s.id === server.aiSourceId)
                           return source ? (
@@ -493,7 +581,7 @@ export function RemoteServersPage() {
                           </div>
                         )}
                         {/* Status badge */}
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
                           {server.status === 'deploying' && (
                             <span className="text-xs text-blue-500">
                               {t('Deploying...')}
@@ -507,6 +595,17 @@ export function RemoteServersPage() {
                           {server.deployed && server.agentStatus === 'stopped' && (
                             <span className="text-xs text-amber-500">
                               {t('Agent Stopped')}
+                            </span>
+                          )}
+                          {/* Agent detection badges */}
+                          {server.proxyRunning === true && (
+                            <span className="text-xs text-green-500">
+                              {t('Bot Proxy OK')}
+                            </span>
+                          )}
+                          {server.proxyRunning === false && server.status === 'connected' && (
+                            <span className="text-xs text-amber-500">
+                              {t('Bot Proxy Stopped')}
                             </span>
                           )}
                         </div>
@@ -561,8 +660,9 @@ export function RemoteServersPage() {
 
                       <button
                         onClick={() => openRemoteSpaceChat(server)}
-                        className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                        title={t('Chat')}
+                        disabled={!server.sdkInstalled || !server.proxyRunning}
+                        className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={!server.sdkInstalled || !server.proxyRunning ? t('SDK or Bot Proxy not ready') : t('Chat')}
                       >
                         <MessageSquare className="w-4 h-4" />
                       </button>
@@ -995,7 +1095,7 @@ export function RemoteServersPage() {
                     {t('Deploy')}
                   </button>
                 )}
-                {selectedServerDetails.deployed && selectedServerDetails.status === 'connected' && (
+                {selectedServerDetails.deployed && selectedServerDetails.status === 'connected' && selectedServerDetails.sdkInstalled && selectedServerDetails.proxyRunning && (
                   <button
                     onClick={() => {
                       setShowDetailsModal(false)

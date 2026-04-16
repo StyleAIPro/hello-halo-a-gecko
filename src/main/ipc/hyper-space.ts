@@ -17,6 +17,7 @@ import type {
 import type { PostTaskInput } from '../../shared/types/taskboard'
 import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service'
 import type { Space } from '../../shared/types'
+import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service'
 
 /**
  * Register Hyper Space IPC handlers
@@ -35,6 +36,23 @@ export function registerHyperSpaceHandlers(): void {
     try {
       // Use createHyperSpace for hyper spaces
       if (input.spaceType === 'hyper') {
+        // Validate all remote worker agents: their servers must be ready (SDK + Bot Proxy)
+        const remoteAgents = (input.agents || []).filter(a => a.type === 'remote' && a.remoteServerId)
+        const invalidAgents: string[] = []
+        for (const agent of remoteAgents) {
+          const server = remoteDeployService.getServer(agent.remoteServerId!)
+          if (!server) {
+            invalidAgents.push(`Agent "${agent.name}": remote server not found`)
+          } else if (!server.sdkInstalled) {
+            invalidAgents.push(`Agent "${agent.name}": SDK not installed on "${server.name}"`)
+          } else if (!server.proxyRunning) {
+            invalidAgents.push(`Agent "${agent.name}": Bot Proxy not running on "${server.name}"`)
+          }
+        }
+        if (invalidAgents.length > 0) {
+          return { success: false, error: `Remote servers not ready:\n${invalidAgents.join('\n')}` }
+        }
+
         const space = createHyperSpace(input)
 
         if (!space) {
@@ -47,6 +65,19 @@ export function registerHyperSpaceHandlers(): void {
       }
 
       // Fallback to regular space creation
+      if (input.claudeSource === 'remote' && input.remoteServerId) {
+        const server = remoteDeployService.getServer(input.remoteServerId)
+        if (!server) {
+          return { success: false, error: 'Remote server not found' }
+        }
+        if (!server.sdkInstalled) {
+          return { success: false, error: `Remote server "${server.name}" is not ready: SDK is not installed. Please deploy the agent first.` }
+        }
+        if (!server.proxyRunning) {
+          return { success: false, error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.` }
+        }
+      }
+
       const space = createSpace({
         name: input.name,
         icon: input.icon,

@@ -1,27 +1,6 @@
-// ============================================
-// Auth Token Whitelist Types
-// ============================================
-
-export interface TokenEntry {
-  token: string
-  clientId: string
-  hostname: string
-  createdAt: string
-  lastSeen: string
-}
-
-export interface TokensFile {
-  version: 1
-  tokens: TokenEntry[]
-}
-
 export interface RemoteServerConfig {
   port: number
   authToken?: string
-  /** Token whitelist loaded from tokens.json (takes precedence over single authToken) */
-  authTokens?: string[]
-  /** Path to tokens.json file on disk */
-  tokensFilePath?: string
   workDir?: string
   maxThinkingTokens?: number
   pathToClaudeCodeExecutable?: string
@@ -30,9 +9,6 @@ export interface RemoteServerConfig {
 export interface ClientMessage {
   type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
         'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list' |  // Hyper Space agent management
-        'register-token' |  // Auth token whitelist registration
-        'register-token-disk' |  // Register token before auth (no prior auth required)
-        'reload-tokens' |  // Force-reload tokens from disk
         'mcp:tools:register' | 'mcp:tool:response' | 'mcp:tool:error' |  // WebSocket MCP Bridge
         'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background task management
         'ask:answer'  // AskUserQuestion response from client
@@ -64,9 +40,6 @@ export interface ClientMessage {
     cwd?: string                       // Working directory for task:spawn
     // AskUserQuestion payloads
     answers?: Record<string, string>   // User answers for ask:answer
-    // register-token-disk payloads
-    clientId?: string                  // Client ID for token registration
-    hostname?: string                  // Hostname for token registration
   }
 }
 
@@ -111,9 +84,6 @@ export interface ServerMessage {
          'text:block-start' |  // Text block start signal
          'worker:started' | 'worker:completed' |  // Subagent worker lifecycle
          'agent:spawned' | 'agent:status' | 'agent:killed' | 'agent:list' | 'agent:error' |  // Hyper Space agent management
-         'register-token:success' | 'register-token:error' |  // Token whitelist registration
-         'register-token-disk:success' | 'register-token-disk:error' |  // Pre-auth token registration
-         'reload-tokens:success' |  // Token reload confirmation
          'mcp:tool:call' |  // WebSocket MCP Bridge: proxy asks AICO-Bot to execute a tool
          'mcp:tool:response' |  // WebSocket MCP Bridge: AICO-Bot returns tool result
          'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background task management

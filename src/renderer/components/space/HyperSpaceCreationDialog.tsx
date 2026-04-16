@@ -372,6 +372,10 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                       <p className="text-xs text-muted-foreground">
                         {t('No remote servers available. Add a remote server first.')}
                       </p>
+                    ) : remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0 ? (
+                      <p className="text-xs text-amber-500">
+                        {t('No servers with SDK and Bot Proxy ready. Please deploy the agent first.')}
+                      </p>
                     ) : (
                       <select
                         value={newWorkerServerId}
@@ -379,7 +383,7 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                         className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
                       >
                         <option value="">{t('Select server...')}</option>
-                        {remoteServers.map((server) => (
+                        {remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).map((server) => (
                           <option key={server.id} value={server.id}>
                             {server.name} ({server.host})
                           </option>
@@ -404,7 +408,7 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                   </button>
                   <button
                     onClick={handleAddWorker}
-                    disabled={newWorkerType === 'remote' && !newWorkerServerId && remoteServers.length > 0}
+                    disabled={newWorkerType === 'remote' && (!newWorkerServerId || remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0)}
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
                     {t('Add')}
@@ -484,6 +488,10 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                         <p className="text-xs text-muted-foreground">
                           {t('No remote servers available. Add a remote server first.')}
                         </p>
+                      ) : remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0 ? (
+                        <p className="text-xs text-amber-500">
+                          {t('No servers with SDK and Bot Proxy ready. Please deploy the agent first.')}
+                        </p>
                       ) : (
                         <select
                           value={agent.remoteServerId || ''}
@@ -491,7 +499,7 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                           className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
                         >
                           <option value="">{t('Select server...')}</option>
-                          {remoteServers.map((server) => (
+                          {remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).map((server) => (
                             <option key={server.id} value={server.id}>
                               {server.name} ({server.host})
                             </option>

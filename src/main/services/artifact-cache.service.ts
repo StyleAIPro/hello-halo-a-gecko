@@ -393,9 +393,9 @@ export async function destroySpaceCache(spaceId: string): Promise<void> {
 
   console.log(`[ArtifactCache] Destroying cache for space: ${spaceId}`)
 
-  // Tell worker to stop watching this space
+  // Tell worker to stop watching this space and wait for file handles to release
   if (cache.watcherInitialized) {
-    destroySpaceWatcher(spaceId)
+    await destroySpaceWatcher(spaceId)
   }
 
   cache.flatItems.clear()

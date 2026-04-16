@@ -60,6 +60,7 @@ async function handleMessage(msg: MainToWorkerMessage): Promise<void> {
 
       case 'destroy-space': {
         await stopWatcher(msg.spaceId)
+        send({ type: 'space-destroyed', spaceId: msg.spaceId })
         break
       }
 
