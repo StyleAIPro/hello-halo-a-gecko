@@ -20,10 +20,32 @@ function loadConfig(): RemoteServerConfig {
     pathToClaudeCodeExecutable: process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE
   }
 
+  // Load additional tokens from tokens.json in deploy directory
+  const tokensJsonPath = path.join(deployDir, 'tokens.json')
+  try {
+    if (fs.existsSync(tokensJsonPath)) {
+      const content = fs.readFileSync(tokensJsonPath, 'utf-8')
+      const tokens = JSON.parse(content)
+      if (Array.isArray(tokens)) {
+        config.authTokens = tokens
+      }
+      config.tokensJsonPath = tokensJsonPath
+    }
+  } catch (error) {
+    console.warn('[RemoteAgentProxy] Failed to load tokens.json:', error)
+  }
+
+  // Support comma-separated tokens env var
+  if (process.env.REMOTE_AGENT_AUTH_TOKENS) {
+    const extraTokens = process.env.REMOTE_AGENT_AUTH_TOKENS.split(',').map(t => t.trim()).filter(Boolean)
+    config.authTokens = [...(config.authTokens || []), ...extraTokens]
+  }
+
   console.log('[RemoteAgentProxy] Configuration loaded:')
   console.log(`  - Port: ${config.port}`)
-  console.log(`  - Auth Token: ${config.authToken ? 'configured' : 'none (open access)'}`)
+  console.log(`  - Auth Tokens: ${config.authTokens?.length || 0} additional${config.authToken ? ' + 1 primary' : ''} (open access if 0)`)
   console.log(`  - Deploy Dir: ${deployDir}`)
+  console.log(`  - Tokens file: ${tokensJsonPath}`)
   console.log(`  - Work Dir: ${config.workDir || 'default'}`)
   console.log(`  - Claude Code Path: ${config.pathToClaudeCodeExecutable || 'not set (SDK mode)'}`)
   console.log(`  - Model credentials: per-request only (from AICO-Bot client)`)
