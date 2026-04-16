@@ -7,35 +7,35 @@
  * - SSE parsing utilities
  */
 
-import { Readable } from 'node:stream'
-import type { Response as ExpressResponse } from 'express'
-import { SSEWriter } from './sse-writer'
-import type { AnthropicStopReason, StreamToolCallState } from '../types'
-import { safeJsonParse } from '../utils'
+import { Readable } from 'node:stream';
+import type { Response as ExpressResponse } from 'express';
+import { SSEWriter } from './sse-writer';
+import type { AnthropicStopReason, StreamToolCallState } from '../types';
+import { safeJsonParse } from '../utils';
 
 // ============================================================================
 // Stream State
 // ============================================================================
 
 export interface StreamState {
-  started: boolean
-  finished: boolean
-  messageId: string
-  model: string
-  currentBlockIndex: number
-  contentBlockIndex: number
-  hasTextBlock: boolean
-  hasThinkingBlock: boolean
-  reasoningClosed: boolean
+  started: boolean;
+  finished: boolean;
+  messageId: string;
+  model: string;
+  currentBlockIndex: number;
+  contentBlockIndex: number;
+  hasTextBlock: boolean;
+  hasThinkingBlock: boolean;
+  reasoningClosed: boolean;
   usage: {
-    inputTokens: number
-    outputTokens: number
-    cacheReadTokens: number
-  }
-  stopReason: AnthropicStopReason | null
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+  };
+  stopReason: AnthropicStopReason | null;
   // Debug: accumulated content
-  accumulatedText: string
-  accumulatedThinking: string
+  accumulatedText: string;
+  accumulatedThinking: string;
 }
 
 export function createInitialState(model: string): StreamState {
@@ -52,12 +52,12 @@ export function createInitialState(model: string): StreamState {
     usage: {
       inputTokens: 0,
       outputTokens: 0,
-      cacheReadTokens: 0
+      cacheReadTokens: 0,
     },
     stopReason: null,
     accumulatedText: '',
-    accumulatedThinking: ''
-  }
+    accumulatedThinking: '',
+  };
 }
 
 // ============================================================================
@@ -65,57 +65,61 @@ export function createInitialState(model: string): StreamState {
 // ============================================================================
 
 export interface StreamHandlerOptions {
-  model?: string
-  debug?: boolean
+  model?: string;
+  debug?: boolean;
 }
 
 export abstract class BaseStreamHandler {
-  protected writer: SSEWriter
-  protected state: StreamState
-  protected debug: boolean
+  protected writer: SSEWriter;
+  protected state: StreamState;
+  protected debug: boolean;
 
   // Tool call tracking
-  protected toolCallMap = new Map<number, StreamToolCallState>()
-  protected toolIndexToBlock = new Map<number, number>()
+  protected toolCallMap = new Map<number, StreamToolCallState>();
+  protected toolIndexToBlock = new Map<number, number>();
 
   constructor(res: ExpressResponse, options: StreamHandlerOptions = {}) {
-    this.writer = new SSEWriter(res, { debug: options.debug })
-    this.state = createInitialState(options.model || 'unknown')
-    this.debug = options.debug ?? false
+    this.writer = new SSEWriter(res, { debug: options.debug });
+    this.state = createInitialState(options.model || 'unknown');
+    this.debug = options.debug ?? false;
   }
 
   /**
    * Process the incoming stream and convert to Anthropic format
    */
-  abstract processStream(stream: unknown): Promise<void>
+  abstract processStream(stream: unknown): Promise<void>;
 
   // ============================================================================
   // State Management
   // ============================================================================
 
   protected get isFinished(): boolean {
-    return this.state.finished || this.writer.isClosed
+    return this.state.finished || this.writer.isClosed;
   }
 
   protected markFinished(): void {
-    this.state.finished = true
+    this.state.finished = true;
   }
 
   protected updateModel(model: string): void {
     if (model) {
-      this.state.model = model
+      this.state.model = model;
     }
   }
 
-  protected updateUsage(usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number }): void {
+  protected updateUsage(usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+  }): void {
     if (usage.inputTokens !== undefined) {
-      this.state.usage.inputTokens = usage.inputTokens
+      this.state.usage.inputTokens = usage.inputTokens;
     }
     if (usage.outputTokens !== undefined) {
-      this.state.usage.outputTokens = usage.outputTokens
+      this.state.usage.outputTokens = usage.outputTokens;
     }
     if (usage.cacheReadTokens !== undefined) {
-      this.state.usage.cacheReadTokens = usage.cacheReadTokens
+      this.state.usage.cacheReadTokens = usage.cacheReadTokens;
     }
   }
 
@@ -124,46 +128,46 @@ export abstract class BaseStreamHandler {
   // ============================================================================
 
   protected ensureMessageStarted(): boolean {
-    if (this.isFinished) return false
+    if (this.isFinished) return false;
 
     if (!this.state.started) {
-      this.state.started = true
-      return this.writer.writeMessageStart(this.state.messageId, this.state.model)
+      this.state.started = true;
+      return this.writer.writeMessageStart(this.state.messageId, this.state.model);
     }
 
-    return true
+    return true;
   }
 
   protected finishMessage(): void {
     // Only check if writer is closed, not if state is finished
     // (state.finished is set when finish_reason is received, but we still need to send final events)
-    if (this.writer.isClosed) return
+    if (this.writer.isClosed) return;
 
     // Debug: print accumulated content
     if (this.state.accumulatedThinking) {
-      console.log(`[StreamHandler] Accumulated thinking:\n${this.state.accumulatedThinking}`)
+      console.log(`[StreamHandler] Accumulated thinking:\n${this.state.accumulatedThinking}`);
     }
     if (this.state.accumulatedText) {
-      console.log(`[StreamHandler] Accumulated text:\n${this.state.accumulatedText}`)
+      console.log(`[StreamHandler] Accumulated text:\n${this.state.accumulatedText}`);
     }
 
     // Close any open block
-    this.closeCurrentBlock()
+    this.closeCurrentBlock();
 
     // Write message_delta
     this.writer.writeMessageDelta(this.state.stopReason || 'end_turn', {
       inputTokens: this.state.usage.inputTokens,
       outputTokens: this.state.usage.outputTokens,
-      cacheReadTokens: this.state.usage.cacheReadTokens
-    })
+      cacheReadTokens: this.state.usage.cacheReadTokens,
+    });
 
     // Write message_stop
-    this.writer.writeMessageStop()
+    this.writer.writeMessageStop();
 
     // End response
-    this.writer.end()
+    this.writer.end();
 
-    this.state.finished = true
+    this.state.finished = true;
   }
 
   // ============================================================================
@@ -172,76 +176,76 @@ export abstract class BaseStreamHandler {
 
   protected closeCurrentBlock(): void {
     if (this.state.currentBlockIndex >= 0) {
-      this.writer.writeBlockStop(this.state.currentBlockIndex)
-      this.state.currentBlockIndex = -1
+      this.writer.writeBlockStop(this.state.currentBlockIndex);
+      this.state.currentBlockIndex = -1;
     }
   }
 
   protected startTextBlock(): boolean {
-    if (this.isFinished) return false
+    if (this.isFinished) return false;
 
     if (!this.state.hasTextBlock) {
       // Close any previous block (e.g., thinking)
       if (this.state.currentBlockIndex >= 0) {
-        this.closeCurrentBlock()
+        this.closeCurrentBlock();
       }
 
-      this.state.hasTextBlock = true
-      this.writer.writeTextBlockStart(this.state.contentBlockIndex)
-      this.state.currentBlockIndex = this.state.contentBlockIndex
+      this.state.hasTextBlock = true;
+      this.writer.writeTextBlockStart(this.state.contentBlockIndex);
+      this.state.currentBlockIndex = this.state.contentBlockIndex;
 
-      return true
+      return true;
     }
 
-    return true
+    return true;
   }
 
   protected startThinkingBlock(): boolean {
-    if (this.isFinished) return false
+    if (this.isFinished) return false;
 
     if (!this.state.hasThinkingBlock) {
       // Close any previous block
       if (this.state.currentBlockIndex >= 0) {
-        this.closeCurrentBlock()
+        this.closeCurrentBlock();
       }
 
-      this.state.hasThinkingBlock = true
-      this.writer.writeThinkingBlockStart(this.state.contentBlockIndex)
-      this.state.currentBlockIndex = this.state.contentBlockIndex
+      this.state.hasThinkingBlock = true;
+      this.writer.writeThinkingBlockStart(this.state.contentBlockIndex);
+      this.state.currentBlockIndex = this.state.contentBlockIndex;
 
-      return true
+      return true;
     }
 
-    return true
+    return true;
   }
 
   protected startToolUseBlock(toolIndex: number, toolId: string, toolName: string): number {
-    if (this.isFinished) return -1
+    if (this.isFinished) return -1;
 
     // Check if we already have a block for this tool index
     if (this.toolIndexToBlock.has(toolIndex)) {
-      return this.toolIndexToBlock.get(toolIndex)!
+      return this.toolIndexToBlock.get(toolIndex)!;
     }
 
     // Close any current block
-    this.closeCurrentBlock()
+    this.closeCurrentBlock();
 
-    const blockIndex = this.state.contentBlockIndex
-    this.toolIndexToBlock.set(toolIndex, blockIndex)
-    this.state.contentBlockIndex++
+    const blockIndex = this.state.contentBlockIndex;
+    this.toolIndexToBlock.set(toolIndex, blockIndex);
+    this.state.contentBlockIndex++;
 
-    this.writer.writeToolUseBlockStart(blockIndex, toolId, toolName)
-    this.state.currentBlockIndex = blockIndex
+    this.writer.writeToolUseBlockStart(blockIndex, toolId, toolName);
+    this.state.currentBlockIndex = blockIndex;
 
     // Track tool state
     this.toolCallMap.set(toolIndex, {
       id: toolId,
       name: toolName,
       arguments: '',
-      contentBlockIndex: blockIndex
-    })
+      contentBlockIndex: blockIndex,
+    });
 
-    return blockIndex
+    return blockIndex;
   }
 
   // ============================================================================
@@ -249,78 +253,79 @@ export abstract class BaseStreamHandler {
   // ============================================================================
 
   protected writeTextDelta(text: string): void {
-    if (this.isFinished || !text) return
+    if (this.isFinished || !text) return;
 
     // Accumulate text for debug logging
-    this.state.accumulatedText += text
+    this.state.accumulatedText += text;
 
     // Close thinking block if open and start text block
-    this.state.reasoningClosed = true
+    this.state.reasoningClosed = true;
 
     if (!this.state.hasTextBlock) {
       if (this.state.currentBlockIndex >= 0 && !this.state.hasTextBlock) {
-        this.closeCurrentBlock()
+        this.closeCurrentBlock();
       }
-      this.startTextBlock()
+      this.startTextBlock();
     }
 
-    this.writer.writeTextDelta(this.state.currentBlockIndex, text)
+    this.writer.writeTextDelta(this.state.currentBlockIndex, text);
   }
 
   protected writeThinkingDelta(thinking: string): void {
-    if (this.isFinished || !thinking) return
+    if (this.isFinished || !thinking) return;
 
     // Accumulate thinking for debug logging
-    this.state.accumulatedThinking += thinking
+    this.state.accumulatedThinking += thinking;
 
     // Don't write thinking if we've already moved to text
-    if (this.state.reasoningClosed || this.state.hasTextBlock) return
+    if (this.state.reasoningClosed || this.state.hasTextBlock) return;
 
     if (!this.state.hasThinkingBlock) {
-      this.startThinkingBlock()
+      this.startThinkingBlock();
     }
 
-    this.writer.writeThinkingDelta(this.state.contentBlockIndex, thinking)
+    this.writer.writeThinkingDelta(this.state.contentBlockIndex, thinking);
   }
 
   protected writeSignatureDelta(signature: string): void {
-    if (this.isFinished || !signature) return
+    if (this.isFinished || !signature) return;
 
     if (this.state.hasThinkingBlock) {
-      this.writer.writeSignatureDelta(this.state.contentBlockIndex, signature)
+      this.writer.writeSignatureDelta(this.state.contentBlockIndex, signature);
 
       // Close thinking block and move to next
-      this.closeCurrentBlock()
-      this.state.contentBlockIndex++
+      this.closeCurrentBlock();
+      this.state.contentBlockIndex++;
     }
   }
 
   protected writeToolInputDelta(toolIndex: number, partialJson: string): void {
-    if (this.isFinished || !partialJson) return
+    if (this.isFinished || !partialJson) return;
 
-    const blockIndex = this.toolIndexToBlock.get(toolIndex)
-    if (blockIndex === undefined) return
+    const blockIndex = this.toolIndexToBlock.get(toolIndex);
+    if (blockIndex === undefined) return;
 
     // Update accumulated arguments
-    const state = this.toolCallMap.get(toolIndex)
+    const state = this.toolCallMap.get(toolIndex);
     if (state) {
-      state.arguments += partialJson
+      state.arguments += partialJson;
     }
 
     // Try to write the delta, with fallback for invalid characters
     try {
-      this.writer.writeInputJsonDelta(blockIndex, partialJson)
+      this.writer.writeInputJsonDelta(blockIndex, partialJson);
     } catch {
       try {
         // Escape problematic characters
         const escaped = String(partialJson)
+          // eslint-disable-next-line no-control-regex
           .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
           .replace(/\\/g, '\\\\')
-          .replace(/"/g, '\\"')
-        this.writer.writeInputJsonDelta(blockIndex, escaped)
+          .replace(/"/g, '\\"');
+        this.writer.writeInputJsonDelta(blockIndex, escaped);
       } catch (e) {
         if (this.debug) {
-          console.error('[BaseStreamHandler] Failed to write tool input delta:', e)
+          console.error('[BaseStreamHandler] Failed to write tool input delta:', e);
         }
       }
     }
@@ -328,24 +333,24 @@ export abstract class BaseStreamHandler {
 
   protected writeWebSearchResult(
     toolUseId: string,
-    results: Array<{ type: string; url?: string; title?: string }>
+    results: Array<{ type: string; url?: string; title?: string }>,
   ): void {
-    if (this.isFinished) return
+    if (this.isFinished) return;
 
     // Close current block if needed
     if (this.state.currentBlockIndex >= 0 && this.state.hasTextBlock) {
-      this.closeCurrentBlock()
-      this.state.hasTextBlock = false
+      this.closeCurrentBlock();
+      this.state.hasTextBlock = false;
     }
 
-    this.state.contentBlockIndex++
-    this.writer.writeWebSearchBlockStart(this.state.contentBlockIndex, toolUseId, results)
-    this.writer.writeBlockStop(this.state.contentBlockIndex)
-    this.state.currentBlockIndex = -1
+    this.state.contentBlockIndex++;
+    this.writer.writeWebSearchBlockStart(this.state.contentBlockIndex, toolUseId, results);
+    this.writer.writeBlockStop(this.state.contentBlockIndex);
+    this.state.currentBlockIndex = -1;
   }
 
   protected writeError(message: string): void {
-    this.writer.writeError(message)
+    this.writer.writeError(message);
   }
 
   // ============================================================================
@@ -353,7 +358,7 @@ export abstract class BaseStreamHandler {
   // ============================================================================
 
   protected setStopReason(reason: AnthropicStopReason): void {
-    this.state.stopReason = reason
+    this.state.stopReason = reason;
   }
 
   // ============================================================================
@@ -364,9 +369,9 @@ export abstract class BaseStreamHandler {
    * Parse SSE lines from buffer
    */
   protected parseSSELines(buffer: string): { lines: string[]; remaining: string } {
-    const lines = buffer.split('\n')
-    const remaining = lines.pop() || ''
-    return { lines, remaining }
+    const lines = buffer.split('\n');
+    const remaining = lines.pop() || '';
+    return { lines, remaining };
   }
 
   /**
@@ -374,23 +379,23 @@ export abstract class BaseStreamHandler {
    */
   protected parseSSEData(line: string): { data: string | null; isDone: boolean } {
     if (!line.startsWith('data:')) {
-      return { data: null, isDone: false }
+      return { data: null, isDone: false };
     }
 
-    const dataStr = line.slice(5).trim()
+    const dataStr = line.slice(5).trim();
 
     if (dataStr === '[DONE]') {
-      return { data: null, isDone: true }
+      return { data: null, isDone: true };
     }
 
-    return { data: dataStr, isDone: false }
+    return { data: dataStr, isDone: false };
   }
 
   /**
    * Convert WebStream to Node Readable
    */
   protected streamToNodeReadable(stream: unknown): Readable {
-    return Readable.fromWeb(stream as any)
+    return Readable.fromWeb(stream as any);
   }
 }
 
@@ -402,8 +407,8 @@ export const OPENAI_CHAT_STOP_REASON_MAP: Record<string, AnthropicStopReason> = 
   stop: 'end_turn',
   length: 'max_tokens',
   tool_calls: 'tool_use',
-  content_filter: 'stop_sequence'
-}
+  content_filter: 'stop_sequence',
+};
 
 export const OPENAI_RESPONSES_STOP_REASON_MAP: Record<string, AnthropicStopReason> = {
   stop: 'end_turn',
@@ -413,5 +418,5 @@ export const OPENAI_RESPONSES_STOP_REASON_MAP: Record<string, AnthropicStopReaso
   max_tokens: 'max_tokens',
   tool_calls: 'tool_use',
   tool_call: 'tool_use',
-  tool_use: 'tool_use'
-}
+  tool_use: 'tool_use',
+};

@@ -13,8 +13,8 @@ import type {
   OpenAIChatTool,
   OpenAIChatToolChoice,
   OpenAIResponsesFunctionTool,
-  OpenAIResponsesToolChoice
-} from '../types'
+  OpenAIResponsesToolChoice,
+} from '../types';
 
 // ============================================================================
 // Tool Definition Conversion
@@ -32,11 +32,11 @@ export function anthropicToolToOpenAIChatTool(tool: AnthropicTool): OpenAIChatTo
       parameters: {
         type: 'object',
         properties: tool.input_schema?.properties || {},
-        required: tool.input_schema?.required
+        required: tool.input_schema?.required,
       },
-      strict: tool.strict
-    }
-  }
+      strict: tool.strict,
+    },
+  };
 }
 
 /**
@@ -51,10 +51,10 @@ export function anthropicToolToResponsesTool(tool: AnthropicTool): OpenAIRespons
     parameters: {
       type: 'object',
       properties: tool.input_schema?.properties || {},
-      required: tool.input_schema?.required
+      required: tool.input_schema?.required,
     },
-    strict: tool.strict
-  }
+    strict: tool.strict,
+  };
 }
 
 /**
@@ -62,31 +62,29 @@ export function anthropicToolToResponsesTool(tool: AnthropicTool): OpenAIRespons
  * Filters out invalid tools, keeps valid ones
  */
 export function convertAnthropicToolsToOpenAIChat(
-  tools: AnthropicTool[] | undefined
+  tools: AnthropicTool[] | undefined,
 ): OpenAIChatTool[] | undefined {
   if (!Array.isArray(tools) || tools.length === 0) {
-    return undefined
+    return undefined;
   }
 
   // Filter and convert - skip invalid tools instead of rejecting all
-  return tools
-    .filter((tool) => tool && tool.name)
-    .map(anthropicToolToOpenAIChatTool)
+  return tools.filter((tool) => tool && tool.name).map(anthropicToolToOpenAIChatTool);
 }
 
 /**
  * Convert array of Anthropic tools to OpenAI Responses tools
  */
 export function convertAnthropicToolsToResponses(
-  tools: AnthropicTool[] | undefined
+  tools: AnthropicTool[] | undefined,
 ): OpenAIResponsesFunctionTool[] | undefined {
   if (!Array.isArray(tools) || tools.length === 0) {
-    return undefined
+    return undefined;
   }
 
   return tools
     .filter((tool) => tool && typeof tool.name === 'string' && tool.name.trim() !== '')
-    .map(anthropicToolToResponsesTool)
+    .map(anthropicToolToResponsesTool);
 }
 
 // ============================================================================
@@ -97,27 +95,27 @@ export function convertAnthropicToolsToResponses(
  * Convert Anthropic tool_choice to OpenAI Chat tool_choice
  */
 export function convertAnthropicToolChoiceToOpenAIChat(
-  toolChoice: AnthropicToolChoice | undefined
+  toolChoice: AnthropicToolChoice | undefined,
 ): OpenAIChatToolChoice | undefined {
-  if (!toolChoice) return undefined
+  if (!toolChoice) return undefined;
 
   switch (toolChoice.type) {
     case 'auto':
-      return 'auto'
+      return 'auto';
     case 'any':
-      return 'required'
+      return 'required';
     case 'none':
-      return 'none'
+      return 'none';
     case 'tool':
       if ('name' in toolChoice && toolChoice.name) {
         return {
           type: 'function',
-          function: { name: toolChoice.name }
-        }
+          function: { name: toolChoice.name },
+        };
       }
-      return 'auto'
+      return 'auto';
     default:
-      return 'auto'
+      return 'auto';
   }
 }
 
@@ -125,27 +123,27 @@ export function convertAnthropicToolChoiceToOpenAIChat(
  * Convert Anthropic tool_choice to OpenAI Responses tool_choice
  */
 export function convertAnthropicToolChoiceToResponses(
-  toolChoice: AnthropicToolChoice | undefined
+  toolChoice: AnthropicToolChoice | undefined,
 ): OpenAIResponsesToolChoice | undefined {
-  if (!toolChoice) return undefined
+  if (!toolChoice) return undefined;
 
   switch (toolChoice.type) {
     case 'auto':
-      return 'auto'
+      return 'auto';
     case 'any':
-      return 'required'
+      return 'required';
     case 'none':
-      return 'none'
+      return 'none';
     case 'tool':
       if ('name' in toolChoice && toolChoice.name) {
         return {
           type: 'function',
-          name: toolChoice.name
-        }
+          name: toolChoice.name,
+        };
       }
-      return 'auto'
+      return 'auto';
     default:
-      return 'auto'
+      return 'auto';
   }
 }
 
@@ -156,37 +154,39 @@ export function convertAnthropicToolChoiceToResponses(
 /**
  * Map Anthropic thinking budget_tokens to OpenAI reasoning effort
  */
-export function budgetTokensToReasoningEffort(budgetTokens: number | undefined): 'low' | 'medium' | 'high' {
-  if (!budgetTokens) return 'medium'
-  if (budgetTokens > 10000) return 'high'
-  if (budgetTokens > 5000) return 'medium'
-  return 'low'
+export function budgetTokensToReasoningEffort(
+  budgetTokens: number | undefined,
+): 'low' | 'medium' | 'high' {
+  if (!budgetTokens) return 'medium';
+  if (budgetTokens > 10000) return 'high';
+  if (budgetTokens > 5000) return 'medium';
+  return 'low';
 }
 
 /**
  * Convert Anthropic thinking config to OpenAI Chat reasoning config
  */
 export function convertAnthropicThinkingToOpenAIReasoning(
-  thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined
+  thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined,
 ): { enabled?: boolean; effort?: 'low' | 'medium' | 'high' } | undefined {
-  if (!thinking) return undefined
+  if (!thinking) return undefined;
 
   return {
     enabled: thinking.type === 'enabled',
-    effort: budgetTokensToReasoningEffort(thinking.budget_tokens)
-  }
+    effort: budgetTokensToReasoningEffort(thinking.budget_tokens),
+  };
 }
 
 /**
  * Convert Anthropic thinking config to OpenAI Responses reasoning config
  */
 export function convertAnthropicThinkingToResponsesReasoning(
-  thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined
+  thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined,
 ): { effort?: 'low' | 'medium' | 'high'; enabled?: boolean } | undefined {
-  if (!thinking) return undefined
+  if (!thinking) return undefined;
 
   return {
     enabled: thinking.type === 'enabled',
-    effort: budgetTokensToReasoningEffort(thinking.budget_tokens)
-  }
+    effort: budgetTokensToReasoningEffort(thinking.budget_tokens),
+  };
 }

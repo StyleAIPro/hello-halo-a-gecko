@@ -16,25 +16,25 @@
 
 export interface ProviderAdapter {
   /** Unique identifier for this adapter */
-  readonly id: string
+  readonly id: string;
 
   /** Human-readable name */
-  readonly name: string
+  readonly name: string;
 
   /** Check if this adapter should handle the given URL */
-  match(url: string): boolean
+  match(url: string): boolean;
 
   /**
    * Transform request body before sending to provider
    * Mutates the body in place for efficiency
    */
-  transformRequest?(body: Record<string, unknown>): void
+  transformRequest?(body: Record<string, unknown>): void;
 
   /**
    * Get additional headers to include in the request
    * These headers are merged with existing headers (adapter headers take precedence)
    */
-  getExtraHeaders?(): Record<string, string>
+  getExtraHeaders?(): Record<string, string>;
 }
 
 // ============================================================================
@@ -54,15 +54,15 @@ const groqAdapter: ProviderAdapter = {
   name: 'Groq',
 
   match(url: string): boolean {
-    return url.includes('api.groq.com')
+    return url.includes('api.groq.com');
   },
 
   transformRequest(body: Record<string, unknown>): void {
     if (body.temperature === 0) {
-      body.temperature = 0.01
+      body.temperature = 0.01;
     }
-  }
-}
+  },
+};
 
 // ============================================================================
 // OpenRouter Adapter
@@ -82,16 +82,16 @@ const openRouterAdapter: ProviderAdapter = {
   name: 'OpenRouter',
 
   match(url: string): boolean {
-    return url.includes('openrouter.ai')
+    return url.includes('openrouter.ai');
   },
 
   getExtraHeaders(): Record<string, string> {
     return {
       'HTTP-Referer': 'https://hello-halo.cc/',
-      'X-Title': 'AICO-Bot'
-    }
-  }
-}
+      'X-Title': 'AICO-Bot',
+    };
+  },
+};
 
 // ============================================================================
 // DeepSeek Adapter
@@ -111,12 +111,12 @@ const deepSeekAdapter: ProviderAdapter = {
   name: 'DeepSeek',
 
   match(url: string): boolean {
-    return url.includes('api.deepseek.com')
-  }
+    return url.includes('api.deepseek.com');
+  },
 
   // No request transformation needed
   // Response handling is in openai-chat-stream.ts (delta.reasoning_content)
-}
+};
 
 // ============================================================================
 // Registry
@@ -126,17 +126,13 @@ const deepSeekAdapter: ProviderAdapter = {
  * All registered provider adapters
  * Order matters: first matching adapter wins
  */
-const adapters: readonly ProviderAdapter[] = [
-  groqAdapter,
-  openRouterAdapter,
-  deepSeekAdapter
-]
+const adapters: readonly ProviderAdapter[] = [groqAdapter, openRouterAdapter, deepSeekAdapter];
 
 /**
  * Find the adapter that matches the given URL
  */
 export function findAdapter(url: string): ProviderAdapter | undefined {
-  return adapters.find(adapter => adapter.match(url))
+  return adapters.find((adapter) => adapter.match(url));
 }
 
 /**
@@ -150,30 +146,30 @@ export function findAdapter(url: string): ProviderAdapter | undefined {
 export function applyProviderAdapter(
   url: string,
   body: Record<string, unknown>,
-  headers: Record<string, string>
+  headers: Record<string, string>,
 ): ProviderAdapter | undefined {
-  const adapter = findAdapter(url)
+  const adapter = findAdapter(url);
 
   if (!adapter) {
-    return undefined
+    return undefined;
   }
 
   // Apply request transformation
   if (adapter.transformRequest) {
-    adapter.transformRequest(body)
+    adapter.transformRequest(body);
   }
 
   // Merge extra headers (adapter headers take precedence)
-  const extraHeaders = adapter.getExtraHeaders?.()
+  const extraHeaders = adapter.getExtraHeaders?.();
   if (extraHeaders) {
-    Object.assign(headers, extraHeaders)
+    Object.assign(headers, extraHeaders);
   }
 
-  return adapter
+  return adapter;
 }
 
 // ============================================================================
 // Exports
 // ============================================================================
 
-export { groqAdapter, openRouterAdapter, deepSeekAdapter }
+export { groqAdapter, openRouterAdapter, deepSeekAdapter };

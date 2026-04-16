@@ -18,8 +18,8 @@ import type {
   // OpenAI Responses types
   OpenAIResponsesInputItem,
   OpenAIResponsesInputMessage,
-  OpenAIResponsesInputContentPart
-} from '../types'
+  OpenAIResponsesInputContentPart,
+} from '../types';
 
 import {
   anthropicBlockToOpenAIChatPart,
@@ -29,47 +29,47 @@ import {
   anthropicToolResultToResponsesFunctionCallOutput,
   extractTextFromAnthropicBlocks,
   extractToolUseBlocks,
-  extractToolResultBlocks
-} from './content-blocks'
+  extractToolResultBlocks,
+} from './content-blocks';
 
-import { deepClone } from '../utils'
+import { deepClone } from '../utils';
 
 // ============================================================================
 // Anthropic -> OpenAI Chat Completions
 // ============================================================================
 
 export interface ConvertedOpenAIChatMessages {
-  messages: OpenAIChatMessage[]
-  hasImages: boolean
+  messages: OpenAIChatMessage[];
+  hasImages: boolean;
 }
 
 /**
  * Convert Anthropic system prompt to OpenAI Chat system message
  */
 export function convertAnthropicSystemToOpenAIChat(
-  system: string | AnthropicSystemBlock[] | undefined
+  system: string | AnthropicSystemBlock[] | undefined,
 ): OpenAIChatSystemMessage | null {
-  if (!system) return null
+  if (!system) return null;
 
   if (typeof system === 'string') {
-    return { role: 'system', content: system }
+    return { role: 'system', content: system };
   }
 
   if (Array.isArray(system) && system.length > 0) {
-    const textBlocks = system.filter((block) => block?.type === 'text' && block.text)
-    if (textBlocks.length === 0) return null
+    const textBlocks = system.filter((block) => block?.type === 'text' && block.text);
+    if (textBlocks.length === 0) return null;
 
     // If all blocks are plain text, return as content parts
     // Note: cache_control is Anthropic-specific, strip it for OpenAI format
     const contentParts = textBlocks.map((block) => ({
       type: 'text' as const,
-      text: block.text
-    }))
+      text: block.text,
+    }));
 
-    return { role: 'system', content: contentParts }
+    return { role: 'system', content: contentParts };
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -77,112 +77,113 @@ export function convertAnthropicSystemToOpenAIChat(
  */
 export function convertAnthropicMessagesToOpenAIChat(
   messages: AnthropicMessage[] | undefined,
-  system: string | AnthropicSystemBlock[] | undefined
+  system: string | AnthropicSystemBlock[] | undefined,
 ): ConvertedOpenAIChatMessages {
-  const result: OpenAIChatMessage[] = []
-  let hasImages = false
+  const result: OpenAIChatMessage[] = [];
+  let hasImages = false;
 
   // Add system message if present
-  const systemMessage = convertAnthropicSystemToOpenAIChat(system)
+  const systemMessage = convertAnthropicSystemToOpenAIChat(system);
   if (systemMessage) {
-    result.push(systemMessage)
+    result.push(systemMessage);
   }
 
   if (!messages || !Array.isArray(messages)) {
-    return { messages: result, hasImages }
+    return { messages: result, hasImages };
   }
 
   // Deep clone to avoid mutation
-  const msgsCopy = deepClone(messages)
+  const msgsCopy = deepClone(messages);
 
   for (const msg of msgsCopy) {
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) {
-      continue
+      continue;
     }
 
     // Handle string content
     if (typeof msg.content === 'string') {
-      result.push({ role: msg.role, content: msg.content })
-      continue
+      result.push({ role: msg.role, content: msg.content });
+      continue;
     }
 
     if (!Array.isArray(msg.content)) {
-      continue
+      continue;
     }
 
-    const blocks = msg.content as AnthropicContentBlock[]
+    const blocks = msg.content as AnthropicContentBlock[];
 
     if (msg.role === 'user') {
       // Extract tool_result blocks -> convert to tool messages
-      const toolResults = extractToolResultBlocks(blocks)
+      const toolResults = extractToolResultBlocks(blocks);
       for (const toolResult of toolResults) {
-        const content = typeof toolResult.content === 'string'
-          ? toolResult.content
-          : JSON.stringify(toolResult.content)
+        const content =
+          typeof toolResult.content === 'string'
+            ? toolResult.content
+            : JSON.stringify(toolResult.content);
 
         const toolMessage: OpenAIChatToolMessage = {
           role: 'tool',
           content,
-          tool_call_id: toolResult.tool_use_id
-        }
+          tool_call_id: toolResult.tool_use_id,
+        };
 
-        result.push(toolMessage)
+        result.push(toolMessage);
       }
 
       // Convert remaining content blocks (text, image)
       const contentBlocks = blocks.filter(
-        (b) => (b.type === 'text' && (b as any).text) || (b.type === 'image' && (b as any).source)
-      )
+        (b) => (b.type === 'text' && (b as any).text) || (b.type === 'image' && (b as any).source),
+      );
 
       if (contentBlocks.length > 0) {
-        const openaiContent: OpenAIChatContentPart[] = []
+        const openaiContent: OpenAIChatContentPart[] = [];
 
         for (const block of contentBlocks) {
           if (block.type === 'image') {
-            hasImages = true
+            hasImages = true;
           }
-          const converted = anthropicBlockToOpenAIChatPart(block)
+          const converted = anthropicBlockToOpenAIChatPart(block);
           if (converted) {
-            openaiContent.push(converted)
+            openaiContent.push(converted);
           }
         }
 
         if (openaiContent.length > 0) {
-          result.push({ role: 'user', content: openaiContent })
+          result.push({ role: 'user', content: openaiContent });
         }
       }
     } else if (msg.role === 'assistant') {
       // Extract text and tool_use blocks
-      const text = extractTextFromAnthropicBlocks(blocks)
-      const toolUseBlocks = extractToolUseBlocks(blocks)
+      const text = extractTextFromAnthropicBlocks(blocks);
+      const toolUseBlocks = extractToolUseBlocks(blocks);
 
       // Extract thinking blocks for reasoning_content (required by some providers like Moonshot)
-      const thinkingBlocks = blocks.filter((b) => b.type === 'thinking')
+      const thinkingBlocks = blocks.filter((b) => b.type === 'thinking');
       const thinkingContent = thinkingBlocks
         .map((b) => (b as any).thinking)
         .filter(Boolean)
-        .join('\n')
+        .join('\n');
 
       const assistantMessage: OpenAIChatAssistantMessage = {
         role: 'assistant',
-        content: text || null // OpenAI expects null for pure tool_calls
-      }
+        content: text || null, // OpenAI expects null for pure tool_calls
+      };
 
       // Add reasoning_content if thinking blocks exist
       // This is required by providers like Moonshot when reasoning is enabled
       if (thinkingContent) {
-        (assistantMessage as any).reasoning_content = thinkingContent
+        (assistantMessage as any).reasoning_content = thinkingContent;
       }
 
       if (toolUseBlocks.length > 0) {
-        assistantMessage.tool_calls = toolUseBlocks.map(anthropicToolUseToOpenAIChatToolCall)
+        assistantMessage.tool_calls = toolUseBlocks.map(anthropicToolUseToOpenAIChatToolCall);
       }
 
-      result.push(assistantMessage)
+      result.push(assistantMessage);
     }
   }
 
-  return { messages: result, hasImages }
+  return { messages: result, hasImages };
 }
 
 // ============================================================================
@@ -194,30 +195,28 @@ export function convertAnthropicMessagesToOpenAIChat(
  * Note: Responses API uses 'developer' role instead of 'system' for system-level instructions
  */
 export function convertAnthropicSystemToResponsesInput(
-  system: string | AnthropicSystemBlock[] | undefined
+  system: string | AnthropicSystemBlock[] | undefined,
 ): OpenAIResponsesInputMessage | null {
-  if (!system) return null
+  if (!system) return null;
 
-  let sysText: string
+  let sysText: string;
 
   if (typeof system === 'string') {
-    sysText = system
+    sysText = system;
   } else if (Array.isArray(system) && system.length > 0) {
-    const textParts = system
-      .filter((b) => b?.type === 'text' && b.text)
-      .map((b) => b.text)
-    sysText = textParts.join('\n')
+    const textParts = system.filter((b) => b?.type === 'text' && b.text).map((b) => b.text);
+    sysText = textParts.join('\n');
   } else {
-    return null
+    return null;
   }
 
-  if (!sysText) return null
+  if (!sysText) return null;
 
   // Use 'system' role for compatibility (some providers don't support 'developer')
   return {
     role: 'system',
-    content: [{ type: 'input_text', text: sysText }]
-  }
+    content: [{ type: 'input_text', text: sysText }],
+  };
 }
 
 /**
@@ -225,58 +224,58 @@ export function convertAnthropicSystemToResponsesInput(
  */
 export function convertAnthropicMessagesToResponsesInput(
   messages: AnthropicMessage[] | undefined,
-  system: string | AnthropicSystemBlock[] | undefined
+  system: string | AnthropicSystemBlock[] | undefined,
 ): OpenAIResponsesInputItem[] {
-  const result: OpenAIResponsesInputItem[] = []
+  const result: OpenAIResponsesInputItem[] = [];
 
   // Add system message if present
-  const systemMessage = convertAnthropicSystemToResponsesInput(system)
+  const systemMessage = convertAnthropicSystemToResponsesInput(system);
   if (systemMessage) {
-    result.push(systemMessage)
+    result.push(systemMessage);
   }
 
   if (!messages || !Array.isArray(messages)) {
-    return result
+    return result;
   }
 
   // Deep clone to avoid mutation
-  const msgsCopy = deepClone(messages)
+  const msgsCopy = deepClone(messages);
 
   for (const msg of msgsCopy) {
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) {
-      continue
+      continue;
     }
 
     // Handle string content
     if (typeof msg.content === 'string') {
-      const contentType = msg.role === 'user' ? 'input_text' : 'output_text'
+      const contentType = msg.role === 'user' ? 'input_text' : 'output_text';
       result.push({
         role: msg.role,
-        content: [{ type: contentType, text: msg.content }]
-      } as OpenAIResponsesInputMessage)
-      continue
+        content: [{ type: contentType, text: msg.content }],
+      } as OpenAIResponsesInputMessage);
+      continue;
     }
 
     if (!Array.isArray(msg.content)) {
-      continue
+      continue;
     }
 
-    const blocks = msg.content as AnthropicContentBlock[]
+    const blocks = msg.content as AnthropicContentBlock[];
 
     if (msg.role === 'user') {
       // Process tool_result blocks -> function_call_output items
-      const toolResults = extractToolResultBlocks(blocks)
+      const toolResults = extractToolResultBlocks(blocks);
       for (const toolResult of toolResults) {
-        result.push(anthropicToolResultToResponsesFunctionCallOutput(toolResult))
+        result.push(anthropicToolResultToResponsesFunctionCallOutput(toolResult));
       }
 
       // Convert other content blocks
-      const contentParts: OpenAIResponsesInputContentPart[] = []
+      const contentParts: OpenAIResponsesInputContentPart[] = [];
       for (const block of blocks) {
         if (block.type !== 'tool_result') {
-          const converted = anthropicBlockToResponsesInputPart(block, 'user')
+          const converted = anthropicBlockToResponsesInputPart(block, 'user');
           if (converted) {
-            contentParts.push(converted)
+            contentParts.push(converted);
           }
         }
       }
@@ -284,17 +283,17 @@ export function convertAnthropicMessagesToResponsesInput(
       if (contentParts.length > 0) {
         result.push({
           role: 'user',
-          content: contentParts
-        })
+          content: contentParts,
+        });
       }
     } else if (msg.role === 'assistant') {
       // Convert text and thinking content
-      const contentParts: OpenAIResponsesInputContentPart[] = []
+      const contentParts: OpenAIResponsesInputContentPart[] = [];
       for (const block of blocks) {
         if (block.type !== 'tool_use') {
-          const converted = anthropicBlockToResponsesInputPart(block, 'assistant')
+          const converted = anthropicBlockToResponsesInputPart(block, 'assistant');
           if (converted) {
-            contentParts.push(converted)
+            contentParts.push(converted);
           }
         }
       }
@@ -302,17 +301,17 @@ export function convertAnthropicMessagesToResponsesInput(
       if (contentParts.length > 0) {
         result.push({
           role: 'assistant',
-          content: contentParts
-        })
+          content: contentParts,
+        });
       }
 
       // Convert tool_use blocks -> function_call items
-      const toolUseBlocks = extractToolUseBlocks(blocks)
+      const toolUseBlocks = extractToolUseBlocks(blocks);
       for (const toolUse of toolUseBlocks) {
-        result.push(anthropicToolUseToResponsesFunctionCall(toolUse))
+        result.push(anthropicToolUseToResponsesFunctionCall(toolUse));
       }
     }
   }
 
-  return result
+  return result;
 }
