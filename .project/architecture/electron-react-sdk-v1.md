@@ -37,10 +37,10 @@
 │                                │  │  │  agent   │ │ (通知系统)  │ │ │
 │                                │  │  │ (远程)    │ │             │ │ │
 │                                │  │  └──────────┘ └─────────────┘ │ │
-│                                │  │  ┌──────────┐ ┌─────────────┐ │ │
-│                                │  │  │automation│ │observability│ │ │
-│                                │  │  │(自动化)   │ │ (可观测性)  │ │ │
-│                                │  │  └──────────┘ └─────────────┘ │ │
+│                                │  │  ┌──────────┐                   │ │
+│                                │  │  │automation│                   │ │
+│                                │  │  │(自动化)   │                   │ │
+│                                │  │  └──────────┘                   │ │
 │                                │  └────────────────────────────────┘ │
 │                                │                                       │
 │                                │  ┌──── 基础设施 ────────────────────┐ │
@@ -98,10 +98,8 @@
 | terminal | 终端服务：进程网关、输出存储、终端 UI | modules/terminal/{features} |
 | health | 健康监控：检查器、进程守护、自动恢复 | modules/health/{features} |
 | ai-sources | AI 模型源管理：提供商适配、凭证管理、源切换 | modules/ai-sources/{features} |
-| notification | 通知系统：多渠道通知（邮件/钉钉/飞书/企微/Webhook） | modules/notification/{features} |
 | settings | 设置系统：全局配置、外观、远程访问、系统设置 | modules/settings/{features} |
 | onboarding | 引导与初始化：新手引导、API 配置、Git Bash 安装 | modules/onboarding/{features} |
-| observability | 可观测性：用户分析（GA/百度）、性能监控 | modules/observability/{features} |
 
 ### 基础设施（无独立模块文档）
 
@@ -110,6 +108,8 @@
 | platform | 后台基础设施：事件总线、调度器、记忆系统、应用商店注册表 | `src/main/platform/` |
 | i18n | 国际化，7 种语言翻译管理（en, zh-CN, zh-TW, ja, fr, es, de） | `src/renderer/i18n/` |
 | preload | IPC 桥接，暴露 `window.aicoBot` API | `src/preload/` |
+| analytics / perf | 可观测性：用户分析、性能监控（归属 agent 模块） | `src/main/services/analytics/`、`src/main/services/perf/` |
+| notify-channels | 通知渠道：邮件/钉钉/飞书/企微/Webhook（归属 automation 模块） | `src/main/services/notify-channels/` |
 | shared | 前后端共享类型和常量 | `src/shared/` |
 
 ## 通信方式

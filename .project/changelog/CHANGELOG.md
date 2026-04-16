@@ -8,7 +8,7 @@
 - BUG-001: sessionId 未定义导致 sendMessage 崩溃 — `src/main/services/agent/session-manager.ts`
 
 ### Added
-- 文档模块：skill（3 功能）、terminal（2 功能）、health（2 功能）、ai-sources（2 功能）、notification（2 功能）、settings（3 功能）、onboarding（2 功能）、observability（2 功能） — `.project/modules/`
+- 文档模块：skill（3 功能）、terminal（2 功能）、health（2 功能）、ai-sources（2 功能）、settings（3 功能）、onboarding（2 功能） — `.project/modules/`
 - 功能文档：chat/canvas、chat/search、chat/artifact、ai-browser/electron-browser-view — `.project/modules/chat/features/`、`.project/modules/ai-browser/features/`
 - 填充 6 个现有模块的「功能列表」表 — `.project/modules/*/`
 
