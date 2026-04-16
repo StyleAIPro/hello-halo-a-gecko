@@ -116,6 +116,7 @@
 |------|------|------|
 | message-send | 已完成 | features/message-send/design.md |
 | permission-handling | 已完成 | features/permission-handling/design.md |
+| sdk-patch | 已完成 | features/sdk-patch/design.md |
 | sdk-session | 已完成 | features/sdk-session/design.md |
 | stream-processing | 已完成 | features/stream-processing/design.md |
 | tool-orchestration | 已完成 | features/tool-orchestration/design.md |
@@ -129,4 +130,6 @@
 
 | 日期 | 内容 | 指令人 |
 |------|------|--------|
+| 2026-04-17 | BUG-003：Windows 删除空间 EBUSY — `closeSessionsBySpaceId()` 改为 async，新增 `waitForSessionExit()` 等待 SDK 子进程退出 — `src/main/services/agent/session-manager.ts` | @zhaoyinqi |
+| 2026-04-17 | BUG-002：修复 SDK turn injection patch 守卫条件导致第二次消息卡死 — `src/main/services/agent/sdk-turn-injection-patch.ts` | @zhaoyinqi |
 | 2026-04-16 | 初始模块文档 | @moonseeker1 |
