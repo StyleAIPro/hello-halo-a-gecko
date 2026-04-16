@@ -8,8 +8,6 @@ import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, cpSync, rmSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 
-// Import analytics config type
-import type { AnalyticsConfig } from './analytics/types'
 import type {
   AISourcesConfig,
   AISource,
@@ -336,10 +334,8 @@ interface AicoBotConfig {
   // MCP servers configuration (compatible with Cursor / Claude Desktop format)
   mcpServers: Record<string, McpServerConfig>
   isFirstLaunch: boolean
-  // External notification channels (email, WeCom, DingTalk, Feishu, webhook)
-  notificationChannels?: import('../../shared/types/notification-channels').NotificationChannelsConfig
-  // Analytics configuration (auto-generated on first launch)
-  analytics?: AnalyticsConfig
+  // Analytics configuration (auto-generated on first launch, no longer actively used)
+  analytics?: Record<string, unknown>
   // Global layout preferences (panel sizes and visibility)
   layout?: {
     sidebarOpen?: boolean
@@ -857,7 +853,7 @@ export function getConfig(): AicoBotConfig {
       onboarding: { ...DEFAULT_CONFIG.onboarding, ...parsed.onboarding },
       // mcpServers is a flat map, just use parsed value or default
       mcpServers: parsed.mcpServers || DEFAULT_CONFIG.mcpServers,
-      // analytics: keep as-is (managed by analytics.service.ts)
+      // analytics: keep as-is (no longer actively managed)
       analytics: parsed.analytics,
       // layout: keep persisted values (panel sizes and visibility)
       layout: parsed.layout
@@ -897,7 +893,7 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   if (config.mcpServers !== undefined) {
     newConfig.mcpServers = config.mcpServers
   }
-  // analytics: replace entirely when provided (managed by analytics.service.ts)
+  // analytics: replace entirely when provided (no longer actively managed)
   if (config.analytics !== undefined) {
     newConfig.analytics = config.analytics
   }

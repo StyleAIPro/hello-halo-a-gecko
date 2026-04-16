@@ -29,7 +29,6 @@ import { RunExecutionError } from './errors'
 import { buildAppSystemPrompt, buildInitialMessage } from './prompt'
 import { createReportToolServer } from './report-tool'
 import type { ReportToolContext } from './report-tool'
-import { createNotifyToolServer } from './notify-tool'
 import { getApiCredentials, getApiCredentialsForSource, getHeadlessElectronPath, getWorkingDir } from '../../services/agent/helpers'
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from '../../services/agent/sdk-config'
 import { createAIBrowserMcpServer, createScopedBrowserContext } from '../../services/ai-browser'
@@ -255,7 +254,6 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       runId,
       sessionKey,
       notificationLevel: app.userOverrides.notificationLevel,
-      notifyChannels: app.spec.output?.notify?.channels,
     }
 
     const reportMcpServer = createReportToolServer(
@@ -266,13 +264,6 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         console.log(`[Runtime] Escalation created: entry=${entryId}, app=${app.id}`)
       }
     )
-
-    // Create aico-bot-notify MCP server for AI autonomous notifications
-    const notifyMcpServer = createNotifyToolServer({
-      appId: app.id,
-      appName: app.spec.name,
-      runId,
-    })
 
     // ── 5. Create V2 session ───────────────────────────────
     //    (credentials, electronPath, workDir resolved in step 1)
@@ -300,7 +291,6 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       mcpServers: {
         'aico-bot-memory': memoryMcpServer,
         'aico-bot-report': reportMcpServer,
-        'aico-bot-notify': notifyMcpServer,
         ...(usesAIBrowser ? { 'ai-browser': createAIBrowserMcpServer(scopedBrowserCtx) } : {}),
       },
     })

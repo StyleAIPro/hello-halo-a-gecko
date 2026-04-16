@@ -296,7 +296,7 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
 
       // Handle output.notify — send notifications on successful completion
       const notifyConfig = app.spec.output?.notify
-      const shouldNotify = notifyConfig && (notifyConfig.system !== false || (notifyConfig.channels && notifyConfig.channels.length > 0))
+      const shouldNotify = notifyConfig && notifyConfig.system !== false
       console.log(`[Runtime][Notify] output.notify check: config=${JSON.stringify(notifyConfig)}, outcome=${outcome}`)
       if (shouldNotify && outcome !== 'error') {
         try {
@@ -306,7 +306,6 @@ export function createAppRuntimeService(deps: AppRuntimeDeps): AppRuntimeService
           console.log(`[Runtime][Notify] Calling notifyAppEvent: title="${app.spec.name}", bodyLen=${body.length}`)
           notifyAppEvent(app.spec.name, body, {
             appId: app.id,
-            channels: notifyConfig.channels,
             skipSystem: notifyConfig.system === false,
           })
           console.log(`[Runtime][Notify] notifyAppEvent returned`)

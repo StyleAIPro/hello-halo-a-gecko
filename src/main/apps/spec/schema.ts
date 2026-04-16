@@ -236,22 +236,12 @@ export const McpServerConfigSchema = z.object({
 })
 
 // ============================================
-// Notification Channel Type
-// ============================================
-
-export const NotificationChannelTypeSchema = z.enum([
-  'email', 'wecom', 'dingtalk', 'feishu', 'webhook'
-])
-
-// ============================================
 // Output Config
 // ============================================
 
 export const OutputNotifySchema = z.object({
   /** Send system desktop notification (default: true) */
   system: z.boolean().optional(),
-  /** External notification channels to deliver to */
-  channels: z.array(NotificationChannelTypeSchema).optional(),
 })
 
 export const OutputConfigSchema = z.object({

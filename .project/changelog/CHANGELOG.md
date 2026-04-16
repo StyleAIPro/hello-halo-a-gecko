@@ -13,6 +13,9 @@
 - 填充 6 个现有模块的「功能列表」表 — `.project/modules/*/`
 
 ### Refactored
+- 删除 analytics 模块代码（6 文件），移除 Baidu Tongji SDK 和 `initAnalytics` 启动调用 — `src/main/services/analytics/`、`src/main/index.ts`、`src/preload/index.ts`、`src/renderer/index.html`
+- 删除 perf 模块代码（7 文件），移除性能监控 IPC/API/store — `src/main/services/perf/`、`src/main/ipc/perf.ts`、`src/renderer/stores/perf.store.ts`、`src/renderer/lib/perf-collector.ts`
+- 删除 notify-channels 代码（7 文件）和 notification IPC/设置 UI，精简 notification.service.ts 仅保留系统通知 — `src/main/services/notify-channels/`、`src/main/services/notification.service.ts`、`src/main/apps/runtime/`
 - 提取 git-bash 业务逻辑到 service 层（状态检测、安装流程、跳过/完成），IPC handler 仅做转发 — `src/main/ipc/git-bash.ts`、`src/main/services/git-bash.service.ts`
 - 提取 remote-deploy fs/update 编排到 service 层（listRemoteFiles、readRemoteFile、writeRemoteFile、deleteRemoteFile、updateAgent） — `src/main/ipc/remote-server.ts`、`src/main/services/remote-deploy/remote-deploy.service.ts`
 - 提取浏览器上下文菜单构建到独立 service（buildBrowserContextMenu、buildCanvasTabContextMenu），IPC handler 动态导入 — `src/main/ipc/browser.ts`、`src/main/services/browser-menu.service.ts`

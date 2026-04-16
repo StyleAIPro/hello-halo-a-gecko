@@ -642,6 +642,7 @@
 | **版本带描述** | 文件名 `<描述>-vN`，不纯 `v1/v2` |
 | **PRD 按层级分目录** | `prd/project/`、`prd/module/<name>/`、`prd/feature/<name>/`、`prd/bugfix/<name>/` |
 | **跨模块逐功能更新 changelog** | 一个 PRD 影响多个功能时，必须为每个受影响功能的 `changelog.md` 追加条目 |
+| **模块删除同步清理代码** | 删除模块文档时，必须同步清理对应代码（service/controller/hooks/store/IPC），不能只删文档留代码 |
 
 ---
 
@@ -676,6 +677,7 @@ PRD 按层级分目录：
 - **架构文档与模块目录同步**：新增/删除模块时，`architecture/` 的模块划分表和全景图必须同步更新
 - **模块文档标注代码归属**：「内部组件」表标注文件路径，「归属 Hooks」「归属 IPC Handler」段标注逻辑上属于本模块但物理平铺的文件
 - **基础设施不建独立文档**：analytics、perf、notify-channels 等体量小或辅助性的代码区域，归属到相关业务模块下作为功能，不单独建模块
+- **模块删除同步清理代码**：删除模块文档时，必须同步清理对应代码（service/controller/hooks/store/IPC），不能只删文档留代码
 
 详见：docs/vibecoding-doc-standard.md
 ```
@@ -696,6 +698,7 @@ PRD 按层级分目录：
 - [ ] 合并时文档冲突解决了？
 - [ ] 有破坏性变更需要 ADR？
 - [ ] **架构文档的模块划分表与 `.project/modules/` 目录同步？**（新增/删除模块时必须同步）
+- [ ] **模块删除时代码是否同步清理？**（service/controller/hooks/store/IPC 是否全部清理）
 
 ### 7.1 跨模块变更检查清单（附加）
 
@@ -717,3 +720,4 @@ PRD 按层级分目录：
 | 2026-04-16 | PRD 分四层目录（project/module/feature/bugfix），新增模块级 PRD 模板，Agent 协议更新路径引用 | @moonseeker1 |
 | 2026-04-16 | 新增跨模块变更规则：逐功能更新 changelog、全局 CHANGELOG 增加 Refactored 分类、触发来源扩展（代码审计/重构）、检查清单增加跨模块附加项 | @moonseeker1 |
 | 2026-04-16 | 强化模块文档模板：新增「归属 Hooks」「归属 IPC Handler」段（代码归属映射）；架构文档模板分业务模块/基础设施两类，增加模块目录同步规则；检查清单增加架构同步检查项 | @moonseeker1 |
+| 2026-04-16 | 新增模块删除同步清理规则：删除模块文档时必须同步清理代码（service/hooks/store/IPC），日常规则、CLAUDE.md 集成、检查清单同步更新 | @moonseeker1 |

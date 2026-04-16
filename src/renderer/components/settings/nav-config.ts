@@ -3,7 +3,7 @@
  * Data-driven navigation items for the settings page
  */
 
-import { Bot, Puzzle, Palette, Settings, Globe, Info, Bell, Store, Server, Github } from 'lucide-react'
+import { Bot, Puzzle, Palette, Settings, Globe, Info, Store, Server, Github } from 'lucide-react'
 import type { SettingsNavItem } from './types'
 
 /**
@@ -42,11 +42,6 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     id: 'appearance',
     labelKey: 'Appearance',
     icon: Palette
-  },
-  {
-    id: 'notification-channels',
-    labelKey: 'Notification Channels',
-    icon: Bell
   },
   {
     id: 'remote',

@@ -166,7 +166,6 @@ import { flushAllPendingIndexWrites } from './services/conversation.service'
 import { disableRemoteAccess } from './services/remote.service'
 import { stopOpenAICompatRouter } from './openai-compat-router'
 import { manualCheckForUpdates } from './services/updater.service'
-import { initAnalytics } from './services/analytics'
 import { registerProtocols } from './services/protocol.service'
 import { setMainWindow } from './services/window.service'
 import { initInstanceId, shutdownHealthSystem, onRendererCrash, onRendererUnresponsive } from './services/health'
@@ -447,7 +446,7 @@ app.whenReady().then(async () => {
   // Create application menu
   createAppMenu()
 
-  // Create window first (before analytics, so Baidu provider can find the window)
+  // Create window first
   createWindow()
 
   // ========================================
@@ -470,9 +469,6 @@ app.whenReady().then(async () => {
       // requestIdleCallback equivalent for Node.js
       setImmediate(() => {
         initializeExtendedServices()
-
-        // Initialize analytics (after IPC handlers registered and window created)
-        initAnalytics().catch(err => console.warn('[Analytics] Init failed:', err))
       })
     })
   }

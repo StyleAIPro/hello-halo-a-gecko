@@ -166,20 +166,12 @@ export interface McpServerConfig {
 }
 
 // ============================================
-// Notification Channel Type
-// ============================================
-
-export type NotificationChannelType = 'email' | 'wecom' | 'dingtalk' | 'feishu' | 'webhook'
-
-// ============================================
 // Output Notify Config
 // ============================================
 
 export interface OutputNotifyConfig {
   /** Send system desktop notification (default: true) */
   system?: boolean
-  /** External notification channels to deliver to */
-  channels?: NotificationChannelType[]
 }
 
 // ============================================

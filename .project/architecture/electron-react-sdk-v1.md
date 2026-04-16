@@ -108,8 +108,7 @@
 | platform | 后台基础设施：事件总线、调度器、记忆系统、应用商店注册表 | `src/main/platform/` |
 | i18n | 国际化，7 种语言翻译管理（en, zh-CN, zh-TW, ja, fr, es, de） | `src/renderer/i18n/` |
 | preload | IPC 桥接，暴露 `window.aicoBot` API | `src/preload/` |
-| analytics / perf | 可观测性：用户分析、性能监控（归属 agent 模块） | `src/main/services/analytics/`、`src/main/services/perf/` |
-| notify-channels | 通知渠道：邮件/钉钉/飞书/企微/Webhook（归属 automation 模块） | `src/main/services/notify-channels/` |
+| notification | 系统通知：OS 级通知和应用内 toast | `src/main/services/notification.service.ts` |
 | shared | 前后端共享类型和常量 | `src/shared/` |
 
 ## 通信方式
@@ -216,3 +215,4 @@ SDK 关键选项（`src/main/services/agent/sdk-config.ts`）：
 |------|------|--------|
 | 2026-04-16 | 初始架构文档，描述 Electron + React + Claude SDK 多进程架构 | @moonseeker1 |
 | 2026-04-16 | 模块划分更新：从 6 个扩展到 14 个业务模块 + 4 个基础设施模块，全景图同步更新 | @moonseeker1 |
+| 2026-04-16 | 模块精简：observability/notification 模块删除（文档+代码同步清理），基础设施表更新 | @moonseeker1 |
