@@ -18,6 +18,7 @@ import {
   isSkillSpace
 } from '../services/space.service'
 import { getSpacesDir } from '../services/config.service'
+import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service'
 
 // Import types for preferences
 interface SpaceLayoutPreferences {
@@ -61,6 +62,20 @@ export function registerSpaceHandlers(): void {
     'space:create',
     async (_event, input: { name: string; icon: string; customPath?: string; claudeSource?: 'local' | 'remote'; remoteServerId?: string; remotePath?: string; systemPrompt?: string }) => {
       try {
+        // Validate remote server readiness: SDK installed + Bot Proxy running
+        if (input.claudeSource === 'remote' && input.remoteServerId) {
+          const server = remoteDeployService.getServer(input.remoteServerId)
+          if (!server) {
+            return { success: false, error: 'Remote server not found' }
+          }
+          if (!server.sdkInstalled) {
+            return { success: false, error: `Remote server "${server.name}" is not ready: SDK is not installed. Please deploy the agent first.` }
+          }
+          if (!server.proxyRunning) {
+            return { success: false, error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.` }
+          }
+        }
+
         const space = createSpace(input)
         return { success: true, data: space }
       } catch (error: unknown) {

@@ -32,6 +32,12 @@ const pendingScans = new Map<string, {
   timer: ReturnType<typeof setTimeout>
 }>()
 
+// Pending destroy requests: spaceId -> { resolve, timer }
+const pendingDestroys = new Map<string, {
+  resolve: () => void
+  timer: ReturnType<typeof setTimeout>
+}>()
+
 // Callbacks for events from worker
 // fsEventsCallbacks supports multiple subscribers (artifact-cache + event-bus FileWatcherSource)
 const onFsEventsCallbacks = new Set<(spaceId: string, events: ProcessedFsEvent[]) => void>()
@@ -87,6 +93,13 @@ function forkWorker(): ChildProcess {
       pending.reject(new Error(`Worker exited unexpectedly (code=${code})`))
       pendingScans.delete(requestId)
     }
+
+    // Resolve all pending destroys (worker gone = handles released)
+    for (const [, pending] of Array.from(pendingDestroys.entries())) {
+      clearTimeout(pending.timer)
+      pending.resolve()
+    }
+    pendingDestroys.clear()
 
     // Auto-restart unless shutting down
     if (!isShuttingDown && code !== 0) {
@@ -172,6 +185,16 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
       }
       break
 
+    case 'space-destroyed': {
+      const pending = pendingDestroys.get(msg.spaceId)
+      if (pending) {
+        clearTimeout(pending.timer)
+        pending.resolve()
+        pendingDestroys.delete(msg.spaceId)
+      }
+      break
+    }
+
     case 'log':
       if (msg.level === 'error') {
         console.error(`[WatcherWorker] ${msg.message}`)
@@ -200,11 +223,24 @@ export function initSpaceWatcher(spaceId: string, rootPath: string): void {
 }
 
 /**
- * Destroy watcher for a space
+ * Destroy watcher for a space. Returns a promise that resolves when the worker
+ * has confirmed the watcher is closed (file handles released).
  */
-export function destroySpaceWatcher(spaceId: string): void {
+export function destroySpaceWatcher(spaceId: string): Promise<void> {
   activeSpaces.delete(spaceId)
-  sendToWorker({ type: 'destroy-space', spaceId })
+
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      // If worker doesn't respond within timeout, resolve anyway
+      // (file handles may already be released or space may have no watcher)
+      console.warn(`[WatcherHost] destroy-space timeout for ${spaceId}, proceeding`)
+      pendingDestroys.delete(spaceId)
+      resolve()
+    }, 5000)
+
+    pendingDestroys.set(spaceId, { resolve, timer })
+    sendToWorker({ type: 'destroy-space', spaceId })
+  })
 }
 
 /**
@@ -350,6 +386,13 @@ export async function shutdown(): Promise<void> {
     pending.reject(new Error('Worker shutting down'))
     pendingScans.delete(requestId)
   }
+
+  // Resolve all pending destroys
+  for (const [, pending] of Array.from(pendingDestroys.entries())) {
+    clearTimeout(pending.timer)
+    pending.resolve()
+  }
+  pendingDestroys.clear()
 
   if (workerProcess) {
     console.log('[WatcherHost] Shutting down worker...')

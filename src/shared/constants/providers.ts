@@ -65,7 +65,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
   // ============================================================================
   {
     id: 'anthropic',
-    name: 'Anthropic',
+    name: 'Claude (Recommended)',
     authType: 'api-key',
     apiUrl: 'https://api.anthropic.com',
     models: [
@@ -78,6 +78,7 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
     description: 'Anthropic official or compatible proxy',
     website: 'https://console.anthropic.com/',
     region: 'global',
+    recommended: true,
     icon: 'brain'
   },
   {

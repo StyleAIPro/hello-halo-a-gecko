@@ -754,11 +754,11 @@ class AgentOrchestrator extends EventEmitter {
 
     // Determine if SSH tunnel should be used (default: true for security)
     const useSshTunnel = agent.config.useSshTunnel ?? true
-    let localTunnelPort = serverInfo.wsPort || 8080
+    let localTunnelPort = serverInfo.assignedPort
 
     // Establish SSH tunnel if required (same as executeRemoteMessage)
     if (useSshTunnel) {
-      log.debug(` Establishing SSH tunnel to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+      log.debug(` Establishing SSH tunnel to ${serverInfo.host}:${serverInfo.assignedPort}...`)
 
       const decryptedPassword = decryptString(serverInfo.password || '')
 
@@ -770,8 +770,8 @@ class AgentOrchestrator extends EventEmitter {
           port: serverInfo.sshPort || 22,
           username: serverInfo.username,
           password: decryptedPassword,
-          localPort: serverInfo.wsPort || 8080,
-          remotePort: serverInfo.wsPort || 8080
+          localPort: serverInfo.assignedPort,
+          remotePort: serverInfo.assignedPort
         })
         log.info(` SSH tunnel established on local port ${localTunnelPort}`)
       } catch (tunnelError) {
@@ -789,7 +789,7 @@ class AgentOrchestrator extends EventEmitter {
       client = new RemoteWsClient({
         serverId: remoteServerId,
         host: useSshTunnel ? 'localhost' : serverInfo.host,
-        port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
+        port: useSshTunnel ? localTunnelPort : (serverInfo.assignedPort),
         authToken: serverInfo.authToken || '',
         useSshTunnel,
         apiKey: apiKey || undefined,
@@ -2112,11 +2112,11 @@ just complete the task normally — the orchestrator will collect your results a
 
     // Determine if SSH tunnel should be used (default: true for security)
     const useSshTunnel = agent.config.useSshTunnel ?? true
-    let localTunnelPort = serverInfo.wsPort || 8080
+    let localTunnelPort = serverInfo.assignedPort
 
     // Establish SSH tunnel if required
     if (useSshTunnel) {
-      log.debug(` Establishing SSH tunnel for subtask to ${serverInfo.host}:${serverInfo.wsPort || 8080}...`)
+      log.debug(` Establishing SSH tunnel for subtask to ${serverInfo.host}:${serverInfo.assignedPort}...`)
 
       const decryptedPassword = decryptString(serverInfo.password || '')
 
@@ -2128,8 +2128,8 @@ just complete the task normally — the orchestrator will collect your results a
           port: serverInfo.sshPort || 22,
           username: serverInfo.username,
           password: decryptedPassword,
-          localPort: serverInfo.wsPort || 8080,
-          remotePort: serverInfo.wsPort || 8080
+          localPort: serverInfo.assignedPort,
+          remotePort: serverInfo.assignedPort
         })
         log.info(` SSH tunnel established for subtask on local port ${localTunnelPort}`)
       } catch (tunnelError) {
@@ -2142,7 +2142,7 @@ just complete the task normally — the orchestrator will collect your results a
     const client = new RemoteWsClient({
       serverId: remoteServerId,
       host: useSshTunnel ? 'localhost' : serverInfo.host,
-      port: useSshTunnel ? localTunnelPort : (serverInfo.wsPort || 8080),
+      port: useSshTunnel ? localTunnelPort : (serverInfo.assignedPort),
       authToken: serverInfo.authToken || '',
       useSshTunnel,
       apiKey: apiKey || undefined,

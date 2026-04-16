@@ -77,50 +77,6 @@ const FALLBACK_ERROR_HINT = 'Check logs in Settings > System > Logs.'
 // Auth Token Cache for Remote Connections
 // ============================================
 
-// Cache structure: serverId -> { token, timestamp }
-interface AuthTokenCacheEntry {
-  token: string
-  timestamp: number
-}
-
-const authTokenCache = new Map<string, AuthTokenCacheEntry>()
-const AUTH_TOKEN_CACHE_TTL = 5 * 60 * 1000 // 5 minutes TTL
-
-/**
- * Check if cached auth token is still valid
- */
-function isAuthTokenCacheValid(serverId: string): boolean {
-  const cached = authTokenCache.get(serverId)
-  if (!cached) return false
-  return Date.now() - cached.timestamp < AUTH_TOKEN_CACHE_TTL
-}
-
-/**
- * Get cached auth token if valid
- */
-function getCachedAuthToken(serverId: string): string | null {
-  if (!isAuthTokenCacheValid(serverId)) {
-    authTokenCache.delete(serverId)
-    return null
-  }
-  return authTokenCache.get(serverId)?.token || null
-}
-
-/**
- * Set auth token in cache
- */
-function setCachedAuthToken(serverId: string, token: string): void {
-  authTokenCache.set(serverId, { token, timestamp: Date.now() })
-}
-
-/**
- * Invalidate auth token cache for a server (e.g., on connection failure)
- */
-export function invalidateAuthTokenCache(serverId: string): void {
-  authTokenCache.delete(serverId)
-  log.debug(`Auth token cache invalidated for server ${serverId}`)
-}
-
 // ============================================
 // Send Message
 // ============================================
@@ -872,34 +828,13 @@ async function executeRemoteMessage(
   let mcpBridge: AicoBotMcpBridge | null = null
 
   try {
-    // ── Phase 1: Token registration + SSH tunnel (independent, parallelize) ──
-
-    // Token registration (non-blocking, errors are caught and continued)
-    const tokenRegistrationPromise = (async () => {
-      const cachedToken = getCachedAuthToken(serverId)
-      log.info(`Token cache check: cached=${cachedToken ? 'yes' : 'no'}, server.authToken=${server.authToken ? server.authToken.substring(0, 10) + '...' : 'none'}, cacheMatch=${cachedToken === server.authToken}`)
-      if (cachedToken && cachedToken === server.authToken) {
-        log.debug(`Using cached auth token (valid for ${Math.round((AUTH_TOKEN_CACHE_TTL - (Date.now() - authTokenCache.get(serverId)!.timestamp)) / 1000)}s)`)
-      } else {
-        try {
-          log.info(`Registering local token on remote (cache ${cachedToken ? 'expired' : 'miss'})...`)
-          await deployService.registerTokenOnRemote(serverId)
-          setCachedAuthToken(serverId, server.authToken)
-          log.info(`Local token registered/cached for server ${serverId}`)
-        } catch (syncError) {
-          log.error(`Failed to register token on remote:`, syncError)
-          if (server.authToken) {
-            setCachedAuthToken(serverId, server.authToken)
-          }
-        }
-      }
-    })()
+    // ── Phase 1: SSH tunnel establishment ──
 
     // SSH tunnel establishment (only if required)
     const sshTunnelPromise = (async (): Promise<number> => {
-      let tunnelPort = server.wsPort || 8080
+      let tunnelPort = server.assignedPort
       if (useSshTunnel) {
-        log.info(`Establishing SSH tunnel to ${server.host}:${server.wsPort || 8080}...`)
+        log.info(`Establishing SSH tunnel to ${server.host}:${server.assignedPort}...`)
         const decryptedPassword = decryptString(server.password || '')
         tunnelPort = await sshTunnelService.establishTunnel({
           spaceId,
@@ -908,8 +843,8 @@ async function executeRemoteMessage(
           port: server.sshPort || 22,
           username: server.username,
           password: decryptedPassword,
-          localPort: server.wsPort || 8080,
-          remotePort: server.wsPort || 8080
+          localPort: server.assignedPort,
+          remotePort: server.assignedPort
         })
         log.info(`SSH tunnel established on local port ${tunnelPort}`)
       }
@@ -919,9 +854,7 @@ async function executeRemoteMessage(
       throw new Error(`SSH tunnel failed: ${err instanceof Error ? err.message : String(err)}`)
     })
 
-    // Wait for both Phase 1 tasks in parallel
     const localTunnelPort = await sshTunnelPromise
-    await tokenRegistrationPromise
 
     // Additional variables for SDK session management
     let sdkSessionId: string | undefined
@@ -932,7 +865,7 @@ async function executeRemoteMessage(
 
     // Establish reverse SSH tunnel for MCP proxy (remote -> AICO-Bot)
     // NOTE: This is the legacy fallback path. The preferred path is WebSocket MCP Bridge
-    // (mcp:tools:register), which doesn't need a reverse tunnel and supports multi-PC isolation.
+    // (mcp:tools:register), which doesn't need a reverse tunnel.
     // The reverse tunnel is skipped when useSshTunnel is true (WebSocket bridge is preferred).
     let mcpProxyRemotePort: number | null = null
     const useWebSocketMcpBridge = true  // Always prefer WebSocket MCP Bridge
@@ -947,8 +880,8 @@ async function executeRemoteMessage(
             port: server.sshPort || 22,
             username: server.username,
             password: decryptString(server.password || ''),
-            localPort: server.wsPort || 8080,
-            remotePort: server.wsPort || 8080,
+            localPort: server.assignedPort,
+            remotePort: server.assignedPort,
             remoteListenPort: 3848,
             localTargetPort: mcpProxyInstance.getPort(),
           })
@@ -964,59 +897,23 @@ async function executeRemoteMessage(
 
     // ── Phase 2: Agent check/start + WebSocket connection (both depend on tunnel, independent of each other) ──
 
-    // Helper: check and start remote agent if needed
+    // Helper: check remote agent is running (no auto-start)
     const checkAndStartAgent = async (): Promise<void> => {
       log.info(`Checking if remote agent is running...`)
       const isAgentRunning = await checkRemoteAgentRunning(serverId)
       log.debug(`Agent running status:`, isAgentRunning)
 
       if (!isAgentRunning) {
-        log.debug(`Agent not running, deploying and starting...`)
-
-        const isDeployed = await checkRemoteAgentDeployed(serverId)
-        log.debug(`Agent deployed status:`, isDeployed)
-
-        if (!isDeployed) {
-          log.debug(`Agent not deployed, deploying...`)
-          await deployRemoteAgent(serverId)
-          log.debug(`Deployment completed`)
-        }
-
-        log.debug(`Starting agent...`)
-        await startRemoteAgent(serverId)
-
-        const MAX_WAIT_MS = 10000
-        const CHECK_INTERVAL_MS = 500
-        let waited = 0
-        let agentReady = false
-
-        log.debug(`Waiting for agent to start (polling every ${CHECK_INTERVAL_MS}ms)...`)
-
-        while (waited < MAX_WAIT_MS) {
-          const isReady = await checkRemoteAgentRunning(serverId)
-          if (isReady) {
-            agentReady = true
-            log.debug(`Agent ready after ${waited}ms`)
-            break
-          }
-          await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS))
-          waited += CHECK_INTERVAL_MS
-        }
-
-        if (!agentReady) {
-          throw new Error(`Failed to start remote agent - not running after ${MAX_WAIT_MS}ms timeout`)
-        }
-        log.info(`Agent started and verified`)
-      } else {
-        log.info(`Agent is already running`)
+        throw new Error(`Remote agent proxy is not running on server "${server.name || serverId}". Please deploy and start the agent first.`)
       }
+      log.info(`Agent is already running`)
     }
 
     // Build WebSocket config (depends only on tunnel port, already available)
     const wsConfig: RemoteWsClientConfig = {
       serverId,
       host: useSshTunnel ? 'localhost' : server.host,
-      port: useSshTunnel ? localTunnelPort : (server.wsPort || 8080),
+      port: useSshTunnel ? localTunnelPort : (server.assignedPort),
       authToken: server.authToken || '',
       useSshTunnel,
       apiKey: apiKey || undefined,
@@ -1707,61 +1604,6 @@ async function executeRemoteMessage(
 }
 
 /**
- * Check if remote agent is deployed on the server
- */
-async function checkRemoteAgentDeployed(serverId: string): Promise<boolean> {
-  const deployService = getRemoteDeployService()
-  const server = deployService.getServer(serverId)
-
-  if (!server) {
-    return false
-  }
-
-  // Ensure SSH connection is established before checking
-  try {
-    await deployService.ensureSshConnection(serverId)
-  } catch {
-    return false
-  }
-
-  const manager = deployService.getSSHManagerForServer(serverId)
-  if (!manager) {
-    return false
-  }
-
-  try {
-    // Check if deployment directory exists
-    const result = await manager.executeCommandFull(`test -d /opt/claude-deployment && test -f /opt/claude-deployment/package.json`)
-
-    return result.exitCode === 0 && result.stdout.trim() !== ''
-  } catch {
-    return false
-  }
-}
-
-/**
- * Deploy remote agent to the server
- */
-async function deployRemoteAgent(serverId: string): Promise<void> {
-  const deployService = getRemoteDeployService()
-  const server = deployService.getServer(serverId)
-
-  if (!server) {
-    throw new Error(`Remote server not found: ${serverId}`)
-  }
-
-  // Ensure SSH connection is established before deploying
-  await deployService.ensureSshConnection(serverId)
-
-  log.debug(' Deploying remote agent to:', server.name)
-
-  // Execute the deploy command (this calls the existing deployAgentCode function)
-  await deployService.deployAgentCode(serverId)
-
-  log.debug(' Remote agent deployment completed')
-}
-
-/**
  * Check if remote agent is running
  */
 async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
@@ -1792,7 +1634,7 @@ async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
     }
 
     // Check 2: Check if the port is listening
-    const portResult = await manager.executeCommandFull(`(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${server.wsPort || 8080}" || echo "NOT_LISTENING"`)
+    const portResult = await manager.executeCommandFull(`(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${server.assignedPort}" || echo "NOT_LISTENING"`)
 
     return !portResult.stdout.includes('NOT_LISTENING')
   } catch {
@@ -1800,24 +1642,3 @@ async function checkRemoteAgentRunning(serverId: string): Promise<boolean> {
   }
 }
 
-/**
- * Start remote agent on the server
- */
-async function startRemoteAgent(serverId: string): Promise<void> {
-  const deployService = getRemoteDeployService()
-  const server = deployService.getServer(serverId)
-
-  if (!server) {
-    throw new Error(`Remote server not found: ${serverId}`)
-  }
-
-  // Ensure SSH connection is established before starting
-  await deployService.ensureSshConnection(serverId)
-
-  log.debug(' Starting remote agent on:', server.name)
-
-  // Start the agent server
-  await deployService.startAgent(serverId)
-
-  log.debug(' Remote agent started')
-}

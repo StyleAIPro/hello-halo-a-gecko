@@ -40,7 +40,6 @@ export function RemoteServersSection() {
     sshPort: 22,
     username: '',
     password: '',
-    wsPort: 8080,
     claudeApiKey: '',
     claudeBaseUrl: '',
     claudeModel: '',
@@ -50,6 +49,18 @@ export function RemoteServersSection() {
   const [saving, setSaving] = React.useState(false)
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null)
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
+  // Add server progress tracking
+  const [addProgress, setAddProgress] = React.useState<{
+    serverName: string
+    stage: string
+    message: string
+    progress: number
+    error?: boolean
+  } | null>(null)
+  // Ref to track which server ID is being added (to match progress events)
+  const addingServerIdRef = React.useRef<string | null>(null)
+  // Ref to track that we're in an active add operation (before we know the server ID)
+  const isAddingRef = React.useRef(false)
   const [terminalEntries, setTerminalEntries] = React.useState<Map<string, TerminalEntry[]>>(() => {
     // Load from localStorage on init
     try {
@@ -128,7 +139,7 @@ export function RemoteServersSection() {
               console.log('[RemoteServersSection] Restoring update spinner for:', server.id)
               setUpdatingAgent(server.id)
               expandServer(server.id)
-              addTerminalEntry(server.id, 'output', '（更新进行中...已恢复显示）')
+              addTerminalEntry(server.id, 'output', t('(Update in progress... view restored)'))
             } else if (state.completedAt) {
               // Update completed while we were away — acknowledge and show result
               handledUpdateRef.current.add(server.id)
@@ -137,17 +148,17 @@ export function RemoteServersSection() {
               setUpdatingAgent(null)
 
               if (state.success) {
-                addTerminalEntry(server.id, 'success', 'Agent 更新完成!')
+                addTerminalEntry(server.id, 'success', t('Agent updated successfully!'))
                 const vi = state.data as { remoteVersion?: string; localVersion?: string; remoteBuildTime?: string; localBuildTime?: string } | undefined
-                let msg = `${server.name} Agent 更新成功`
+                let msg = t('{{name}} Agent updated successfully', { name: server.name })
                 if (vi?.remoteVersion) {
-                  msg += `\n\n本地版本: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n本地构建时间: ${vi.localBuildTime}` : ''}`
-                  msg += `\n\n远端版本: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n远端构建时间: ${vi.remoteBuildTime}` : ''}`
+                  msg += `\n\n${t('Local version')}: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n${t('Local build time')}: ${vi.localBuildTime}` : ''}`
+                  msg += `\n\n${t('Remote version')}: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n${t('Remote build time')}: ${vi.remoteBuildTime}` : ''}`
                 }
                 await alertDialog(msg)
               } else {
-                addTerminalEntry(server.id, 'error', `更新失败: ${state.error || '未知错误'}`)
-                await alertDialog(`${server.name} 更新失败: ${state.error || '未知错误'}`)
+                addTerminalEntry(server.id, 'error', t('Update failed: {{error}}', { error: state.error || t('Unknown error') }))
+                await alertDialog(t('{{name}} update failed: {{error}}', { name: server.name, error: state.error || t('Unknown error') }))
               }
 
               await loadServers()
@@ -213,6 +224,33 @@ export function RemoteServersSection() {
       // Add progress percentage if available
       const progressText = data.progress !== undefined ? ` [${data.progress}%]` : ''
       addTerminalEntry(data.serverId, type, `${data.message}${progressText}`)
+
+      // Update addProgress if:
+      // 1. This matches the server being added (known ID), OR
+      // 2. We're in an active add operation (haven't got ID yet)
+      const isMatch = (
+        addingServerIdRef.current === data.serverId ||
+        (isAddingRef.current && !addingServerIdRef.current)
+      )
+      if (isMatch) {
+        // If this is the first event during an add, capture the server ID
+        if (!addingServerIdRef.current) {
+          addingServerIdRef.current = data.serverId
+        }
+
+        // Look up server name from current servers list or from addProgress
+        const server = serversRef.current.find(s => s.id === data.serverId)
+        const serverName = server?.name || addProgress?.serverName || data.serverId
+        setAddProgress({
+          serverName,
+          stage: data.stage,
+          message: data.message,
+          progress: data.progress ?? (data.stage === 'complete' ? 100 : 0),
+          error: data.stage === 'error',
+        })
+        // Auto-expand the server to show terminal
+        setExpandedServers(prev => new Set([...prev, data.serverId]))
+      }
     }
 
     // Handle update completion event (for when user is on a different tab)
@@ -238,17 +276,17 @@ export function RemoteServersSection() {
       const serverName = server?.name || data.serverId
 
       if (data.success) {
-        addTerminalEntry(data.serverId, 'success', 'Agent 更新完成!')
+        addTerminalEntry(data.serverId, 'success', t('Agent updated successfully!'))
         const vi = data.data as { remoteVersion?: string; localVersion?: string; remoteBuildTime?: string; localBuildTime?: string } | undefined
-        let msg = `${serverName} Agent 更新成功`
+        let msg = t('{{name}} Agent updated successfully', { name: serverName })
         if (vi?.remoteVersion) {
-          msg += `\n\n本地版本: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n本地构建时间: ${vi.localBuildTime}` : ''}`
-          msg += `\n\n远端版本: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n远端构建时间: ${vi.remoteBuildTime}` : ''}`
+          msg += `\n\n${t('Local version')}: ${vi.localVersion || 'unknown'}${vi.localBuildTime ? `\n${t('Local build time')}: ${vi.localBuildTime}` : ''}`
+          msg += `\n\n${t('Remote version')}: ${vi.remoteVersion}${vi.remoteBuildTime ? `\n${t('Remote build time')}: ${vi.remoteBuildTime}` : ''}`
         }
         await alertDialog(msg)
       } else {
-        addTerminalEntry(data.serverId, 'error', `更新失败: ${data.error || '未知错误'}`)
-        await alertDialog(`${serverName} 更新失败: ${data.error || '未知错误'}`)
+        addTerminalEntry(data.serverId, 'error', t('Update failed: {{error}}', { error: data.error || t('Unknown error') }))
+        await alertDialog(t('{{name}} update failed: {{error}}', { name: serverName, error: data.error || t('Unknown error') }))
       }
 
       await loadServers()
@@ -356,16 +394,17 @@ export function RemoteServersSection() {
 
     // Validate: AI source must be configured
     if (!formData.aiSourceId) {
-      alert('请选择一个 AI 模型服务')
+      alert(t('Please select an AI model service'))
       return
     }
 
     console.log('[RemoteServersSection] Add server clicked, formData:', formData)
 
     setSaving(true)
+    isAddingRef.current = true
+    setAddProgress({ serverName: formData.name, stage: 'add', message: 'Adding server...', progress: 5 })
+
     try {
-      // Transform flat form data to format expected by backend
-      // If aiSourceId is set, use the source's credentials; otherwise pass empty
       const selectedSource = aiSources.find(s => s.id === formData.aiSourceId)
       const serverInput = {
         name: formData.name,
@@ -375,7 +414,6 @@ export function RemoteServersSection() {
           username: formData.username,
           password: formData.password,
         },
-        wsPort: formData.wsPort,
         aiSourceId: formData.aiSourceId || undefined,
         claudeApiKey: selectedSource ? (selectedSource.authType === 'api-key' ? (selectedSource.apiKey || '') : (selectedSource.accessToken || '')) : undefined,
         claudeBaseUrl: selectedSource?.apiUrl || undefined,
@@ -385,37 +423,43 @@ export function RemoteServersSection() {
       const result = await api.remoteServerAdd(serverInput)
       console.log('[RemoteServersSection] Add result:', result)
       if (result.success && result.data) {
-        setShowAddDialog(false)
-        setFormData({
-          name: '',
-          host: '',
-          sshPort: 22,
-          username: '',
-          password: '',
-          wsPort: 8080,
-          claudeApiKey: '',
-          claudeBaseUrl: '',
-          claudeModel: '',
-          aiSourceId: ''
-        })
+        // Reload servers to get full server data (including detection results)
         await loadServers()
 
         // Auto-connect the newly added server
         console.log('[RemoteServersSection] Auto-connecting newly added server:', result.data.id)
         await api.remoteServerConnect(result.data.id)
 
-        // Reload servers to update status
+        // Reload servers to update connection status
         await new Promise(resolve => setTimeout(resolve, 500))
         await loadServers()
       } else {
         console.error('[RemoteServersSection] Add failed:', result.error)
-        await alertDialog(result.error || t('Failed to add server'))
+        setAddProgress({ serverName: formData.name, stage: 'error', message: result.error || t('Failed to add server'), progress: 0, error: true })
+        // Stay in dialog showing error, user clicks Cancel to dismiss
+        return
       }
     } catch (error) {
       console.error('[RemoteServersSection] Add error:', error)
-      await alertDialog(t('Failed to add server'))
+      setAddProgress(prev => prev ? { ...prev, stage: 'error', message: t('Failed to add server'), progress: 0, error: true } : null)
+      return
     } finally {
       setSaving(false)
+      isAddingRef.current = false
+      addingServerIdRef.current = null
+      setAddProgress(null)
+      setShowAddDialog(false)
+      setFormData({
+        name: '',
+        host: '',
+        sshPort: 22,
+        username: '',
+        password: '',
+        claudeApiKey: '',
+        claudeBaseUrl: '',
+        claudeModel: '',
+        aiSourceId: ''
+      })
     }
   }
 
@@ -430,7 +474,6 @@ export function RemoteServersSection() {
       sshPort: server.sshPort || 22,
       username: server.username || '',
       password: server.password ? '••••••••••' : '',  // Placeholder dots if password exists
-      wsPort: server.wsPort || 8080,
       claudeApiKey: server.claudeApiKey || '',
       claudeBaseUrl: server.claudeBaseUrl || '',
       claudeModel: server.claudeModel || '',
@@ -444,7 +487,7 @@ export function RemoteServersSection() {
 
     // Validate: AI source must be configured
     if (!formData.aiSourceId) {
-      alert('请选择一个 AI 模型服务')
+      alert(t('Please select an AI model service'))
       return
     }
 
@@ -462,7 +505,6 @@ export function RemoteServersSection() {
           username: formData.username,
           password: (formData.password && formData.password !== '••••••••••') ? formData.password : undefined,  // Keep unchanged if placeholder
         },
-        wsPort: formData.wsPort,
         aiSourceId: formData.aiSourceId || undefined,
         claudeApiKey: selectedSource ? (selectedSource.authType === 'api-key' ? (selectedSource.apiKey || '') : (selectedSource.accessToken || '')) : undefined,
         claudeBaseUrl: selectedSource?.apiUrl || undefined,
@@ -479,7 +521,6 @@ export function RemoteServersSection() {
           sshPort: 22,
           username: '',
           password: '',
-          wsPort: 8080,
           claudeApiKey: '',
           claudeBaseUrl: '',
           claudeModel: '',
@@ -507,7 +548,7 @@ export function RemoteServersSection() {
       )
       if (referencedSpaces.length > 0) {
         const names = referencedSpaces.map(s => s.name).join('、')
-        const warnMsg = t('以下远程空间正在使用此服务器，删除后这些空间将无法正常使用：{{names}}', { names }) + '\n\n' + t('是否仍然删除？')
+        const warnMsg = t('The following remote spaces are using this server. Deleting it will break these spaces: {{names}}', { names }) + '\n\n' + t('Are you sure you want to delete?')
         if (!(await confirmDialog(warnMsg))) return
       } else {
         if (!(await confirmDialog(t('Are you sure you want to delete this server?')))) return
@@ -650,7 +691,7 @@ export function RemoteServersSection() {
             await alertDialog(alertMessage)
           }
         } else {
-          addTerminalEntry(serverId, 'success', 'Agent updated and restarted successfully!')
+          addTerminalEntry(serverId, 'success', t('Agent updated and restarted successfully!'))
           if (!skipConfirm) {
             await alertDialog(t('Agent updated successfully'))
           }
@@ -709,21 +750,50 @@ export function RemoteServersSection() {
   }
 
   const getAgentStatusBadge = (server: any) => {
+    const badges: React.ReactNode[] = []
+
+    // SDK badge
     if (server.sdkInstalled) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-600 text-xs rounded-full">
+      badges.push(
+        <span key="sdk" className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-600 text-xs rounded-full">
           <CheckCircle className="w-3 h-3" />
-          <span>{t('SDK Installed')} {server.sdkVersion ? `(${server.sdkVersion})` : ''}</span>
+          <span>{t('SDK')} {server.sdkVersion}</span>
         </span>
       )
-    } else {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-600 text-xs rounded-full">
+    } else if (server.sdkVersionMismatch) {
+      badges.push(
+        <span key="sdk-mismatch" className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 text-amber-600 text-xs rounded-full">
+          <AlertTriangle className="w-3 h-3" />
+          <span>{t('SDK')} {server.sdkVersion} (need 0.2.104)</span>
+        </span>
+      )
+    } else if (server.status === 'connected' || server.status === 'deploying') {
+      badges.push(
+        <span key="sdk-missing" className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-600 text-xs rounded-full">
           <XCircle className="w-3 h-3" />
           <span>{t('SDK Not Installed')}</span>
         </span>
       )
     }
+
+    // Remote Bot proxy running badge — show when detection has run (server has assignedPort)
+    if (server.proxyRunning === true) {
+      badges.push(
+        <span key="proxy" className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-600 text-xs rounded-full">
+          <CheckCircle className="w-3 h-3" />
+          <span>{t('Bot Proxy OK')}</span>
+        </span>
+      )
+    } else if (server.assignedPort && (server.status === 'connected')) {
+      badges.push(
+        <span key="proxy-stopped" className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-600 text-xs rounded-full">
+          <XCircle className="w-3 h-3" />
+          <span>{t('Bot Proxy Stopped')}</span>
+        </span>
+      )
+    }
+
+    return <div className="flex flex-wrap gap-1.5">{badges}</div>
   }
 
   return (
@@ -771,7 +841,7 @@ export function RemoteServersSection() {
       <section id="remote-servers" className="bg-card rounded-xl border border-border p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">{t('远程服务器管理')}</h2>
+          <h2 className="text-2xl font-bold">{t('Remote Server Management')}</h2>
           <p className="text-sm text-muted-foreground">{t('Manage and connect to remote SSH servers')}</p>
           {batchProgress && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -842,8 +912,13 @@ export function RemoteServersSection() {
                       <div>
                         <h3 className="font-semibold">{server.name || t('Unknown')}</h3>
                         <p className="text-sm text-muted-foreground">
-                          {server.host || ''}:{server.wsPort || ''}
+                          {server.host || ''}{server.assignedPort ? `:${server.assignedPort}` : ''}
                         </p>
+                        {server.clientId && (
+                          <span className="inline-flex items-center text-xs text-muted-foreground/60 font-mono mt-0.5">
+                            {t('Client ID')}: {server.clientId}
+                          </span>
+                        )}
                         {server.aiSourceId && (() => {
                           const source = aiSources.find(s => s.id === server.aiSourceId)
                           return source ? (
@@ -969,6 +1044,80 @@ export function RemoteServersSection() {
       {(showAddDialog || editingServer) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md relative z-[101]" onClick={e => e.stopPropagation()}>
+            {/* Progress view (shown during add server operation) */}
+            {saving && !editingServer && addProgress ? (
+              <div>
+                <h3 className="text-lg font-semibold mb-4">{t('Adding Remote Server')}</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    {addProgress.stage === 'complete' ? (
+                      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    ) : addProgress.error ? (
+                      <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                    ) : (
+                      <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{addProgress.serverName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{addProgress.message}</p>
+                    </div>
+                    {addProgress.progress > 0 && (
+                      <span className="text-xs text-muted-foreground flex-shrink-0">{addProgress.progress}%</span>
+                    )}
+                  </div>
+                  {/* Progress bar */}
+                  {addProgress.stage !== 'complete' && !addProgress.error && (
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${Math.max(addProgress.progress, 2)}%` }}
+                      />
+                    </div>
+                  )}
+                  {/* Error message */}
+                  {addProgress.error && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <p className="text-sm text-red-500">{addProgress.message}</p>
+                    </div>
+                  )}
+                  {/* Complete message */}
+                  {addProgress.stage === 'complete' && (
+                    <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                      <p className="text-sm text-green-500">{addProgress.message}</p>
+                    </div>
+                  )}
+                </div>
+                {/* Only show Close button when complete or error */}
+                {(addProgress.stage === 'complete' || addProgress.error) && (
+                  <div className="flex justify-end mt-6">
+                    <button
+                      onClick={() => {
+                        setSaving(false)
+                        isAddingRef.current = false
+                        addingServerIdRef.current = null
+                        setAddProgress(null)
+                        setShowAddDialog(false)
+                        setFormData({
+                          name: '',
+                          host: '',
+                          sshPort: 22,
+                          username: '',
+                          password: '',
+                          claudeApiKey: '',
+                          claudeBaseUrl: '',
+                          claudeModel: '',
+                          aiSourceId: ''
+                        })
+                      }}
+                      className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                    >
+                      {t('Close')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+            <>
             <h3 className="text-lg font-semibold mb-4">
               {editingServer ? t('Edit Server') : t('Add Remote Server')}
             </h3>
@@ -1003,15 +1152,6 @@ export function RemoteServersSection() {
                     className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
-                <div>
-                  <label className="text-sm font-medium mb-1 block">{t('WebSocket Port')}</label>
-                  <input
-                    type="number"
-                    value={formData.wsPort}
-                    onChange={(e) => setFormData({ ...formData, wsPort: parseInt(e.target.value) || 8080 })}
-                    className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                </div>
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">{t('Username')}</label>
@@ -1035,7 +1175,7 @@ export function RemoteServersSection() {
                 />
               </div>
               <div className="pt-2 border-t border-border">
-                <h4 className="text-sm font-medium mb-3">AI 模型配置</h4>
+                <h4 className="text-sm font-medium mb-3">{t('AI Model Configuration')}</h4>
                 <div>
                   <label className="text-sm font-medium mb-1 block">{t('AI Provider')}</label>
                   <select
@@ -1149,14 +1289,14 @@ export function RemoteServersSection() {
                     sshPort: 22,
                     username: '',
                     password: '',
-                    wsPort: 8080,
                     claudeApiKey: '',
                     claudeBaseUrl: '',
                     claudeModel: '',
                     aiSourceId: ''
                   })
                 }}
-                className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors"
+                disabled={saving}
+                className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
               >
                 {t('Cancel')}
               </button>
@@ -1175,6 +1315,8 @@ export function RemoteServersSection() {
                 )}
               </button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}
