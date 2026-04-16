@@ -1472,8 +1472,11 @@ WRAPPER
     )
 
     if (checkResult.exitCode === 0 && !checkResult.stdout.includes('not running')) {
-      console.log('[RemoteDeployService] Agent already running, restarting...')
-      await this.stopAgent(id)
+      console.log('[RemoteDeployService] Agent already running, skipping start (proxy supports multiple connections)')
+      // Still register token for this PC, then return — don't kill a running agent
+      // as it would disconnect other clients (e.g., dev + packaged instances)
+      await this.registerTokenOnRemote(id)
+      return
     }
 
     // Register this PC's auth token to the remote whitelist (tokens.json)
