@@ -11,6 +11,7 @@
 - 文档模块：skill（3 功能）、terminal（2 功能）、health（2 功能）、ai-sources（2 功能）、settings（3 功能）、onboarding（2 功能） — `.project/modules/`
 - 功能文档：chat/canvas、chat/search、chat/artifact、ai-browser/electron-browser-view — `.project/modules/chat/features/`、`.project/modules/ai-browser/features/`
 - 填充 6 个现有模块的「功能列表」表 — `.project/modules/*/`
+- Remote Agent 独立详解文档（架构全景、通信协议、部署架构、消息流、故障排查） — `docs/remote-agent-guide.md`
 
 ### Refactored
 - 删除 analytics 模块代码（6 文件），移除 Baidu Tongji SDK 和 `initAnalytics` 启动调用 — `src/main/services/analytics/`、`src/main/index.ts`、`src/preload/index.ts`、`src/renderer/index.html`
