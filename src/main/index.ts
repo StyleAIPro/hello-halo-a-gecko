@@ -11,7 +11,8 @@
 // Logs are written to: ~/Library/Logs/AICO-Bot/ (macOS), %USERPROFILE%\AppData\Roaming\AICO-Bot\logs (Windows)
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import log from 'electron-log/main.js'
 
 // ESM compat shims — electron-vite bundles main process as ESM where
@@ -38,6 +39,15 @@ const isDev = process.env.NODE_ENV === 'development'
 log.transports.file.level = 'info'           // Always log info+ to file
 log.transports.console.level = isDev ? 'debug' : 'info'
 log.transports.file.maxSize = 5 * 1024 * 1024 // 5MB per file, auto-rotate
+
+// Isolate log directory: dev writes to ~/.aico-bot-dev/logs,
+// packaged writes to ~/.aico-bot/logs — prevents log file conflicts
+// when running both simultaneously.
+if (isDev) {
+  log.transports.file.resolvePathFn = () => {
+    return join(homedir(), '.aico-bot-dev', 'logs')
+  }
+}
 
 // Handle EPIPE errors gracefully (must be registered BEFORE electron-log's errorHandler)
 // electron-log's startCatching() registers its own uncaughtException handler that shows
@@ -154,7 +164,6 @@ app.on('second-instance', () => {
   }
 })
 
-import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initializeEssentialServices,

@@ -60,7 +60,12 @@ export interface RemoteServerConfigInput extends Omit<RemoteServerConfig, 'id' |
   ssh: SSHConfig
 }
 
-const DEPLOY_AGENT_PATH = '/opt/claude-deployment'
+// Dev (~/.aico-bot-dev) and packaged (~/.aico-bot) deploy to separate
+// directories on the remote server to avoid conflicts (overlapping code,
+// shared logs/tokens, agent restarts kicking each other).
+const DEPLOY_AGENT_PATH = app.isPackaged
+  ? '/opt/claude-deployment'
+  : '/opt/claude-deployment-dev'
 const AGENT_CHECK_COMMAND = 'npm list -g @anthropic-ai/claude-agent-sdk 2>/dev/null || echo "NOT_INSTALLED"'
 
 // Agent package files to deploy
