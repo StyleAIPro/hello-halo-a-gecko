@@ -10,90 +10,93 @@
  * - Activated (by leader/foreman): pulsing blue dot
  */
 
-import React, { useState } from 'react'
-import { useTranslation } from '../../i18n'
-import { useSpaceStore } from '../../stores/space.store'
-import { useChatStore } from '../../stores/chat.store'
-import { api } from '../../api'
-import { Crown, Wrench, Cloud, Monitor, Plus, X } from 'lucide-react'
-import type { AgentConfig } from '../../../shared/types/hyper-space'
-import type { RemoteServer } from '../../../shared/types'
+import React, { useState } from 'react';
+import { useTranslation } from '../../i18n';
+import { useSpaceStore } from '../../stores/space.store';
+import { useChatStore } from '../../stores/chat.store';
+import { api } from '../../api';
+import { Crown, Wrench, Cloud, Monitor, Plus, X } from 'lucide-react';
+import type { AgentConfig } from '../../../shared/types/hyper-space';
+import type { RemoteServer } from '../../../shared/types';
 
-const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化']
+const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化'];
 
 export function AgentPanel() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const isHyperSpace = currentSpace?.spaceType === 'hyper'
-  const agents = currentSpace?.agents || []
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const isHyperSpace = currentSpace?.spaceType === 'hyper';
+  const agents = currentSpace?.agents || [];
 
-  const activeAgentId = useChatStore(state => state.activeAgentId)
-  const setActiveAgentId = useChatStore(state => state.setActiveAgentId)
-  const activatedAgentIds = useChatStore(state => state.activatedAgentIds)
+  const activeAgentId = useChatStore((state) => state.activeAgentId);
+  const setActiveAgentId = useChatStore((state) => state.setActiveAgentId);
+  const activatedAgentIds = useChatStore((state) => state.activatedAgentIds);
 
   // Add worker inline form
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [newWorkerName, setNewWorkerName] = useState('')
-  const [newWorkerType, setNewWorkerType] = useState<'local' | 'remote'>('local')
-  const [newWorkerServerId, setNewWorkerServerId] = useState('')
-  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newWorkerName, setNewWorkerName] = useState('');
+  const [newWorkerType, setNewWorkerType] = useState<'local' | 'remote'>('local');
+  const [newWorkerServerId, setNewWorkerServerId] = useState('');
+  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([]);
 
-  if (!isHyperSpace) return null
+  if (!isHyperSpace) return null;
 
   // Sort: leader first, then workers
   const sortedAgents = [...agents].sort((a, b) => {
-    if (a.role === 'leader') return -1
-    if (b.role === 'leader') return 1
-    return 0
-  })
+    if (a.role === 'leader') return -1;
+    if (b.role === 'leader') return 1;
+    return 0;
+  });
 
   const handleOpenAddForm = async () => {
     // Load remote servers for the dropdown
-    const result = await api.remoteServerList()
+    const result = await api.remoteServerList();
     if (result.success && result.data) {
-      setRemoteServers(result.data)
+      setRemoteServers(result.data);
     }
-    setShowAddForm(true)
-  }
+    setShowAddForm(true);
+  };
 
   const handleAddWorker = async () => {
-    if (!currentSpace) return
+    if (!currentSpace) return;
 
-    const capabilities = newWorkerType === 'remote' ? [...DEFAULT_REMOTE_CAPABILITIES] : []
+    const capabilities = newWorkerType === 'remote' ? [...DEFAULT_REMOTE_CAPABILITIES] : [];
     const newAgent: AgentConfig = {
       id: `worker-${Date.now()}`,
-      name: newWorkerName.trim() || `Worker ${agents.filter(a => a.role === 'worker').length + 1}`,
+      name:
+        newWorkerName.trim() || `Worker ${agents.filter((a) => a.role === 'worker').length + 1}`,
       type: newWorkerType,
       role: 'worker',
       capabilities,
-      ...(newWorkerType === 'remote' && newWorkerServerId ? { remoteServerId: newWorkerServerId } : {})
-    }
+      ...(newWorkerType === 'remote' && newWorkerServerId
+        ? { remoteServerId: newWorkerServerId }
+        : {}),
+    };
 
     // Auto-fill environment from server config
     if (newWorkerType === 'remote' && newWorkerServerId) {
-      const server = remoteServers.find(s => s.id === newWorkerServerId)
+      const server = remoteServers.find((s) => s.id === newWorkerServerId);
       if (server) {
         newAgent.environment = {
           ip: server.host,
           username: server.username,
           password: server.password || '',
-          port: server.sshPort || 22
-        }
+          port: server.sshPort || 22,
+        };
       }
     }
 
-    await api.addAgentToHyperSpace(currentSpace.id, newAgent)
-    setShowAddForm(false)
-    setNewWorkerName('')
-    setNewWorkerType('local')
-    setNewWorkerServerId('')
-  }
+    await api.addAgentToHyperSpace(currentSpace.id, newAgent);
+    setShowAddForm(false);
+    setNewWorkerName('');
+    setNewWorkerType('local');
+    setNewWorkerServerId('');
+  };
 
   const handleRemoveWorker = async (agentId: string) => {
-    if (!currentSpace) return
-    await api.removeAgentFromHyperSpace(currentSpace.id, agentId)
-  }
+    if (!currentSpace) return;
+    await api.removeAgentFromHyperSpace(currentSpace.id, agentId);
+  };
 
   return (
     <div className="w-[180px] min-w-[180px] border-r border-border bg-card/30 flex flex-col">
@@ -163,10 +166,10 @@ export function AgentPanel() {
           <div className="flex gap-1 justify-end">
             <button
               onClick={() => {
-                setShowAddForm(false)
-                setNewWorkerName('')
-                setNewWorkerType('local')
-                setNewWorkerServerId('')
+                setShowAddForm(false);
+                setNewWorkerName('');
+                setNewWorkerType('local');
+                setNewWorkerServerId('');
               }}
               className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
             >
@@ -174,7 +177,9 @@ export function AgentPanel() {
             </button>
             <button
               onClick={handleAddWorker}
-              disabled={newWorkerType === 'remote' && !newWorkerServerId && remoteServers.length > 0}
+              disabled={
+                newWorkerType === 'remote' && !newWorkerServerId && remoteServers.length > 0
+              }
               className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
             >
               {t('Add')}
@@ -186,9 +191,11 @@ export function AgentPanel() {
       {/* Agent List */}
       <div className="flex-1 overflow-y-auto py-1">
         {sortedAgents.map((agent) => {
-          const isLeader = agent.role === 'leader'
-          const isActive = isLeader ? (activeAgentId === null || activeAgentId === agent.id) : (activeAgentId === agent.id)
-          const isActivated = activatedAgentIds.has(agent.id)
+          const isLeader = agent.role === 'leader';
+          const isActive = isLeader
+            ? activeAgentId === null || activeAgentId === agent.id
+            : activeAgentId === agent.id;
+          const isActivated = activatedAgentIds.has(agent.id);
 
           return (
             <button
@@ -196,11 +203,12 @@ export function AgentPanel() {
               onClick={() => setActiveAgentId(isLeader ? null : agent.id)}
               className={`
                 w-full px-3 py-2.5 flex items-start gap-2 text-left transition-colors
-                ${isActive
-                  ? 'bg-primary/10 border-l-2 border-l-primary'
-                  : isActivated
-                    ? 'bg-blue-500/5 border-l-2 border-l-blue-500 hover:bg-blue-500/10'
-                    : 'border-l-2 border-l-transparent hover:bg-secondary/50'
+                ${
+                  isActive
+                    ? 'bg-primary/10 border-l-2 border-l-primary'
+                    : isActivated
+                      ? 'bg-blue-500/5 border-l-2 border-l-blue-500 hover:bg-blue-500/10'
+                      : 'border-l-2 border-l-transparent hover:bg-secondary/50'
                 }
               `}
             >
@@ -215,9 +223,7 @@ export function AgentPanel() {
 
               {/* Agent info */}
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate leading-tight">
-                  {agent.name}
-                </div>
+                <div className="text-sm font-medium truncate leading-tight">{agent.name}</div>
                 <div className="flex items-center gap-1 mt-0.5">
                   {agent.type === 'remote' ? (
                     <Cloud className="w-3 h-3 text-muted-foreground" />
@@ -250,14 +256,12 @@ export function AgentPanel() {
 
               {/* Status indicators */}
               <div className="flex-shrink-0 mt-0.5 flex flex-col items-end gap-1">
-                {isActivated && (
-                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                )}
+                {isActivated && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />}
                 {!isLeader && (
                   <button
                     onClick={(e) => {
-                      e.stopPropagation()
-                      handleRemoveWorker(agent.id)
+                      e.stopPropagation();
+                      handleRemoveWorker(agent.id);
                     }}
                     className="p-0.5 hover:bg-destructive/20 rounded transition-colors opacity-0 group-hover:opacity-100"
                     title={t('Remove agent')}
@@ -267,9 +271,9 @@ export function AgentPanel() {
                 )}
               </div>
             </button>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

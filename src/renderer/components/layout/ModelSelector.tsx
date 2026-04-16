@@ -6,10 +6,10 @@
  * Design: Uses v2 AISourcesConfig format with sources array
  */
 
-import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Plus, Sparkles, X, Check } from 'lucide-react'
-import { useAppStore } from '../../stores/app.store'
-import { api } from '../../api'
+import { useState, useRef, useEffect } from 'react';
+import { ChevronDown, Plus, Sparkles, X, Check } from 'lucide-react';
+import { useAppStore } from '../../stores/app.store';
+import { api } from '../../api';
 import {
   getCurrentModelName,
   getCurrentSource,
@@ -17,169 +17,170 @@ import {
   type AicoBotConfig,
   type AISourcesConfig,
   type AISource,
-  type ModelOption
-} from '../../types'
-import { useTranslation } from '../../i18n'
-import { useIsMobile } from '../../hooks/useIsMobile'
-import { isAnthropicProvider } from '../../types'
+  type ModelOption,
+} from '../../types';
+import { useTranslation } from '../../i18n';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { isAnthropicProvider } from '../../types';
 
 export function ModelSelector() {
-  const { t } = useTranslation()
-  const isMobile = useIsMobile()
-  const { config, setConfig, setView } = useAppStore()
-  const [isOpen, setIsOpen] = useState(false)
-  const [isAnimatingOut, setIsAnimatingOut] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const { t } = useTranslation();
+  const isMobile = useIsMobile();
+  const { config, setConfig, setView } = useAppStore();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // State for expanded sections (accordion)
-  const [expandedSection, setExpandedSection] = useState<string | null>(null)
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   // Get v2 aiSources config
-  const aiSources: AISourcesConfig = config?.aiSources?.version === 2
-    ? config.aiSources
-    : { version: 2, currentId: null, sources: [] }
+  const aiSources: AISourcesConfig =
+    config?.aiSources?.version === 2
+      ? config.aiSources
+      : { version: 2, currentId: null, sources: [] };
 
   // Get current source
-  const currentSource = getCurrentSource(aiSources)
+  const currentSource = getCurrentSource(aiSources);
 
   // Initialize expanded section to current source when opening
   useEffect(() => {
     if (isOpen && currentSource) {
-      setExpandedSection(currentSource.id)
+      setExpandedSection(currentSource.id);
     }
-  }, [isOpen, currentSource?.id])
+  }, [isOpen, currentSource?.id]);
 
   const toggleSection = (sourceId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setExpandedSection(prev => prev === sourceId ? null : sourceId)
-  }
+    e.stopPropagation();
+    setExpandedSection((prev) => (prev === sourceId ? null : sourceId));
+  };
 
   // Close dropdown when clicking outside (desktop only)
   useEffect(() => {
-    if (!isOpen || isMobile) return
+    if (!isOpen || isMobile) return;
 
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
+        setIsOpen(false);
       }
     }
 
     // Use setTimeout to avoid the click event that opened the dropdown
     const timeoutId = setTimeout(() => {
-      document.addEventListener('click', handleClickOutside)
-    }, 0)
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
 
     return () => {
-      clearTimeout(timeoutId)
-      document.removeEventListener('click', handleClickOutside)
-    }
-  }, [isOpen, isMobile])
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [isOpen, isMobile]);
 
   // Handle escape key
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        handleClose()
+        handleClose();
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen])
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const handleClose = () => {
     if (isMobile) {
-      setIsAnimatingOut(true)
+      setIsAnimatingOut(true);
       setTimeout(() => {
-        setIsOpen(false)
-        setIsAnimatingOut(false)
-      }, 200)
+        setIsOpen(false);
+        setIsAnimatingOut(false);
+      }, 200);
     } else {
-      setIsOpen(false)
+      setIsOpen(false);
     }
-  }
+  };
 
-  if (!config) return null
+  if (!config) return null;
 
   // Get current model display name
-  const currentModelName = getCurrentModelName(aiSources)
+  const currentModelName = getCurrentModelName(aiSources);
 
   // Handle model selection for a source (atomic: backend reads latest tokens from disk)
   const handleSelectModel = async (sourceId: string, modelId: string) => {
     // Switch source first if needed, then set model
     if (aiSources.currentId !== sourceId) {
-      const switchResult = await api.aiSourcesSwitchSource(sourceId)
+      const switchResult = await api.aiSourcesSwitchSource(sourceId);
       if (!switchResult.success) {
-        console.error('[ModelSelector] Failed to switch source:', switchResult.error)
-        handleClose()
-        return
+        console.error('[ModelSelector] Failed to switch source:', switchResult.error);
+        handleClose();
+        return;
       }
     }
-    const result = await api.aiSourcesSetModel(modelId)
+    const result = await api.aiSourcesSetModel(modelId);
     if (result.success && result.data) {
-      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig });
     }
-    handleClose()
-  }
+    handleClose();
+  };
 
   // Handle switching source only (keeps last selected model for that source)
   const handleSwitchSource = async (sourceId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+    e.stopPropagation();
 
-    if (aiSources.currentId === sourceId) return
+    if (aiSources.currentId === sourceId) return;
 
-    const result = await api.aiSourcesSwitchSource(sourceId)
+    const result = await api.aiSourcesSwitchSource(sourceId);
     if (result.success && result.data) {
-      setConfig({ ...config, aiSources: result.data as AISourcesConfig })
+      setConfig({ ...config, aiSources: result.data as AISourcesConfig });
     }
-    handleClose()
-  }
+    handleClose();
+  };
 
   // Handle add source
   const handleAddSource = () => {
-    handleClose()
-    setView('settings')
-  }
+    handleClose();
+    setView('settings');
+  };
 
   // Get available models for a source
   const getModelsForSource = (source: AISource): ModelOption[] => {
     // If source has its own available models (user fetched or configured), use them
     if (source.availableModels && source.availableModels.length > 0) {
-      return source.availableModels
+      return source.availableModels;
     }
 
     // For Anthropic providers without custom models, use predefined defaults
     if (isAnthropicProvider(source.provider)) {
-      return AVAILABLE_MODELS
+      return AVAILABLE_MODELS;
     }
 
     // Fallback: return current model as single option
     if (source.model) {
-      return [{ id: source.model, name: source.model }]
+      return [{ id: source.model, name: source.model }];
     }
 
-    return []
-  }
+    return [];
+  };
 
   // Get display name for source
   const getSourceDisplayName = (source: AISource): string => {
-    if (source.name) return source.name
-    if (source.authType === 'oauth') return 'OAuth Provider'
-    if (isAnthropicProvider(source.provider)) return 'Claude API'
-    return t('Custom API')
-  }
+    if (source.name) return source.name;
+    if (source.authType === 'oauth') return 'OAuth Provider';
+    if (isAnthropicProvider(source.provider)) return 'Claude API';
+    return t('Custom API');
+  };
 
   // Render model list
   const renderModelList = () => (
     <>
       {/* Iterate all configured sources */}
-      {aiSources.sources.map(source => {
-        const isExpanded = expandedSection === source.id
-        const isActiveSource = aiSources.currentId === source.id
-        const models = getModelsForSource(source)
-        const displayName = getSourceDisplayName(source)
+      {aiSources.sources.map((source) => {
+        const isExpanded = expandedSection === source.id;
+        const isActiveSource = aiSources.currentId === source.id;
+        const models = getModelsForSource(source);
+        const displayName = getSourceDisplayName(source);
 
         return (
           <div key={source.id}>
@@ -188,7 +189,9 @@ export function ModelSelector() {
               onClick={(e) => toggleSection(source.id, e)}
             >
               <div className="flex items-center gap-2">
-                <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                />
                 <span>{displayName}</span>
                 {source.authType === 'oauth' && source.user?.name && (
                   <span className="text-xs text-muted-foreground">({source.user.name})</span>
@@ -210,9 +213,9 @@ export function ModelSelector() {
             {isExpanded && (
               <div className="bg-secondary/10 pb-1">
                 {models.map((model) => {
-                  const modelId = typeof model === 'string' ? model : model.id
-                  const modelName = typeof model === 'string' ? model : (model.name || model.id)
-                  const isSelected = isActiveSource && source.model === modelId
+                  const modelId = typeof model === 'string' ? model : model.id;
+                  const modelName = typeof model === 'string' ? model : model.name || model.id;
+                  const isSelected = isActiveSource && source.model === modelId;
 
                   return (
                     <button
@@ -225,13 +228,13 @@ export function ModelSelector() {
                       {isSelected ? <Check className="w-3 h-3" /> : <span className="w-3" />}
                       {modelName}
                     </button>
-                  )
+                  );
                 })}
               </div>
             )}
             <div className="border-t border-border/50" />
           </div>
-        )
+        );
       })}
 
       {/* Add source button */}
@@ -253,7 +256,7 @@ export function ModelSelector() {
         </button>
       )}
     </>
-  )
+  );
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -302,7 +305,9 @@ export function ModelSelector() {
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-primary" />
                     <div>
-                      <h3 className="text-base font-semibold text-foreground">{t('Select Model')}</h3>
+                      <h3 className="text-base font-semibold text-foreground">
+                        {t('Select Model')}
+                      </h3>
                       <p className="text-xs text-muted-foreground">{currentModelName}</p>
                     </div>
                   </div>
@@ -329,5 +334,5 @@ export function ModelSelector() {
         </>
       )}
     </div>
-  )
+  );
 }

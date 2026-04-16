@@ -11,22 +11,22 @@
 
 interface AicoBotLogoProps {
   /** Size preset or custom pixel value */
-  size?: 'sm' | 'md' | 'lg' | number
+  size?: 'sm' | 'md' | 'lg' | number;
   /** Optional additional class names */
-  className?: string
+  className?: string;
 }
 
 // Size presets in pixels
 const SIZE_PRESETS = {
   sm: 28,
   md: 48,
-  lg: 96
-} as const
+  lg: 96,
+} as const;
 
 // Scale-dependent styles based on size
 function getScaledStyles(size: number) {
   // Base reference is 96px (lg size)
-  const scale = size / 96
+  const scale = size / 96;
 
   return {
     // Blur scales with size
@@ -36,21 +36,20 @@ function getScaledStyles(size: number) {
     // Inner glow inset scales with size
     inset: size <= 32 ? 'inset-0.5' : size <= 56 ? 'inset-1' : 'inset-2',
     // SVG stroke width (thicker at small sizes for visibility)
-    strokeWidth: size <= 32 ? 4 : size <= 56 ? 3.5 : 3
-  }
+    strokeWidth: size <= 32 ? 4 : size <= 56 ? 3.5 : 3,
+  };
 }
 
 export function AicoBotLogo({ size = 'md', className = '' }: AicoBotLogoProps) {
-  const pixelSize = typeof size === 'number' ? size : SIZE_PRESETS[size]
-  const styles = getScaledStyles(pixelSize)
+  const pixelSize = typeof size === 'number' ? size : SIZE_PRESETS[size];
+  const styles = getScaledStyles(pixelSize);
 
   return (
-    <div
-      className={`relative ${className}`}
-      style={{ width: pixelSize, height: pixelSize }}
-    >
+    <div className={`relative ${className}`} style={{ width: pixelSize, height: pixelSize }}>
       {/* Outer glow ring */}
-      <div className={`absolute inset-0 rounded-full bg-primary/20 ${styles.blur} aico-bot-breathe`} />
+      <div
+        className={`absolute inset-0 rounded-full bg-primary/20 ${styles.blur} aico-bot-breathe`}
+      />
 
       {/* Main ring */}
       <div
@@ -58,13 +57,12 @@ export function AicoBotLogo({ size = 'md', className = '' }: AicoBotLogoProps) {
         style={{ width: pixelSize, height: pixelSize }}
       >
         {/* Inner glow */}
-        <div className={`absolute ${styles.inset} rounded-full bg-gradient-to-br from-primary/30 to-transparent`} />
+        <div
+          className={`absolute ${styles.inset} rounded-full bg-gradient-to-br from-primary/30 to-transparent`}
+        />
 
         {/* Animated ring segment - the key spinning arc */}
-        <svg
-          className="absolute inset-0 w-full h-full -rotate-90"
-          viewBox="0 0 100 100"
-        >
+        <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
           <circle
             cx="50"
             cy="50"
@@ -80,5 +78,5 @@ export function AicoBotLogo({ size = 'md', className = '' }: AicoBotLogoProps) {
         </svg>
       </div>
     </div>
-  )
+  );
 }

@@ -3,15 +3,15 @@
  * Modular design with left sidebar navigation and right content area
  */
 
-import { useState, useCallback } from 'react'
-import { ArrowLeft } from 'lucide-react'
-import { useAppStore } from '../stores/app.store'
-import { api } from '../api'
-import type { AicoBotConfig, McpServersConfig } from '../types'
-import { Header } from '../components/layout/Header'
-import { McpServerList } from '../components/settings/McpServerList'
-import { useTranslation } from '../i18n'
-import { useIsMobile } from '../hooks/useIsMobile'
+import { useState, useCallback } from 'react';
+import { ArrowLeft } from 'lucide-react';
+import { useAppStore } from '../stores/app.store';
+import { api } from '../api';
+import type { AicoBotConfig, McpServersConfig } from '../types';
+import { Header } from '../components/layout/Header';
+import { McpServerList } from '../components/settings/McpServerList';
+import { useTranslation } from '../i18n';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 // Import modular settings components
 import {
@@ -25,34 +25,34 @@ import {
   RemoteAccessSection,
   RemoteServersSection,
   AboutSection,
-  RegistrySection
-} from '../components/settings'
+  RegistrySection,
+} from '../components/settings';
 
 export function SettingsPage() {
-  const { t } = useTranslation()
-  const { config, setConfig, goBack } = useAppStore()
-  const isMobile = useIsMobile()
-  const isRemoteMode = api.isRemoteMode()
+  const { t } = useTranslation();
+  const { config, setConfig, updateConfig, goBack } = useAppStore();
+  const isMobile = useIsMobile();
+  const isRemoteMode = api.isRemoteMode();
 
   // Active navigation section (click-only, no scroll spy - standard settings page behavior)
-  const [activeSection, setActiveSection] = useState('ai-model')
+  const [activeSection, setActiveSection] = useState('ai-model');
 
   // Handle navigation click
   const handleNavClick = useCallback((sectionId: string) => {
-    setActiveSection(sectionId)
-    scrollToSection(sectionId)
-  }, [])
+    setActiveSection(sectionId);
+    scrollToSection(sectionId);
+  }, []);
 
   // Handle MCP servers save
   const handleMcpServersSave = async (servers: McpServersConfig) => {
-    await api.setConfig({ mcpServers: servers })
-    setConfig({ ...config, mcpServers: servers } as AicoBotConfig)
-  }
+    await api.setConfig({ mcpServers: servers });
+    setConfig({ ...config, mcpServers: servers } as AicoBotConfig);
+  };
 
   // Handle back - return to previous view
   const handleBack = () => {
-    goBack()
-  }
+    goBack();
+  };
 
   return (
     <div className="h-full w-full flex flex-col">
@@ -99,33 +99,28 @@ export function SettingsPage() {
               {/* AI Sources Section (v2) */}
               <section id="ai-model" className="bg-card rounded-xl border border-border p-6">
                 <h2 className="text-lg font-medium mb-4">{t('AI Model')}</h2>
-                <AISourcesSection config={config as AicoBotConfig} setConfig={setConfig} />
+                <AISourcesSection config={config as AicoBotConfig} setConfig={setConfig} updateConfig={updateConfig} />
               </section>
 
               {/* Remote Servers Section */}
               <RemoteServersSection />
 
               {/* GitHub Integration Section - Desktop only */}
-              {!isRemoteMode && (
-                <GitHubSection />
-              )}
+              {!isRemoteMode && <GitHubSection />}
 
               {/* GitCode Integration Section - Desktop only */}
-              {!isRemoteMode && (
-                <GitCodeSection />
-              )}
+              {!isRemoteMode && <GitCodeSection />}
 
               {/* MCP Servers Section */}
               <section id="mcp" className="bg-card rounded-xl border border-border p-6">
-                <McpServerList
-                  servers={config?.mcpServers || {}}
-                  onSave={handleMcpServersSave}
-                />
+                <McpServerList servers={config?.mcpServers || {}} onSave={handleMcpServersSave} />
 
                 {/* Help text */}
                 <div className="mt-4 pt-4 border-t border-border">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-muted-foreground">{t('Format compatible with Cursor / Claude Desktop')}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('Format compatible with Cursor / Claude Desktop')}
+                    </span>
                     <a
                       href="https://modelcontextprotocol.io/"
                       target="_blank"
@@ -136,7 +131,8 @@ export function SettingsPage() {
                     </a>
                   </div>
                   <p className="text-xs text-amber-500/80">
-                    ⚠️ {t('Configuration changes will take effect after starting a new conversation')}
+                    ⚠️{' '}
+                    {t('Configuration changes will take effect after starting a new conversation')}
                   </p>
                 </div>
               </section>
@@ -151,9 +147,7 @@ export function SettingsPage() {
               <RegistrySection />
 
               {/* System Section - Desktop only */}
-              {!isRemoteMode && (
-                <SystemSection config={config} setConfig={setConfig} />
-              )}
+              {!isRemoteMode && <SystemSection config={config} setConfig={setConfig} />}
 
               {/* About Section */}
               <AboutSection />
@@ -162,5 +156,5 @@ export function SettingsPage() {
         </main>
       </div>
     </div>
-  )
+  );
 }

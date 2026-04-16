@@ -13,26 +13,26 @@ import {
   unsubscribeFromConversation,
   setAuthToken,
   clearAuthToken,
-  getAuthToken
-} from './transport'
+  getAuthToken,
+} from './transport';
 
 // Re-export onEvent for components that need to listen to IPC events
-export { onEvent } from './transport'
+export { onEvent } from './transport';
 import type {
   HealthStatusResponse,
   HealthStateResponse,
   HealthRecoveryResponse,
   HealthReportResponse,
   HealthExportResponse,
-  HealthCheckResponse
-} from '../../shared/types'
-import type { InstalledSkill } from '../../shared/skill/skill-types'
+  HealthCheckResponse,
+} from '../../shared/types';
+import type { InstalledSkill } from '../../shared/skill/skill-types';
 
 // Response type
 interface ApiResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: string
+  success: boolean;
+  data?: T;
+  error?: string;
 }
 
 /**
@@ -46,63 +46,63 @@ export const api = {
 
   login: async (token: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return { success: true }
+      return { success: true };
     }
 
-    const result = await httpRequest<void>('POST', '/api/remote/login', { token })
+    const result = await httpRequest<void>('POST', '/api/remote/login', { token });
     if (result.success) {
-      setAuthToken(token)
-      connectWebSocket()
+      setAuthToken(token);
+      connectWebSocket();
     }
-    return result
+    return result;
   },
 
   logout: () => {
-    clearAuthToken()
-    disconnectWebSocket()
+    clearAuthToken();
+    disconnectWebSocket();
   },
 
   // ===== Generic Auth (provider-agnostic) =====
   authGetProviders: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authGetProviders()
+      return window.aicoBot.authGetProviders();
     }
-    return httpRequest('GET', '/api/auth/providers')
+    return httpRequest('GET', '/api/auth/providers');
   },
 
   authStartLogin: async (providerType: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authStartLogin(providerType)
+      return window.aicoBot.authStartLogin(providerType);
     }
-    return httpRequest('POST', '/api/auth/start-login', { providerType })
+    return httpRequest('POST', '/api/auth/start-login', { providerType });
   },
 
   authCompleteLogin: async (providerType: string, state: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authCompleteLogin(providerType, state)
+      return window.aicoBot.authCompleteLogin(providerType, state);
     }
-    return httpRequest('POST', '/api/auth/complete-login', { providerType, state })
+    return httpRequest('POST', '/api/auth/complete-login', { providerType, state });
   },
 
   authRefreshToken: async (providerType: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authRefreshToken(providerType)
+      return window.aicoBot.authRefreshToken(providerType);
     }
-    return httpRequest('POST', '/api/auth/refresh-token', { providerType })
+    return httpRequest('POST', '/api/auth/refresh-token', { providerType });
   },
 
   authCheckToken: async (providerType: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authCheckToken(providerType)
+      return window.aicoBot.authCheckToken(providerType);
     }
-    return httpRequest('GET', `/api/auth/check-token?providerType=${providerType}`)
+    return httpRequest('GET', `/api/auth/check-token?providerType=${providerType}`);
   },
 
   authLogout: async (providerType: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.authLogout(providerType)
+      return window.aicoBot.authLogout(providerType);
     }
-    return httpRequest('POST', '/api/auth/logout', { providerType })
+    return httpRequest('POST', '/api/auth/logout', { providerType });
   },
 
   onAuthLoginProgress: (callback: (data: { provider: string; status: string }) => void) =>
@@ -111,182 +111,183 @@ export const api = {
   // ===== Config =====
   getConfig: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getConfig()
+      return window.aicoBot.getConfig();
     }
-    return httpRequest('GET', '/api/config')
+    return httpRequest('GET', '/api/config');
   },
 
   setConfig: async (updates: Record<string, unknown>): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.setConfig(updates)
+      return window.aicoBot.setConfig(updates);
     }
-    return httpRequest('POST', '/api/config', updates)
+    return httpRequest('POST', '/api/config', updates);
   },
 
   validateApi: async (
     apiKey: string,
     apiUrl: string,
     provider: string,
-    model?: string
+    model?: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.validateApi(apiKey, apiUrl, provider, model)
+      return window.aicoBot.validateApi(apiKey, apiUrl, provider, model);
     }
-    return httpRequest('POST', '/api/config/validate', { apiKey, apiUrl, provider, model })
+    return httpRequest('POST', '/api/config/validate', { apiKey, apiUrl, provider, model });
   },
 
-  fetchModels: async (
-    apiKey: string,
-    apiUrl: string
-  ): Promise<ApiResponse> => {
+  fetchModels: async (apiKey: string, apiUrl: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.fetchModels(apiKey, apiUrl)
+      return window.aicoBot.fetchModels(apiKey, apiUrl);
     }
-    return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl })
+    return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl });
   },
 
   refreshAISourcesConfig: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.refreshAISourcesConfig()
+      return window.aicoBot.refreshAISourcesConfig();
     }
-    return httpRequest('POST', '/api/config/refresh-ai-sources')
+    return httpRequest('POST', '/api/config/refresh-ai-sources');
   },
 
   // ===== AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens) =====
   aiSourcesSwitchSource: async (sourceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.aiSourcesSwitchSource(sourceId)
+      return window.aicoBot.aiSourcesSwitchSource(sourceId);
     }
-    return httpRequest('POST', '/api/ai-sources/switch-source', { sourceId })
+    return httpRequest('POST', '/api/ai-sources/switch-source', { sourceId });
   },
 
   aiSourcesSetModel: async (modelId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.aiSourcesSetModel(modelId)
+      return window.aicoBot.aiSourcesSetModel(modelId);
     }
-    return httpRequest('POST', '/api/ai-sources/set-model', { modelId })
+    return httpRequest('POST', '/api/ai-sources/set-model', { modelId });
   },
 
   aiSourcesAddSource: async (source: unknown): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.aiSourcesAddSource(source)
+      return window.aicoBot.aiSourcesAddSource(source);
     }
-    return httpRequest('POST', '/api/ai-sources/sources', source as Record<string, unknown>)
+    return httpRequest('POST', '/api/ai-sources/sources', source as Record<string, unknown>);
   },
 
   aiSourcesUpdateSource: async (sourceId: string, updates: unknown): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.aiSourcesUpdateSource(sourceId, updates)
+      return window.aicoBot.aiSourcesUpdateSource(sourceId, updates);
     }
-    return httpRequest('PUT', `/api/ai-sources/sources/${sourceId}`, updates as Record<string, unknown>)
+    return httpRequest(
+      'PUT',
+      `/api/ai-sources/sources/${sourceId}`,
+      updates as Record<string, unknown>,
+    );
   },
 
   aiSourcesDeleteSource: async (sourceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.aiSourcesDeleteSource(sourceId)
+      return window.aicoBot.aiSourcesDeleteSource(sourceId);
     }
-    return httpRequest('DELETE', `/api/ai-sources/sources/${sourceId}`)
+    return httpRequest('DELETE', `/api/ai-sources/sources/${sourceId}`);
   },
 
   // ===== Space =====
   getAicoBotSpace: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getAicoBotSpace()
+      return window.aicoBot.getAicoBotSpace();
     }
-    return httpRequest('GET', '/api/spaces/aico-bot')
+    return httpRequest('GET', '/api/spaces/aico-bot');
   },
 
   listSpaces: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listSpaces()
+      return window.aicoBot.listSpaces();
     }
-    return httpRequest('GET', '/api/spaces')
+    return httpRequest('GET', '/api/spaces');
   },
 
   createSpace: async (input: {
-    name: string
-    icon: string
-    customPath?: string
-    workingDir?: string
-    claudeSource?: 'local' | 'remote'
-    remoteServerId?: string
-    remotePath?: string
-    useSshTunnel?: boolean  // Use SSH port forwarding instead of direct WebSocket connection
+    name: string;
+    icon: string;
+    customPath?: string;
+    workingDir?: string;
+    claudeSource?: 'local' | 'remote';
+    remoteServerId?: string;
+    remotePath?: string;
+    useSshTunnel?: boolean; // Use SSH port forwarding instead of direct WebSocket connection
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.createSpace(input)
+      return window.aicoBot.createSpace(input);
     }
-    return httpRequest('POST', '/api/spaces', input)
+    return httpRequest('POST', '/api/spaces', input);
   },
 
   deleteSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.deleteSpace(spaceId)
+      return window.aicoBot.deleteSpace(spaceId);
     }
-    return httpRequest('DELETE', `/api/spaces/${spaceId}`)
+    return httpRequest('DELETE', `/api/spaces/${spaceId}`);
   },
 
   // ===== Hyper Space =====
   createHyperSpace: async (input: {
-    name: string
-    icon: string
-    customPath?: string
-    spaceType?: 'hyper'
-    agents?: any[]
-    orchestration?: any
+    name: string;
+    icon: string;
+    customPath?: string;
+    spaceType?: 'hyper';
+    agents?: any[];
+    orchestration?: any;
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.createHyperSpace(input)
+      return window.aicoBot.createHyperSpace(input);
     }
-    return httpRequest('POST', '/api/spaces/hyper', input)
+    return httpRequest('POST', '/api/spaces/hyper', input);
   },
 
   getHyperSpaceStatus: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getHyperSpaceStatus(spaceId)
+      return window.aicoBot.getHyperSpaceStatus(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/hyper-status`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/hyper-status`);
   },
 
   getSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getSpace(spaceId)
+      return window.aicoBot.getSpace(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}`)
+    return httpRequest('GET', `/api/spaces/${spaceId}`);
   },
 
   openSpaceFolder: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.openSpaceFolder(spaceId)
+      return window.aicoBot.openSpaceFolder(spaceId);
     }
     // In remote mode, just return the path (can't open folder remotely)
-    return httpRequest('POST', `/api/spaces/${spaceId}/open`)
+    return httpRequest('POST', `/api/spaces/${spaceId}/open`);
   },
 
   getDefaultSpacePath: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getDefaultSpacePath()
+      return window.aicoBot.getDefaultSpacePath();
     }
     // In remote mode, get default path from server
-    return httpRequest('GET', '/api/spaces/default-path')
+    return httpRequest('GET', '/api/spaces/default-path');
   },
 
   selectFolder: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.selectFolder()
+      return window.aicoBot.selectFolder();
     }
     // Cannot select folder in remote mode
-    return { success: false, error: 'Cannot select folder in remote mode' }
+    return { success: false, error: 'Cannot select folder in remote mode' };
   },
 
   updateSpace: async (
     spaceId: string,
-    updates: { name?: string; icon?: string }
+    updates: { name?: string; icon?: string },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateSpace(spaceId, updates)
+      return window.aicoBot.updateSpace(spaceId, updates);
     }
-    return httpRequest('PUT', `/api/spaces/${spaceId}`, updates)
+    return httpRequest('PUT', `/api/spaces/${spaceId}`, updates);
   },
 
   // Update space preferences (layout settings)
@@ -294,299 +295,279 @@ export const api = {
     spaceId: string,
     preferences: {
       layout?: {
-        artifactRailExpanded?: boolean
-        chatWidth?: number
-      }
-    }
+        artifactRailExpanded?: boolean;
+        chatWidth?: number;
+      };
+    },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateSpacePreferences(spaceId, preferences)
+      return window.aicoBot.updateSpacePreferences(spaceId, preferences);
     }
-    return httpRequest('PUT', `/api/spaces/${spaceId}/preferences`, preferences)
+    return httpRequest('PUT', `/api/spaces/${spaceId}/preferences`, preferences);
   },
 
   // Get space preferences
   getSpacePreferences: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getSpacePreferences(spaceId)
+      return window.aicoBot.getSpacePreferences(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/preferences`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/preferences`);
   },
 
   // Get or create skill space
   getSkillSpace: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getSkillSpace()
+      return window.aicoBot.getSkillSpace();
     }
-    return httpRequest('GET', '/api/spaces/skill-space')
+    return httpRequest('GET', '/api/spaces/skill-space');
   },
 
   // Get skill space ID
   getSkillSpaceId: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getSkillSpaceId()
+      return window.aicoBot.getSkillSpaceId();
     }
-    return httpRequest('GET', '/api/spaces/skill-space/id')
+    return httpRequest('GET', '/api/spaces/skill-space/id');
   },
 
   // Check if space is skill space
   isSkillSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.isSkillSpace(spaceId)
+      return window.aicoBot.isSkillSpace(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/is-skill-space`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/is-skill-space`);
   },
 
   // ===== Conversation =====
   listConversations: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listConversations(spaceId)
+      return window.aicoBot.listConversations(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/conversations`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/conversations`);
   },
 
   createConversation: async (spaceId: string, title?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.createConversation(spaceId, title)
+      return window.aicoBot.createConversation(spaceId, title);
     }
-    return httpRequest('POST', `/api/spaces/${spaceId}/conversations`, { title })
+    return httpRequest('POST', `/api/spaces/${spaceId}/conversations`, { title });
   },
 
-  getConversation: async (
-    spaceId: string,
-    conversationId: string
-  ): Promise<ApiResponse> => {
+  getConversation: async (spaceId: string, conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getConversation(spaceId, conversationId)
+      return window.aicoBot.getConversation(spaceId, conversationId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/conversations/${conversationId}`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/conversations/${conversationId}`);
   },
 
   updateConversation: async (
     spaceId: string,
     conversationId: string,
-    updates: Record<string, unknown>
+    updates: Record<string, unknown>,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateConversation(spaceId, conversationId, updates)
+      return window.aicoBot.updateConversation(spaceId, conversationId, updates);
     }
-    return httpRequest(
-      'PUT',
-      `/api/spaces/${spaceId}/conversations/${conversationId}`,
-      updates
-    )
+    return httpRequest('PUT', `/api/spaces/${spaceId}/conversations/${conversationId}`, updates);
   },
 
-  deleteConversation: async (
-    spaceId: string,
-    conversationId: string
-  ): Promise<ApiResponse> => {
+  deleteConversation: async (spaceId: string, conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.deleteConversation(spaceId, conversationId)
+      return window.aicoBot.deleteConversation(spaceId, conversationId);
     }
-    return httpRequest(
-      'DELETE',
-      `/api/spaces/${spaceId}/conversations/${conversationId}`
-    )
+    return httpRequest('DELETE', `/api/spaces/${spaceId}/conversations/${conversationId}`);
   },
 
   addMessage: async (
     spaceId: string,
     conversationId: string,
-    message: { role: string; content: string }
+    message: { role: string; content: string },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.addMessage(spaceId, conversationId, message)
+      return window.aicoBot.addMessage(spaceId, conversationId, message);
     }
     return httpRequest(
       'POST',
       `/api/spaces/${spaceId}/conversations/${conversationId}/messages`,
-      message
-    )
+      message,
+    );
   },
 
   updateLastMessage: async (
     spaceId: string,
     conversationId: string,
-    updates: Record<string, unknown>
+    updates: Record<string, unknown>,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateLastMessage(spaceId, conversationId, updates)
+      return window.aicoBot.updateLastMessage(spaceId, conversationId, updates);
     }
     return httpRequest(
       'PUT',
       `/api/spaces/${spaceId}/conversations/${conversationId}/messages/last`,
-      updates
-    )
+      updates,
+    );
   },
 
   getMessageThoughts: async (
     spaceId: string,
     conversationId: string,
-    messageId: string
+    messageId: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getMessageThoughts(spaceId, conversationId, messageId)
+      return window.aicoBot.getMessageThoughts(spaceId, conversationId, messageId);
     }
     return httpRequest(
       'GET',
-      `/api/spaces/${spaceId}/conversations/${conversationId}/messages/${messageId}/thoughts`
-    )
+      `/api/spaces/${spaceId}/conversations/${conversationId}/messages/${messageId}/thoughts`,
+    );
   },
 
   toggleStarConversation: async (
     spaceId: string,
     conversationId: string,
-    starred: boolean
+    starred: boolean,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.toggleStarConversation(spaceId, conversationId, starred)
+      return window.aicoBot.toggleStarConversation(spaceId, conversationId, starred);
     }
-    return httpRequest(
-      'POST',
-      `/api/spaces/${spaceId}/conversations/${conversationId}/star`,
-      { starred }
-    )
+    return httpRequest('POST', `/api/spaces/${spaceId}/conversations/${conversationId}/star`, {
+      starred,
+    });
   },
 
-  getAgentCommands: async (
-    spaceId: string,
-    conversationId: string
-  ): Promise<ApiResponse> => {
+  getAgentCommands: async (spaceId: string, conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getAgentCommands(spaceId, conversationId)
+      return window.aicoBot.getAgentCommands(spaceId, conversationId);
     }
     return httpRequest(
       'GET',
-      `/api/spaces/${spaceId}/conversations/${conversationId}/agent-commands`
-    )
+      `/api/spaces/${spaceId}/conversations/${conversationId}/agent-commands`,
+    );
   },
 
   listChildConversations: async (
     spaceId: string,
-    parentConversationId: string
+    parentConversationId: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listChildConversations(spaceId, parentConversationId)
+      return window.aicoBot.listChildConversations(spaceId, parentConversationId);
     }
     return httpRequest(
       'GET',
-      `/api/spaces/${spaceId}/conversations/${parentConversationId}/children`
-    )
+      `/api/spaces/${spaceId}/conversations/${parentConversationId}/children`,
+    );
   },
 
   listAllWorkerConversations: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listAllWorkerConversations(spaceId)
+      return window.aicoBot.listAllWorkerConversations(spaceId);
     }
-    return httpRequest(
-      'GET',
-      `/api/spaces/${spaceId}/conversations/workers`
-    )
+    return httpRequest('GET', `/api/spaces/${spaceId}/conversations/workers`);
   },
 
   // ===== Agent =====
   sendMessage: async (request: {
-    spaceId: string
-    conversationId: string
-    message: string
-    resumeSessionId?: string
+    spaceId: string;
+    conversationId: string;
+    message: string;
+    resumeSessionId?: string;
     images?: Array<{
-      id: string
-      type: 'image'
-      mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-      data: string
-      name?: string
-      size?: number
-    }>
-    aiBrowserEnabled?: boolean  // Enable AI Browser tools
-    thinkingEnabled?: boolean  // Enable extended thinking mode
-    canvasContext?: {  // Canvas context for AI awareness
-      isOpen: boolean
-      tabCount: number
+      id: string;
+      type: 'image';
+      mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      data: string;
+      name?: string;
+      size?: number;
+    }>;
+    aiBrowserEnabled?: boolean; // Enable AI Browser tools
+    thinkingEnabled?: boolean; // Enable extended thinking mode
+    canvasContext?: {
+      // Canvas context for AI awareness
+      isOpen: boolean;
+      tabCount: number;
       activeTab: {
-        type: string
-        title: string
-        url?: string
-        path?: string
-      } | null
+        type: string;
+        title: string;
+        url?: string;
+        path?: string;
+      } | null;
       tabs: Array<{
-        type: string
-        title: string
-        url?: string
-        path?: string
-        isActive: boolean
-      }>
-    }
-    agentId?: string  // Target agent ID for Hyper Space ('leader' or specific agent ID)
+        type: string;
+        title: string;
+        url?: string;
+        path?: string;
+        isActive: boolean;
+      }>;
+    };
+    agentId?: string; // Target agent ID for Hyper Space ('leader' or specific agent ID)
   }): Promise<ApiResponse> => {
     // Subscribe to conversation events and WAIT for server acknowledgment before sending.
     // This prevents the race condition where events (e.g., worker:started) are
     // emitted before the server has registered the client's subscription.
     if (!isElectron()) {
-      await subscribeToConversation(request.conversationId)
+      await subscribeToConversation(request.conversationId);
     }
 
     if (isElectron()) {
-      return window.aicoBot.sendMessage(request)
+      return window.aicoBot.sendMessage(request);
     }
-    return httpRequest('POST', '/api/agent/message', request)
+    return httpRequest('POST', '/api/agent/message', request);
   },
 
   stopGeneration: async (conversationId?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.stopGeneration(conversationId)
+      return window.aicoBot.stopGeneration(conversationId);
     }
-    return httpRequest('POST', '/api/agent/stop', { conversationId })
+    return httpRequest('POST', '/api/agent/stop', { conversationId });
   },
 
   // Inject message at turn boundary (for turn-level message injection)
   injectMessage: async (request: {
-    conversationId: string
-    content: string
+    conversationId: string;
+    content: string;
     images?: Array<{
-      type: string
-      data: string
-      mediaType: string
-    }>
-    thinkingEnabled?: boolean
-    aiBrowserEnabled?: boolean
+      type: string;
+      data: string;
+      mediaType: string;
+    }>;
+    thinkingEnabled?: boolean;
+    aiBrowserEnabled?: boolean;
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.injectMessage(request)
+      return window.aicoBot.injectMessage(request);
     }
     // Remote mode not supported for injection
-    return { success: false, error: 'Message injection only available in desktop app' }
+    return { success: false, error: 'Message injection only available in desktop app' };
   },
 
   approveTool: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.approveTool(conversationId)
+      return window.aicoBot.approveTool(conversationId);
     }
-    return httpRequest('POST', '/api/agent/approve', { conversationId })
+    return httpRequest('POST', '/api/agent/approve', { conversationId });
   },
 
   rejectTool: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.rejectTool(conversationId)
+      return window.aicoBot.rejectTool(conversationId);
     }
-    return httpRequest('POST', '/api/agent/reject', { conversationId })
+    return httpRequest('POST', '/api/agent/reject', { conversationId });
   },
 
   // Get current session state for recovery after refresh
   getSessionState: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getSessionState(conversationId)
+      return window.aicoBot.getSessionState(conversationId);
     }
-    return httpRequest('GET', `/api/agent/session/${conversationId}`)
+    return httpRequest('GET', `/api/agent/session/${conversationId}`);
   },
 
   // Get Hyper Space worker session states for recovery after page refresh
   getHyperSpaceWorkerStates: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getHyperSpaceWorkerStates(spaceId)
+      return window.aicoBot.getHyperSpaceWorkerStates(spaceId);
     }
-    return httpRequest('GET', `/api/hyper-space/${spaceId}/worker-states`)
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/worker-states`);
   },
 
   // Warm up V2 session - call when switching conversations to prepare for faster message sending
@@ -594,334 +575,355 @@ export const api = {
     if (isElectron()) {
       // No need to wait, initialize in background
       window.aicoBot.ensureSessionWarm(spaceId, conversationId).catch((error: unknown) => {
-        console.error('[API] ensureSessionWarm error:', error)
-      })
-      return { success: true }
+        console.error('[API] ensureSessionWarm error:', error);
+      });
+      return { success: true };
     }
     // HTTP mode: send warm-up request to backend
     return httpRequest('POST', '/api/agent/warm', { spaceId, conversationId }).catch(() => ({
-      success: false // Warm-up failure should not block
-    }))
+      success: false, // Warm-up failure should not block
+    }));
   },
 
   // Answer a pending AskUserQuestion
   answerQuestion: async (data: {
-    conversationId: string
-    id: string
-    answers: Record<string, string>
+    conversationId: string;
+    id: string;
+    answers: Record<string, string>;
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.answerQuestion(data)
+      return window.aicoBot.answerQuestion(data);
     }
-    return httpRequest('POST', '/api/agent/answer-question', data)
+    return httpRequest('POST', '/api/agent/answer-question', data);
   },
 
   // Reject a pending AskUserQuestion (renderer cannot handle it)
-  rejectQuestion: async (data: {
-    id: string
-    reason?: string
-  }): Promise<ApiResponse> => {
+  rejectQuestion: async (data: { id: string; reason?: string }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.rejectQuestion(data)
+      return window.aicoBot.rejectQuestion(data);
     }
-    return httpRequest('POST', '/api/agent/reject-question', data)
+    return httpRequest('POST', '/api/agent/reject-question', data);
   },
 
   // Test MCP server connections
-  testMcpConnections: async (): Promise<{ success: boolean; servers: unknown[]; error?: string }> => {
+  testMcpConnections: async (): Promise<{
+    success: boolean;
+    servers: unknown[];
+    error?: string;
+  }> => {
     if (isElectron()) {
-      return window.aicoBot.testMcpConnections()
+      return window.aicoBot.testMcpConnections();
     }
     // HTTP mode: call backend endpoint
-    const result = await httpRequest('POST', '/api/agent/test-mcp')
-    return result as { success: boolean; servers: unknown[]; error?: string }
+    const result = await httpRequest('POST', '/api/agent/test-mcp');
+    return result as { success: boolean; servers: unknown[]; error?: string };
   },
 
   // Manually trigger context compression for a conversation
   compactContext: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.compactContext(conversationId)
+      return window.aicoBot.compactContext(conversationId);
     }
-    return httpRequest('POST', '/api/agent/compact', { conversationId })
+    return httpRequest('POST', '/api/agent/compact', { conversationId });
   },
 
   // ===== Artifact =====
   listArtifacts: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listArtifacts(spaceId)
+      return window.aicoBot.listArtifacts(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/artifacts`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/artifacts`);
   },
 
   listArtifactsTree: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listArtifactsTree(spaceId)
+      return window.aicoBot.listArtifactsTree(spaceId);
     }
-    return httpRequest('GET', `/api/spaces/${spaceId}/artifacts/tree`)
+    return httpRequest('GET', `/api/spaces/${spaceId}/artifacts/tree`);
   },
 
   // Load children for lazy tree expansion
   loadArtifactChildren: async (spaceId: string, dirPath: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.loadArtifactChildren(spaceId, dirPath)
+      return window.aicoBot.loadArtifactChildren(spaceId, dirPath);
     }
-    return httpRequest('POST', `/api/spaces/${spaceId}/artifacts/children`, { dirPath })
+    return httpRequest('POST', `/api/spaces/${spaceId}/artifacts/children`, { dirPath });
   },
 
   // Initialize file watcher for a space
   initArtifactWatcher: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.initArtifactWatcher(spaceId)
+      return window.aicoBot.initArtifactWatcher(spaceId);
     }
     // In remote mode, watcher is managed by server
-    return { success: true }
+    return { success: true };
   },
 
   // Subscribe to artifact change events
-  onArtifactChanged: (callback: (data: {
-    type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir'
-    path: string
-    relativePath: string
-    spaceId: string
-    item?: unknown
-  }) => void) => {
+  onArtifactChanged: (
+    callback: (data: {
+      type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+      path: string;
+      relativePath: string;
+      spaceId: string;
+      item?: unknown;
+    }) => void,
+  ) => {
     if (isElectron()) {
-      return window.aicoBot.onArtifactChanged(callback)
+      return window.aicoBot.onArtifactChanged(callback);
     }
     // In remote mode, use WebSocket events
-    return onEvent('artifact:changed', callback)
+    return onEvent('artifact:changed', callback);
   },
 
   // Subscribe to tree update events (pre-computed data, zero IPC round-trips)
-  onArtifactTreeUpdate: (callback: (data: {
-    spaceId: string
-    updatedDirs: Array<{ dirPath: string; children: unknown[] }>
-    changes: Array<{
-      type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir'
-      path: string
-      relativePath: string
-      spaceId: string
-      item?: unknown
-    }>
-  }) => void) => {
+  onArtifactTreeUpdate: (
+    callback: (data: {
+      spaceId: string;
+      updatedDirs: Array<{ dirPath: string; children: unknown[] }>;
+      changes: Array<{
+        type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+        path: string;
+        relativePath: string;
+        spaceId: string;
+        item?: unknown;
+      }>;
+    }) => void,
+  ) => {
     if (isElectron()) {
-      return window.aicoBot.onArtifactTreeUpdate(callback)
+      return window.aicoBot.onArtifactTreeUpdate(callback);
     }
     // In remote mode, use WebSocket events
-    return onEvent('artifact:tree-update', callback)
+    return onEvent('artifact:tree-update', callback);
   },
 
   openArtifact: async (filePath: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.openArtifact(filePath)
+      return window.aicoBot.openArtifact(filePath);
     }
     // Can't open files remotely
-    return { success: false, error: 'Cannot open files in remote mode' }
+    return { success: false, error: 'Cannot open files in remote mode' };
   },
 
   showArtifactInFolder: async (filePath: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.showArtifactInFolder(filePath)
+      return window.aicoBot.showArtifactInFolder(filePath);
     }
     // Can't open folder remotely
-    return { success: false, error: 'Cannot open folder in remote mode' }
+    return { success: false, error: 'Cannot open folder in remote mode' };
   },
 
   // Download artifact (remote mode only - triggers browser download)
   downloadArtifact: (filePath: string): void => {
     if (isElectron()) {
       // In Electron, just open the file
-      window.aicoBot.openArtifact(filePath)
-      return
+      window.aicoBot.openArtifact(filePath);
+      return;
     }
     // In remote mode, trigger download via browser with token in URL
-    const token = getAuthToken()
-    const url = `/api/artifacts/download?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token || '')}`
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filePath.split('/').pop() || 'download'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    const token = getAuthToken();
+    const url = `/api/artifacts/download?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token || '')}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filePath.split('/').pop() || 'download';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 
   // Get download URL for an artifact (for use with fetch or direct links)
   getArtifactDownloadUrl: (filePath: string): string => {
-    const token = getAuthToken()
-    return `/api/artifacts/download?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token || '')}`
+    const token = getAuthToken();
+    return `/api/artifacts/download?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token || '')}`;
   },
 
   // Read artifact content for Content Canvas
   readArtifactContent: async (filePath: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.readArtifactContent(filePath)
+      return window.aicoBot.readArtifactContent(filePath);
     }
     // In remote mode, fetch content via API
-    return httpRequest('GET', `/api/artifacts/content?path=${encodeURIComponent(filePath)}`)
+    return httpRequest('GET', `/api/artifacts/content?path=${encodeURIComponent(filePath)}`);
   },
 
   // Save artifact content (CodeViewer edit mode)
   saveArtifactContent: async (filePath: string, content: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.saveArtifactContent(filePath, content)
+      return window.aicoBot.saveArtifactContent(filePath, content);
     }
     // In remote mode, save content via API
-    return httpRequest('POST', '/api/artifacts/save', { path: filePath, content })
+    return httpRequest('POST', '/api/artifacts/save', { path: filePath, content });
   },
 
-  detectFileType: async (filePath: string): Promise<ApiResponse<{
-    isText: boolean
-    canViewInCanvas: boolean
-    contentType: 'code' | 'markdown' | 'html' | 'image' | 'pdf' | 'text' | 'json' | 'csv' | 'binary'
-    language?: string
-    mimeType: string
-  }>> => {
+  detectFileType: async (
+    filePath: string,
+  ): Promise<
+    ApiResponse<{
+      isText: boolean;
+      canViewInCanvas: boolean;
+      contentType:
+        | 'code'
+        | 'markdown'
+        | 'html'
+        | 'image'
+        | 'pdf'
+        | 'text'
+        | 'json'
+        | 'csv'
+        | 'binary';
+      language?: string;
+      mimeType: string;
+    }>
+  > => {
     if (isElectron()) {
-      return window.aicoBot.detectFileType(filePath)
+      return window.aicoBot.detectFileType(filePath);
     }
     // In remote mode, detect file type via API
-    return httpRequest('GET', `/api/artifacts/detect-type?path=${encodeURIComponent(filePath)}`)
+    return httpRequest('GET', `/api/artifacts/detect-type?path=${encodeURIComponent(filePath)}`);
   },
 
   // ===== Onboarding =====
   writeOnboardingArtifact: async (
     spaceId: string,
     fileName: string,
-    content: string
+    content: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.writeOnboardingArtifact(spaceId, fileName, content)
+      return window.aicoBot.writeOnboardingArtifact(spaceId, fileName, content);
     }
-    return httpRequest('POST', `/api/spaces/${spaceId}/onboarding/artifact`, { fileName, content })
+    return httpRequest('POST', `/api/spaces/${spaceId}/onboarding/artifact`, { fileName, content });
   },
 
   saveOnboardingConversation: async (
     spaceId: string,
     userMessage: string,
-    aiResponse: string
+    aiResponse: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.saveOnboardingConversation(spaceId, userMessage, aiResponse)
+      return window.aicoBot.saveOnboardingConversation(spaceId, userMessage, aiResponse);
     }
-    return httpRequest('POST', `/api/spaces/${spaceId}/onboarding/conversation`, { userMessage, aiResponse })
+    return httpRequest('POST', `/api/spaces/${spaceId}/onboarding/conversation`, {
+      userMessage,
+      aiResponse,
+    });
   },
 
   // ===== Remote Access (Electron only) =====
   enableRemoteAccess: async (port?: number): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.enableRemoteAccess(port)
+    return window.aicoBot.enableRemoteAccess(port);
   },
 
   disableRemoteAccess: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.disableRemoteAccess()
+    return window.aicoBot.disableRemoteAccess();
   },
 
   enableTunnel: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.enableTunnel()
+    return window.aicoBot.enableTunnel();
   },
 
   disableTunnel: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.disableTunnel()
+    return window.aicoBot.disableTunnel();
   },
 
   getRemoteStatus: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.getRemoteStatus()
+    return window.aicoBot.getRemoteStatus();
   },
 
   getRemoteQRCode: async (includeToken?: boolean): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.getRemoteQRCode(includeToken)
+    return window.aicoBot.getRemoteQRCode(includeToken);
   },
 
   setRemotePassword: async (password: string): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.setRemotePassword(password)
+    return window.aicoBot.setRemotePassword(password);
   },
 
   regenerateRemotePassword: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.regenerateRemotePassword()
+    return window.aicoBot.regenerateRemotePassword();
   },
 
   // ===== System Settings (Electron only) =====
   getAutoLaunch: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.getAutoLaunch()
+    return window.aicoBot.getAutoLaunch();
   },
 
   setAutoLaunch: async (enabled: boolean): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.setAutoLaunch(enabled)
+    return window.aicoBot.setAutoLaunch(enabled);
   },
 
   openLogFolder: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.openLogFolder()
+    return window.aicoBot.openLogFolder();
   },
 
   // ===== Window (Electron only) =====
   setTitleBarOverlay: async (options: {
-    color: string
-    symbolColor: string
+    color: string;
+    symbolColor: string;
   }): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: true } // No-op in remote mode
+      return { success: true }; // No-op in remote mode
     }
-    return window.aicoBot.setTitleBarOverlay(options)
+    return window.aicoBot.setTitleBarOverlay(options);
   },
 
   maximizeWindow: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.maximizeWindow()
+    return window.aicoBot.maximizeWindow();
   },
 
   unmaximizeWindow: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.unmaximizeWindow()
+    return window.aicoBot.unmaximizeWindow();
   },
 
   isWindowMaximized: async (): Promise<ApiResponse<boolean>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.isWindowMaximized()
+    return window.aicoBot.isWindowMaximized();
   },
 
   toggleMaximizeWindow: async (): Promise<ApiResponse<boolean>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.toggleMaximizeWindow()
+    return window.aicoBot.toggleMaximizeWindow();
   },
 
   /**
@@ -930,51 +932,40 @@ export const api = {
    */
   forceRepaint: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.forceRepaint()
+      return window.aicoBot.forceRepaint();
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => {
     if (!isElectron()) {
-      return () => { } // No-op in remote mode
+      return () => {}; // No-op in remote mode
     }
-    return window.aicoBot.onWindowMaximizeChange(callback)
+    return window.aicoBot.onWindowMaximizeChange(callback);
   },
 
   // ===== Event Listeners =====
-  onAgentMessage: (callback: (data: unknown) => void) =>
-    onEvent('agent:message', callback),
-  onAgentToolCall: (callback: (data: unknown) => void) =>
-    onEvent('agent:tool-call', callback),
-  onAgentToolResult: (callback: (data: unknown) => void) =>
-    onEvent('agent:tool-result', callback),
-  onAgentError: (callback: (data: unknown) => void) =>
-    onEvent('agent:error', callback),
-  onAgentComplete: (callback: (data: unknown) => void) =>
-    onEvent('agent:complete', callback),
-  onAgentThought: (callback: (data: unknown) => void) =>
-    onEvent('agent:thought', callback),
+  onAgentMessage: (callback: (data: unknown) => void) => onEvent('agent:message', callback),
+  onAgentToolCall: (callback: (data: unknown) => void) => onEvent('agent:tool-call', callback),
+  onAgentToolResult: (callback: (data: unknown) => void) => onEvent('agent:tool-result', callback),
+  onAgentError: (callback: (data: unknown) => void) => onEvent('agent:error', callback),
+  onAgentComplete: (callback: (data: unknown) => void) => onEvent('agent:complete', callback),
+  onAgentThought: (callback: (data: unknown) => void) => onEvent('agent:thought', callback),
   onAgentThoughtDelta: (callback: (data: unknown) => void) =>
     onEvent('agent:thought-delta', callback),
-  onAgentMcpStatus: (callback: (data: unknown) => void) =>
-    onEvent('agent:mcp-status', callback),
-  onAgentCompact: (callback: (data: unknown) => void) =>
-    onEvent('agent:compact', callback),
+  onAgentMcpStatus: (callback: (data: unknown) => void) => onEvent('agent:mcp-status', callback),
+  onAgentCompact: (callback: (data: unknown) => void) => onEvent('agent:compact', callback),
   onAgentAskQuestion: (callback: (data: unknown) => void) =>
     onEvent('agent:ask-question', callback),
-  onAgentTerminal: (callback: (data: unknown) => void) =>
-    onEvent('agent:terminal', callback),
+  onAgentTerminal: (callback: (data: unknown) => void) => onEvent('agent:terminal', callback),
   onAgentTurnBoundary: (callback: (data: unknown) => void) =>
     onEvent('agent:turn-boundary', callback),
   onAgentInjectionStart: (callback: (data: unknown) => void) =>
     onEvent('agent:injection-start', callback),
   onAgentTeamMessage: (callback: (data: unknown) => void) =>
     onEvent('agent:team-message', callback),
-  onWorkerStarted: (callback: (data: unknown) => void) =>
-    onEvent('worker:started', callback),
-  onWorkerCompleted: (callback: (data: unknown) => void) =>
-    onEvent('worker:completed', callback),
+  onWorkerStarted: (callback: (data: unknown) => void) => onEvent('worker:started', callback),
+  onWorkerCompleted: (callback: (data: unknown) => void) => onEvent('worker:completed', callback),
   onRemoteStatusChange: (callback: (data: unknown) => void) =>
     onEvent('remote:status-change', callback),
 
@@ -989,120 +980,124 @@ export const api = {
 
   createBrowserView: async (viewId: string, url?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.createBrowserView(viewId, url)
+      return window.aicoBot.createBrowserView(viewId, url);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   destroyBrowserView: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.destroyBrowserView(viewId)
+      return window.aicoBot.destroyBrowserView(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   showBrowserView: async (
     viewId: string,
-    bounds: { x: number; y: number; width: number; height: number }
+    bounds: { x: number; y: number; width: number; height: number },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.showBrowserView(viewId, bounds)
+      return window.aicoBot.showBrowserView(viewId, bounds);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   hideBrowserView: async (viewId: string, force: boolean = false): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.hideBrowserView(viewId, force)
+      return window.aicoBot.hideBrowserView(viewId, force);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   resizeBrowserView: async (
     viewId: string,
-    bounds: { x: number; y: number; width: number; height: number }
+    bounds: { x: number; y: number; width: number; height: number },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.resizeBrowserView(viewId, bounds)
+      return window.aicoBot.resizeBrowserView(viewId, bounds);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   navigateBrowserView: async (viewId: string, url: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.navigateBrowserView(viewId, url)
+      return window.aicoBot.navigateBrowserView(viewId, url);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   browserGoBack: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.browserGoBack(viewId)
+      return window.aicoBot.browserGoBack(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   browserGoForward: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.browserGoForward(viewId)
+      return window.aicoBot.browserGoForward(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   browserReload: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.browserReload(viewId)
+      return window.aicoBot.browserReload(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   browserStop: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.browserStop(viewId)
+      return window.aicoBot.browserStop(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   getBrowserState: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.getBrowserState(viewId)
+      return window.aicoBot.getBrowserState(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   captureBrowserView: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.captureBrowserView(viewId)
+      return window.aicoBot.captureBrowserView(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   executeBrowserJS: async (viewId: string, code: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.executeBrowserJS(viewId, code)
+      return window.aicoBot.executeBrowserJS(viewId, code);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   setBrowserZoom: async (viewId: string, level: number): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.setBrowserZoom(viewId, level)
+      return window.aicoBot.setBrowserZoom(viewId, level);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   toggleBrowserDevTools: async (viewId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.toggleBrowserDevTools(viewId)
+      return window.aicoBot.toggleBrowserDevTools(viewId);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
-  showBrowserContextMenu: async (options: { viewId: string; url?: string; zoomLevel: number }): Promise<ApiResponse> => {
+  showBrowserContextMenu: async (options: {
+    viewId: string;
+    url?: string;
+    zoomLevel: number;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.showBrowserContextMenu(options)
+      return window.aicoBot.showBrowserContextMenu(options);
     }
-    return { success: false, error: 'Browser views only available in desktop app' }
+    return { success: false, error: 'Browser views only available in desktop app' };
   },
 
   onBrowserStateChange: (callback: (data: unknown) => void) =>
@@ -1116,280 +1111,299 @@ export const api = {
 
   // Canvas Tab Context Menu (native Electron menu)
   showCanvasTabContextMenu: async (options: {
-    tabId: string
-    tabIndex: number
-    tabTitle: string
-    tabPath?: string
-    tabCount: number
-    hasTabsToRight: boolean
+    tabId: string;
+    tabIndex: number;
+    tabTitle: string;
+    tabPath?: string;
+    tabCount: number;
+    hasTabsToRight: boolean;
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.showCanvasTabContextMenu(options)
+      return window.aicoBot.showCanvasTabContextMenu(options);
     }
-    return { success: false, error: 'Native menu only available in desktop app' }
+    return { success: false, error: 'Native menu only available in desktop app' };
   },
 
-  onCanvasTabAction: (callback: (data: {
-    action: 'close' | 'closeOthers' | 'closeToRight' | 'copyPath' | 'refresh'
-    tabId?: string
-    tabIndex?: number
-    tabPath?: string
-  }) => void) =>
-    onEvent('canvas:tab-action', callback as (data: unknown) => void),
+  onCanvasTabAction: (
+    callback: (data: {
+      action: 'close' | 'closeOthers' | 'closeToRight' | 'copyPath' | 'refresh';
+      tabId?: string;
+      tabIndex?: number;
+      tabPath?: string;
+    }) => void,
+  ) => onEvent('canvas:tab-action', callback as (data: unknown) => void),
 
   // AI Browser active view change notification
   // Sent when AI Browser tools create or select a view
-  onAIBrowserActiveViewChanged: (callback: (data: { viewId: string; url: string | null; title: string | null }) => void) =>
-    onEvent('ai-browser:active-view-changed', callback as (data: unknown) => void),
+  onAIBrowserActiveViewChanged: (
+    callback: (data: { viewId: string; url: string | null; title: string | null }) => void,
+  ) => onEvent('ai-browser:active-view-changed', callback as (data: unknown) => void),
 
   // ===== Search =====
   search: async (
     query: string,
     scope: 'conversation' | 'space' | 'global',
     conversationId?: string,
-    spaceId?: string
+    spaceId?: string,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.search(query, scope, conversationId, spaceId)
+      return window.aicoBot.search(query, scope, conversationId, spaceId);
     }
     return httpRequest('POST', '/api/search', {
       query,
       scope,
       conversationId,
-      spaceId
-    })
+      spaceId,
+    });
   },
 
   cancelSearch: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.cancelSearch()
+      return window.aicoBot.cancelSearch();
     }
-    return httpRequest('POST', '/api/search/cancel')
+    return httpRequest('POST', '/api/search/cancel');
   },
 
-  onSearchProgress: (callback: (data: { current: number; total: number; searchId: string }) => void) =>
-    onEvent('search:progress', callback),
+  onSearchProgress: (
+    callback: (data: { current: number; total: number; searchId: string }) => void,
+  ) => onEvent('search:progress', callback),
 
-  onSearchCancelled: (callback: () => void) =>
-    onEvent('search:cancelled', callback),
+  onSearchCancelled: (callback: () => void) => onEvent('search:cancelled', callback),
 
   // ===== Updater (Electron only) =====
   checkForUpdates: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.checkForUpdates()
+    return window.aicoBot.checkForUpdates();
   },
 
   installUpdate: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.installUpdate()
+    return window.aicoBot.installUpdate();
   },
 
   getVersion: async (): Promise<ApiResponse<string>> => {
     if (isElectron()) {
-      const version = await window.aicoBot.getVersion()
-      return { success: true, data: version }
+      const version = await window.aicoBot.getVersion();
+      return { success: true, data: version };
     }
     // Remote mode: get version from server
-    return httpRequest('GET', '/api/system/version')
+    return httpRequest('GET', '/api/system/version');
   },
 
-  onUpdaterStatus: (callback: (data: {
-    status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'manual-download' | 'error'
-    version?: string
-    percent?: number
-    message?: string
-    releaseNotes?: string | { version: string; note: string }[]
-  }) => void) => {
+  onUpdaterStatus: (
+    callback: (data: {
+      status:
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'manual-download'
+        | 'error';
+      version?: string;
+      percent?: number;
+      message?: string;
+      releaseNotes?: string | { version: string; note: string }[];
+    }) => void,
+  ) => {
     if (!isElectron()) {
-      return () => { } // No-op in remote mode
+      return () => {}; // No-op in remote mode
     }
-    return window.aicoBot.onUpdaterStatus(callback)
+    return window.aicoBot.onUpdaterStatus(callback);
   },
 
   // ===== Notification (in-app toast) =====
-  onNotificationToast: (callback: (data: {
-    title: string
-    body?: string
-    variant?: 'default' | 'success' | 'warning' | 'error'
-    duration?: number
-    appId?: string
-  }) => void) => {
+  onNotificationToast: (
+    callback: (data: {
+      title: string;
+      body?: string;
+      variant?: 'default' | 'success' | 'warning' | 'error';
+      duration?: number;
+      appId?: string;
+    }) => void,
+  ) => {
     if (!isElectron()) {
-      return () => { } // No-op in remote mode
+      return () => {}; // No-op in remote mode
     }
-    return window.aicoBot.onNotificationToast(callback)
+    return window.aicoBot.onNotificationToast(callback);
   },
 
   // ===== Overlay (Electron only) =====
   // Used for floating UI elements that need to render above BrowserViews
   showChatCapsuleOverlay: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.showChatCapsuleOverlay()
+    return window.aicoBot.showChatCapsuleOverlay();
   },
 
   hideChatCapsuleOverlay: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.hideChatCapsuleOverlay()
+    return window.aicoBot.hideChatCapsuleOverlay();
   },
 
   onCanvasExitMaximized: (callback: () => void) => {
     if (!isElectron()) {
-      return () => { } // No-op in remote mode
+      return () => {}; // No-op in remote mode
     }
-    return window.aicoBot.onCanvasExitMaximized(callback)
+    return window.aicoBot.onCanvasExitMaximized(callback);
   },
 
   // ===== Git Bash (Windows only, Electron only) =====
-  getGitBashStatus: async (): Promise<ApiResponse<{
-    found: boolean
-    path: string | null
-    source: 'system' | 'app-local' | 'env-var' | null
-  }>> => {
+  getGitBashStatus: async (): Promise<
+    ApiResponse<{
+      found: boolean;
+      path: string | null;
+      source: 'system' | 'app-local' | 'env-var' | null;
+    }>
+  > => {
     if (!isElectron()) {
       // In remote mode, assume Git Bash is available (server handles it)
-      return { success: true, data: { found: true, path: null, source: null } }
+      return { success: true, data: { found: true, path: null, source: null } };
     }
-    return window.aicoBot.getGitBashStatus()
+    return window.aicoBot.getGitBashStatus();
   },
 
-  installGitBash: async (onProgress: (progress: {
-    phase: 'downloading' | 'extracting' | 'configuring' | 'done' | 'error'
-    progress: number
-    message: string
-    error?: string
-  }) => void): Promise<{ success: boolean; path?: string; error?: string }> => {
+  installGitBash: async (
+    onProgress: (progress: {
+      phase: 'downloading' | 'extracting' | 'configuring' | 'done' | 'error';
+      progress: number;
+      message: string;
+      error?: string;
+    }) => void,
+  ): Promise<{ success: boolean; path?: string; error?: string }> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.installGitBash(onProgress)
+    return window.aicoBot.installGitBash(onProgress);
   },
 
   openExternal: async (url: string): Promise<void> => {
     if (!isElectron()) {
       // In remote mode, open in new tab
-      window.open(url, '_blank')
-      return
+      window.open(url, '_blank');
+      return;
     }
-    return window.aicoBot.openExternal(url)
+    return window.aicoBot.openExternal(url);
   },
 
   // ===== GitHub Integration (Electron only) =====
 
   githubGetAuthStatus: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubGetAuthStatus()
+    return window.aicoBot.githubGetAuthStatus();
   },
 
   githubLoginBrowser: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubLoginBrowser()
+    return window.aicoBot.githubLoginBrowser();
   },
 
   githubLoginToken: async (token: string): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubLoginToken(token)
+    return window.aicoBot.githubLoginToken(token);
   },
 
   githubLogout: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubLogout()
+    return window.aicoBot.githubLogout();
   },
 
   githubSetupGitCredentials: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubSetupGitCredentials()
+    return window.aicoBot.githubSetupGitCredentials();
   },
 
   githubGitConfig: async (key: string, value: string): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubGitConfig(key, value)
+    return window.aicoBot.githubGitConfig(key, value);
   },
 
   githubGetGitConfig: async (key: string): Promise<ApiResponse> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.githubGetGitConfig(key)
+    return window.aicoBot.githubGetGitConfig(key);
   },
 
-  onGithubLoginProgress: (callback: (data: { code?: string; url?: string; message: string }) => void) => {
+  onGithubLoginProgress: (
+    callback: (data: { code?: string; url?: string; message: string }) => void,
+  ) => {
     if (!isElectron()) {
-      return () => {}
+      return () => {};
     }
-    return window.aicoBot.onGithubLoginProgress(callback)
+    return window.aicoBot.onGithubLoginProgress(callback);
   },
 
   // ===== GitHub Direct PAT (Electron only) =====
 
   githubDirectAuthStatus: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.githubDirectAuthStatus()
+      return window.aicoBot.githubDirectAuthStatus();
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   githubDirectLoginToken: async (token: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.githubDirectLoginToken(token)
+      return window.aicoBot.githubDirectLoginToken(token);
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   githubDirectLogout: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.githubDirectLogout()
+      return window.aicoBot.githubDirectLogout();
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   githubDirectSetupCredentials: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.githubDirectSetupCredentials()
+      return window.aicoBot.githubDirectSetupCredentials();
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   // ===== GitCode Integration (Electron only) =====
 
   gitcodeGetAuthStatus: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.gitcodeGetAuthStatus()
+      return window.aicoBot.gitcodeGetAuthStatus();
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   gitcodeLoginToken: async (token: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.gitcodeLoginToken(token)
+      return window.aicoBot.gitcodeLoginToken(token);
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   gitcodeLogout: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.gitcodeLogout()
+      return window.aicoBot.gitcodeLogout();
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   // ===== Bootstrap Lifecycle (Electron only) =====
@@ -1399,275 +1413,322 @@ export const api = {
   // - Push: onBootstrapExtendedReady() for event-based notification (normal startup)
 
   getBootstrapStatus: async (): Promise<{
-    extendedReady: boolean
-    extendedReadyAt: number
+    extendedReady: boolean;
+    extendedReadyAt: number;
   }> => {
     if (!isElectron()) {
       // In remote mode, services are always ready (server handles it)
-      return { extendedReady: true, extendedReadyAt: Date.now() }
+      return { extendedReady: true, extendedReadyAt: Date.now() };
     }
-    const result = await window.aicoBot.getBootstrapStatus()
-    return result.data ?? { extendedReady: false, extendedReadyAt: 0 }
+    const result = await window.aicoBot.getBootstrapStatus();
+    return result.data ?? { extendedReady: false, extendedReadyAt: 0 };
   },
 
   onBootstrapExtendedReady: (callback: (data: { timestamp: number; duration: number }) => void) => {
     if (!isElectron()) {
       // In remote mode, services are always ready (server handles it)
       // Call callback immediately
-      setTimeout(() => callback({ timestamp: Date.now(), duration: 0 }), 0)
-      return () => {}
+      setTimeout(() => callback({ timestamp: Date.now(), duration: 0 }), 0);
+      return () => {};
     }
-    return window.aicoBot.onBootstrapExtendedReady(callback)
+    return window.aicoBot.onBootstrapExtendedReady(callback);
   },
 
   // ===== Health System (Electron only) =====
   getHealthStatus: async (): Promise<ApiResponse<HealthStatusResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.getHealthStatus()
+    return window.aicoBot.getHealthStatus();
   },
 
   getHealthState: async (): Promise<ApiResponse<HealthStateResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.getHealthState()
+    return window.aicoBot.getHealthState();
   },
 
-  triggerHealthRecovery: async (strategyId: string, userConsented: boolean): Promise<ApiResponse<HealthRecoveryResponse>> => {
+  triggerHealthRecovery: async (
+    strategyId: string,
+    userConsented: boolean,
+  ): Promise<ApiResponse<HealthRecoveryResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.triggerHealthRecovery(strategyId, userConsented)
+    return window.aicoBot.triggerHealthRecovery(strategyId, userConsented);
   },
 
   generateHealthReport: async (): Promise<ApiResponse<HealthReportResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.generateHealthReport()
+    return window.aicoBot.generateHealthReport();
   },
 
   generateHealthReportText: async (): Promise<ApiResponse<string>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.generateHealthReportText()
+    return window.aicoBot.generateHealthReportText();
   },
 
   exportHealthReport: async (filePath?: string): Promise<ApiResponse<HealthExportResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.exportHealthReport(filePath)
+    return window.aicoBot.exportHealthReport(filePath);
   },
 
   runHealthCheck: async (): Promise<ApiResponse<HealthCheckResponse>> => {
     if (!isElectron()) {
-      return { success: false, error: 'Only available in desktop app' }
+      return { success: false, error: 'Only available in desktop app' };
     }
-    return window.aicoBot.runHealthCheck()
+    return window.aicoBot.runHealthCheck();
   },
 
   // ===== Apps =====
-  appList: async (filter?: { spaceId?: string; status?: string; type?: string }): Promise<ApiResponse> => {
+  appList: async (filter?: {
+    spaceId?: string;
+    status?: string;
+    type?: string;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appList(filter)
+      return window.aicoBot.appList(filter);
     }
-    const params = new URLSearchParams()
-    if (filter?.spaceId) params.set('spaceId', filter.spaceId)
-    if (filter?.status) params.set('status', filter.status)
-    if (filter?.type) params.set('type', filter.type)
-    const qs = params.toString()
-    return httpRequest('GET', `/api/apps${qs ? '?' + qs : ''}`)
+    const params = new URLSearchParams();
+    if (filter?.spaceId) params.set('spaceId', filter.spaceId);
+    if (filter?.status) params.set('status', filter.status);
+    if (filter?.type) params.set('type', filter.type);
+    const qs = params.toString();
+    return httpRequest('GET', `/api/apps${qs ? '?' + qs : ''}`);
   },
 
   appGet: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appGet(appId)
+      return window.aicoBot.appGet(appId);
     }
-    return httpRequest('GET', `/api/apps/${appId}`)
+    return httpRequest('GET', `/api/apps/${appId}`);
   },
 
-  appInstall: async (input: { spaceId: string; spec: unknown; userConfig?: Record<string, unknown> }): Promise<ApiResponse> => {
+  appInstall: async (input: {
+    spaceId: string;
+    spec: unknown;
+    userConfig?: Record<string, unknown>;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appInstall(input)
+      return window.aicoBot.appInstall(input);
     }
-    return httpRequest('POST', '/api/apps/install', input as Record<string, unknown>)
+    return httpRequest('POST', '/api/apps/install', input as Record<string, unknown>);
   },
 
   appUninstall: async (appId: string, options?: { purge?: boolean }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appUninstall({ appId, options })
+      return window.aicoBot.appUninstall({ appId, options });
     }
-    const qs = options?.purge ? '?purge=true' : ''
-    return httpRequest('DELETE', `/api/apps/${appId}${qs}`)
+    const qs = options?.purge ? '?purge=true' : '';
+    return httpRequest('DELETE', `/api/apps/${appId}${qs}`);
   },
 
   appReinstall: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appReinstall({ appId })
+      return window.aicoBot.appReinstall({ appId });
     }
-    return httpRequest('POST', `/api/apps/${appId}/reinstall`)
+    return httpRequest('POST', `/api/apps/${appId}/reinstall`);
   },
 
   appDelete: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appDelete({ appId })
+      return window.aicoBot.appDelete({ appId });
     }
-    return httpRequest('DELETE', `/api/apps/${appId}/permanent`)
+    return httpRequest('DELETE', `/api/apps/${appId}/permanent`);
   },
 
   appPause: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appPause(appId)
+      return window.aicoBot.appPause(appId);
     }
-    return httpRequest('POST', `/api/apps/${appId}/pause`)
+    return httpRequest('POST', `/api/apps/${appId}/pause`);
   },
 
   appResume: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appResume(appId)
+      return window.aicoBot.appResume(appId);
     }
-    return httpRequest('POST', `/api/apps/${appId}/resume`)
+    return httpRequest('POST', `/api/apps/${appId}/resume`);
   },
 
   appTrigger: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appTrigger(appId)
+      return window.aicoBot.appTrigger(appId);
     }
-    return httpRequest('POST', `/api/apps/${appId}/trigger`)
+    return httpRequest('POST', `/api/apps/${appId}/trigger`);
   },
 
   appGetState: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appGetState(appId)
+      return window.aicoBot.appGetState(appId);
     }
-    return httpRequest('GET', `/api/apps/${appId}/state`)
+    return httpRequest('GET', `/api/apps/${appId}/state`);
   },
 
-  appGetActivity: async (appId: string, options?: { limit?: number; offset?: number; type?: string; since?: number }): Promise<ApiResponse> => {
+  appGetActivity: async (
+    appId: string,
+    options?: { limit?: number; offset?: number; type?: string; since?: number },
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appGetActivity({ appId, options })
+      return window.aicoBot.appGetActivity({ appId, options });
     }
-    const params = new URLSearchParams()
-    if (options?.limit) params.set('limit', String(options.limit))
-    if (options?.offset) params.set('offset', String(options.offset))
-    if (options?.since) params.set('before', String(options.since))
-    const qs = params.toString()
-    return httpRequest('GET', `/api/apps/${appId}/activity${qs ? '?' + qs : ''}`)
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    if (options?.since) params.set('before', String(options.since));
+    const qs = params.toString();
+    return httpRequest('GET', `/api/apps/${appId}/activity${qs ? '?' + qs : ''}`);
   },
 
   appGetSession: async (appId: string, runId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appGetSession({ appId, runId })
+      return window.aicoBot.appGetSession({ appId, runId });
     }
-    return httpRequest('GET', `/api/apps/${appId}/runs/${runId}/session`)
+    return httpRequest('GET', `/api/apps/${appId}/runs/${runId}/session`);
   },
 
-  appRespondEscalation: async (appId: string, escalationId: string, response: { choice?: string; text?: string }): Promise<ApiResponse> => {
+  appRespondEscalation: async (
+    appId: string,
+    escalationId: string,
+    response: { choice?: string; text?: string },
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.appRespondEscalation({
         appId,
         escalationId,
         response: { ts: Date.now(), ...response },
-      })
+      });
     }
-    return httpRequest('POST', `/api/apps/${appId}/escalation/${escalationId}/respond`, response as Record<string, unknown>)
+    return httpRequest(
+      'POST',
+      `/api/apps/${appId}/escalation/${escalationId}/respond`,
+      response as Record<string, unknown>,
+    );
   },
 
   appUpdateConfig: async (appId: string, config: Record<string, unknown>): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appUpdateConfig({ appId, config })
+      return window.aicoBot.appUpdateConfig({ appId, config });
     }
-    return httpRequest('POST', `/api/apps/${appId}/config`, config)
+    return httpRequest('POST', `/api/apps/${appId}/config`, config);
   },
 
-  appUpdateFrequency: async (appId: string, subscriptionId: string, frequency: string): Promise<ApiResponse> => {
+  appUpdateFrequency: async (
+    appId: string,
+    subscriptionId: string,
+    frequency: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appUpdateFrequency({ appId, subscriptionId, frequency })
+      return window.aicoBot.appUpdateFrequency({ appId, subscriptionId, frequency });
     }
-    return httpRequest('POST', `/api/apps/${appId}/frequency`, { subscriptionId, frequency })
+    return httpRequest('POST', `/api/apps/${appId}/frequency`, { subscriptionId, frequency });
   },
 
-  appUpdateOverrides: async (appId: string, overrides: Record<string, unknown>): Promise<ApiResponse> => {
+  appUpdateOverrides: async (
+    appId: string,
+    overrides: Record<string, unknown>,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appUpdateOverrides({ appId, overrides })
+      return window.aicoBot.appUpdateOverrides({ appId, overrides });
     }
-    return httpRequest('PATCH', `/api/apps/${appId}/overrides`, overrides)
+    return httpRequest('PATCH', `/api/apps/${appId}/overrides`, overrides);
   },
 
-  appUpdateSpec: async (appId: string, specPatch: Record<string, unknown>): Promise<ApiResponse> => {
+  appUpdateSpec: async (
+    appId: string,
+    specPatch: Record<string, unknown>,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appUpdateSpec({ appId, specPatch })
+      return window.aicoBot.appUpdateSpec({ appId, specPatch });
     }
-    return httpRequest('PATCH', `/api/apps/${appId}/spec`, specPatch)
+    return httpRequest('PATCH', `/api/apps/${appId}/spec`, specPatch);
   },
 
   appGrantPermission: async (appId: string, permission: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appGrantPermission({ appId, permission })
+      return window.aicoBot.appGrantPermission({ appId, permission });
     }
-    return httpRequest('POST', `/api/apps/${appId}/permissions/grant`, { permission })
+    return httpRequest('POST', `/api/apps/${appId}/permissions/grant`, { permission });
   },
 
   appRevokePermission: async (appId: string, permission: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appRevokePermission({ appId, permission })
+      return window.aicoBot.appRevokePermission({ appId, permission });
     }
-    return httpRequest('POST', `/api/apps/${appId}/permissions/revoke`, { permission })
+    return httpRequest('POST', `/api/apps/${appId}/permissions/revoke`, { permission });
   },
 
   // App Import / Export
-  appExportSpec: async (appId: string): Promise<ApiResponse<{ yaml: string; filename: string }>> => {
+  appExportSpec: async (
+    appId: string,
+  ): Promise<ApiResponse<{ yaml: string; filename: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.appExportSpec(appId)
+      return window.aicoBot.appExportSpec(appId);
     }
-    return httpRequest('GET', `/api/apps/${appId}/export-spec`)
+    return httpRequest('GET', `/api/apps/${appId}/export-spec`);
   },
 
-  appImportSpec: async (input: { spaceId: string; yamlContent: string; userConfig?: Record<string, unknown> }): Promise<ApiResponse> => {
+  appImportSpec: async (input: {
+    spaceId: string;
+    yamlContent: string;
+    userConfig?: Record<string, unknown>;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appImportSpec(input)
+      return window.aicoBot.appImportSpec(input);
     }
-    return httpRequest('POST', '/api/apps/import-spec', input as Record<string, unknown>)
+    return httpRequest('POST', '/api/apps/import-spec', input as Record<string, unknown>);
   },
 
   // App Chat
-  appChatSend: async (request: { appId: string; spaceId: string; message: string; thinkingEnabled?: boolean }): Promise<ApiResponse> => {
+  appChatSend: async (request: {
+    appId: string;
+    spaceId: string;
+    message: string;
+    thinkingEnabled?: boolean;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appChatSend(request)
+      return window.aicoBot.appChatSend(request);
     }
-    return httpRequest('POST', `/api/apps/${request.appId}/chat/send`, request as unknown as Record<string, unknown>)
+    return httpRequest(
+      'POST',
+      `/api/apps/${request.appId}/chat/send`,
+      request as unknown as Record<string, unknown>,
+    );
   },
 
   appChatStop: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appChatStop(appId)
+      return window.aicoBot.appChatStop(appId);
     }
-    return httpRequest('POST', `/api/apps/${appId}/chat/stop`)
+    return httpRequest('POST', `/api/apps/${appId}/chat/stop`);
   },
 
   appChatStatus: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appChatStatus(appId)
+      return window.aicoBot.appChatStatus(appId);
     }
-    return httpRequest('GET', `/api/apps/${appId}/chat/status`)
+    return httpRequest('GET', `/api/apps/${appId}/chat/status`);
   },
 
   appChatMessages: async (appId: string, spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appChatMessages({ appId, spaceId })
+      return window.aicoBot.appChatMessages({ appId, spaceId });
     }
-    return httpRequest('GET', `/api/apps/${appId}/chat/messages?spaceId=${spaceId}`)
+    return httpRequest('GET', `/api/apps/${appId}/chat/messages?spaceId=${spaceId}`);
   },
 
   appChatSessionState: async (appId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.appChatSessionState(appId)
+      return window.aicoBot.appChatSessionState(appId);
     }
-    return httpRequest('GET', `/api/apps/${appId}/chat/session-state`)
+    return httpRequest('GET', `/api/apps/${appId}/chat/session-state`);
   },
 
   // App Event Listeners
@@ -1677,269 +1738,293 @@ export const api = {
   onAppActivityEntry: (callback: (data: unknown) => void) =>
     onEvent('app:activity_entry:new', callback),
 
-  onAppEscalation: (callback: (data: unknown) => void) =>
-    onEvent('app:escalation:new', callback),
+  onAppEscalation: (callback: (data: unknown) => void) => onEvent('app:escalation:new', callback),
 
-  onAppNavigate: (callback: (data: unknown) => void) =>
-    onEvent('app:navigate', callback),
+  onAppNavigate: (callback: (data: unknown) => void) => onEvent('app:navigate', callback),
 
   // ===== Store (App Registry) =====
-  storeListApps: async (query: { search?: string; locale?: string; category?: string; type?: string; tags?: string[] }): Promise<ApiResponse> => {
+  storeListApps: async (query: {
+    search?: string;
+    locale?: string;
+    category?: string;
+    type?: string;
+    tags?: string[];
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeListApps(query)
+      return window.aicoBot.storeListApps(query);
     }
-    const params = new URLSearchParams()
-    if (query.search) params.set('search', query.search)
-    if (query.locale) params.set('locale', query.locale)
-    if (query.category) params.set('category', query.category)
-    if (query.type) params.set('type', query.type)
+    const params = new URLSearchParams();
+    if (query.search) params.set('search', query.search);
+    if (query.locale) params.set('locale', query.locale);
+    if (query.category) params.set('category', query.category);
+    if (query.type) params.set('type', query.type);
     if (query.tags && query.tags.length > 0) {
-      params.set('tags', query.tags.join(','))
+      params.set('tags', query.tags.join(','));
     }
-    const qs = params.toString()
-    return httpRequest('GET', `/api/store/apps${qs ? '?' + qs : ''}`)
+    const qs = params.toString();
+    return httpRequest('GET', `/api/store/apps${qs ? '?' + qs : ''}`);
   },
 
   storeGetAppDetail: async (slug: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeGetAppDetail(slug)
+      return window.aicoBot.storeGetAppDetail(slug);
     }
-    return httpRequest('GET', `/api/store/apps/${slug}`)
+    return httpRequest('GET', `/api/store/apps/${slug}`);
   },
 
-  storeInstall: async (slug: string, spaceId: string, userConfig?: Record<string, unknown>): Promise<ApiResponse> => {
+  storeInstall: async (
+    slug: string,
+    spaceId: string,
+    userConfig?: Record<string, unknown>,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeInstall({ slug, spaceId, userConfig })
+      return window.aicoBot.storeInstall({ slug, spaceId, userConfig });
     }
-    return httpRequest('POST', `/api/store/apps/${slug}/install`, { spaceId, userConfig })
+    return httpRequest('POST', `/api/store/apps/${slug}/install`, { spaceId, userConfig });
   },
 
   storeRefresh: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeRefresh()
+      return window.aicoBot.storeRefresh();
     }
-    return httpRequest('POST', '/api/store/refresh')
+    return httpRequest('POST', '/api/store/refresh');
   },
 
   storeCheckUpdates: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeCheckUpdates()
+      return window.aicoBot.storeCheckUpdates();
     }
-    return httpRequest('GET', '/api/store/updates')
+    return httpRequest('GET', '/api/store/updates');
   },
 
   storeGetRegistries: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeGetRegistries()
+      return window.aicoBot.storeGetRegistries();
     }
-    return httpRequest('GET', '/api/store/registries')
+    return httpRequest('GET', '/api/store/registries');
   },
 
   storeAddRegistry: async (input: { name: string; url: string }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeAddRegistry(input)
+      return window.aicoBot.storeAddRegistry(input);
     }
-    return httpRequest('POST', '/api/store/registries', input)
+    return httpRequest('POST', '/api/store/registries', input);
   },
 
   storeRemoveRegistry: async (registryId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeRemoveRegistry(registryId)
+      return window.aicoBot.storeRemoveRegistry(registryId);
     }
-    return httpRequest('DELETE', `/api/store/registries/${registryId}`)
+    return httpRequest('DELETE', `/api/store/registries/${registryId}`);
   },
 
   storeToggleRegistry: async (registryId: string, enabled: boolean): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.storeToggleRegistry({ registryId, enabled })
+      return window.aicoBot.storeToggleRegistry({ registryId, enabled });
     }
-    return httpRequest('POST', `/api/store/registries/${registryId}/toggle`, { enabled })
+    return httpRequest('POST', `/api/store/registries/${registryId}/toggle`, { enabled });
   },
 
   // ===== Remote Server =====
   remoteServerAdd: async (server: unknown): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.add(server)
+      return window.aicoBot.remoteServer.add(server);
     }
-    return httpRequest('POST', '/api/remote-server', server as Record<string, unknown>)
+    return httpRequest('POST', '/api/remote-server', server as Record<string, unknown>);
   },
 
   remoteServerList: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.list()
+      return window.aicoBot.remoteServer.list();
     }
-    return httpRequest('GET', '/api/remote-server')
+    return httpRequest('GET', '/api/remote-server');
   },
 
   remoteServerDeploy: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.deploy(serverId)
+      return window.aicoBot.remoteServer.deploy(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/deploy`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy`);
   },
 
   remoteServerConnect: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.connect(serverId)
+      return window.aicoBot.remoteServer.connect(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/connect`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/connect`);
   },
 
   remoteServerDisconnect: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.disconnect(serverId)
+      return window.aicoBot.remoteServer.disconnect(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/disconnect`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/disconnect`);
   },
 
   remoteServerDelete: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.delete(serverId)
+      return window.aicoBot.remoteServer.delete(serverId);
     }
-    return httpRequest('DELETE', `/api/remote-server/${serverId}`)
+    return httpRequest('DELETE', `/api/remote-server/${serverId}`);
   },
 
   remoteServerGet: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.get(serverId)
+      return window.aicoBot.remoteServer.get(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}`)
+    return httpRequest('GET', `/api/remote-server/${serverId}`);
   },
 
   remoteServerUpdate: async (server: Record<string, unknown>): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.update(server)
+      return window.aicoBot.remoteServer.update(server);
     }
-    return httpRequest('PUT', '/api/remote-server', server)
+    return httpRequest('PUT', '/api/remote-server', server);
   },
 
-  remoteServerUpdateAiSource: async (serverId: string, aiSourceId: string): Promise<ApiResponse> => {
+  remoteServerUpdateAiSource: async (
+    serverId: string,
+    aiSourceId: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.updateAiSource(serverId, aiSourceId)
+      return window.aicoBot.remoteServer.updateAiSource(serverId, aiSourceId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/update-ai-source`, { aiSourceId })
+    return httpRequest('POST', `/api/remote-server/${serverId}/update-ai-source`, { aiSourceId });
   },
 
   remoteServerUpdateModel: async (serverId: string, model: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.updateModel(serverId, model)
+      return window.aicoBot.remoteServer.updateModel(serverId, model);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/update-model`, { model })
+    return httpRequest('POST', `/api/remote-server/${serverId}/update-model`, { model });
   },
 
   remoteServerTestConnection: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.testConnection(serverId)
+      return window.aicoBot.remoteServer.testConnection(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`);
   },
 
   // Alias methods for component compatibility
   getRemoteServers: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.list()
+      return window.aicoBot.remoteServer.list();
     }
-    return httpRequest('GET', '/api/remote-server')
+    return httpRequest('GET', '/api/remote-server');
   },
 
   getRemoteServer: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.get(serverId)
+      return window.aicoBot.remoteServer.get(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}`)
+    return httpRequest('GET', `/api/remote-server/${serverId}`);
   },
 
   addRemoteServer: async (server: Record<string, unknown>): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.add(server)
+      return window.aicoBot.remoteServer.add(server);
     }
-    return httpRequest('POST', '/api/remote-server', server)
+    return httpRequest('POST', '/api/remote-server', server);
   },
 
   updateRemoteServer: async (server: Record<string, unknown>): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.update(server)
+      return window.aicoBot.remoteServer.update(server);
     }
-    return httpRequest('PUT', '/api/remote-server', server)
+    return httpRequest('PUT', '/api/remote-server', server);
   },
 
   deleteRemoteServer: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.delete(serverId)
+      return window.aicoBot.remoteServer.delete(serverId);
     }
-    return httpRequest('DELETE', `/api/remote-server/${serverId}`)
+    return httpRequest('DELETE', `/api/remote-server/${serverId}`);
   },
 
   testRemoteConnection: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.testConnection(serverId)
+      return window.aicoBot.remoteServer.testConnection(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/test-connection`);
   },
 
   checkRemoteAgentConnection: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.checkConnection(serverId)
+      return window.aicoBot.remoteAgent.checkConnection(serverId);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/status`)
+    return httpRequest('GET', `/api/remote-agent/${serverId}/status`);
   },
 
-  sendRemoteAgentMessage: async (serverId: string, params: { sessionId?: string; content: string; attachments?: any[] }): Promise<ApiResponse> => {
+  sendRemoteAgentMessage: async (
+    serverId: string,
+    params: { sessionId?: string; content: string; attachments?: any[] },
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.chat(serverId, params)
+      return window.aicoBot.remoteAgent.chat(serverId, params);
     }
-    return httpRequest('POST', `/api/remote-agent/${serverId}/chat`, params)
+    return httpRequest('POST', `/api/remote-agent/${serverId}/chat`, params);
   },
 
   getRemoteAgentMessages: async (serverId: string, sessionId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.getMessages(serverId, sessionId)
+      return window.aicoBot.remoteAgent.getMessages(serverId, sessionId);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/chat/${sessionId}`)
+    return httpRequest('GET', `/api/remote-agent/${serverId}/chat/${sessionId}`);
   },
 
   listRemoteFiles: async (serverId: string, path: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.fsList(serverId, path)
+      return window.aicoBot.remoteAgent.fsList(serverId, path);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/list?path=${encodeURIComponent(path)}`)
+    return httpRequest(
+      'GET',
+      `/api/remote-agent/${serverId}/fs/list?path=${encodeURIComponent(path)}`,
+    );
   },
 
   // ===== Remote Agent =====
   remoteAgentSendMessage: async (serverId: string, message: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.sendMessage(serverId, message)
+      return window.aicoBot.remoteAgent.sendMessage(serverId, message);
     }
-    return httpRequest('POST', `/api/remote-agent/${serverId}/message`, { message })
+    return httpRequest('POST', `/api/remote-agent/${serverId}/message`, { message });
   },
 
   remoteAgentFsList: async (serverId: string, path?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.fsList(serverId, path)
+      return window.aicoBot.remoteAgent.fsList(serverId, path);
     }
-    const params = path ? `?path=${encodeURIComponent(path)}` : ''
-    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/list${params}`)
+    const params = path ? `?path=${encodeURIComponent(path)}` : '';
+    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/list${params}`);
   },
 
   remoteAgentFsRead: async (serverId: string, path: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.fsRead(serverId, path)
+      return window.aicoBot.remoteAgent.fsRead(serverId, path);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/fs/read?path=${encodeURIComponent(path)}`)
+    return httpRequest(
+      'GET',
+      `/api/remote-agent/${serverId}/fs/read?path=${encodeURIComponent(path)}`,
+    );
   },
 
-  remoteAgentFsWrite: async (serverId: string, path: string, content: string): Promise<ApiResponse> => {
+  remoteAgentFsWrite: async (
+    serverId: string,
+    path: string,
+    content: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.fsWrite(serverId, path, content)
+      return window.aicoBot.remoteAgent.fsWrite(serverId, path, content);
     }
-    return httpRequest('POST', `/api/remote-agent/${serverId}/fs/write`, { path, content })
+    return httpRequest('POST', `/api/remote-agent/${serverId}/fs/write`, { path, content });
   },
 
   remoteAgentFsDelete: async (serverId: string, path: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.fsDelete(serverId, path)
+      return window.aicoBot.remoteAgent.fsDelete(serverId, path);
     }
-    return httpRequest('DELETE', `/api/remote-agent/${serverId}/fs`, { path })
+    return httpRequest('DELETE', `/api/remote-agent/${serverId}/fs`, { path });
   },
 
   onRemoteAgentStream: (callback: (data: unknown) => void) =>
@@ -1953,239 +2038,282 @@ export const api = {
 
   remoteAgentCheckConnection: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.checkConnection(serverId)
+      return window.aicoBot.remoteAgent.checkConnection(serverId);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/connection-status`)
+    return httpRequest('GET', `/api/remote-agent/${serverId}/connection-status`);
   },
 
   remoteAgentGetMessages: async (serverId: string, sessionId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteAgent.getMessages(serverId, sessionId)
+      return window.aicoBot.remoteAgent.getMessages(serverId, sessionId);
     }
-    return httpRequest('GET', `/api/remote-agent/${serverId}/messages/${sessionId}`)
+    return httpRequest('GET', `/api/remote-agent/${serverId}/messages/${sessionId}`);
   },
 
   // ===== Remote Server Agent Management =====
-  remoteServerCheckAgent: async (serverId: string): Promise<ApiResponse<{ installed: boolean; version?: string }>> => {
+  remoteServerCheckAgent: async (
+    serverId: string,
+  ): Promise<ApiResponse<{ installed: boolean; version?: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.checkAgent(serverId)
+      return window.aicoBot.remoteServer.checkAgent(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/check-agent`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/check-agent`);
   },
 
   remoteServerDeployAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.deployAgent(serverId)
+      return window.aicoBot.remoteServer.deployAgent(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/deploy-agent`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy-agent`);
   },
   remoteServerUpdateAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.updateAgent(serverId)
+      return window.aicoBot.remoteServer.updateAgent(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/update-agent`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/update-agent`);
   },
 
   remoteServerGetUpdateStatus: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.getUpdateStatus(serverId)
+      return window.aicoBot.remoteServer.getUpdateStatus(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/update-status`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/update-status`);
   },
 
   remoteServerAcknowledgeUpdate: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.acknowledgeUpdate(serverId)
+      return window.aicoBot.remoteServer.acknowledgeUpdate(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/acknowledge-update`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/acknowledge-update`);
   },
 
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.startAgent(serverId)
+      return window.aicoBot.remoteServer.startAgent(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/start-agent`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/start-agent`);
   },
 
   remoteServerStopAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.stopAgent(serverId)
+      return window.aicoBot.remoteServer.stopAgent(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/stop-agent`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/stop-agent`);
   },
 
-  remoteServerGetAgentLogs: async (serverId: string, lines: number = 100): Promise<ApiResponse<{ logs: string }>> => {
+  remoteServerGetAgentLogs: async (
+    serverId: string,
+    lines: number = 100,
+  ): Promise<ApiResponse<{ logs: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.getAgentLogs(serverId, lines)
+      return window.aicoBot.remoteServer.getAgentLogs(serverId, lines);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/agent-logs?lines=${lines}`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/agent-logs?lines=${lines}`);
   },
 
-  remoteServerIsAgentRunning: async (serverId: string): Promise<ApiResponse<{ running: boolean }>> => {
+  remoteServerIsAgentRunning: async (
+    serverId: string,
+  ): Promise<ApiResponse<{ running: boolean }>> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.isAgentRunning(serverId)
+      return window.aicoBot.remoteServer.isAgentRunning(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/agent-running`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/agent-running`);
   },
 
   // List skills on a remote server
   remoteServerListSkills: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.listSkills(serverId)
+      return window.aicoBot.remoteServer.listSkills(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/skills`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills`);
   },
 
   // List files in a remote skill directory
   remoteServerListSkillFiles: async (serverId: string, skillId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.listSkillFiles(serverId, skillId)
+      return window.aicoBot.remoteServer.listSkillFiles(serverId, skillId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files`);
   },
 
   // Read a file from a remote skill directory
-  remoteServerReadSkillFile: async (serverId: string, skillId: string, filePath: string): Promise<ApiResponse> => {
+  remoteServerReadSkillFile: async (
+    serverId: string,
+    skillId: string,
+    filePath: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.readSkillFile(serverId, skillId, filePath)
+      return window.aicoBot.remoteServer.readSkillFile(serverId, skillId, filePath);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files/${filePath}`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/skills/${skillId}/files/${filePath}`);
   },
 
   // ===== Background Tasks =====
 
   remoteServerSubscribeTasks: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.subscribeTasks(serverId)
+      return window.aicoBot.remoteServer.subscribeTasks(serverId);
     }
-    return httpRequest('POST', `/api/remote-server/${serverId}/tasks/subscribe`)
+    return httpRequest('POST', `/api/remote-server/${serverId}/tasks/subscribe`);
   },
 
   remoteServerListTasks: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.listTasks(serverId)
+      return window.aicoBot.remoteServer.listTasks(serverId);
     }
-    return httpRequest('GET', `/api/remote-server/${serverId}/tasks`)
+    return httpRequest('GET', `/api/remote-server/${serverId}/tasks`);
   },
 
   onRemoteTaskUpdate: (callback: (data: { serverId: string; data: any }) => void) =>
     onEvent('remote-server:task-update', callback),
 
-  onRemoteServerCommandOutput: (callback: (data: { serverId: string; type: string; content: string }) => void) =>
-    onEvent('remote-server:command-output', callback),
+  onRemoteServerCommandOutput: (
+    callback: (data: { serverId: string; type: string; content: string }) => void,
+  ) => onEvent('remote-server:command-output', callback),
   onRemoteServerStatusChange: (callback: (data: { serverId: string; config: any }) => void) =>
     onEvent('remote-server:status-change', callback),
-  onRemoteServerDeployProgress: (callback: (data: { serverId: string; stage: string; message: string; progress: number }) => void) =>
-    onEvent('remote-server:deploy-progress', callback),
-  onRemoteServerUpdateComplete: (callback: (data: { serverId: string; success: boolean; data?: unknown; error?: string }) => void) =>
-    onEvent('remote-server:update-complete', callback),
+  onRemoteServerDeployProgress: (
+    callback: (data: {
+      serverId: string;
+      stage: string;
+      message: string;
+      progress: number;
+    }) => void,
+  ) => onEvent('remote-server:deploy-progress', callback),
+  onRemoteServerUpdateComplete: (
+    callback: (data: {
+      serverId: string;
+      success: boolean;
+      data?: unknown;
+      error?: string;
+    }) => void,
+  ) => onEvent('remote-server:update-complete', callback),
 
   remoteServerCancelTask: async (serverId: string, taskId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.remoteServer.cancelTask(serverId, taskId)
+      return window.aicoBot.remoteServer.cancelTask(serverId, taskId);
     }
-    return httpRequest('DELETE', `/api/remote-server/${serverId}/tasks/${taskId}`)
+    return httpRequest('DELETE', `/api/remote-server/${serverId}/tasks/${taskId}`);
   },
 
   // ===== Terminal & Skill Generation =====
-  getTerminalWebSocketUrl: async (spaceId: string, conversationId: string): Promise<ApiResponse<{ wsUrl: string }>> => {
+  getTerminalWebSocketUrl: async (
+    spaceId: string,
+    conversationId: string,
+  ): Promise<ApiResponse<{ wsUrl: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.getTerminalWebSocketUrl(spaceId, conversationId)
+      return window.aicoBot.getTerminalWebSocketUrl(spaceId, conversationId);
     }
     // Remote mode: construct WebSocket URL from server
-    const token = getAuthToken()
-    const wsUrl = `ws://localhost:8765/terminal?spaceId=${spaceId}&conversationId=${conversationId}&token=${token || ''}`
-    return { success: true, data: { wsUrl } }
+    const token = getAuthToken();
+    const wsUrl = `ws://localhost:8765/terminal?spaceId=${spaceId}&conversationId=${conversationId}&token=${token || ''}`;
+    return { success: true, data: { wsUrl } };
   },
 
   // Send command to user terminal
-  sendTerminalCommand: async (spaceId: string, conversationId: string, command: string): Promise<ApiResponse> => {
+  sendTerminalCommand: async (
+    spaceId: string,
+    conversationId: string,
+    command: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.sendTerminalCommand(spaceId, conversationId, command)
+      return window.aicoBot.sendTerminalCommand(spaceId, conversationId, command);
     }
-    return httpRequest('POST', '/api/terminal/command', { spaceId, conversationId, command })
+    return httpRequest('POST', '/api/terminal/command', { spaceId, conversationId, command });
   },
 
   // Get recent terminal output (for Agent query)
-  getTerminalOutput: async (spaceId: string, conversationId: string, lines?: number): Promise<ApiResponse<{ lines: string[] }>> => {
+  getTerminalOutput: async (
+    spaceId: string,
+    conversationId: string,
+    lines?: number,
+  ): Promise<ApiResponse<{ lines: string[] }>> => {
     if (isElectron()) {
-      return window.aicoBot.getTerminalOutput(spaceId, conversationId, lines)
+      return window.aicoBot.getTerminalOutput(spaceId, conversationId, lines);
     }
-    return httpRequest('GET', `/api/terminal/output?spaceId=${spaceId}&conversationId=${conversationId}&lines=${lines || 50}`)
+    return httpRequest(
+      'GET',
+      `/api/terminal/output?spaceId=${spaceId}&conversationId=${conversationId}&lines=${lines || 50}`,
+    );
   },
 
-  generateSkillFromTerminal: async (spaceId: string, conversationId: string): Promise<ApiResponse<{
-    id: string
-    name: string
-    description: string
-    triggerCommand: string
-    systemPrompt: string
-    examples: string[]
-  }>> => {
+  generateSkillFromTerminal: async (
+    spaceId: string,
+    conversationId: string,
+  ): Promise<
+    ApiResponse<{
+      id: string;
+      name: string;
+      description: string;
+      triggerCommand: string;
+      systemPrompt: string;
+      examples: string[];
+    }>
+  > => {
     if (isElectron()) {
-      return window.aicoBot.generateSkillFromTerminal(spaceId, conversationId)
+      return window.aicoBot.generateSkillFromTerminal(spaceId, conversationId);
     }
-    return httpRequest('POST', '/api/skills/generate-from-terminal', { spaceId, conversationId })
+    return httpRequest('POST', '/api/skills/generate-from-terminal', { spaceId, conversationId });
   },
 
   saveSkill: async (skill: {
-    name: string
-    description: string
-    triggerCommand: string
-    systemPrompt: string
-    examples?: string[]
+    name: string;
+    description: string;
+    triggerCommand: string;
+    systemPrompt: string;
+    examples?: string[];
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.saveSkill(skill)
+      return window.aicoBot.saveSkill(skill);
     }
-    return httpRequest('POST', '/api/skills', skill)
+    return httpRequest('POST', '/api/skills', skill);
   },
 
   listSkills: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.listSkills()
+      return window.aicoBot.listSkills();
     }
-    return httpRequest('GET', '/api/skills')
+    return httpRequest('GET', '/api/skills');
   },
 
   // ===== Skill Management (New) =====
   skillList: async (): Promise<ApiResponse<InstalledSkill[]>> => {
     if (isElectron()) {
-      return window.aicoBot.skillList()
+      return window.aicoBot.skillList();
     }
-    return httpRequest('GET', '/api/skills')
+    return httpRequest('GET', '/api/skills');
   },
 
   skillToggle: async (skillId: string, enabled: boolean): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillToggle(skillId, enabled)
+      return window.aicoBot.skillToggle(skillId, enabled);
     }
-    return httpRequest('POST', '/api/skills/toggle', { skillId, enabled })
+    return httpRequest('POST', '/api/skills/toggle', { skillId, enabled });
   },
 
   skillUninstall: async (skillId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillUninstall(skillId)
+      return window.aicoBot.skillUninstall(skillId);
     }
-    return httpRequest('POST', '/api/skills/uninstall', { skillId })
+    return httpRequest('POST', '/api/skills/uninstall', { skillId });
   },
 
   skillExport: async (skillId: string): Promise<ApiResponse<{ yamlContent: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillExport(skillId)
+      return window.aicoBot.skillExport(skillId);
     }
-    return httpRequest('GET', `/api/skills/${skillId}/export`)
+    return httpRequest('GET', `/api/skills/${skillId}/export`);
   },
 
   skillInstall: async (input: {
-    mode: 'market' | 'yaml'
-    skillId?: string
-    yamlContent?: string
+    mode: 'market' | 'yaml';
+    skillId?: string;
+    yamlContent?: string;
   }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillInstall(input)
+      return window.aicoBot.skillInstall(input);
     }
-    return httpRequest('POST', '/api/skills/install', input)
+    return httpRequest('POST', '/api/skills/install', input);
   },
 
   skillInstallMulti: async (input: {
@@ -2193,9 +2321,9 @@ export const api = {
     targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
   }): Promise<ApiResponse<{ results: Record<string, { success: boolean; error?: string }> }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillInstallMulti(input)
+      return window.aicoBot.skillInstallMulti(input);
     }
-    return httpRequest('POST', '/api/skills/install-multi', input)
+    return httpRequest('POST', '/api/skills/install-multi', input);
   },
 
   skillUninstallMulti: async (input: {
@@ -2203,9 +2331,9 @@ export const api = {
     targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>;
   }): Promise<ApiResponse<{ results: Record<string, { success: boolean; error?: string }> }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillUninstallMulti(input)
+      return window.aicoBot.skillUninstallMulti(input);
     }
-    return httpRequest('POST', '/api/skills/uninstall-multi', input)
+    return httpRequest('POST', '/api/skills/uninstall-multi', input);
   },
 
   skillSyncToRemote: async (input: {
@@ -2213,156 +2341,184 @@ export const api = {
     serverId: string;
   }): Promise<ApiResponse<{ success: boolean; error?: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillSyncToRemote(input)
+      return window.aicoBot.skillSyncToRemote(input);
     }
-    return httpRequest('POST', '/api/skills/sync-to-remote', input)
+    return httpRequest('POST', '/api/skills/sync-to-remote', input);
   },
 
-  skillMarketList: async (page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+  skillMarketList: async (
+    page?: number,
+    pageSize?: number,
+  ): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketList(page, pageSize)
+      return window.aicoBot.skillMarketList(page, pageSize);
     }
-    return httpRequest('GET', '/api/skills/market')
+    return httpRequest('GET', '/api/skills/market');
   },
 
-  skillMarketSearch: async (query: string, page?: number, pageSize?: number): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
+  skillMarketSearch: async (
+    query: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<ApiResponse<{ skills: any[]; total: number; hasMore: boolean }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketSearch(query, page, pageSize)
+      return window.aicoBot.skillMarketSearch(query, page, pageSize);
     }
-    return httpRequest('GET', `/api/skills/market/search?q=${encodeURIComponent(query)}`)
+    return httpRequest('GET', `/api/skills/market/search?q=${encodeURIComponent(query)}`);
   },
 
   skillMarketDetail: async (skillId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketDetail(skillId)
+      return window.aicoBot.skillMarketDetail(skillId);
     }
-    return { success: false, error: 'Only available in desktop app' }
+    return { success: false, error: 'Only available in desktop app' };
   },
 
   skillMarketSources: async (): Promise<ApiResponse<any[]>> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketSources()
+      return window.aicoBot.skillMarketSources();
     }
-    return httpRequest('GET', '/api/skills/market/sources')
+    return httpRequest('GET', '/api/skills/market/sources');
   },
 
   skillMarketToggleSource: async (sourceId: string, enabled: boolean): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketToggleSource(sourceId, enabled)
+      return window.aicoBot.skillMarketToggleSource(sourceId, enabled);
     }
-    return httpRequest('POST', '/api/skills/market/toggle-source', { sourceId, enabled })
+    return httpRequest('POST', '/api/skills/market/toggle-source', { sourceId, enabled });
   },
 
   skillMarketSetActiveSource: async (sourceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketSetActiveSource(sourceId)
+      return window.aicoBot.skillMarketSetActiveSource(sourceId);
     }
-    return httpRequest('POST', '/api/skills/market/set-active', { sourceId })
+    return httpRequest('POST', '/api/skills/market/set-active', { sourceId });
   },
 
-  skillMarketAddSource: async (source: { name: string; url: string; repos?: string[]; description?: string }): Promise<ApiResponse> => {
+  skillMarketAddSource: async (source: {
+    name: string;
+    url: string;
+    repos?: string[];
+    description?: string;
+  }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketAddSource(source)
+      return window.aicoBot.skillMarketAddSource(source);
     }
-    return httpRequest('POST', '/api/skills/market/add-source', source)
+    return httpRequest('POST', '/api/skills/market/add-source', source);
   },
 
   skillMarketRemoveSource: async (sourceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketRemoveSource(sourceId)
+      return window.aicoBot.skillMarketRemoveSource(sourceId);
     }
-    return httpRequest('DELETE', `/api/skills/market/sources/${sourceId}`)
+    return httpRequest('DELETE', `/api/skills/market/sources/${sourceId}`);
   },
 
-  skillMarketPushToGitHub: async (skillId: string, targetRepo: string, targetPath?: string): Promise<ApiResponse> => {
+  skillMarketPushToGitHub: async (
+    skillId: string,
+    targetRepo: string,
+    targetPath?: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketPushToGitHub(skillId, targetRepo, targetPath)
+      return window.aicoBot.skillMarketPushToGitHub(skillId, targetRepo, targetPath);
     }
-    return httpRequest('POST', '/api/skills/market/push-to-github', { skillId, targetRepo, targetPath })
+    return httpRequest('POST', '/api/skills/market/push-to-github', {
+      skillId,
+      targetRepo,
+      targetPath,
+    });
   },
 
   skillMarketListRepoDirs: async (repo: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketListRepoDirs(repo)
+      return window.aicoBot.skillMarketListRepoDirs(repo);
     }
-    return httpRequest('POST', '/api/skills/market/list-repo-dirs', { repo })
+    return httpRequest('POST', '/api/skills/market/list-repo-dirs', { repo });
   },
 
   skillMarketValidateRepo: async (repo: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketValidateRepo(repo)
+      return window.aicoBot.skillMarketValidateRepo(repo);
     }
-    return httpRequest('POST', '/api/skills/market/validate-repo', { repo })
+    return httpRequest('POST', '/api/skills/market/validate-repo', { repo });
   },
 
-  skillMarketPushToGitCode: async (skillId: string, targetRepo: string, targetPath?: string): Promise<ApiResponse> => {
+  skillMarketPushToGitCode: async (
+    skillId: string,
+    targetRepo: string,
+    targetPath?: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketPushToGitCode(skillId, targetRepo, targetPath)
+      return window.aicoBot.skillMarketPushToGitCode(skillId, targetRepo, targetPath);
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   skillMarketListGitCodeRepoDirs: async (repo: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketListGitCodeRepoDirs(repo)
+      return window.aicoBot.skillMarketListGitCodeRepoDirs(repo);
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   skillMarketValidateGitCodeRepo: async (repo: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketValidateGitCodeRepo(repo)
+      return window.aicoBot.skillMarketValidateGitCodeRepo(repo);
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   skillMarketSetGitCodeToken: async (token: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillMarketSetGitCodeToken(token)
+      return window.aicoBot.skillMarketSetGitCodeToken(token);
     }
-    return { success: false, error: 'Not available in web mode' }
+    return { success: false, error: 'Not available in web mode' };
   },
 
   skillConfigGet: async (): Promise<ApiResponse<{ config: any }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillConfigGet()
+      return window.aicoBot.skillConfigGet();
     }
-    return httpRequest('GET', '/api/skills/config')
+    return httpRequest('GET', '/api/skills/config');
   },
 
   skillConfigUpdate: async (config: { globalShared?: boolean }): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConfigUpdate(config)
+      return window.aicoBot.skillConfigUpdate(config);
     }
-    return httpRequest('POST', '/api/skills/config', config)
+    return httpRequest('POST', '/api/skills/config', config);
   },
 
-   skillRefresh: async (): Promise<ApiResponse> => {
+  skillRefresh: async (): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillRefresh()
+      return window.aicoBot.skillRefresh();
     }
-    return httpRequest('POST', '/api/skills/refresh')
+    return httpRequest('POST', '/api/skills/refresh');
   },
 
   skillFiles: async (skillId: string): Promise<ApiResponse<SkillFileNode[]>> => {
     if (isElectron()) {
-      return window.aicoBot.skillFiles(skillId)
+      return window.aicoBot.skillFiles(skillId);
     }
-    return httpRequest('GET', `/api/skills/${skillId}/files`)
+    return httpRequest('GET', `/api/skills/${skillId}/files`);
   },
 
   skillFileContent: async (skillId: string, filePath: string): Promise<ApiResponse<string>> => {
     if (isElectron()) {
-      return window.aicoBot.skillFileContent(skillId, filePath)
+      return window.aicoBot.skillFileContent(skillId, filePath);
     }
-    return httpRequest('GET', `/api/skills/${skillId}/files/${filePath}`)
+    return httpRequest('GET', `/api/skills/${skillId}/files/${filePath}`);
   },
 
-  skillFileSave: async (skillId: string, filePath: string, content: string): Promise<ApiResponse> => {
+  skillFileSave: async (
+    skillId: string,
+    filePath: string,
+    content: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillFileSave(skillId, filePath, content)
+      return window.aicoBot.skillFileSave(skillId, filePath, content);
     }
-    return httpRequest('POST', `/api/skills/${skillId}/files/${filePath}`, { content })
+    return httpRequest('POST', `/api/skills/${skillId}/files/${filePath}`, { content });
   },
 
   // ============================================
@@ -2372,16 +2528,21 @@ export const api = {
   /**
    * 分析对话，提取技能模式
    */
-  skillAnalyzeConversations: async (spaceId: string, conversationIds: string[]): Promise<ApiResponse<{
-    analysisResult: any;
-    similarSkills: any[];
-    suggestedName: string;
-    suggestedCommand: string;
-  }>> => {
+  skillAnalyzeConversations: async (
+    spaceId: string,
+    conversationIds: string[],
+  ): Promise<
+    ApiResponse<{
+      analysisResult: any;
+      similarSkills: any[];
+      suggestedName: string;
+      suggestedCommand: string;
+    }>
+  > => {
     if (isElectron()) {
-      return window.aicoBot.skillAnalyzeConversations(spaceId, conversationIds)
+      return window.aicoBot.skillAnalyzeConversations(spaceId, conversationIds);
     }
-    return httpRequest('POST', '/api/skills/analyze-conversations', { spaceId, conversationIds })
+    return httpRequest('POST', '/api/skills/analyze-conversations', { spaceId, conversationIds });
   },
 
   /**
@@ -2392,9 +2553,9 @@ export const api = {
     context: any;
   }): Promise<ApiResponse<{ sessionId: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.skillCreateTempSession(options)
+      return window.aicoBot.skillCreateTempSession(options);
     }
-    return httpRequest('POST', '/api/skills/temp-session', options)
+    return httpRequest('POST', '/api/skills/temp-session', options);
   },
 
   /**
@@ -2402,9 +2563,9 @@ export const api = {
    */
   skillSendTempMessage: async (sessionId: string, message: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillSendTempMessage(sessionId, message)
+      return window.aicoBot.skillSendTempMessage(sessionId, message);
     }
-    return httpRequest('POST', `/api/skills/temp-session/${sessionId}/message`, { message })
+    return httpRequest('POST', `/api/skills/temp-session/${sessionId}/message`, { message });
   },
 
   /**
@@ -2412,51 +2573,69 @@ export const api = {
    */
   skillCloseTempSession: async (sessionId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillCloseTempSession(sessionId)
+      return window.aicoBot.skillCloseTempSession(sessionId);
     }
-    return httpRequest('DELETE', `/api/skills/temp-session/${sessionId}`)
+    return httpRequest('DELETE', `/api/skills/temp-session/${sessionId}`);
   },
 
   /**
    * 监听技能生成流式消息
    */
-  onSkillTempMessageChunk: (callback: (data: { sessionId: string; chunk: any }) => void): (() => void) => {
+  onSkillTempMessageChunk: (
+    callback: (data: { sessionId: string; chunk: any }) => void,
+  ): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillTempMessageChunk) {
-      return window.aicoBot.onSkillTempMessageChunk(callback)
+      return window.aicoBot.onSkillTempMessageChunk(callback);
     }
     // 非 Electron 环境暂不支持流式
-    return () => {}
+    return () => {};
   },
 
   /**
    * 监听技能安装输出
    */
-  onSkillInstallOutput: (callback: (data: { skillId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+  onSkillInstallOutput: (
+    callback: (data: {
+      skillId: string;
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
+    }) => void,
+  ): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillInstallOutput) {
-      return window.aicoBot.onSkillInstallOutput(callback)
+      return window.aicoBot.onSkillInstallOutput(callback);
     }
     // 非 Electron 环境暂不支持
-    return () => {}
+    return () => {};
   },
 
   /**
    * 监听技能卸载输出
    */
-  onSkillUninstallOutput: (callback: (data: { appId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+  onSkillUninstallOutput: (
+    callback: (data: {
+      appId: string;
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
+    }) => void,
+  ): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillUninstallOutput) {
-      return window.aicoBot.onSkillUninstallOutput(callback)
+      return window.aicoBot.onSkillUninstallOutput(callback);
     }
-    return () => {}
+    return () => {};
   },
 
   /**
    * 监听技能同步到远程服务器输出
    */
-  onSkillSyncOutput: (callback: (data: { skillId: string; serverId: string; output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string } }) => void): (() => void) => {
+  onSkillSyncOutput: (
+    callback: (data: {
+      skillId: string;
+      serverId: string;
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
+    }) => void,
+  ): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillSyncOutput) {
-      return window.aicoBot.onSkillSyncOutput(callback)
+      return window.aicoBot.onSkillSyncOutput(callback);
     }
-    return () => {}
+    return () => {};
   },
 
   // ===== Skill Conversation (持久化会话) =====
@@ -2467,10 +2646,10 @@ export const api = {
    */
   skillConversationList: async (relatedSkillId?: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationList(relatedSkillId)
+      return window.aicoBot.skillConversationList(relatedSkillId);
     }
-    const query = relatedSkillId ? `?relatedSkillId=${encodeURIComponent(relatedSkillId)}` : ''
-    return httpRequest('GET', `/api/skills/conversations${query}`)
+    const query = relatedSkillId ? `?relatedSkillId=${encodeURIComponent(relatedSkillId)}` : '';
+    return httpRequest('GET', `/api/skills/conversations${query}`);
   },
 
   /**
@@ -2478,9 +2657,9 @@ export const api = {
    */
   skillConversationGet: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationGet(conversationId)
+      return window.aicoBot.skillConversationGet(conversationId);
     }
-    return httpRequest('GET', `/api/skills/conversations/${conversationId}`)
+    return httpRequest('GET', `/api/skills/conversations/${conversationId}`);
   },
 
   /**
@@ -2488,11 +2667,14 @@ export const api = {
    * @param title 会话标题
    * @param relatedSkillId 可选，关联的技能 ID
    */
-  skillConversationCreate: async (title?: string, relatedSkillId?: string): Promise<ApiResponse> => {
+  skillConversationCreate: async (
+    title?: string,
+    relatedSkillId?: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationCreate(title, relatedSkillId)
+      return window.aicoBot.skillConversationCreate(title, relatedSkillId);
     }
-    return httpRequest('POST', '/api/skills/conversations', { title, relatedSkillId })
+    return httpRequest('POST', '/api/skills/conversations', { title, relatedSkillId });
   },
 
   /**
@@ -2500,9 +2682,9 @@ export const api = {
    */
   skillConversationDelete: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationDelete(conversationId)
+      return window.aicoBot.skillConversationDelete(conversationId);
     }
-    return httpRequest('DELETE', `/api/skills/conversations/${conversationId}`)
+    return httpRequest('DELETE', `/api/skills/conversations/${conversationId}`);
   },
 
   /**
@@ -2516,23 +2698,26 @@ export const api = {
     message: string,
     metadata?: {
       selectedConversations?: Array<{
-        id: string
-        title: string
-        spaceName: string
-        messageCount: number
-        formattedContent?: string
-      }>
+        id: string;
+        title: string;
+        spaceName: string;
+        messageCount: number;
+        formattedContent?: string;
+      }>;
       sourceWebpages?: Array<{
-        url: string
-        title?: string
-        content?: string
-      }>
-    }
+        url: string;
+        title?: string;
+        content?: string;
+      }>;
+    },
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationSend(conversationId, message, metadata)
+      return window.aicoBot.skillConversationSend(conversationId, message, metadata);
     }
-    return httpRequest('POST', `/api/skills/conversations/${conversationId}/send`, { message, metadata })
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/send`, {
+      message,
+      metadata,
+    });
   },
 
   /**
@@ -2540,9 +2725,9 @@ export const api = {
    */
   skillConversationStop: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationStop(conversationId)
+      return window.aicoBot.skillConversationStop(conversationId);
     }
-    return httpRequest('POST', `/api/skills/conversations/${conversationId}/stop`)
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/stop`);
   },
 
   /**
@@ -2550,30 +2735,34 @@ export const api = {
    */
   skillConversationClose: async (conversationId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.skillConversationClose(conversationId)
+      return window.aicoBot.skillConversationClose(conversationId);
     }
-    return httpRequest('POST', `/api/skills/conversations/${conversationId}/close`)
+    return httpRequest('POST', `/api/skills/conversations/${conversationId}/close`);
   },
 
   /**
    * 获取网页内容（用于从网页创建技能）
    */
-  fetchWebPageContent: async (url: string): Promise<ApiResponse<{ title: string; content: string }>> => {
+  fetchWebPageContent: async (
+    url: string,
+  ): Promise<ApiResponse<{ title: string; content: string }>> => {
     if (isElectron()) {
-      return window.aicoBot.fetchWebPageContent(url)
+      return window.aicoBot.fetchWebPageContent(url);
     }
-    return httpRequest('POST', '/api/skills/fetch-webpage', { url })
+    return httpRequest('POST', '/api/skills/fetch-webpage', { url });
   },
 
   /**
    * 监听技能会话流式消息
    */
-  onSkillConversationChunk: (callback: (data: { conversationId: string; chunk: any }) => void): (() => void) => {
+  onSkillConversationChunk: (
+    callback: (data: { conversationId: string; chunk: any }) => void,
+  ): (() => void) => {
     if (isElectron() && window.aicoBot.onSkillConversationChunk) {
-      return window.aicoBot.onSkillConversationChunk(callback)
+      return window.aicoBot.onSkillConversationChunk(callback);
     }
     // 非 Electron 环境暂不支持流式
-    return () => {}
+    return () => {};
   },
 
   // ===== Hyper Space (Multi-Agent Collaboration) =====
@@ -2582,34 +2771,38 @@ export const api = {
    * Create a Hyper Space with multiple agents
    */
   createHyperSpace: async (params: {
-    name: string
-    icon?: string
-    agents: any[]
-    orchestration?: any
-    customPath?: string
-    remoteServerId?: string
-    remotePath?: string
-    useSshTunnel?: boolean
+    name: string;
+    icon?: string;
+    agents: any[];
+    orchestration?: any;
+    customPath?: string;
+    remoteServerId?: string;
+    remotePath?: string;
+    useSshTunnel?: boolean;
   }): Promise<ApiResponse<{ space: any }>> => {
     if (isElectron()) {
-      return window.aicoBot.createHyperSpace(params)
+      return window.aicoBot.createHyperSpace(params);
     }
-    return httpRequest('POST', '/api/hyper-space/create', params)
+    return httpRequest('POST', '/api/hyper-space/create', params);
   },
 
   /**
    * Get Hyper Space team status
    */
-  getHyperSpaceStatus: async (spaceId: string): Promise<ApiResponse<{
-    status: string
-    leader: { id: string; status: string }
-    workers: Array<{ id: string; status: string; currentTaskId?: string }>
-    pendingTasks: number
-  }>> => {
+  getHyperSpaceStatus: async (
+    spaceId: string,
+  ): Promise<
+    ApiResponse<{
+      status: string;
+      leader: { id: string; status: string };
+      workers: Array<{ id: string; status: string; currentTaskId?: string }>;
+      pendingTasks: number;
+    }>
+  > => {
     if (isElectron()) {
-      return window.aicoBot.getHyperSpaceStatus(spaceId)
+      return window.aicoBot.getHyperSpaceStatus(spaceId);
     }
-    return httpRequest('GET', `/api/hyper-space/${spaceId}/status`)
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/status`);
   },
 
   /**
@@ -2617,9 +2810,9 @@ export const api = {
    */
   addAgentToHyperSpace: async (spaceId: string, agent: any): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.addAgentToHyperSpace(spaceId, agent)
+      return window.aicoBot.addAgentToHyperSpace(spaceId, agent);
     }
-    return httpRequest('POST', `/api/hyper-space/${spaceId}/agents`, { agent })
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/agents`, { agent });
   },
 
   /**
@@ -2627,9 +2820,9 @@ export const api = {
    */
   removeAgentFromHyperSpace: async (spaceId: string, agentId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.removeAgentFromHyperSpace(spaceId, agentId)
+      return window.aicoBot.removeAgentFromHyperSpace(spaceId, agentId);
     }
-    return httpRequest('DELETE', `/api/hyper-space/${spaceId}/agents/${agentId}`)
+    return httpRequest('DELETE', `/api/hyper-space/${spaceId}/agents/${agentId}`);
   },
 
   /**
@@ -2637,9 +2830,9 @@ export const api = {
    */
   updateHyperSpaceConfig: async (spaceId: string, config: any): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateHyperSpaceConfig(spaceId, config)
+      return window.aicoBot.updateHyperSpaceConfig(spaceId, config);
     }
-    return httpRequest('PUT', `/api/hyper-space/${spaceId}/config`, { config })
+    return httpRequest('PUT', `/api/hyper-space/${spaceId}/config`, { config });
   },
 
   /**
@@ -2647,27 +2840,31 @@ export const api = {
    */
   getHyperSpaceTasks: async (conversationId: string): Promise<ApiResponse<{ tasks: any[] }>> => {
     if (isElectron()) {
-      return window.aicoBot.getHyperSpaceTasks(conversationId)
+      return window.aicoBot.getHyperSpaceTasks(conversationId);
     }
-    return httpRequest('GET', `/api/hyper-space/tasks/${conversationId}`)
+    return httpRequest('GET', `/api/hyper-space/tasks/${conversationId}`);
   },
 
   /**
    * Get HyperSpace members for @ mention autocomplete
    */
-  getHyperSpaceMembers: async (spaceId: string): Promise<ApiResponse<{
-    members: Array<{
-      id: string
-      name: string
-      role: 'leader' | 'worker'
-      type: 'local' | 'remote'
-      capabilities?: string[]
+  getHyperSpaceMembers: async (
+    spaceId: string,
+  ): Promise<
+    ApiResponse<{
+      members: Array<{
+        id: string;
+        name: string;
+        role: 'leader' | 'worker';
+        type: 'local' | 'remote';
+        capabilities?: string[];
+      }>;
     }>
-  }>> => {
+  > => {
     if (isElectron()) {
-      return window.aicoBot.getHyperSpaceMembers(spaceId)
+      return window.aicoBot.getHyperSpaceMembers(spaceId);
     }
-    return httpRequest('GET', `/api/hyper-space/${spaceId}/members`)
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/members`);
   },
 
   // ============================================
@@ -2676,35 +2873,48 @@ export const api = {
 
   getTaskBoard: async (spaceId: string): Promise<ApiResponse<{ tasks: any[] }>> => {
     if (isElectron()) {
-      return window.aicoBot.getTaskBoard(spaceId)
+      return window.aicoBot.getTaskBoard(spaceId);
     }
-    return httpRequest('GET', `/api/hyper-space/${spaceId}/taskboard`)
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/taskboard`);
   },
 
-  postTask: async (spaceId: string, input: {
-    title: string
-    description: string
-    priority?: string
-    requiredCapabilities?: string[]
-  }): Promise<ApiResponse> => {
+  postTask: async (
+    spaceId: string,
+    input: {
+      title: string;
+      description: string;
+      priority?: string;
+      requiredCapabilities?: string[];
+    },
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.postTask(spaceId, input)
+      return window.aicoBot.postTask(spaceId, input);
     }
-    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks`, input)
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks`, input);
   },
 
   claimTask: async (spaceId: string, taskId: string): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.claimTask(spaceId, taskId)
+      return window.aicoBot.claimTask(spaceId, taskId);
     }
-    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks/${taskId}/claim`)
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/tasks/${taskId}/claim`);
   },
 
-  updateTaskStatus: async (spaceId: string, taskId: string, status: string, result?: string, error?: string): Promise<ApiResponse> => {
+  updateTaskStatus: async (
+    spaceId: string,
+    taskId: string,
+    status: string,
+    result?: string,
+    error?: string,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.updateTaskStatus(spaceId, taskId, status, result, error)
+      return window.aicoBot.updateTaskStatus(spaceId, taskId, status, result, error);
     }
-    return httpRequest('PUT', `/api/hyper-space/${spaceId}/tasks/${taskId}/status`, { status, result, error })
+    return httpRequest('PUT', `/api/hyper-space/${spaceId}/tasks/${taskId}/status`, {
+      status,
+      result,
+      error,
+    });
   },
 
   // ============================================
@@ -2713,43 +2923,54 @@ export const api = {
 
   setPersistentMode: async (spaceId: string, enabled: boolean): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.setPersistentMode(spaceId, enabled)
+      return window.aicoBot.setPersistentMode(spaceId, enabled);
     }
-    return httpRequest('POST', `/api/hyper-space/${spaceId}/persistent-mode`, { enabled })
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/persistent-mode`, { enabled });
   },
 
   getPersistentMode: async (spaceId: string): Promise<ApiResponse<{ persistent: boolean }>> => {
     if (isElectron()) {
-      return window.aicoBot.getPersistentMode(spaceId)
+      return window.aicoBot.getPersistentMode(spaceId);
     }
-    return httpRequest('GET', `/api/hyper-space/${spaceId}/persistent-mode`)
+    return httpRequest('GET', `/api/hyper-space/${spaceId}/persistent-mode`);
   },
 
   // ============================================
   // Permission Forwarding API
   // ============================================
 
-  resolvePermission: async (spaceId: string, workerAgentId: string, requestId: string, approved: boolean): Promise<ApiResponse> => {
+  resolvePermission: async (
+    spaceId: string,
+    workerAgentId: string,
+    requestId: string,
+    approved: boolean,
+  ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.resolvePermission(spaceId, workerAgentId, requestId, approved)
+      return window.aicoBot.resolvePermission(spaceId, workerAgentId, requestId, approved);
     }
-    return httpRequest('POST', `/api/hyper-space/${spaceId}/permissions/resolve`, { workerAgentId, requestId, approved })
+    return httpRequest('POST', `/api/hyper-space/${spaceId}/permissions/resolve`, {
+      workerAgentId,
+      requestId,
+      approved,
+    });
   },
 
   /**
    * Listen to Hyper Space progress events
    */
-  onHyperSpaceProgress: (callback: (data: {
-    spaceId: string
-    conversationId: string
-    taskId: string
-    agentId: string
-    delta: string
-    timestamp: number
-  }) => void): (() => void) => {
-    return onEvent('agent:hyper-progress', callback)
+  onHyperSpaceProgress: (
+    callback: (data: {
+      spaceId: string;
+      conversationId: string;
+      taskId: string;
+      agentId: string;
+      delta: string;
+      timestamp: number;
+    }) => void,
+  ): (() => void) => {
+    return onEvent('agent:hyper-progress', callback);
   },
-}
+};
 
 // Export type for the API
-export type AicoBotApi = typeof api
+export type AicoBotApi = typeof api;

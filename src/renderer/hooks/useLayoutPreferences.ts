@@ -8,10 +8,10 @@
  * 4. System defaults (lowest priority)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSpaceStore } from '../stores/space.store'
-import { useCanvasIsOpen } from '../stores/canvas.store'
-import type { SpaceLayoutPreferences } from '../types'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSpaceStore } from '../stores/space.store';
+import { useCanvasIsOpen } from '../stores/canvas.store';
+import type { SpaceLayoutPreferences } from '../types';
 
 // Default values
 const LAYOUT_DEFAULTS = {
@@ -21,139 +21,150 @@ const LAYOUT_DEFAULTS = {
   chatWidthMaxWhenMaximized: 800,
   chatWidthMinWhenMaximized: 320,
   artifactRailExpanded: false, // Default: collapsed when canvas is open
-}
+};
 
 interface UseLayoutPreferencesReturn {
   // Current effective values (considering all overrides)
-  effectiveRailExpanded: boolean
-  effectiveChatWidth: number
+  effectiveRailExpanded: boolean;
+  effectiveChatWidth: number;
 
   // Raw preference values (from storage)
-  preferences: SpaceLayoutPreferences | undefined
+  preferences: SpaceLayoutPreferences | undefined;
 
   // Whether user has manually overridden in this session
-  hasUserOverride: boolean
+  hasUserOverride: boolean;
 
   // Actions
-  setRailExpanded: (expanded: boolean) => void
-  setChatWidth: (width: number) => void
+  setRailExpanded: (expanded: boolean) => void;
+  setChatWidth: (width: number) => void;
 
   // Constraints
-  chatWidthMin: number
-  chatWidthMax: number
+  chatWidthMin: number;
+  chatWidthMax: number;
 }
 
 export function useLayoutPreferences(
   spaceId: string | undefined,
-  isMaximized: boolean = false
+  isMaximized: boolean = false,
 ): UseLayoutPreferencesReturn {
-  const { getSpacePreferences, updateSpacePreferences, currentSpace } = useSpaceStore()
-  const isCanvasOpen = useCanvasIsOpen()
+  const { getSpacePreferences, updateSpacePreferences, currentSpace } = useSpaceStore();
+  const isCanvasOpen = useCanvasIsOpen();
 
   // Get persisted preferences
-  const preferences = spaceId ? getSpacePreferences(spaceId) : undefined
-  const layoutPrefs = preferences?.layout
+  const preferences = spaceId ? getSpacePreferences(spaceId) : undefined;
+  const layoutPrefs = preferences?.layout;
 
   // Track if user has manually overridden rail state in this session
-  const [userRailOverride, setUserRailOverride] = useState<boolean | null>(null)
+  const [userRailOverride, setUserRailOverride] = useState<boolean | null>(null);
 
   // Track current chat width (may differ from persisted during drag)
   const [currentChatWidth, setCurrentChatWidth] = useState<number>(
-    layoutPrefs?.chatWidth ?? LAYOUT_DEFAULTS.chatWidth
-  )
+    layoutPrefs?.chatWidth ?? LAYOUT_DEFAULTS.chatWidth,
+  );
 
   // Ref to track if we've initialized from preferences
-  const initializedRef = useRef(false)
+  const initializedRef = useRef(false);
 
   // Sync chat width from preferences when space changes
   useEffect(() => {
     if (spaceId && !initializedRef.current) {
-      const prefs = getSpacePreferences(spaceId)
+      const prefs = getSpacePreferences(spaceId);
       if (prefs?.layout?.chatWidth) {
-        setCurrentChatWidth(prefs.layout.chatWidth)
+        setCurrentChatWidth(prefs.layout.chatWidth);
       }
-      initializedRef.current = true
+      initializedRef.current = true;
     }
-  }, [spaceId, getSpacePreferences])
+  }, [spaceId, getSpacePreferences]);
 
   // Reset user override when space changes
   useEffect(() => {
-    setUserRailOverride(null)
-    initializedRef.current = false
-  }, [spaceId])
+    setUserRailOverride(null);
+    initializedRef.current = false;
+  }, [spaceId]);
 
   // Calculate effective rail expanded state
   const effectiveRailExpanded = (() => {
     // Priority 1: User's current session override (highest priority)
     // This ensures user's manual toggle always works
     if (userRailOverride !== null) {
-      return userRailOverride
+      return userRailOverride;
     }
 
     // Priority 2: Persisted preference
     if (layoutPrefs?.artifactRailExpanded !== undefined) {
-      return layoutPrefs.artifactRailExpanded
+      return layoutPrefs.artifactRailExpanded;
     }
 
     // Priority 3: Default (collapsed)
-    return LAYOUT_DEFAULTS.artifactRailExpanded
-  })()
+    return LAYOUT_DEFAULTS.artifactRailExpanded;
+  })();
 
   // Calculate width constraints based on maximized state
   const chatWidthMin = isMaximized
     ? LAYOUT_DEFAULTS.chatWidthMinWhenMaximized
-    : LAYOUT_DEFAULTS.chatWidthMin
+    : LAYOUT_DEFAULTS.chatWidthMin;
 
   const chatWidthMax = isMaximized
     ? LAYOUT_DEFAULTS.chatWidthMaxWhenMaximized
-    : LAYOUT_DEFAULTS.chatWidthMax
+    : LAYOUT_DEFAULTS.chatWidthMax;
 
   // Calculate effective chat width
   const effectiveChatWidth = (() => {
     // Clamp to current constraints
-    let width = currentChatWidth
+    let width = currentChatWidth;
 
     // If maximized, apply stricter constraints
     if (isMaximized) {
-      width = Math.min(width, chatWidthMax)
+      width = Math.min(width, chatWidthMax);
     }
 
-    return Math.max(chatWidthMin, Math.min(chatWidthMax, width))
-  })()
+    return Math.max(chatWidthMin, Math.min(chatWidthMax, width));
+  })();
 
   // Set rail expanded state (user action)
-  const setRailExpanded = useCallback((expanded: boolean) => {
-    console.log('[useLayoutPreferences] 🟡 setRailExpanded called:', expanded, 'time:', Date.now())
-    // Mark as user override
-    setUserRailOverride(expanded)
+  const setRailExpanded = useCallback(
+    (expanded: boolean) => {
+      console.log(
+        '[useLayoutPreferences] 🟡 setRailExpanded called:',
+        expanded,
+        'time:',
+        Date.now(),
+      );
+      // Mark as user override
+      setUserRailOverride(expanded);
 
-    // Persist to storage (unless in maximized mode, where override is temporary)
-    if (spaceId && !isMaximized) {
-      updateSpacePreferences(spaceId, {
-        layout: {
-          ...layoutPrefs,
-          artifactRailExpanded: expanded
-        }
-      })
-    }
-  }, [spaceId, isMaximized, layoutPrefs, updateSpacePreferences])
+      // Persist to storage (unless in maximized mode, where override is temporary)
+      if (spaceId && !isMaximized) {
+        updateSpacePreferences(spaceId, {
+          layout: {
+            ...layoutPrefs,
+            artifactRailExpanded: expanded,
+          },
+        });
+      }
+    },
+    [spaceId, isMaximized, layoutPrefs, updateSpacePreferences],
+  );
 
   // Set chat width (called on drag end)
-  const setChatWidth = useCallback((width: number) => {
-    // Clamp to constraints
-    const clampedWidth = Math.max(chatWidthMin, Math.min(chatWidthMax, width))
-    setCurrentChatWidth(clampedWidth)
+  const setChatWidth = useCallback(
+    (width: number) => {
+      // Clamp to constraints
+      const clampedWidth = Math.max(chatWidthMin, Math.min(chatWidthMax, width));
+      setCurrentChatWidth(clampedWidth);
 
-    // Persist to storage
-    if (spaceId) {
-      updateSpacePreferences(spaceId, {
-        layout: {
-          ...layoutPrefs,
-          chatWidth: clampedWidth
-        }
-      })
-    }
-  }, [spaceId, chatWidthMin, chatWidthMax, layoutPrefs, updateSpacePreferences])
+      // Persist to storage
+      if (spaceId) {
+        updateSpacePreferences(spaceId, {
+          layout: {
+            ...layoutPrefs,
+            chatWidth: clampedWidth,
+          },
+        });
+      }
+    },
+    [spaceId, chatWidthMin, chatWidthMax, layoutPrefs, updateSpacePreferences],
+  );
 
   return {
     effectiveRailExpanded,
@@ -164,8 +175,8 @@ export function useLayoutPreferences(
     setChatWidth,
     chatWidthMin,
     chatWidthMax,
-  }
+  };
 }
 
 // Export defaults for use in components
-export { LAYOUT_DEFAULTS }
+export { LAYOUT_DEFAULTS };

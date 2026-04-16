@@ -11,10 +11,10 @@
  * - Visual consistency with highlight.js syntax-theme.css
  */
 
-import { EditorView } from '@codemirror/view'
-import { Extension } from '@codemirror/state'
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { tags } from '@lezer/highlight'
+import { EditorView } from '@codemirror/view';
+import type { Extension } from '@codemirror/state';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 
 // ============================================
 // Editor Theme (Structure & Colors)
@@ -30,7 +30,8 @@ export const aicoBotEditorTheme = EditorView.theme(
     '&': {
       height: '100%',
       fontSize: '13px',
-      fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
+      fontFamily:
+        "'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace",
       backgroundColor: 'hsl(var(--background))',
       color: 'hsl(var(--foreground))',
     },
@@ -188,9 +189,9 @@ export const aicoBotEditorTheme = EditorView.theme(
     '.cm-trailingSpace': {
       backgroundColor: 'hsl(var(--destructive) / 0.2)',
     },
-  }
+  },
   // No { dark: true } - let CSS variables handle light/dark mode
-)
+);
 
 // ============================================
 // Syntax Highlighting Theme
@@ -293,7 +294,7 @@ export const aicoBotHighlightStyle = HighlightStyle.define([
 
   // Invalid
   { tag: tags.invalid, color: 'hsl(var(--destructive))', textDecoration: 'underline wavy' },
-])
+]);
 
 // ============================================
 // Combined Theme Extension
@@ -306,15 +307,15 @@ export const aicoBotHighlightStyle = HighlightStyle.define([
 export const aicoBotTheme: Extension = [
   aicoBotEditorTheme,
   syntaxHighlighting(aicoBotHighlightStyle),
-]
+];
 
 /**
  * Light theme variant (same structure, CSS variables handle the colors)
  * The base aicoBotTheme already uses CSS variables, so it works for both
  */
-export const aicoBotLightTheme = aicoBotTheme
+export const aicoBotLightTheme = aicoBotTheme;
 
 /**
  * Dark theme variant
  */
-export const aicoBotDarkTheme = aicoBotTheme
+export const aicoBotDarkTheme = aicoBotTheme;

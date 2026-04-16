@@ -9,82 +9,91 @@
  * - 持久化到磁盘，随会话保存和恢复
  */
 
-import { create } from 'zustand'
-import { api } from '../api'
+import { create } from 'zustand';
+import { api } from '../api';
 
 export interface AgentCommandEntry {
-  id: string
-  command: string
-  output: string
-  exitCode: number | null
-  status: 'pending' | 'running' | 'completed' | 'error'
-  timestamp: string
-  conversationId: string
-  cwd?: string  // Current working directory for prompt display
-  cwdLabel?: string  // Full prompt like "user@host path %"
-  pathOnly?: string  // Just the last path component
+  id: string;
+  command: string;
+  output: string;
+  exitCode: number | null;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  timestamp: string;
+  conversationId: string;
+  cwd?: string; // Current working directory for prompt display
+  cwdLabel?: string; // Full prompt like "user@host path %"
+  pathOnly?: string; // Just the last path component
 }
 
 export interface AgentCommandViewerState {
   // 按会话存储命令历史：Map<conversationId, AgentCommandEntry[]>
-  commandHistory: Map<string, AgentCommandEntry[]>
+  commandHistory: Map<string, AgentCommandEntry[]>;
 
   // 快速索引：commandId -> { conversationId, index }，避免 O(N) 遍历
-  commandIndex: Map<string, { conversationId: string; index: number }>
+  commandIndex: Map<string, { conversationId: string; index: number }>;
 
   // 当前活跃的命令（正在执行）
-  activeCommandId: string | null
+  activeCommandId: string | null;
 
   // 连接状态
-  isConnected: boolean
-  currentConversationId: string | null
+  isConnected: boolean;
+  currentConversationId: string | null;
 
   // UI 状态
-  autoScroll: boolean
-  maxDisplayCommands: number
+  autoScroll: boolean;
+  maxDisplayCommands: number;
 
   // 已加载的会话（避免重复加载）
-  loadedConversations: Set<string>
+  loadedConversations: Set<string>;
 
   // Actions
-  addCommand: (spaceId: string, conversationId: string, command: string) => void
-  updateCommandOutput: (commandId: string, output: string, isComplete: boolean, exitCode?: number) => void
-  clearCommands: (conversationId?: string) => void
-  getCommandsForConversation: (conversationId: string) => AgentCommandEntry[]
-  setAutoScroll: (enabled: boolean) => void
-  loadCommandsForConversation: (spaceId: string, conversationId: string, forceReload?: boolean) => Promise<void>
-  exportToMarkdown: (conversationId: string, spaceId: string) => Promise<void>
+  addCommand: (spaceId: string, conversationId: string, command: string) => void;
+  updateCommandOutput: (
+    commandId: string,
+    output: string,
+    isComplete: boolean,
+    exitCode?: number,
+  ) => void;
+  clearCommands: (conversationId?: string) => void;
+  getCommandsForConversation: (conversationId: string) => AgentCommandEntry[];
+  setAutoScroll: (enabled: boolean) => void;
+  loadCommandsForConversation: (
+    spaceId: string,
+    conversationId: string,
+    forceReload?: boolean,
+  ) => Promise<void>;
+  exportToMarkdown: (conversationId: string, spaceId: string) => Promise<void>;
 
   // 内部方法（由 WebSocket 调用）
-  _onAgentCommandStart: (entry: Omit<AgentCommandEntry, 'output' | 'exitCode' | 'status'>) => void
-  _onAgentCommandOutput: (commandId: string, output: string) => void
-  _onAgentCommandComplete: (commandId: string, exitCode: number) => void
-  _onAgentCommandError: (commandId: string, error: string) => void
-  _loadCommands: (conversationId: string, commands: AgentCommandEntry[]) => void
+  _onAgentCommandStart: (entry: Omit<AgentCommandEntry, 'output' | 'exitCode' | 'status'>) => void;
+  _onAgentCommandOutput: (commandId: string, output: string) => void;
+  _onAgentCommandComplete: (commandId: string, exitCode: number) => void;
+  _onAgentCommandError: (commandId: string, error: string) => void;
+  _loadCommands: (conversationId: string, commands: AgentCommandEntry[]) => void;
 }
 
 // Helper: fallback linear search when index is stale, also rebuilds the index entry
 function updateCommandWithFallback(
   state: AgentCommandViewerState,
   commandId: string,
-  updater: (cmd: AgentCommandEntry) => AgentCommandEntry
+  updater: (cmd: AgentCommandEntry) => AgentCommandEntry,
 ): Partial<AgentCommandViewerState> {
-  const newHistory = new Map(state.commandHistory)
-  const newIndex = new Map(state.commandIndex)
+  const newHistory = new Map(state.commandHistory);
+  const newIndex = new Map(state.commandIndex);
 
   for (const [convId, commands] of newHistory.entries()) {
-    const commandIndex = commands.findIndex(cmd => cmd.id === commandId)
+    const commandIndex = commands.findIndex((cmd) => cmd.id === commandId);
     if (commandIndex >= 0) {
-      const updatedCommands = [...commands]
-      updatedCommands[commandIndex] = updater(updatedCommands[commandIndex])
-      newHistory.set(convId, updatedCommands)
+      const updatedCommands = [...commands];
+      updatedCommands[commandIndex] = updater(updatedCommands[commandIndex]);
+      newHistory.set(convId, updatedCommands);
       // Rebuild index entry
-      newIndex.set(commandId, { conversationId: convId, index: commandIndex })
-      break
+      newIndex.set(commandId, { conversationId: convId, index: commandIndex });
+      break;
     }
   }
 
-  return { commandHistory: newHistory, commandIndex: newIndex }
+  return { commandHistory: newHistory, commandIndex: newIndex };
 }
 
 export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, get) => ({
@@ -100,307 +109,335 @@ export const useAgentCommandViewerStore = create<AgentCommandViewerState>((set, 
 
   // Actions
   addCommand: (spaceId: string, conversationId: string, command: string) => {
-    const commandId = `agent-cmd-${Date.now()}-${Math.random().toString(36).substring(7)}`
+    const commandId = `agent-cmd-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     get()._onAgentCommandStart({
       id: commandId,
       command,
       timestamp: new Date().toISOString(),
-      conversationId
-    })
+      conversationId,
+    });
   },
 
-  updateCommandOutput: (commandId: string, output: string, isComplete: boolean, exitCode?: number) => {
+  updateCommandOutput: (
+    commandId: string,
+    output: string,
+    isComplete: boolean,
+    exitCode?: number,
+  ) => {
     if (isComplete) {
-      get()._onAgentCommandComplete(commandId, exitCode ?? 0)
+      get()._onAgentCommandComplete(commandId, exitCode ?? 0);
     } else {
-      get()._onAgentCommandOutput(commandId, output)
+      get()._onAgentCommandOutput(commandId, output);
     }
   },
 
   clearCommands: (conversationId) => {
     if (conversationId) {
-      set(state => {
-        const newHistory = new Map(state.commandHistory)
-        newHistory.delete(conversationId)
-        const newIndex = new Map(state.commandIndex)
+      set((state) => {
+        const newHistory = new Map(state.commandHistory);
+        newHistory.delete(conversationId);
+        const newIndex = new Map(state.commandIndex);
         // Remove index entries for this conversation
         for (const [cmdId, loc] of newIndex.entries()) {
           if (loc.conversationId === conversationId) {
-            newIndex.delete(cmdId)
+            newIndex.delete(cmdId);
           }
         }
-        const newLoaded = new Set(state.loadedConversations)
-        newLoaded.delete(conversationId)
-        return { commandHistory: newHistory, commandIndex: newIndex, loadedConversations: newLoaded }
-      })
+        const newLoaded = new Set(state.loadedConversations);
+        newLoaded.delete(conversationId);
+        return {
+          commandHistory: newHistory,
+          commandIndex: newIndex,
+          loadedConversations: newLoaded,
+        };
+      });
     } else {
-      set({ commandHistory: new Map(), commandIndex: new Map(), activeCommandId: null, loadedConversations: new Set() })
+      set({
+        commandHistory: new Map(),
+        commandIndex: new Map(),
+        activeCommandId: null,
+        loadedConversations: new Set(),
+      });
     }
   },
 
   getCommandsForConversation: (conversationId: string) => {
-    const state = get()
-    return state.commandHistory.get(conversationId) || []
+    const state = get();
+    return state.commandHistory.get(conversationId) || [];
   },
 
   setAutoScroll: (enabled: boolean) => {
-    set({ autoScroll: enabled })
+    set({ autoScroll: enabled });
   },
 
-  loadCommandsForConversation: async (spaceId: string, conversationId: string, forceReload = false) => {
-    const state = get()
+  loadCommandsForConversation: async (
+    spaceId: string,
+    conversationId: string,
+    forceReload = false,
+  ) => {
+    const state = get();
 
     // Skip if already loaded (unless force reload is requested)
     if (!forceReload && state.loadedConversations.has(conversationId)) {
-      console.log(`[AgentCommandStore] Commands already loaded for ${conversationId}`)
-      return
+      console.log(`[AgentCommandStore] Commands already loaded for ${conversationId}`);
+      return;
     }
 
     try {
-      console.log(`[AgentCommandStore] Loading commands for ${conversationId}...`)
-      const result = await api.getAgentCommands(spaceId, conversationId)
+      console.log(`[AgentCommandStore] Loading commands for ${conversationId}...`);
+      const result = await api.getAgentCommands(spaceId, conversationId);
 
       if (result.success && result.data) {
-        const commands = result.data as AgentCommandEntry[]
-        console.log(`[AgentCommandStore] Loaded ${commands.length} commands for ${conversationId}`)
-        get()._loadCommands(conversationId, commands)
+        const commands = result.data as AgentCommandEntry[];
+        console.log(`[AgentCommandStore] Loaded ${commands.length} commands for ${conversationId}`);
+        get()._loadCommands(conversationId, commands);
       } else {
-        console.log(`[AgentCommandStore] No commands found for ${conversationId}`)
+        console.log(`[AgentCommandStore] No commands found for ${conversationId}`);
       }
     } catch (error) {
-      console.error(`[AgentCommandStore] Failed to load commands for ${conversationId}:`, error)
+      console.error(`[AgentCommandStore] Failed to load commands for ${conversationId}:`, error);
     }
   },
 
   // Internal handlers
   _onAgentCommandStart: (entry) => {
-    set(state => {
-      const newHistory = new Map(state.commandHistory)
-      const newIndex = new Map(state.commandIndex)
-      const convCommands = newHistory.get(entry.conversationId) || []
+    set((state) => {
+      const newHistory = new Map(state.commandHistory);
+      const newIndex = new Map(state.commandIndex);
+      const convCommands = newHistory.get(entry.conversationId) || [];
 
       const newCommand: AgentCommandEntry = {
         ...entry,
         output: '',
         exitCode: null,
-        status: 'running'
-      }
+        status: 'running',
+      };
 
-      const newCommands = [...convCommands, newCommand]
-      newHistory.set(entry.conversationId, newCommands)
+      const newCommands = [...convCommands, newCommand];
+      newHistory.set(entry.conversationId, newCommands);
 
       // Update index
-      newIndex.set(entry.id, { conversationId: entry.conversationId, index: newCommands.length - 1 })
+      newIndex.set(entry.id, {
+        conversationId: entry.conversationId,
+        index: newCommands.length - 1,
+      });
 
       return {
         commandHistory: newHistory,
         commandIndex: newIndex,
         activeCommandId: entry.id,
         currentConversationId: entry.conversationId,
-        isConnected: true
-      }
-    })
+        isConnected: true,
+      };
+    });
   },
 
   _onAgentCommandOutput: (commandId: string, output: string) => {
-    set(state => {
-      const loc = state.commandIndex.get(commandId)
-      if (!loc) return state
+    set((state) => {
+      const loc = state.commandIndex.get(commandId);
+      if (!loc) return state;
 
-      const commands = state.commandHistory.get(loc.conversationId)
+      const commands = state.commandHistory.get(loc.conversationId);
       if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
         // Index stale - fall back to linear search and rebuild index entry
-        return updateCommandWithFallback(state, commandId, cmd => ({
+        return updateCommandWithFallback(state, commandId, (cmd) => ({
           ...cmd,
-          output: cmd.output + output
-        }))
+          output: cmd.output + output,
+        }));
       }
 
-      const newHistory = new Map(state.commandHistory)
-      const updatedCommands = [...commands]
+      const newHistory = new Map(state.commandHistory);
+      const updatedCommands = [...commands];
       updatedCommands[loc.index] = {
         ...updatedCommands[loc.index],
-        output: updatedCommands[loc.index].output + output
-      }
-      newHistory.set(loc.conversationId, updatedCommands)
+        output: updatedCommands[loc.index].output + output,
+      };
+      newHistory.set(loc.conversationId, updatedCommands);
 
-      return { commandHistory: newHistory }
-    })
+      return { commandHistory: newHistory };
+    });
   },
 
   _onAgentCommandComplete: (commandId: string, exitCode: number) => {
-    set(state => {
-      const loc = state.commandIndex.get(commandId)
-      if (!loc) return state
+    set((state) => {
+      const loc = state.commandIndex.get(commandId);
+      if (!loc) return state;
 
-      const commands = state.commandHistory.get(loc.conversationId)
+      const commands = state.commandHistory.get(loc.conversationId);
       if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
-        return updateCommandWithFallback(state, commandId, cmd => ({
+        return updateCommandWithFallback(state, commandId, (cmd) => ({
           ...cmd,
           status: 'completed' as const,
-          exitCode
-        }))
+          exitCode,
+        }));
       }
 
-      const newHistory = new Map(state.commandHistory)
-      const updatedCommands = [...commands]
+      const newHistory = new Map(state.commandHistory);
+      const updatedCommands = [...commands];
       updatedCommands[loc.index] = {
         ...updatedCommands[loc.index],
         status: 'completed' as const,
-        exitCode
-      }
-      newHistory.set(loc.conversationId, updatedCommands)
+        exitCode,
+      };
+      newHistory.set(loc.conversationId, updatedCommands);
 
-      return { commandHistory: newHistory, activeCommandId: null }
-    })
+      return { commandHistory: newHistory, activeCommandId: null };
+    });
   },
 
   _onAgentCommandError: (commandId: string, error: string) => {
-    set(state => {
-      const loc = state.commandIndex.get(commandId)
-      if (!loc) return state
+    set((state) => {
+      const loc = state.commandIndex.get(commandId);
+      if (!loc) return state;
 
-      const commands = state.commandHistory.get(loc.conversationId)
+      const commands = state.commandHistory.get(loc.conversationId);
       if (!commands || loc.index >= commands.length || commands[loc.index].id !== commandId) {
-        return updateCommandWithFallback(state, commandId, cmd => ({
+        return updateCommandWithFallback(state, commandId, (cmd) => ({
           ...cmd,
           status: 'error' as const,
-          output: cmd.output + '\n' + error
-        }))
+          output: cmd.output + '\n' + error,
+        }));
       }
 
-      const newHistory = new Map(state.commandHistory)
-      const updatedCommands = [...commands]
+      const newHistory = new Map(state.commandHistory);
+      const updatedCommands = [...commands];
       updatedCommands[loc.index] = {
         ...updatedCommands[loc.index],
         status: 'error' as const,
-        output: updatedCommands[loc.index].output + '\n' + error
-      }
-      newHistory.set(loc.conversationId, updatedCommands)
+        output: updatedCommands[loc.index].output + '\n' + error,
+      };
+      newHistory.set(loc.conversationId, updatedCommands);
 
-      return { commandHistory: newHistory, activeCommandId: null }
-    })
+      return { commandHistory: newHistory, activeCommandId: null };
+    });
   },
 
   _loadCommands: (conversationId: string, commands: AgentCommandEntry[]) => {
-    set(state => {
-      const newHistory = new Map(state.commandHistory)
-      const newIndex = new Map(state.commandIndex)
-      const newLoaded = new Set(state.loadedConversations)
+    set((state) => {
+      const newHistory = new Map(state.commandHistory);
+      const newIndex = new Map(state.commandIndex);
+      const newLoaded = new Set(state.loadedConversations);
 
       // Check if we already have commands in memory for this conversation
-      const existingCommands = newHistory.get(conversationId)
+      const existingCommands = newHistory.get(conversationId);
 
-      let mergedCommands: AgentCommandEntry[]
+      let mergedCommands: AgentCommandEntry[];
       if (!existingCommands || existingCommands.length === 0) {
-        mergedCommands = commands
+        mergedCommands = commands;
       } else {
         // Merge: use loaded commands as base, but preserve any in-memory updates
-        const loadedIds = new Set(commands.map(c => c.id))
-        mergedCommands = [...commands]
+        const loadedIds = new Set(commands.map((c) => c.id));
+        mergedCommands = [...commands];
 
         for (const cmd of existingCommands) {
           if (!loadedIds.has(cmd.id)) {
-            mergedCommands.push(cmd)
+            mergedCommands.push(cmd);
           }
         }
 
-        mergedCommands.sort((a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        )
+        mergedCommands.sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
       }
 
-      newHistory.set(conversationId, mergedCommands)
+      newHistory.set(conversationId, mergedCommands);
 
       // Rebuild index for this conversation
       for (let i = 0; i < mergedCommands.length; i++) {
-        newIndex.set(mergedCommands[i].id, { conversationId, index: i })
+        newIndex.set(mergedCommands[i].id, { conversationId, index: i });
       }
 
-      newLoaded.add(conversationId)
+      newLoaded.add(conversationId);
 
-      return { commandHistory: newHistory, commandIndex: newIndex, loadedConversations: newLoaded }
-    })
+      return { commandHistory: newHistory, commandIndex: newIndex, loadedConversations: newLoaded };
+    });
   },
 
   exportToMarkdown: async (conversationId: string, spaceId: string) => {
-    const state = get()
-    const commands = state.commandHistory.get(conversationId) || []
+    const state = get();
+    const commands = state.commandHistory.get(conversationId) || [];
 
     if (commands.length === 0) {
-      console.log('[AgentCommandStore] No commands to export')
-      return
+      console.log('[AgentCommandStore] No commands to export');
+      return;
     }
 
     // Generate filename with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
-    const fileName = `agent-commands-${conversationId.slice(0, 8)}-${timestamp}.md`
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const fileName = `agent-commands-${conversationId.slice(0, 8)}-${timestamp}.md`;
 
     // Generate Markdown content
-    const markdownParts: string[] = []
+    const markdownParts: string[] = [];
 
     // Header
-    markdownParts.push('# Agent Terminal Command History')
-    markdownParts.push('')
-    markdownParts.push(`Exported at: ${new Date().toISOString()}`)
-    markdownParts.push(`Conversation ID: ${conversationId}`)
-    markdownParts.push(`Total Commands: ${commands.length}`)
-    markdownParts.push('')
-    markdownParts.push('---')
-    markdownParts.push('')
+    markdownParts.push('# Agent Terminal Command History');
+    markdownParts.push('');
+    markdownParts.push(`Exported at: ${new Date().toISOString()}`);
+    markdownParts.push(`Conversation ID: ${conversationId}`);
+    markdownParts.push(`Total Commands: ${commands.length}`);
+    markdownParts.push('');
+    markdownParts.push('---');
+    markdownParts.push('');
 
     // Commands
     commands.forEach((cmd, index) => {
-      const statusEmoji = cmd.status === 'completed' && cmd.exitCode === 0 ? '✅' :
-                         cmd.status === 'completed' && cmd.exitCode !== 0 ? '❌' :
-                         cmd.status === 'error' ? '⚠️' : '⏳'
+      const statusEmoji =
+        cmd.status === 'completed' && cmd.exitCode === 0
+          ? '✅'
+          : cmd.status === 'completed' && cmd.exitCode !== 0
+            ? '❌'
+            : cmd.status === 'error'
+              ? '⚠️'
+              : '⏳';
 
-      markdownParts.push(`## Command ${index + 1} ${statusEmoji}`)
-      markdownParts.push('')
-      markdownParts.push(`**Time:** ${new Date(cmd.timestamp).toLocaleString()}`)
-      markdownParts.push('')
-      markdownParts.push(`**Status:** ${cmd.status}${cmd.exitCode !== null ? ` (Exit Code: ${cmd.exitCode})` : ''}`)
-      markdownParts.push('')
+      markdownParts.push(`## Command ${index + 1} ${statusEmoji}`);
+      markdownParts.push('');
+      markdownParts.push(`**Time:** ${new Date(cmd.timestamp).toLocaleString()}`);
+      markdownParts.push('');
+      markdownParts.push(
+        `**Status:** ${cmd.status}${cmd.exitCode !== null ? ` (Exit Code: ${cmd.exitCode})` : ''}`,
+      );
+      markdownParts.push('');
 
       if (cmd.cwdLabel) {
-        markdownParts.push(`**Directory:** ${cmd.cwdLabel}`)
-        markdownParts.push('')
+        markdownParts.push(`**Directory:** ${cmd.cwdLabel}`);
+        markdownParts.push('');
       }
 
-      markdownParts.push('**Command:**')
-      markdownParts.push('```bash')
-      markdownParts.push(cmd.command)
-      markdownParts.push('```')
-      markdownParts.push('')
+      markdownParts.push('**Command:**');
+      markdownParts.push('```bash');
+      markdownParts.push(cmd.command);
+      markdownParts.push('```');
+      markdownParts.push('');
 
       if (cmd.output) {
-        markdownParts.push('**Output:**')
-        markdownParts.push('```')
-        markdownParts.push(cmd.output)
-        markdownParts.push('```')
-        markdownParts.push('')
+        markdownParts.push('**Output:**');
+        markdownParts.push('```');
+        markdownParts.push(cmd.output);
+        markdownParts.push('```');
+        markdownParts.push('');
       }
 
-      markdownParts.push('---')
-      markdownParts.push('')
-    })
+      markdownParts.push('---');
+      markdownParts.push('');
+    });
 
-    const markdownContent = markdownParts.join('\n')
+    const markdownContent = markdownParts.join('\n');
 
-    downloadMarkdown(markdownContent, fileName)
-    console.log(`[AgentCommandStore] Exported ${commands.length} commands to ${fileName}`)
-  }
-}))
+    downloadMarkdown(markdownContent, fileName);
+    console.log(`[AgentCommandStore] Exported ${commands.length} commands to ${fileName}`);
+  },
+}));
 
 function downloadMarkdown(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/markdown' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

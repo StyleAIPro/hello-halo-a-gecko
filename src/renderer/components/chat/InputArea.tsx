@@ -19,66 +19,108 @@
  * - Bottom toolbar for future extensibility
  */
 
-import { useState, useRef, useEffect, useCallback, KeyboardEvent, ClipboardEvent, DragEvent, useImperativeHandle, forwardRef, ForwardedRef } from 'react'
-import { Plus, ImagePlus, Loader2, AlertCircle, CheckCircle, Atom, Globe, Boxes, Clock, X, Crown, Wrench, Cloud, Monitor } from 'lucide-react'
-import { useOnboardingStore } from '../../stores/onboarding.store'
-import { useAIBrowserStore } from '../../stores/ai-browser.store'
-import { useSpaceStore } from '../../stores/space.store'
-import { getOnboardingPrompt } from '../onboarding/onboardingData'
-import { ImageAttachmentPreview } from './ImageAttachmentPreview'
-import type { ImageAttachment } from '../../types'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import { useMentionSystem, type AgentMember } from '../../hooks/useMentionSystem'
-import { useImageAttachments, MAX_IMAGES } from '../../hooks/useImageAttachments'
+import type { KeyboardEvent, ForwardedRef } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  ClipboardEvent,
+  DragEvent,
+  useImperativeHandle,
+  forwardRef,
+} from 'react';
+import {
+  Plus,
+  ImagePlus,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
+  Atom,
+  Globe,
+  Boxes,
+  Clock,
+  X,
+  Crown,
+  Wrench,
+  Cloud,
+  Monitor,
+} from 'lucide-react';
+import { useOnboardingStore } from '../../stores/onboarding.store';
+import { useAIBrowserStore } from '../../stores/ai-browser.store';
+import { useSpaceStore } from '../../stores/space.store';
+import { getOnboardingPrompt } from '../onboarding/onboardingData';
+import { ImageAttachmentPreview } from './ImageAttachmentPreview';
+import type { ImageAttachment } from '../../types';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import { useMentionSystem, type AgentMember } from '../../hooks/useMentionSystem';
+import { useImageAttachments, MAX_IMAGES } from '../../hooks/useImageAttachments';
 
 interface InputAreaProps {
-  onSend: (content: string, images?: ImageAttachment[], thinkingEnabled?: boolean, aiBrowserEnabled?: boolean, agentId?: string) => void
-  onStop: () => void
-  onClearPending?: () => void  // Clear pending messages
-  isGenerating: boolean
-  isStopping?: boolean  // True when user clicked stop, waiting for cleanup
-  pendingCount?: number  // Number of messages waiting in queue
-  placeholder?: string
-  isCompact?: boolean
-  spaceId?: string
-  conversationId?: string
+  onSend: (
+    content: string,
+    images?: ImageAttachment[],
+    thinkingEnabled?: boolean,
+    aiBrowserEnabled?: boolean,
+    agentId?: string,
+  ) => void;
+  onStop: () => void;
+  onClearPending?: () => void; // Clear pending messages
+  isGenerating: boolean;
+  isStopping?: boolean; // True when user clicked stop, waiting for cleanup
+  pendingCount?: number; // Number of messages waiting in queue
+  placeholder?: string;
+  isCompact?: boolean;
+  spaceId?: string;
+  conversationId?: string;
 }
 
 export interface InputAreaRef {
-  appendContent: (newContent: string) => void
-  setContent: (newContent: string) => void
+  appendContent: (newContent: string) => void;
+  setContent: (newContent: string) => void;
 }
 
 function InputAreaInternal(
-  { onSend, onStop, onClearPending, isGenerating, isStopping = false, pendingCount = 0, placeholder, isCompact = false, spaceId, conversationId }: InputAreaProps,
-  ref: ForwardedRef<InputAreaRef>
+  {
+    onSend,
+    onStop,
+    onClearPending,
+    isGenerating,
+    isStopping = false,
+    pendingCount = 0,
+    placeholder,
+    isCompact = false,
+    spaceId,
+    conversationId,
+  }: InputAreaProps,
+  ref: ForwardedRef<InputAreaRef>,
 ) {
-  const { t } = useTranslation()
-  const [content, setContent] = useState('')
-  const [isFocused, setIsFocused] = useState(false)
-  const [thinkingEnabled, setThinkingEnabled] = useState(false)  // Extended thinking mode
-  const [showAttachMenu, setShowAttachMenu] = useState(false)  // Attachment menu visibility
-  const [isCompacting, setIsCompacting] = useState(false)  // Context compression in progress
-  const [compactResult, setCompactResult] = useState<'success' | 'error' | null>(null)  // Compression result notification
+  const { t } = useTranslation();
+  const [content, setContent] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false); // Extended thinking mode
+  const [showAttachMenu, setShowAttachMenu] = useState(false); // Attachment menu visibility
+  const [isCompacting, setIsCompacting] = useState(false); // Context compression in progress
+  const [compactResult, setCompactResult] = useState<'success' | 'error' | null>(null); // Compression result notification
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const attachMenuRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   // AI Browser state
-  const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore()
+  const { enabled: aiBrowserEnabled, setEnabled: setAIBrowserEnabled } = useAIBrowserStore();
 
   // Space state - to determine if this is a local, remote, or hyper space
-  const currentSpaceId = useSpaceStore(state => state.currentSpace?.id)
-  const currentSpaceType = useSpaceStore(state => {
-    if (!state.currentSpace) return null
+  const currentSpaceId = useSpaceStore((state) => state.currentSpace?.id);
+  const currentSpaceType = useSpaceStore((state) => {
+    if (!state.currentSpace) return null;
     return {
       isTemp: state.currentSpace.isTemp,
       claudeSource: state.currentSpace.claudeSource,
-      spaceType: state.currentSpace.spaceType
-    }
-  })
-  const isHyperSpace = currentSpaceType?.spaceType === 'hyper'
+      spaceType: state.currentSpace.spaceType,
+    };
+  });
+  const isHyperSpace = currentSpaceType?.spaceType === 'hyper';
 
   // ===== Hooks =====
 
@@ -92,14 +134,14 @@ function InputAreaInternal(
     selectedMentionIndex,
     handleTextChange: handleMentionTextChange,
     selectAgent,
-    handleMentionKeyDown
+    handleMentionKeyDown,
   } = useMentionSystem({
     spaceId,
     isHyperSpace,
     content,
     setContent,
-    textareaRef
-  })
+    textareaRef,
+  });
 
   // Image attachments (paste/drop/file-input with compression)
   const {
@@ -115,189 +157,220 @@ function InputAreaInternal(
     handleDrop,
     handleFileInputChange,
     clearImages,
-    hasImages
-  } = useImageAttachments()
+    hasImages,
+  } = useImageAttachments();
 
   // Initialize AI Browser based on space type
   useEffect(() => {
-    if (!spaceId || !currentSpaceType) return
+    if (!spaceId || !currentSpaceType) return;
 
-    const isLocalSpace = currentSpaceType.isTemp || currentSpaceType.claudeSource === 'local' || currentSpaceType.claudeSource === undefined
-    const shouldBeEnabled = isLocalSpace
+    const isLocalSpace =
+      currentSpaceType.isTemp ||
+      currentSpaceType.claudeSource === 'local' ||
+      currentSpaceType.claudeSource === undefined;
+    const shouldBeEnabled = isLocalSpace;
 
-    console.log(`[InputArea] Space changed: ${spaceId}, isLocal=${isLocalSpace}, claudeSource=${currentSpaceType.claudeSource}, enabling AI Browser: ${shouldBeEnabled}`)
-    setAIBrowserEnabled(shouldBeEnabled)
-  }, [spaceId, currentSpaceType?.isTemp, currentSpaceType?.claudeSource])
+    console.log(
+      `[InputArea] Space changed: ${spaceId}, isLocal=${isLocalSpace}, claudeSource=${currentSpaceType.claudeSource}, enabling AI Browser: ${shouldBeEnabled}`,
+    );
+    setAIBrowserEnabled(shouldBeEnabled);
+  }, [spaceId, currentSpaceType?.isTemp, currentSpaceType?.claudeSource]);
 
   // Expose methods to parent components via ref
-  useImperativeHandle(ref, () => ({
-    appendContent: (newContent: string) => {
-      setContent(prev => {
-        const separator = prev.trim() ? '\n\n' : ''
-        return prev + separator + newContent
-      })
-      // Focus and move cursor to end
-      setTimeout(() => {
-        textareaRef.current?.focus()
-        textareaRef.current?.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length)
-      }, 50)
-    },
-    setContent: (newContent: string) => {
-      setContent(newContent)
-      setTimeout(() => {
-        textareaRef.current?.focus()
-        textareaRef.current?.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length)
-      }, 50)
-    }
-  }), [])
+  useImperativeHandle(
+    ref,
+    () => ({
+      appendContent: (newContent: string) => {
+        setContent((prev) => {
+          const separator = prev.trim() ? '\n\n' : '';
+          return prev + separator + newContent;
+        });
+        // Focus and move cursor to end
+        setTimeout(() => {
+          textareaRef.current?.focus();
+          textareaRef.current?.setSelectionRange(
+            textareaRef.current.value.length,
+            textareaRef.current.value.length,
+          );
+        }, 50);
+      },
+      setContent: (newContent: string) => {
+        setContent(newContent);
+        setTimeout(() => {
+          textareaRef.current?.focus();
+          textareaRef.current?.setSelectionRange(
+            textareaRef.current.value.length,
+            textareaRef.current.value.length,
+          );
+        }, 50);
+      },
+    }),
+    [],
+  );
 
   // Close attachment menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(event.target as Node)) {
-        setShowAttachMenu(false)
+        setShowAttachMenu(false);
       }
-    }
+    };
 
     if (showAttachMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showAttachMenu])
+  }, [showAttachMenu]);
 
   // Onboarding state
-  const { isActive: isOnboarding, currentStep } = useOnboardingStore()
-  const isOnboardingSendStep = isOnboarding && currentStep === 'send-message'
+  const { isActive: isOnboarding, currentStep } = useOnboardingStore();
+  const isOnboardingSendStep = isOnboarding && currentStep === 'send-message';
 
   // In onboarding send step, show prefilled prompt
-  const onboardingPrompt = getOnboardingPrompt(t)
-  const displayContent = isOnboardingSendStep ? onboardingPrompt : content
+  const onboardingPrompt = getOnboardingPrompt(t);
+  const displayContent = isOnboardingSendStep ? onboardingPrompt : content;
 
   // Handle image button click (from attachment menu)
   const handleImageButtonClick = () => {
-    setShowAttachMenu(false)
-    fileInputRef.current?.click()
-  }
+    setShowAttachMenu(false);
+    fileInputRef.current?.click();
+  };
 
   // Auto-resize textarea
   useEffect(() => {
-    const textarea = textareaRef.current
+    const textarea = textareaRef.current;
     if (textarea) {
-      textarea.style.height = 'auto'
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
     }
-  }, [displayContent])
+  }, [displayContent]);
 
   // Focus on mount
   useEffect(() => {
     if (!isGenerating && !isOnboardingSendStep) {
-      textareaRef.current?.focus()
+      textareaRef.current?.focus();
     }
-  }, [isGenerating, isOnboardingSendStep])
+  }, [isGenerating, isOnboardingSendStep]);
 
   // Handle send
   // Note: Messages are now queued if already generating (handled in store)
   const handleSend = () => {
-    const textToSend = isOnboardingSendStep ? onboardingPrompt : content.trim()
-    const hasContent = textToSend || images.length > 0
+    const textToSend = isOnboardingSendStep ? onboardingPrompt : content.trim();
+    const hasContent = textToSend || images.length > 0;
 
     // Only check isProcessingImages, not isGenerating (queuing is handled in store)
     if (hasContent && !isProcessingImages) {
-      onSend(textToSend, images.length > 0 ? images : undefined, thinkingEnabled, aiBrowserEnabled,
-        targetAgentIds.length > 0 ? targetAgentIds.join(',') : undefined)
+      onSend(
+        textToSend,
+        images.length > 0 ? images : undefined,
+        thinkingEnabled,
+        aiBrowserEnabled,
+        targetAgentIds.length > 0 ? targetAgentIds.join(',') : undefined,
+      );
 
       if (!isOnboardingSendStep) {
-        setContent('')
-        clearImages()  // Clear images after send
-        setTargetAgentIds([])  // Clear target agents
+        setContent('');
+        clearImages(); // Clear images after send
+        setTargetAgentIds([]); // Clear target agents
         // Don't reset thinkingEnabled - user might want to keep it on
         // Reset height
         if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto'
+          textareaRef.current.style.height = 'auto';
         }
       }
     }
-  }
+  };
 
   // Detect mobile device (touch + narrow screen)
   const isMobile = () => {
-    return 'ontouchstart' in window && window.innerWidth < 768
-  }
+    return 'ontouchstart' in window && window.innerWidth < 768;
+  };
 
   // Handle key press - include mention popup navigation
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Let mention system handle keys first (returns true if consumed)
-    if (handleMentionKeyDown(e)) return
+    if (handleMentionKeyDown(e)) return;
 
     // Mobile: Enter for newline, send via button only
     // PC: Enter to send, Shift+Enter for newline
     if (e.key === 'Enter' && !e.shiftKey && !isMobile()) {
-      e.preventDefault()
-      handleSend()
+      e.preventDefault();
+      handleSend();
     }
     // Esc to stop
     if (e.key === 'Escape' && isGenerating) {
-      e.preventDefault()
-      onStop()
+      e.preventDefault();
+      onStop();
     }
-  }
+  };
 
   // In onboarding mode, can always send (prefilled content)
   // Can send if has text OR has images (and not processing images)
   // Note: isGenerating is not checked here - queuing is handled in store
-  const canSend = isOnboardingSendStep || ((content.trim().length > 0 || hasImages) && !isProcessingImages)
+  const canSend =
+    isOnboardingSendStep || ((content.trim().length > 0 || hasImages) && !isProcessingImages);
 
   // Handle context compression
   const handleCompactContext = async () => {
-    if (!conversationId || isCompacting) return
+    if (!conversationId || isCompacting) return;
 
-    setIsCompacting(true)
-    setCompactResult(null)
+    setIsCompacting(true);
+    setCompactResult(null);
     try {
-      const result = await api.compactContext(conversationId)
+      const result = await api.compactContext(conversationId);
       if (result.success) {
-        console.log('[InputArea] Context compacted successfully')
-        setCompactResult('success')
+        console.log('[InputArea] Context compacted successfully');
+        setCompactResult('success');
       } else {
-        console.error('[InputArea] Failed to compact context:', result.error)
-        setCompactResult('error')
+        console.error('[InputArea] Failed to compact context:', result.error);
+        setCompactResult('error');
       }
     } catch (error) {
-      console.error('[InputArea] Error compacting context:', error)
-      setCompactResult('error')
+      console.error('[InputArea] Error compacting context:', error);
+      setCompactResult('error');
     } finally {
-      setIsCompacting(false)
+      setIsCompacting(false);
       // Auto-dismiss notification after 3 seconds
-      setTimeout(() => setCompactResult(null), 3000)
+      setTimeout(() => setCompactResult(null), 3000);
     }
-  }
+  };
 
   return (
-    <div className={`
+    <div
+      className={`
       border-t border-border/50 bg-background/80 backdrop-blur-sm
       transition-[padding] duration-300 ease-out
       ${isCompact ? 'px-3 py-2' : 'px-4 py-3'}
-    `}>
+    `}
+    >
       <div className={isCompact ? '' : 'max-w-3xl mx-auto'}>
         {/* Compact result notification */}
         {compactResult === 'success' && (
-          <div className="mb-2 p-3 rounded-xl bg-green-500/10 border border-green-500/20
-            flex items-center gap-2 animate-fade-in">
+          <div
+            className="mb-2 p-3 rounded-xl bg-green-500/10 border border-green-500/20
+            flex items-center gap-2 animate-fade-in"
+          >
             <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
             <span className="text-sm text-green-500">{t('Context compressed successfully')}</span>
           </div>
         )}
         {compactResult === 'error' && (
-          <div className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20
-            flex items-center gap-2 animate-fade-in">
+          <div
+            className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20
+            flex items-center gap-2 animate-fade-in"
+          >
             <AlertCircle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
-            <span className="text-sm text-destructive">{t('Failed to compress context. Please try sending a message first.')}</span>
+            <span className="text-sm text-destructive">
+              {t('Failed to compress context. Please try sending a message first.')}
+            </span>
           </div>
         )}
         {/* Error toast notification */}
         {imageError && (
-          <div className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20
-            flex items-start gap-2 animate-fade-in">
+          <div
+            className="mb-2 p-3 rounded-xl bg-destructive/10 border border-destructive/20
+            flex items-start gap-2 animate-fade-in"
+          >
             <AlertCircle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
             <span className="text-sm text-destructive flex-1">{imageError.message}</span>
           </div>
@@ -317,9 +390,10 @@ function InputAreaInternal(
         <div
           className={`
             relative flex flex-col rounded-2xl transition-all duration-200
-            ${isFocused
-              ? 'ring-1 ring-primary/30 bg-card shadow-sm'
-              : 'bg-secondary/50 hover:bg-secondary/70'
+            ${
+              isFocused
+                ? 'ring-1 ring-primary/30 bg-card shadow-sm'
+                : 'bg-secondary/50 hover:bg-secondary/70'
             }
             ${isGenerating ? 'opacity-60' : ''}
             ${isDragOver ? 'ring-2 ring-primary/50 bg-primary/5' : ''}
@@ -329,12 +403,7 @@ function InputAreaInternal(
           onDrop={handleDrop}
         >
           {/* Image preview area */}
-          {hasImages && (
-            <ImageAttachmentPreview
-              images={images}
-              onRemove={removeImage}
-            />
-          )}
+          {hasImages && <ImageAttachmentPreview images={images} onRemove={removeImage} />}
 
           {/* Image processing indicator */}
           {isProcessingImages && (
@@ -346,9 +415,11 @@ function InputAreaInternal(
 
           {/* Drag overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 flex items-center justify-center
+            <div
+              className="absolute inset-0 flex items-center justify-center
               bg-primary/5 rounded-2xl border-2 border-dashed border-primary/30
-              pointer-events-none z-10">
+              pointer-events-none z-10"
+            >
               <div className="flex flex-col items-center gap-2 text-primary/70">
                 <ImagePlus size={24} />
                 <span className="text-sm font-medium">{t('Drop to add images')}</span>
@@ -367,7 +438,7 @@ function InputAreaInternal(
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               placeholder={placeholder || t('Type a message, let AICO-Bot help you...')}
-              disabled={isOnboardingSendStep}  // Only disabled during onboarding
+              disabled={isOnboardingSendStep} // Only disabled during onboarding
               readOnly={isOnboardingSendStep}
               rows={1}
               className={`w-full bg-transparent resize-none
@@ -461,10 +532,10 @@ function InputAreaInternal(
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export const InputArea = forwardRef<InputAreaRef, InputAreaProps>(InputAreaInternal)
+export const InputArea = forwardRef<InputAreaRef, InputAreaProps>(InputAreaInternal);
 
 /**
  * Input Toolbar - Bottom action bar
@@ -473,27 +544,27 @@ export const InputArea = forwardRef<InputAreaRef, InputAreaProps>(InputAreaInter
  * Layout: [+attachment] ──────────────────── [⚛ thinking] [send]
  */
 interface InputToolbarProps {
-  isGenerating: boolean
-  isStopping: boolean  // True when user clicked stop, waiting for cleanup
-  pendingCount: number  // Number of messages waiting in queue
-  onClearPending?: () => void  // Clear pending messages
-  isOnboarding: boolean
-  isProcessingImages: boolean
-  thinkingEnabled: boolean
-  onThinkingToggle: () => void
-  aiBrowserEnabled: boolean
-  onAIBrowserToggle: () => void
-  showAttachMenu: boolean
-  onAttachMenuToggle: () => void
-  onImageClick: () => void
-  imageCount: number
-  maxImages: number
-  attachMenuRef: React.RefObject<HTMLDivElement | null>
-  canSend: boolean
-  onSend: () => void
-  onStop: () => void
-  onCompactContext: () => void
-  isCompacting: boolean
+  isGenerating: boolean;
+  isStopping: boolean; // True when user clicked stop, waiting for cleanup
+  pendingCount: number; // Number of messages waiting in queue
+  onClearPending?: () => void; // Clear pending messages
+  isOnboarding: boolean;
+  isProcessingImages: boolean;
+  thinkingEnabled: boolean;
+  onThinkingToggle: () => void;
+  aiBrowserEnabled: boolean;
+  onAIBrowserToggle: () => void;
+  showAttachMenu: boolean;
+  onAttachMenuToggle: () => void;
+  onImageClick: () => void;
+  imageCount: number;
+  maxImages: number;
+  attachMenuRef: React.RefObject<HTMLDivElement | null>;
+  canSend: boolean;
+  onSend: () => void;
+  onStop: () => void;
+  onCompactContext: () => void;
+  isCompacting: boolean;
 }
 
 function InputToolbar({
@@ -517,9 +588,9 @@ function InputToolbar({
   onSend,
   onStop,
   onCompactContext,
-  isCompacting
+  isCompacting,
 }: InputToolbarProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between px-2 pb-2 pt-1">
       {/* Left section: attachment button + thinking toggle + compact button */}
@@ -532,29 +603,36 @@ function InputToolbar({
               disabled={isProcessingImages}
               className={`w-8 h-8 flex items-center justify-center rounded-lg
                 transition-all duration-150
-                ${showAttachMenu
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50'
+                ${
+                  showAttachMenu
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50'
                 }
                 ${isProcessingImages ? 'opacity-50 cursor-not-allowed' : ''}
               `}
               title={t('Add attachment')}
             >
-              <Plus size={18} className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`} />
+              <Plus
+                size={18}
+                className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`}
+              />
             </button>
 
             {/* Attachment menu dropdown */}
             {showAttachMenu && (
-              <div className="absolute bottom-full left-0 mb-2 py-1.5 bg-popover border border-border
-                rounded-xl shadow-lg min-w-[160px] z-20 animate-fade-in">
+              <div
+                className="absolute bottom-full left-0 mb-2 py-1.5 bg-popover border border-border
+                rounded-xl shadow-lg min-w-[160px] z-20 animate-fade-in"
+              >
                 <button
                   onClick={onImageClick}
                   disabled={imageCount >= maxImages}
                   className={`w-full px-3 py-2 flex items-center gap-3 text-sm
                     transition-colors duration-150
-                    ${imageCount >= maxImages
-                      ? 'text-muted-foreground/40 cursor-not-allowed'
-                      : 'text-foreground hover:bg-muted/50'
+                    ${
+                      imageCount >= maxImages
+                        ? 'text-muted-foreground/40 cursor-not-allowed'
+                        : 'text-foreground hover:bg-muted/50'
                     }
                   `}
                 >
@@ -578,12 +656,15 @@ function InputToolbar({
             onClick={onAIBrowserToggle}
             className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg
               transition-colors duration-200 relative
-              ${aiBrowserEnabled
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
+              ${
+                aiBrowserEnabled
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
               }
             `}
-            title={aiBrowserEnabled ? t('AI Browser enabled (click to disable)') : t('Enable AI Browser')}
+            title={
+              aiBrowserEnabled ? t('AI Browser enabled (click to disable)') : t('Enable AI Browser')
+            }
           >
             <Globe size={15} />
             <span className="text-xs">{t('Browser')}</span>
@@ -600,9 +681,10 @@ function InputToolbar({
             onClick={onThinkingToggle}
             className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg
               transition-colors duration-200
-              ${thinkingEnabled
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
+              ${
+                thinkingEnabled
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
               }
             `}
             title={thinkingEnabled ? t('Disable Deep Thinking') : t('Enable Deep Thinking')}
@@ -619,19 +701,16 @@ function InputToolbar({
             disabled={isCompacting}
             className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg
               transition-colors duration-200
-              ${isCompacting
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
+              ${
+                isCompacting
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50'
               }
               ${isCompacting ? 'cursor-not-allowed' : ''}
             `}
             title={isCompacting ? t('Compressing context...') : t('Compress context (free memory)')}
           >
-            {isCompacting ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Boxes size={15} />
-            )}
+            {isCompacting ? <Loader2 size={15} className="animate-spin" /> : <Boxes size={15} />}
             <span className="text-xs">{t('Compress')}</span>
           </button>
         )}
@@ -650,8 +729,8 @@ function InputToolbar({
             {onClearPending && (
               <button
                 onClick={(e) => {
-                  e.stopPropagation()
-                  onClearPending()
+                  e.stopPropagation();
+                  onClearPending();
                 }}
                 className="ml-1 p-0.5 rounded hover:bg-primary/20 transition-colors"
                 title={t('Cancel pending messages')}
@@ -692,19 +771,30 @@ function InputToolbar({
             disabled={!canSend}
             className={`
               w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200
-              ${canSend
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95'
-                : 'bg-muted/50 text-muted-foreground/40 cursor-not-allowed'
+              ${
+                canSend
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95'
+                  : 'bg-muted/50 text-muted-foreground/40 cursor-not-allowed'
               }
             `}
             title={thinkingEnabled ? t('Send (Deep Thinking)') : t('Send')}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18"
+              />
             </svg>
           </button>
         )}
       </div>
     </div>
-  )
+  );
 }

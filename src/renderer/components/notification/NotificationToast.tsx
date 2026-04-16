@@ -11,16 +11,20 @@
  * Mount once in App.tsx — it reads from useNotificationStore.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
-import { X, Bell, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react'
-import { useNotificationStore, type ToastItem, type ToastVariant } from '../../stores/notification.store'
+import { useEffect, useRef, useCallback } from 'react';
+import { X, Bell, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
+import {
+  useNotificationStore,
+  type ToastItem,
+  type ToastVariant,
+} from '../../stores/notification.store';
 
 // ── Variant config ──────────────────────────────────────
 
 interface VariantStyle {
-  icon: React.ReactNode
-  bg: string
-  text: string
+  icon: React.ReactNode;
+  bg: string;
+  text: string;
 }
 
 const variantStyles: Record<ToastVariant, VariantStyle> = {
@@ -44,52 +48,55 @@ const variantStyles: Record<ToastVariant, VariantStyle> = {
     bg: 'bg-red-500/20',
     text: 'text-red-400',
   },
-}
+};
 
 // ── Single Toast ────────────────────────────────────────
 
 function Toast({ toast }: { toast: ToastItem }) {
-  const dismiss = useNotificationStore((s) => s.dismiss)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dismiss = useNotificationStore((s) => s.dismiss);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleDismiss = useCallback(() => {
-    dismiss(toast.id)
-  }, [dismiss, toast.id])
+    dismiss(toast.id);
+  }, [dismiss, toast.id]);
 
   // Auto-dismiss
   useEffect(() => {
     if (toast.duration > 0) {
-      timerRef.current = setTimeout(handleDismiss, toast.duration)
+      timerRef.current = setTimeout(handleDismiss, toast.duration);
     }
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [toast.duration, handleDismiss])
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [toast.duration, handleDismiss]);
 
-  const style = variantStyles[toast.variant]
+  const style = variantStyles[toast.variant];
 
   return (
     <div className="animate-in slide-in-from-bottom-4 fade-in duration-300 pointer-events-auto">
       <div className="bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl p-4 max-w-sm">
         <div className="flex items-start gap-3">
           {/* Icon */}
-          <div className={`flex-shrink-0 w-10 h-10 ${style.bg} rounded-full flex items-center justify-center`}>
+          <div
+            className={`flex-shrink-0 w-10 h-10 ${style.bg} rounded-full flex items-center justify-center`}
+          >
             {style.icon}
           </div>
 
           {/* Content */}
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-medium text-zinc-100">{toast.title}</h4>
-            {toast.body && (
-              <p className="text-xs text-zinc-400 mt-1 line-clamp-3">{toast.body}</p>
-            )}
+            {toast.body && <p className="text-xs text-zinc-400 mt-1 line-clamp-3">{toast.body}</p>}
 
             {/* Actions */}
             {(toast.action || toast.secondaryAction) && (
               <div className="flex items-center gap-2 mt-3">
                 {toast.action && (
                   <button
-                    onClick={() => { toast.action!.onClick(); handleDismiss() }}
+                    onClick={() => {
+                      toast.action!.onClick();
+                      handleDismiss();
+                    }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 ${
                       toast.variant === 'error'
                         ? 'bg-red-600 hover:bg-red-500'
@@ -105,7 +112,10 @@ function Toast({ toast }: { toast: ToastItem }) {
                 )}
                 {toast.secondaryAction && (
                   <button
-                    onClick={() => { toast.secondaryAction!.onClick(); handleDismiss() }}
+                    onClick={() => {
+                      toast.secondaryAction!.onClick();
+                      handleDismiss();
+                    }}
                     className="px-3 py-1.5 text-zinc-400 hover:text-zinc-200 text-xs transition-colors"
                   >
                     {toast.secondaryAction.label}
@@ -125,15 +135,15 @@ function Toast({ toast }: { toast: ToastItem }) {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Container ───────────────────────────────────────────
 
 export function NotificationToast() {
-  const toasts = useNotificationStore((s) => s.toasts)
+  const toasts = useNotificationStore((s) => s.toasts);
 
-  if (toasts.length === 0) return null
+  if (toasts.length === 0) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
@@ -141,5 +151,5 @@ export function NotificationToast() {
         <Toast key={toast.id} toast={toast} />
       ))}
     </div>
-  )
+  );
 }

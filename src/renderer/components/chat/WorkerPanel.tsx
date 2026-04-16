@@ -9,28 +9,28 @@
  * - Completion/error status
  */
 
-import { useState, useRef, useEffect } from 'react'
-import { ThoughtProcess } from './ThoughtProcess'
-import { MarkdownRenderer } from './MarkdownRenderer'
-import { AskUserQuestionCard } from './AskUserQuestionCard'
-import type { Thought } from '../../types'
-import type { WorkerSessionState } from '../../stores/chat.store'
-import { useTranslation } from '../../i18n'
-import { Wrench, CheckCircle2, XCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react';
+import { ThoughtProcess } from './ThoughtProcess';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { AskUserQuestionCard } from './AskUserQuestionCard';
+import type { Thought } from '../../types';
+import type { WorkerSessionState } from '../../stores/chat.store';
+import { useTranslation } from '../../i18n';
+import { Wrench, CheckCircle2, XCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 
 interface WorkerPanelProps {
-  worker: WorkerSessionState
-  onAnswerQuestion?: (answers: Record<string, string>) => void
+  worker: WorkerSessionState;
+  onAnswerQuestion?: (answers: Record<string, string>) => void;
 }
 
 export function WorkerPanel({ worker, onAnswerQuestion }: WorkerPanelProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(true)
-  const [isThoughtExpanded, setIsThoughtExpanded] = useState(true)
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [isThoughtExpanded, setIsThoughtExpanded] = useState(true);
 
-  const isRunning = worker.status === 'running'
-  const isCompleted = worker.status === 'completed'
-  const isFailed = worker.status === 'failed'
+  const isRunning = worker.status === 'running';
+  const isCompleted = worker.status === 'completed';
+  const isFailed = worker.status === 'failed';
 
   return (
     <div className="rounded-xl border border-border/50 bg-card/30 overflow-hidden mb-3 animate-fade-in">
@@ -89,10 +89,7 @@ export function WorkerPanel({ worker, onAnswerQuestion }: WorkerPanelProps) {
                 <span className="opacity-50">({worker.thoughts.length})</span>
               </button>
               {isThoughtExpanded && (
-                <ThoughtProcess
-                  thoughts={worker.thoughts}
-                  isThinking={worker.isThinking}
-                />
+                <ThoughtProcess thoughts={worker.thoughts} isThinking={worker.isThinking} />
               )}
             </div>
           )}
@@ -110,14 +107,16 @@ export function WorkerPanel({ worker, onAnswerQuestion }: WorkerPanelProps) {
           )}
 
           {/* AskUserQuestion card — worker needs user input */}
-          {worker.pendingQuestion && worker.pendingQuestion.status === 'active' && onAnswerQuestion && (
-            <div className="mt-2">
-              <AskUserQuestionCard
-                pendingQuestion={worker.pendingQuestion}
-                onAnswer={onAnswerQuestion}
-              />
-            </div>
-          )}
+          {worker.pendingQuestion &&
+            worker.pendingQuestion.status === 'active' &&
+            onAnswerQuestion && (
+              <div className="mt-2">
+                <AskUserQuestionCard
+                  pendingQuestion={worker.pendingQuestion}
+                  onAnswer={onAnswerQuestion}
+                />
+              </div>
+            )}
 
           {/* Error */}
           {worker.error && (
@@ -136,22 +135,29 @@ export function WorkerPanel({ worker, onAnswerQuestion }: WorkerPanelProps) {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 /**
  * WorkerPanelsContainer — Renders all active worker panels for a conversation
  */
-export function WorkerPanelsContainer({ workerSessions, onAnswerQuestion }: { workerSessions: Map<string, WorkerSessionState>; onAnswerQuestion?: (agentId: string, answers: Record<string, string>) => void }) {
-  if (workerSessions.size === 0) return null
+export function WorkerPanelsContainer({
+  workerSessions,
+  onAnswerQuestion,
+}: {
+  workerSessions: Map<string, WorkerSessionState>;
+  onAnswerQuestion?: (agentId: string, answers: Record<string, string>) => void;
+}) {
+  if (workerSessions.size === 0) return null;
 
   // Only show delegation-mode workers inline in main conversation.
   // Mention-mode workers display their output directly in the main streaming content,
   // so showing a WorkerPanel would duplicate the content.
-  const workers = Array.from(workerSessions.values())
-    .filter(w => w.interactionMode !== 'mention')
+  const workers = Array.from(workerSessions.values()).filter(
+    (w) => w.interactionMode !== 'mention',
+  );
 
-  if (workers.length === 0) return null
+  if (workers.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-0">
@@ -159,11 +165,13 @@ export function WorkerPanelsContainer({ workerSessions, onAnswerQuestion }: { wo
         <WorkerPanel
           key={worker.agentId}
           worker={worker}
-          onAnswerQuestion={worker.pendingQuestion?.status === 'active' && onAnswerQuestion
-            ? (answers) => onAnswerQuestion(worker.agentId, answers)
-            : undefined}
+          onAnswerQuestion={
+            worker.pendingQuestion?.status === 'active' && onAnswerQuestion
+              ? (answers) => onAnswerQuestion(worker.agentId, answers)
+              : undefined
+          }
         />
       ))}
     </div>
-  )
+  );
 }

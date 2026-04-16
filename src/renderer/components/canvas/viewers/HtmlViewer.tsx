@@ -10,83 +10,82 @@
  * - "Open in Browser" mode for full rendering capabilities
  */
 
-import { useState, useRef, useMemo } from 'react'
-import { Copy, Check, Code, Eye, ExternalLink, Globe } from 'lucide-react'
-import { highlightCodeSync } from '../../../lib/highlight-loader'
-import { useTranslation } from '../../../i18n'
-import { api } from '../../../api'
-import { useCanvasStore, type CanvasTab } from '../../../stores/canvas.store'
+import { useState, useRef, useMemo } from 'react';
+import { Copy, Check, Code, Eye, ExternalLink, Globe } from 'lucide-react';
+import { highlightCodeSync } from '../../../lib/highlight-loader';
+import { useTranslation } from '../../../i18n';
+import { api } from '../../../api';
+import { useCanvasStore, type CanvasTab } from '../../../stores/canvas.store';
 
 interface HtmlViewerProps {
-  tab: CanvasTab
+  tab: CanvasTab;
 }
 
 export function HtmlViewer({ tab }: HtmlViewerProps) {
-  const { t } = useTranslation()
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [viewMode, setViewMode] = useState<'preview' | 'source'>('preview')
-  const [copied, setCopied] = useState(false)
+  const { t } = useTranslation();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [viewMode, setViewMode] = useState<'preview' | 'source'>('preview');
+  const [copied, setCopied] = useState(false);
 
-  const content = tab.content || ''
+  const content = tab.content || '';
 
   // Highlighted source code (HTML/XML is pre-loaded)
   const highlightedSource = useMemo(() => {
-    if (!content) return ''
-    return highlightCodeSync(content, 'html')
-  }, [content])
+    if (!content) return '';
+    return highlightCodeSync(content, 'html');
+  }, [content]);
 
   // Copy content
   const handleCopy = async () => {
-    if (!content) return
+    if (!content) return;
     try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }
-
+  };
 
   // Open in new window - write to temp file or use data URI
   const handleOpenExternal = async () => {
-    if (!content) return
+    if (!content) return;
 
     // For desktop mode, we can use openArtifact if we have the file path
     if (tab.path && !api.isRemoteMode()) {
       try {
-        await api.openArtifact(tab.path)
-        return
+        await api.openArtifact(tab.path);
+        return;
       } catch (error) {
-        console.error('Failed to open with system app:', error)
+        console.error('Failed to open with system app:', error);
       }
     }
 
     // Fallback: Open as data URI in new tab
-    const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(content)}`
-    window.open(dataUri, '_blank')
-  }
+    const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(content)}`;
+    window.open(dataUri, '_blank');
+  };
 
   // Count lines for source view
-  const lines = content.split('\n')
+  const lines = content.split('\n');
 
   // Open in embedded browser (BrowserViewer)
-  const openUrl = useCanvasStore(state => state.openUrl)
-  const closeTab = useCanvasStore(state => state.closeTab)
+  const openUrl = useCanvasStore((state) => state.openUrl);
+  const closeTab = useCanvasStore((state) => state.closeTab);
 
   const handleOpenInBrowser = async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
 
     // For local files, use file:// protocol
-    const fileUrl = `file://${tab.path}`
-    openUrl(fileUrl, tab.title)
+    const fileUrl = `file://${tab.path}`;
+    openUrl(fileUrl, tab.title);
 
     // Close the current HtmlViewer tab
-    closeTab(tab.id)
-  }
+    closeTab(tab.id);
+  };
 
   // Check if browser mode is available (desktop only)
-  const canOpenInBrowser = !api.isRemoteMode() && tab.path
+  const canOpenInBrowser = !api.isRemoteMode() && tab.path;
 
   return (
     <div className="relative flex flex-col h-full bg-background">
@@ -99,9 +98,10 @@ export function HtmlViewer({ tab }: HtmlViewerProps) {
               onClick={() => setViewMode('preview')}
               className={`
                 flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
-                ${viewMode === 'preview'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                ${
+                  viewMode === 'preview'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }
               `}
             >
@@ -112,9 +112,10 @@ export function HtmlViewer({ tab }: HtmlViewerProps) {
               onClick={() => setViewMode('source')}
               className={`
                 flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
-                ${viewMode === 'source'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                ${
+                  viewMode === 'source'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }
               `}
             >
@@ -182,9 +183,7 @@ export function HtmlViewer({ tab }: HtmlViewerProps) {
             {/* Line numbers */}
             <div className="sticky left-0 flex-shrink-0 select-none bg-background/80 backdrop-blur-sm border-r border-border/50 text-right text-muted-foreground/40 pr-3 pl-4 py-4 leading-6">
               {lines.map((_, i) => (
-                <div key={i + 1}>
-                  {i + 1}
-                </div>
+                <div key={i + 1}>{i + 1}</div>
               ))}
             </div>
 
@@ -199,5 +198,5 @@ export function HtmlViewer({ tab }: HtmlViewerProps) {
         )}
       </div>
     </div>
-  )
+  );
 }

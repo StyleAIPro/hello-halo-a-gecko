@@ -6,75 +6,75 @@
  * - Skip option (degraded mode, no command execution)
  */
 
-import { useState } from 'react'
-import { AicoBotLogo } from '../brand/AicoBotLogo'
-import { Loader2, Check, AlertTriangle, X, Download, ExternalLink } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { useState } from 'react';
+import { AicoBotLogo } from '../brand/AicoBotLogo';
+import { Loader2, Check, AlertTriangle, X, Download, ExternalLink } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface DownloadProgress {
-  phase: 'downloading' | 'extracting' | 'configuring' | 'done' | 'error'
-  progress: number
-  message: string
-  error?: string
+  phase: 'downloading' | 'extracting' | 'configuring' | 'done' | 'error';
+  progress: number;
+  message: string;
+  error?: string;
 }
 
 interface GitBashSetupProps {
-  onComplete: (installed: boolean) => void
+  onComplete: (installed: boolean) => void;
 }
 
-type Phase = 'choice' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error' | 'skipped'
+type Phase = 'choice' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error' | 'skipped';
 
 export function GitBashSetup({ onComplete }: GitBashSetupProps) {
-  const { t } = useTranslation()
-  const [phase, setPhase] = useState<Phase>('choice')
-  const [progress, setProgress] = useState(0)
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
-  const [autoInstall, setAutoInstall] = useState(true)
+  const { t } = useTranslation();
+  const [phase, setPhase] = useState<Phase>('choice');
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [autoInstall, setAutoInstall] = useState(true);
 
   const handleContinue = async () => {
     if (!autoInstall) {
       // User chose to skip
-      setPhase('skipped')
-      setTimeout(() => onComplete(false), 1500)
-      return
+      setPhase('skipped');
+      setTimeout(() => onComplete(false), 1500);
+      return;
     }
 
     // Start installation
-    setPhase('downloading')
+    setPhase('downloading');
 
     try {
       const result = await window.aicoBot.installGitBash((progressData: DownloadProgress) => {
-        setPhase(progressData.phase as Phase)
-        setProgress(progressData.progress)
-        setMessage(progressData.message)
+        setPhase(progressData.phase as Phase);
+        setProgress(progressData.progress);
+        setMessage(progressData.message);
         if (progressData.error) {
-          setError(progressData.error)
+          setError(progressData.error);
         }
-      })
+      });
 
       if (result.success) {
-        setPhase('done')
-        setTimeout(() => onComplete(true), 1500)
+        setPhase('done');
+        setTimeout(() => onComplete(true), 1500);
       } else {
-        setPhase('error')
-        setError(result.error || t('Unknown error'))
+        setPhase('error');
+        setError(result.error || t('Unknown error'));
       }
     } catch (e) {
-      setPhase('error')
-      setError(e instanceof Error ? e.message : String(e))
+      setPhase('error');
+      setError(e instanceof Error ? e.message : String(e));
     }
-  }
+  };
 
   const handleRetry = () => {
-    setPhase('choice')
-    setError('')
-    setProgress(0)
-  }
+    setPhase('choice');
+    setError('');
+    setProgress(0);
+  };
 
   const handleManualInstall = () => {
-    window.aicoBot.openExternal?.('https://git-scm.com/downloads/win')
-  }
+    window.aicoBot.openExternal?.('https://git-scm.com/downloads/win');
+  };
 
   // Choice screen
   if (phase === 'choice') {
@@ -87,7 +87,9 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
           </div>
 
           <p className="text-muted-foreground mb-6 leading-relaxed">
-            {t('To enable AI to execute system commands (such as git, npm, pip, etc.), a command execution environment needs to be installed. This is a one-time operation and does not require reconfiguration after installation.')}
+            {t(
+              'To enable AI to execute system commands (such as git, npm, pip, etc.), a command execution environment needs to be installed. This is a one-time operation and does not require reconfiguration after installation.',
+            )}
           </p>
 
           <div className="space-y-3 mb-6">
@@ -108,10 +110,14 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
                 <div className="flex items-center gap-2">
                   <Download className="w-4 h-4 text-primary" />
                   <span className="font-medium">{t('Auto download and install')}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{t('Recommended')}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    {t('Recommended')}
+                  </span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {t('About 50MB, automatically configured after download, no other operations required')}
+                  {t(
+                    'About 50MB, automatically configured after download, no other operations required',
+                  )}
                 </div>
               </div>
             </label>
@@ -135,7 +141,9 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
                   <span className="font-medium">{t('Skip, install manually later')}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {t('AI will not be able to execute system commands, only supports conversation and code generation')}
+                  {t(
+                    'AI will not be able to execute system commands, only supports conversation and code generation',
+                  )}
                 </div>
               </div>
             </label>
@@ -149,7 +157,7 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   // Download/Install progress screen
@@ -162,7 +170,9 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
               <Loader2 className="w-10 h-10 text-primary animate-spin" />
             </div>
             <h3 className="text-lg font-medium mb-2">{message}</h3>
-            <p className="text-sm text-muted-foreground">{t('First-time initialization, please wait...')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('First-time initialization, please wait...')}
+            </p>
           </div>
 
           {/* Progress bar */}
@@ -175,7 +185,7 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
           <p className="mt-3 text-sm text-muted-foreground font-medium">{progress}%</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Success screen
@@ -190,7 +200,7 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
           <p className="text-sm text-muted-foreground">{t('Entering application...')}</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Skipped screen
@@ -202,10 +212,12 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
             <AlertTriangle className="w-10 h-10 text-yellow-500" />
           </div>
           <h3 className="text-lg font-medium mb-2">{t('Limited functionality mode')}</h3>
-          <p className="text-sm text-muted-foreground">{t('AI will not be able to execute system commands')}</p>
+          <p className="text-sm text-muted-foreground">
+            {t('AI will not be able to execute system commands')}
+          </p>
         </div>
       </div>
-    )
+    );
   }
 
   // Error screen
@@ -244,8 +256,8 @@ export function GitBashSetup({ onComplete }: GitBashSetupProps) {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
-  return null
+  return null;
 }

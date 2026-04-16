@@ -7,13 +7,21 @@
  * 3. DiffModal - Full diff view when file is clicked
  */
 
-export { FileChangesFooter } from './FileChangesFooter'
-export { FileChangesList } from './FileChangesList'
-export { DiffModal } from './DiffModal'
-export { DiffContent } from './DiffContent'
+export { FileChangesFooter } from './FileChangesFooter';
+export { FileChangesList } from './FileChangesList';
+export { DiffModal } from './DiffModal';
+export { DiffContent } from './DiffContent';
 
 // Types
-export type { FileChange, FileChanges, FileChangeType, DiffModalState, EditChunk } from './types'
+export type { FileChange, FileChanges, FileChangeType, DiffModalState, EditChunk } from './types';
 
 // Utils
-export { extractFileChanges, hasFileChanges, getAllFileChanges, formatStats, toFileChangesSummary, extractFileChangesSummary, summaryToFileChanges } from './utils'
+export {
+  extractFileChanges,
+  hasFileChanges,
+  getAllFileChanges,
+  formatStats,
+  toFileChangesSummary,
+  extractFileChangesSummary,
+  summaryToFileChanges,
+} from './utils';
