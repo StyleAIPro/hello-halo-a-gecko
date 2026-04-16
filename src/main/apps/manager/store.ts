@@ -9,9 +9,9 @@
  * The store does not enforce business rules -- that is the service layer's job.
  */
 
-import type Database from 'better-sqlite3'
-import type { AppSpec } from '../spec'
-import type { InstalledApp, AppStatus, RunOutcome, AppListFilter } from './types'
+import type Database from 'better-sqlite3';
+import type { AppSpec } from '../spec';
+import type { InstalledApp, AppStatus, RunOutcome, AppListFilter } from './types';
 
 // ============================================
 // SQLite Row Type (flat DB representation)
@@ -19,20 +19,20 @@ import type { InstalledApp, AppStatus, RunOutcome, AppListFilter } from './types
 
 /** Shape of a row from the installed_apps table */
 interface AppRow {
-  id: string
-  spec_id: string
-  space_id: string
-  spec_json: string
-  status: string
-  pending_escalation_id: string | null
-  user_config_json: string
-  user_overrides_json: string
-  permissions_json: string
-  installed_at: number
-  last_run_at: number | null
-  last_run_outcome: string | null
-  error_message: string | null
-  uninstalled_at: number | null
+  id: string;
+  spec_id: string;
+  space_id: string;
+  spec_json: string;
+  status: string;
+  pending_escalation_id: string | null;
+  user_config_json: string;
+  user_overrides_json: string;
+  permissions_json: string;
+  installed_at: number;
+  last_run_at: number | null;
+  last_run_outcome: string | null;
+  error_message: string | null;
+  uninstalled_at: number | null;
 }
 
 // ============================================
@@ -58,7 +58,7 @@ function rowToInstalledApp(row: AppRow): InstalledApp {
     lastRunOutcome: (row.last_run_outcome as RunOutcome) ?? undefined,
     errorMessage: row.error_message ?? undefined,
     uninstalledAt: row.uninstalled_at ?? undefined,
-  }
+  };
 }
 
 // ============================================
@@ -73,18 +73,18 @@ function rowToInstalledApp(row: AppRow): InstalledApp {
  * any data in memory.
  */
 export class AppManagerStore {
-  private readonly stmtInsert: Database.Statement
-  private readonly stmtGetById: Database.Statement
-  private readonly stmtDeleteById: Database.Statement
-  private readonly stmtUpdateStatus: Database.Statement
-  private readonly stmtUpdateConfig: Database.Statement
-  private readonly stmtUpdateOverrides: Database.Statement
-  private readonly stmtUpdatePermissions: Database.Statement
-  private readonly stmtUpdateLastRun: Database.Statement
-  private readonly stmtUpdateSpec: Database.Statement
-  private readonly stmtListAll: Database.Statement
-  private readonly stmtGetBySpecAndSpace: Database.Statement
-  private readonly stmtUpdateUninstalledAt: Database.Statement
+  private readonly stmtInsert: Database.Statement;
+  private readonly stmtGetById: Database.Statement;
+  private readonly stmtDeleteById: Database.Statement;
+  private readonly stmtUpdateStatus: Database.Statement;
+  private readonly stmtUpdateConfig: Database.Statement;
+  private readonly stmtUpdateOverrides: Database.Statement;
+  private readonly stmtUpdatePermissions: Database.Statement;
+  private readonly stmtUpdateLastRun: Database.Statement;
+  private readonly stmtUpdateSpec: Database.Statement;
+  private readonly stmtListAll: Database.Statement;
+  private readonly stmtGetBySpecAndSpace: Database.Statement;
+  private readonly stmtUpdateUninstalledAt: Database.Statement;
 
   constructor(private readonly db: Database.Database) {
     // ── INSERT ────────────────────────────────────
@@ -98,25 +98,25 @@ export class AppManagerStore {
         @pending_escalation_id, @user_config_json, @user_overrides_json,
         @permissions_json, @installed_at, @last_run_at, @last_run_outcome, @error_message
       )
-    `)
+    `);
 
     // ── SELECT ────────────────────────────────────
     this.stmtGetById = db.prepare(`
       SELECT * FROM installed_apps WHERE id = ?
-    `)
+    `);
 
     this.stmtGetBySpecAndSpace = db.prepare(`
       SELECT * FROM installed_apps WHERE spec_id = ? AND space_id = ?
-    `)
+    `);
 
     this.stmtListAll = db.prepare(`
       SELECT * FROM installed_apps ORDER BY installed_at DESC
-    `)
+    `);
 
     // ── DELETE ────────────────────────────────────
     this.stmtDeleteById = db.prepare(`
       DELETE FROM installed_apps WHERE id = ?
-    `)
+    `);
 
     // ── UPDATE ────────────────────────────────────
     this.stmtUpdateStatus = db.prepare(`
@@ -125,25 +125,25 @@ export class AppManagerStore {
           pending_escalation_id = @pending_escalation_id,
           error_message = @error_message
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdateConfig = db.prepare(`
       UPDATE installed_apps
       SET user_config_json = @user_config_json
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdateOverrides = db.prepare(`
       UPDATE installed_apps
       SET user_overrides_json = @user_overrides_json
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdatePermissions = db.prepare(`
       UPDATE installed_apps
       SET permissions_json = @permissions_json
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdateLastRun = db.prepare(`
       UPDATE installed_apps
@@ -151,20 +151,20 @@ export class AppManagerStore {
           last_run_outcome = @last_run_outcome,
           error_message = @error_message
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdateSpec = db.prepare(`
       UPDATE installed_apps
       SET spec_json = @spec_json,
           spec_id = @spec_id
       WHERE id = @id
-    `)
+    `);
 
     this.stmtUpdateUninstalledAt = db.prepare(`
       UPDATE installed_apps
       SET uninstalled_at = @uninstalled_at
       WHERE id = @id
-    `)
+    `);
   }
 
   // ── Create ─────────────────────────────────────
@@ -189,7 +189,7 @@ export class AppManagerStore {
       last_run_at: app.lastRunAt ?? null,
       last_run_outcome: app.lastRunOutcome ?? null,
       error_message: app.errorMessage ?? null,
-    })
+    });
   }
 
   // ── Read ───────────────────────────────────────
@@ -199,8 +199,8 @@ export class AppManagerStore {
    * Returns null if not found.
    */
   getById(appId: string): InstalledApp | null {
-    const row = this.stmtGetById.get(appId) as AppRow | undefined
-    return row ? rowToInstalledApp(row) : null
+    const row = this.stmtGetById.get(appId) as AppRow | undefined;
+    return row ? rowToInstalledApp(row) : null;
   }
 
   /**
@@ -208,8 +208,8 @@ export class AppManagerStore {
    * Returns the existing InstalledApp if found, null otherwise.
    */
   getBySpecAndSpace(specId: string, spaceId: string): InstalledApp | null {
-    const row = this.stmtGetBySpecAndSpace.get(specId, spaceId) as AppRow | undefined
-    return row ? rowToInstalledApp(row) : null
+    const row = this.stmtGetBySpecAndSpace.get(specId, spaceId) as AppRow | undefined;
+    return row ? rowToInstalledApp(row) : null;
   }
 
   /**
@@ -220,25 +220,25 @@ export class AppManagerStore {
    * and simpler than dynamic SQL construction.
    */
   list(filter?: AppListFilter): InstalledApp[] {
-    const rows = this.stmtListAll.all() as AppRow[]
-    let apps = rows.map(rowToInstalledApp)
+    const rows = this.stmtListAll.all() as AppRow[];
+    let apps = rows.map(rowToInstalledApp);
 
     if (filter) {
       if (filter.spaceId) {
-        const spaceId = filter.spaceId
-        apps = apps.filter(a => a.spaceId === spaceId)
+        const spaceId = filter.spaceId;
+        apps = apps.filter((a) => a.spaceId === spaceId);
       }
       if (filter.status) {
-        const status = filter.status
-        apps = apps.filter(a => a.status === status)
+        const status = filter.status;
+        apps = apps.filter((a) => a.status === status);
       }
       if (filter.type) {
-        const type = filter.type
-        apps = apps.filter(a => a.spec.type === type)
+        const type = filter.type;
+        apps = apps.filter((a) => a.spec.type === type);
       }
     }
 
-    return apps
+    return apps;
   }
 
   // ── Update ─────────────────────────────────────
@@ -250,14 +250,14 @@ export class AppManagerStore {
     appId: string,
     status: AppStatus,
     pendingEscalationId: string | null,
-    errorMessage: string | null
+    errorMessage: string | null,
   ): void {
     this.stmtUpdateStatus.run({
       id: appId,
       status,
       pending_escalation_id: pendingEscalationId,
       error_message: errorMessage,
-    })
+    });
   }
 
   /**
@@ -267,7 +267,7 @@ export class AppManagerStore {
     this.stmtUpdateConfig.run({
       id: appId,
       user_config_json: JSON.stringify(config),
-    })
+    });
   }
 
   /**
@@ -277,7 +277,7 @@ export class AppManagerStore {
     this.stmtUpdateOverrides.run({
       id: appId,
       user_overrides_json: JSON.stringify(overrides),
-    })
+    });
   }
 
   /**
@@ -287,7 +287,7 @@ export class AppManagerStore {
     this.stmtUpdatePermissions.run({
       id: appId,
       permissions_json: JSON.stringify(permissions),
-    })
+    });
   }
 
   /**
@@ -298,7 +298,7 @@ export class AppManagerStore {
       id: appId,
       spec_json: JSON.stringify(spec),
       spec_id: spec.name,
-    })
+    });
   }
 
   /**
@@ -308,14 +308,14 @@ export class AppManagerStore {
     appId: string,
     lastRunAt: number,
     outcome: RunOutcome,
-    errorMessage: string | null
+    errorMessage: string | null,
   ): void {
     this.stmtUpdateLastRun.run({
       id: appId,
       last_run_at: lastRunAt,
       last_run_outcome: outcome,
       error_message: errorMessage,
-    })
+    });
   }
 
   /**
@@ -326,7 +326,7 @@ export class AppManagerStore {
     this.stmtUpdateUninstalledAt.run({
       id: appId,
       uninstalled_at: ts,
-    })
+    });
   }
 
   // ── Delete ─────────────────────────────────────
@@ -336,7 +336,7 @@ export class AppManagerStore {
    * Returns true if a row was actually deleted, false if it did not exist.
    */
   delete(appId: string): boolean {
-    const result = this.stmtDeleteById.run(appId)
-    return result.changes > 0
+    const result = this.stmtDeleteById.run(appId);
+    return result.changes > 0;
   }
 }

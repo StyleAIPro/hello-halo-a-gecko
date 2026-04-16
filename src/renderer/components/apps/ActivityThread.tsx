@@ -13,19 +13,19 @@
  * with a glowing node and ambient gradient.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
-import { Loader2, ChevronRight } from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { ActivityEntryCard } from './ActivityEntryCard'
-import { useTranslation } from '../../i18n'
+import { useEffect, useRef, useCallback } from 'react';
+import { Loader2, ChevronRight } from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { ActivityEntryCard } from './ActivityEntryCard';
+import { useTranslation } from '../../i18n';
 
 interface ActivityThreadProps {
-  appId: string
+  appId: string;
 }
 
 export function ActivityThread({ appId }: ActivityThreadProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   const {
     apps,
     appStates,
@@ -34,58 +34,58 @@ export function ActivityThread({ appId }: ActivityThreadProps) {
     loadActivity,
     loadMoreActivity,
     loadAppState,
-  } = useAppsStore()
-  const openSessionDetail = useAppsPageStore(s => s.openSessionDetail)
+  } = useAppsStore();
+  const openSessionDetail = useAppsPageStore((s) => s.openSessionDetail);
 
-  const app = apps.find(a => a.id === appId)
-  const entries = activityEntries[appId] ?? []
-  const hasMore = activityHasMore[appId] ?? false
-  const runtimeState = appStates[appId]
+  const app = apps.find((a) => a.id === appId);
+  const entries = activityEntries[appId] ?? [];
+  const hasMore = activityHasMore[appId] ?? false;
+  const runtimeState = appStates[appId];
 
   // Whether the app is currently executing a run
-  const isRunning = runtimeState?.status === 'running'
-  const runningRunId = runtimeState?.runningRunId
-  const runningSessionKey = runtimeState?.runningSessionKey
-  const runningAtMs = runtimeState?.runningAtMs
+  const isRunning = runtimeState?.status === 'running';
+  const runningRunId = runtimeState?.runningRunId;
+  const runningSessionKey = runtimeState?.runningSessionKey;
+  const runningAtMs = runtimeState?.runningAtMs;
 
   // Track whether we've loaded for this appId
-  const loadedRef = useRef<string | null>(null)
+  const loadedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (loadedRef.current !== appId) {
-      loadedRef.current = appId
-      loadActivity(appId)
-      loadAppState(appId)
+      loadedRef.current = appId;
+      loadActivity(appId);
+      loadAppState(appId);
     }
-  }, [appId, loadActivity, loadAppState])
+  }, [appId, loadActivity, loadAppState]);
 
   // Infinite scroll: observe the sentinel div at the bottom
-  const sentinelRef = useRef<HTMLDivElement>(null)
-  const loadingMoreRef = useRef(false)
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
 
   const handleIntersect = useCallback(
     (entries: IntersectionObserverEntry[]) => {
       if (entries[0]?.isIntersecting && hasMore && !loadingMoreRef.current) {
-        loadingMoreRef.current = true
+        loadingMoreRef.current = true;
         loadMoreActivity(appId).finally(() => {
-          loadingMoreRef.current = false
-        })
+          loadingMoreRef.current = false;
+        });
       }
     },
-    [appId, hasMore, loadMoreActivity]
-  )
+    [appId, hasMore, loadMoreActivity],
+  );
 
   useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-    const observer = new IntersectionObserver(handleIntersect, { threshold: 0.1 })
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [handleIntersect])
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(handleIntersect, { threshold: 0.1 });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [handleIntersect]);
 
-  if (!app) return null
+  if (!app) return null;
 
-  const hasEntries = entries.length > 0 || isRunning
+  const hasEntries = entries.length > 0 || isRunning;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -119,17 +119,30 @@ export function ActivityThread({ appId }: ActivityThreadProps) {
                 <div className="flex-1 min-w-0 activity-running-card px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[11px] text-muted-foreground/80 tabular-nums">
-                      {runningAtMs ? new Date(runningAtMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''}
+                      {runningAtMs
+                        ? new Date(runningAtMs).toLocaleTimeString(undefined, {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : ''}
                     </span>
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                     </span>
-                    <span className="text-xs font-medium text-foreground/80">{t('Working...')}</span>
+                    <span className="text-xs font-medium text-foreground/80">
+                      {t('Working...')}
+                    </span>
 
                     {/* View process link */}
                     <button
-                      onClick={() => openSessionDetail(appId, runningRunId, runningSessionKey || `app-run-${runningRunId.slice(0, 8)}`)}
+                      onClick={() =>
+                        openSessionDetail(
+                          appId,
+                          runningRunId,
+                          runningSessionKey || `app-run-${runningRunId.slice(0, 8)}`,
+                        )
+                      }
                       className="ml-auto flex items-center gap-0.5 text-xs text-primary/70 hover:text-primary transition-colors"
                     >
                       {t('View process')}
@@ -153,13 +166,11 @@ export function ActivityThread({ appId }: ActivityThreadProps) {
 
             {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="py-2 flex justify-center">
-              {hasMore && (
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground ml-5" />
-              )}
+              {hasMore && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground ml-5" />}
             </div>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }

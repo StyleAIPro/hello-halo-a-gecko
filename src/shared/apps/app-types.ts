@@ -33,12 +33,18 @@
  * - waiting_user:  AI triggered escalation; awaiting user decision
  * - uninstalled:   Soft-deleted; hidden from default views, can be reinstalled or permanently deleted
  */
-export type AppStatus = 'active' | 'paused' | 'error' | 'needs_login' | 'waiting_user' | 'uninstalled'
+export type AppStatus =
+  | 'active'
+  | 'paused'
+  | 'error'
+  | 'needs_login'
+  | 'waiting_user'
+  | 'uninstalled';
 
 /**
  * Outcome of a single App execution run.
  */
-export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
+export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped';
 
 /**
  * Full representation of an installed App instance.
@@ -48,67 +54,67 @@ export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
  */
 export interface InstalledApp {
   /** Unique installation ID (UUID v4) */
-  id: string
+  id: string;
 
   /** App specification identifier (from spec.name or a registry ID) */
-  specId: string
+  specId: string;
 
   /** Space this App is installed in */
-  spaceId: string
+  spaceId: string;
 
   /** Full AppSpec (initially set at install time, updatable via updateSpec) */
-  spec: import('./spec-types').AppSpec
+  spec: import('./spec-types').AppSpec;
 
   /** Current runtime status */
-  status: AppStatus
+  status: AppStatus;
 
   /**
    * Opaque escalation ID set when status is 'waiting_user'.
    * Points to an activity_entries record (managed by apps/runtime).
    */
-  pendingEscalationId?: string
+  pendingEscalationId?: string;
 
   /** User-provided configuration values (corresponds to spec.config_schema) */
-  userConfig: Record<string, unknown>
+  userConfig: Record<string, unknown>;
 
   /** User overrides for subscription frequencies and other tunable settings */
   userOverrides: {
-    frequency?: Record<string, string>  // subscriptionId -> frequency string
+    frequency?: Record<string, string>; // subscriptionId -> frequency string
     /** Notification level: 'all' | 'important' | 'none'. Defaults to 'important'. */
-    notificationLevel?: 'all' | 'important' | 'none'
+    notificationLevel?: 'all' | 'important' | 'none';
     /** Override AI source for this App. When set, uses this source instead of the global one. */
-    modelSourceId?: string
+    modelSourceId?: string;
     /** Override model within the selected AI source. Used together with modelSourceId. */
-    modelId?: string
-  }
+    modelId?: string;
+  };
 
   /** Permission grants and denials */
   permissions: {
-    granted: string[]
-    denied: string[]
-  }
+    granted: string[];
+    denied: string[];
+  };
 
   /** Unix timestamp (ms) when the App was installed */
-  installedAt: number
+  installedAt: number;
 
   /** Unix timestamp (ms) of the last execution run */
-  lastRunAt?: number
+  lastRunAt?: number;
 
   /** Outcome of the last execution run */
-  lastRunOutcome?: RunOutcome
+  lastRunOutcome?: RunOutcome;
 
   /** Error message from the last failed run or status change */
-  errorMessage?: string
+  errorMessage?: string;
 
   /** Unix timestamp (ms) when the App was soft-deleted (uninstalled). Undefined if active. */
-  uninstalledAt?: number
+  uninstalledAt?: number;
 }
 
 /** Filter criteria for listing Apps */
 export interface AppListFilter {
-  spaceId?: string
-  status?: AppStatus
-  type?: import('./spec-types').AppType
+  spaceId?: string;
+  status?: AppStatus;
+  type?: import('./spec-types').AppType;
 }
 
 // ============================================
@@ -122,47 +128,47 @@ export type ActivityEntryType =
   | 'run_error'
   | 'milestone'
   | 'escalation'
-  | 'output'
+  | 'output';
 
 /** Content of an activity entry */
 export interface ActivityEntryContent {
   /** Human-readable summary (required, written by AI) */
-  summary: string
+  summary: string;
   /** Run status indicator */
-  status?: 'ok' | 'error' | 'skipped'
+  status?: 'ok' | 'error' | 'skipped';
   /** Run duration in milliseconds */
-  durationMs?: number
+  durationMs?: number;
   /** Error message */
-  error?: string
+  error?: string;
   /** Next retry time (for run_error) */
-  nextRetryMs?: number
+  nextRetryMs?: number;
   /** Structured output data (tables, lists) */
-  data?: unknown
+  data?: unknown;
   /** Question for the user (escalation only) */
-  question?: string
+  question?: string;
   /** Preset choices for escalation */
-  choices?: string[]
+  choices?: string[];
   /** File URL for output type */
-  outputUrl?: string
+  outputUrl?: string;
 }
 
 /** User response to an escalation */
 export interface EscalationResponse {
-  ts: number
-  choice?: string
-  text?: string
+  ts: number;
+  choice?: string;
+  text?: string;
 }
 
 /** A single Activity Thread entry */
 export interface ActivityEntry {
-  id: string
-  appId: string
-  runId: string
-  type: ActivityEntryType
-  ts: number
-  sessionKey?: string
-  content: ActivityEntryContent
-  userResponse?: EscalationResponse
+  id: string;
+  appId: string;
+  runId: string;
+  type: ActivityEntryType;
+  ts: number;
+  sessionKey?: string;
+  content: ActivityEntryContent;
+  userResponse?: EscalationResponse;
 }
 
 /** Real-time state of an automation App (for UI display) */
@@ -175,27 +181,27 @@ export interface AutomationAppState {
    * - waiting_user: AI escalated; awaiting user decision
    * - error:        Consecutive failures hit threshold; auto-disabled
    */
-  status: 'running' | 'queued' | 'idle' | 'paused' | 'waiting_user' | 'error'
-  nextRunAtMs?: number
-  runningAtMs?: number
+  status: 'running' | 'queued' | 'idle' | 'paused' | 'waiting_user' | 'error';
+  nextRunAtMs?: number;
+  runningAtMs?: number;
   /** Run ID of the currently executing run (only set when status === 'running') */
-  runningRunId?: string
+  runningRunId?: string;
   /** Session key of the currently executing run (only set when status === 'running') */
-  runningSessionKey?: string
-  lastRunAtMs?: number
-  lastStatus?: 'ok' | 'error' | 'skipped'
-  lastError?: string
-  lastDurationMs?: number
-  consecutiveErrors?: number
-  pendingEscalationId?: string
+  runningSessionKey?: string;
+  lastRunAtMs?: number;
+  lastStatus?: 'ok' | 'error' | 'skipped';
+  lastError?: string;
+  lastDurationMs?: number;
+  consecutiveErrors?: number;
+  pendingEscalationId?: string;
 }
 
 /** Options for querying activity entries */
 export interface ActivityQueryOptions {
-  limit?: number
-  offset?: number
-  type?: ActivityEntryType
-  since?: number
+  limit?: number;
+  offset?: number;
+  type?: ActivityEntryType;
+  since?: number;
 }
 
 // ============================================
@@ -204,18 +210,18 @@ export interface ActivityQueryOptions {
 
 /** Standard success response with data */
 export interface AppSuccessResponse<T = unknown> {
-  success: true
-  data: T
+  success: true;
+  data: T;
 }
 
 /** Standard error response */
 export interface AppErrorResponse {
-  success: false
-  error: string
+  success: false;
+  error: string;
 }
 
 /** Union of success/error responses */
-export type AppResponse<T = unknown> = AppSuccessResponse<T> | AppErrorResponse
+export type AppResponse<T = unknown> = AppSuccessResponse<T> | AppErrorResponse;
 
 // ============================================
 // Permission Helpers
@@ -237,10 +243,10 @@ export type AppResponse<T = unknown> = AppSuccessResponse<T> | AppErrorResponse
 export function resolvePermission(
   app: Pick<InstalledApp, 'permissions' | 'spec'>,
   permission: string,
-  defaultValue = true
+  defaultValue = true,
 ): boolean {
-  if (app.permissions.denied.includes(permission)) return false
-  if (app.permissions.granted.includes(permission)) return true
+  if (app.permissions.denied.includes(permission)) return false;
+  if (app.permissions.granted.includes(permission)) return true;
   // Fall back to spec declaration, then to the provided default
-  return app.spec.permissions?.includes(permission) ?? defaultValue
+  return app.spec.permissions?.includes(permission) ?? defaultValue;
 }

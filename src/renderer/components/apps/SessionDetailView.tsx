@@ -20,97 +20,100 @@
  * - A pulsing indicator shows that the session is live.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Loader2, AlertCircle } from 'lucide-react'
-import { api } from '../../api'
-import { useAppsStore } from '../../stores/apps.store'
-import { MessageItem } from '../chat/MessageItem'
-import { CollapsedThoughtProcess } from '../chat/CollapsedThoughtProcess'
-import { useTranslation } from '../../i18n'
-import type { Message, Thought } from '../../types'
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { api } from '../../api';
+import { useAppsStore } from '../../stores/apps.store';
+import { MessageItem } from '../chat/MessageItem';
+import { CollapsedThoughtProcess } from '../chat/CollapsedThoughtProcess';
+import { useTranslation } from '../../i18n';
+import type { Message, Thought } from '../../types';
 
 interface SessionDetailViewProps {
   /** App ID that owns this run */
-  appId: string
+  appId: string;
   /** Run ID to load session messages for */
-  runId: string
+  runId: string;
 }
 
-type LoadState = 'loading' | 'loaded' | 'error' | 'empty'
+type LoadState = 'loading' | 'loaded' | 'error' | 'empty';
 
 /** Polling interval for live sessions (ms) */
-const LIVE_POLL_INTERVAL = 2000
+const LIVE_POLL_INTERVAL = 2000;
 
 export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
-  const { t } = useTranslation()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [loadState, setLoadState] = useState<LoadState>('loading')
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const { t } = useTranslation();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Check if this run is currently active via the app's runtime state
-  const runtimeState = useAppsStore(s => s.appStates[appId])
-  const isLive = runtimeState?.status === 'running' && runtimeState?.runningRunId === runId
+  const runtimeState = useAppsStore((s) => s.appStates[appId]);
+  const isLive = runtimeState?.status === 'running' && runtimeState?.runningRunId === runId;
 
   // ── Load session messages (reusable for initial load + polling) ──
-  const loadSession = useCallback(async (isPolling = false) => {
-    if (!isPolling) {
-      setLoadState('loading')
-      setErrorMsg(null)
-    }
-    try {
-      const res = await api.appGetSession(appId, runId)
-
-      if (res.success && res.data) {
-        const msgs = (res.data as Message[]) ?? []
-        setMessages(msgs)
-        if (!isPolling) {
-          setLoadState(msgs.length > 0 ? 'loaded' : 'empty')
-        } else if (msgs.length > 0 && loadState === 'empty') {
-          setLoadState('loaded')
-        }
-      } else if (!isPolling) {
-        setLoadState('empty')
-      }
-    } catch (err) {
+  const loadSession = useCallback(
+    async (isPolling = false) => {
       if (!isPolling) {
-        console.error('[SessionDetailView] Failed to load session:', err)
-        setErrorMsg(String(err))
-        setLoadState('error')
+        setLoadState('loading');
+        setErrorMsg(null);
       }
-    }
-  }, [appId, runId, loadState])
+      try {
+        const res = await api.appGetSession(appId, runId);
+
+        if (res.success && res.data) {
+          const msgs = (res.data as Message[]) ?? [];
+          setMessages(msgs);
+          if (!isPolling) {
+            setLoadState(msgs.length > 0 ? 'loaded' : 'empty');
+          } else if (msgs.length > 0 && loadState === 'empty') {
+            setLoadState('loaded');
+          }
+        } else if (!isPolling) {
+          setLoadState('empty');
+        }
+      } catch (err) {
+        if (!isPolling) {
+          console.error('[SessionDetailView] Failed to load session:', err);
+          setErrorMsg(String(err));
+          setLoadState('error');
+        }
+      }
+    },
+    [appId, runId, loadState],
+  );
 
   // ── Initial load ──
   useEffect(() => {
-    loadSession(false)
-  }, [appId, runId]) // eslint-disable-line react-hooks/exhaustive-deps
+    loadSession(false);
+  }, [appId, runId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live polling: refresh messages while the run is active ──
   useEffect(() => {
-    if (!isLive) return
+    if (!isLive) return;
 
     const timer = setInterval(() => {
-      loadSession(true)
-    }, LIVE_POLL_INTERVAL)
+      loadSession(true);
+    }, LIVE_POLL_INTERVAL);
 
-    return () => clearInterval(timer)
-  }, [isLive, loadSession])
+    return () => clearInterval(timer);
+  }, [isLive, loadSession]);
 
   // ── When run completes (isLive → false), do a final reload to get the complete session ──
-  const prevIsLive = useRef(isLive)
+  const prevIsLive = useRef(isLive);
   useEffect(() => {
     if (prevIsLive.current && !isLive) {
       // Run just finished — reload to capture the final messages
-      loadSession(false)
+      loadSession(false);
     }
-    prevIsLive.current = isLive
-  }, [isLive, loadSession])
+    prevIsLive.current = isLive;
+  }, [isLive, loadSession]);
 
   // Scroll to top when session changes
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 })
-  }, [runId])
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [runId]);
 
   // ── Loading state ──
   if (loadState === 'loading') {
@@ -121,7 +124,7 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
           <span className="text-sm">{t('Loading session...')}</span>
         </div>
       </div>
-    )
+    );
   }
 
   // ── Error state ──
@@ -134,7 +137,7 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
           {errorMsg && <p className="text-xs text-muted-foreground/60">{errorMsg}</p>}
         </div>
       </div>
-    )
+    );
   }
 
   // ── Empty state (show running indicator if live) ──
@@ -143,7 +146,7 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
       <div className="flex-1 flex items-center justify-center p-8">
         <p className="text-sm text-muted-foreground">{t('No messages in this session')}</p>
       </div>
-    )
+    );
   }
 
   // ── Loaded: render messages ──
@@ -157,12 +160,14 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
             </span>
-            <span className="text-xs text-green-600 dark:text-green-400">{t('Running — auto-refreshing')}</span>
+            <span className="text-xs text-green-600 dark:text-green-400">
+              {t('Running — auto-refreshing')}
+            </span>
           </div>
         )}
 
         {messages.map((message) => {
-          const hasInlineThoughts = Array.isArray(message.thoughts) && message.thoughts.length > 0
+          const hasInlineThoughts = Array.isArray(message.thoughts) && message.thoughts.length > 0;
 
           // Assistant messages with thoughts: CollapsedThoughtProcess above + MessageItem
           // Mirrors MessageList.tsx itemContent rendering exactly
@@ -177,16 +182,10 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
                   {/* Only render the message bubble if there is text content.
                       Assistant events with only tool_use/thinking blocks have empty content —
                       rendering MessageItem for those would produce empty visible bubbles. */}
-                  {message.content && (
-                    <MessageItem
-                      message={message}
-                      hideThoughts
-                      isInContainer
-                    />
-                  )}
+                  {message.content && <MessageItem message={message} hideThoughts isInContainer />}
                 </div>
               </div>
-            )
+            );
           }
 
           // Regular messages (user or assistant without thoughts)
@@ -194,7 +193,7 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
             <div key={message.id} className="pb-4">
               <MessageItem message={message} />
             </div>
-          )
+          );
         })}
 
         {/* Live trailing indicator — show when running and there are already messages */}
@@ -206,5 +205,5 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
         )}
       </div>
     </div>
-  )
+  );
 }

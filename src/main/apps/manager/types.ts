@@ -5,7 +5,7 @@
  * Consumed by apps/runtime, IPC handlers, and renderer (via shared types).
  */
 
-import type { AppSpec, AppType } from '../spec'
+import type { AppSpec, AppType } from '../spec';
 
 // ============================================
 // App Status
@@ -21,13 +21,19 @@ import type { AppSpec, AppType } from '../spec'
  * - waiting_user:  AI triggered escalation; awaiting user decision
  * - uninstalled:   Soft-deleted; hidden from default views, can be reinstalled or permanently deleted
  */
-export type AppStatus = 'active' | 'paused' | 'error' | 'needs_login' | 'waiting_user' | 'uninstalled'
+export type AppStatus =
+  | 'active'
+  | 'paused'
+  | 'error'
+  | 'needs_login'
+  | 'waiting_user'
+  | 'uninstalled';
 
 /**
  * Outcome of a single App execution run.
  * Matches the scheduler's RunOutcome type.
  */
-export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
+export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped';
 
 // ============================================
 // Installed App
@@ -41,61 +47,61 @@ export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
  */
 export interface InstalledApp {
   /** Unique installation ID (UUID v4) */
-  id: string
+  id: string;
 
   /** App specification identifier (from spec.name or a registry ID) */
-  specId: string
+  specId: string;
 
   /** Space this App is installed in */
-  spaceId: string
+  spaceId: string;
 
   /** Full AppSpec (initially set at install time, updatable via updateSpec) */
-  spec: AppSpec
+  spec: AppSpec;
 
   /** Current runtime status */
-  status: AppStatus
+  status: AppStatus;
 
   /**
    * Opaque escalation ID set when status is 'waiting_user'.
    * Points to an activity_entries record (managed by apps/runtime).
    * No FK constraint -- decoupled from runtime schema.
    */
-  pendingEscalationId?: string
+  pendingEscalationId?: string;
 
   /** User-provided configuration values (corresponds to spec.config_schema) */
-  userConfig: Record<string, unknown>
+  userConfig: Record<string, unknown>;
 
   /** User overrides for subscription frequencies and other tunable settings */
   userOverrides: {
-    frequency?: Record<string, string>  // subscriptionId -> frequency string
+    frequency?: Record<string, string>; // subscriptionId -> frequency string
     /** Notification level: 'all' | 'important' | 'none'. Defaults to 'important'. */
-    notificationLevel?: 'all' | 'important' | 'none'
+    notificationLevel?: 'all' | 'important' | 'none';
     /** Override AI source for this App. When set, uses this source instead of the global one. */
-    modelSourceId?: string
+    modelSourceId?: string;
     /** Override model within the selected AI source. Used together with modelSourceId. */
-    modelId?: string
-  }
+    modelId?: string;
+  };
 
   /** Permission grants and denials */
   permissions: {
-    granted: string[]
-    denied: string[]
-  }
+    granted: string[];
+    denied: string[];
+  };
 
   /** Unix timestamp (ms) when the App was installed */
-  installedAt: number
+  installedAt: number;
 
   /** Unix timestamp (ms) of the last execution run */
-  lastRunAt?: number
+  lastRunAt?: number;
 
   /** Outcome of the last execution run */
-  lastRunOutcome?: RunOutcome
+  lastRunOutcome?: RunOutcome;
 
   /** Error message from the last failed run or status change */
-  errorMessage?: string
+  errorMessage?: string;
 
   /** Unix timestamp (ms) when the App was soft-deleted (uninstalled). Undefined if active. */
-  uninstalledAt?: number
+  uninstalledAt?: number;
 }
 
 // ============================================
@@ -104,21 +110,25 @@ export interface InstalledApp {
 
 /** Filter criteria for listApps() */
 export interface AppListFilter {
-  spaceId?: string
-  status?: AppStatus
-  type?: AppType
+  spaceId?: string;
+  status?: AppStatus;
+  type?: AppType;
 }
 
 /** Callback signature for status change notifications */
-export type StatusChangeHandler = (appId: string, oldStatus: AppStatus, newStatus: AppStatus) => void
+export type StatusChangeHandler = (
+  appId: string,
+  oldStatus: AppStatus,
+  newStatus: AppStatus,
+) => void;
 
 /** Unsubscribe function returned by event registration */
-export type Unsubscribe = () => void
+export type Unsubscribe = () => void;
 
 /** Options for the uninstall operation */
 export interface UninstallOptions {
   /** If true, delete the App's work directory. Default: false (preserve data). */
-  purge?: boolean
+  purge?: boolean;
 }
 
 /**
@@ -142,7 +152,7 @@ export interface AppManagerService {
    * @returns The generated App ID (UUID)
    * @throws AppAlreadyInstalledError if same specId+spaceId combination exists
    */
-  install(spaceId: string, spec: AppSpec, userConfig?: Record<string, unknown>): Promise<string>
+  install(spaceId: string, spec: AppSpec, userConfig?: Record<string, unknown>): Promise<string>;
 
   /**
    * Uninstall an App (soft-delete).
@@ -152,7 +162,7 @@ export interface AppManagerService {
    *
    * @throws AppNotFoundError if the App does not exist
    */
-  uninstall(appId: string, options?: UninstallOptions): Promise<void>
+  uninstall(appId: string, options?: UninstallOptions): Promise<void>;
 
   /**
    * Reinstall a previously uninstalled App.
@@ -162,7 +172,7 @@ export interface AppManagerService {
    * @throws AppNotFoundError if the App does not exist
    * @throws InvalidStatusTransitionError if the App is not in 'uninstalled' status
    */
-  reinstall(appId: string): void
+  reinstall(appId: string): void;
 
   /**
    * Permanently delete an uninstalled App from the database.
@@ -173,7 +183,7 @@ export interface AppManagerService {
    * @throws AppNotFoundError if the App does not exist
    * @throws InvalidStatusTransitionError if the App is not in 'uninstalled' status
    */
-  deleteApp(appId: string): Promise<void>
+  deleteApp(appId: string): Promise<void>;
 
   // ── Status Management ──────────────────────────
 
@@ -184,7 +194,7 @@ export interface AppManagerService {
    * @throws AppNotFoundError if the App does not exist
    * @throws InvalidStatusTransitionError if current status is not 'active'
    */
-  pause(appId: string): void
+  pause(appId: string): void;
 
   /**
    * Resume an App (user action).
@@ -193,7 +203,7 @@ export interface AppManagerService {
    * @throws AppNotFoundError if the App does not exist
    * @throws InvalidStatusTransitionError if current status does not allow resume
    */
-  resume(appId: string): void
+  resume(appId: string): void;
 
   /**
    * Update App status (runtime action).
@@ -207,8 +217,8 @@ export interface AppManagerService {
   updateStatus(
     appId: string,
     status: AppStatus,
-    extra?: { errorMessage?: string; pendingEscalationId?: string }
-  ): void
+    extra?: { errorMessage?: string; pendingEscalationId?: string },
+  ): void;
 
   // ── Configuration ──────────────────────────────
 
@@ -216,18 +226,18 @@ export interface AppManagerService {
    * Update user configuration for an App.
    * Replaces the entire userConfig object.
    */
-  updateConfig(appId: string, config: Record<string, unknown>): void
+  updateConfig(appId: string, config: Record<string, unknown>): void;
 
   /**
    * Update the user's frequency override for a specific subscription.
    */
-  updateFrequency(appId: string, subscriptionId: string, frequency: string): void
+  updateFrequency(appId: string, subscriptionId: string, frequency: string): void;
 
   /**
    * Update user overrides for an App (e.g. notificationLevel, model).
    * Merges the provided partial overrides into the existing overrides object.
    */
-  updateOverrides(appId: string, overrides: Partial<InstalledApp['userOverrides']>): void
+  updateOverrides(appId: string, overrides: Partial<InstalledApp['userOverrides']>): void;
 
   /**
    * Update the App spec (JSON Merge Patch semantics).
@@ -241,7 +251,7 @@ export interface AppManagerService {
    * @throws AppNotFoundError if the App does not exist
    * @throws AppSpecValidationError if the merged spec is invalid
    */
-  updateSpec(appId: string, specPatch: Record<string, unknown>): void
+  updateSpec(appId: string, specPatch: Record<string, unknown>): void;
 
   // ── Run Tracking ───────────────────────────────
 
@@ -249,7 +259,7 @@ export interface AppManagerService {
    * Record the result of an App execution run.
    * Called by apps/runtime after each run completes.
    */
-  updateLastRun(appId: string, outcome: RunOutcome, errorMessage?: string): void
+  updateLastRun(appId: string, outcome: RunOutcome, errorMessage?: string): void;
 
   // ── Queries ────────────────────────────────────
 
@@ -257,21 +267,21 @@ export interface AppManagerService {
    * Get a single installed App by ID.
    * Returns null if not found.
    */
-  getApp(appId: string): InstalledApp | null
+  getApp(appId: string): InstalledApp | null;
 
   /**
    * List installed Apps with optional filtering.
    * Supports filtering by spaceId, status, and App type.
    */
-  listApps(filter?: AppListFilter): InstalledApp[]
+  listApps(filter?: AppListFilter): InstalledApp[];
 
   // ── Permissions ────────────────────────────────
 
   /** Grant a permission to an App. */
-  grantPermission(appId: string, permission: string): void
+  grantPermission(appId: string, permission: string): void;
 
   /** Revoke a previously granted permission. */
-  revokePermission(appId: string, permission: string): void
+  revokePermission(appId: string, permission: string): void;
 
   // ── File System ────────────────────────────────
 
@@ -282,7 +292,7 @@ export interface AppManagerService {
    * @returns Absolute path to `{space.path}/.aico-bot/apps/{appId}/`
    * @throws AppNotFoundError if the App does not exist
    */
-  getAppWorkDir(appId: string): string
+  getAppWorkDir(appId: string): string;
 
   // ── Events ─────────────────────────────────────
 
@@ -290,5 +300,5 @@ export interface AppManagerService {
    * Register a callback for App status changes.
    * Returns an unsubscribe function.
    */
-  onAppStatusChange(handler: StatusChangeHandler): Unsubscribe
+  onAppStatusChange(handler: StatusChangeHandler): Unsubscribe;
 }

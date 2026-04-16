@@ -14,23 +14,23 @@
  * - InputArea for user input, ThoughtProcess + MarkdownRenderer for streaming
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Loader2, AlertCircle } from 'lucide-react'
-import { api } from '../../api'
-import { useChatStore } from '../../stores/chat.store'
-import { MessageItem } from '../chat/MessageItem'
-import { CollapsedThoughtProcess } from '../chat/CollapsedThoughtProcess'
-import { ThoughtProcess } from '../chat/ThoughtProcess'
-import { MarkdownRenderer } from '../chat/MarkdownRenderer'
-import { InputArea } from '../chat/InputArea'
-import { useTranslation } from '../../i18n'
-import type { Message, Thought } from '../../types'
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { api } from '../../api';
+import { useChatStore } from '../../stores/chat.store';
+import { MessageItem } from '../chat/MessageItem';
+import { CollapsedThoughtProcess } from '../chat/CollapsedThoughtProcess';
+import { ThoughtProcess } from '../chat/ThoughtProcess';
+import { MarkdownRenderer } from '../chat/MarkdownRenderer';
+import { InputArea } from '../chat/InputArea';
+import { useTranslation } from '../../i18n';
+import type { Message, Thought } from '../../types';
 
 interface AppChatViewProps {
   /** App ID */
-  appId: string
+  appId: string;
   /** Space ID (for loading messages and sending chat) */
-  spaceId: string
+  spaceId: string;
 }
 
 /**
@@ -38,130 +38,132 @@ interface AppChatViewProps {
  * Must match the backend's getAppChatConversationId().
  */
 function getConversationId(appId: string): string {
-  return `app-chat:${appId}`
+  return `app-chat:${appId}`;
 }
 
-type LoadState = 'loading' | 'loaded' | 'error' | 'empty'
+type LoadState = 'loading' | 'loaded' | 'error' | 'empty';
 
 export function AppChatView({ appId, spaceId }: AppChatViewProps) {
-  const { t } = useTranslation()
-  const conversationId = getConversationId(appId)
+  const { t } = useTranslation();
+  const conversationId = getConversationId(appId);
 
   // ── Persisted messages ──
-  const [messages, setMessages] = useState<Message[]>([])
-  const [loadState, setLoadState] = useState<LoadState>('loading')
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── Streaming state from chat store (uses virtual conversationId) ──
-  const session = useChatStore(s => s.getSession(conversationId))
-  const {
-    isGenerating,
-    streamingContent,
-    isStreaming,
-    thoughts,
-    isThinking,
-    pendingQuestion,
-  } = session
+  const session = useChatStore((s) => s.getSession(conversationId));
+  const { isGenerating, streamingContent, isStreaming, thoughts, isThinking, pendingQuestion } =
+    session;
 
   // ── Load persisted chat messages on mount ──
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function loadMessages() {
-      setLoadState('loading')
-      setErrorMsg(null)
+      setLoadState('loading');
+      setErrorMsg(null);
       try {
-        const res = await api.appChatMessages(appId, spaceId)
-        if (cancelled) return
+        const res = await api.appChatMessages(appId, spaceId);
+        if (cancelled) return;
 
         if (res.success && res.data) {
-          const msgs = (res.data as Message[]) ?? []
-          setMessages(msgs)
-          setLoadState(msgs.length > 0 ? 'loaded' : 'empty')
+          const msgs = (res.data as Message[]) ?? [];
+          setMessages(msgs);
+          setLoadState(msgs.length > 0 ? 'loaded' : 'empty');
         } else {
-          setLoadState('empty')
+          setLoadState('empty');
         }
       } catch (err) {
-        if (cancelled) return
-        console.error('[AppChatView] Failed to load messages:', err)
-        setErrorMsg(String(err))
-        setLoadState('error')
+        if (cancelled) return;
+        console.error('[AppChatView] Failed to load messages:', err);
+        setErrorMsg(String(err));
+        setLoadState('error');
       }
     }
 
-    loadMessages()
-    return () => { cancelled = true }
-  }, [appId, spaceId])
+    loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, spaceId]);
 
   // ── Reload messages when generation completes ──
   // This ensures the persisted messages include the latest assistant response
-  const prevIsGeneratingRef = useRef(isGenerating)
+  const prevIsGeneratingRef = useRef(isGenerating);
   useEffect(() => {
     if (prevIsGeneratingRef.current && !isGenerating) {
       // Generation just completed — reload messages from JSONL
-      api.appChatMessages(appId, spaceId).then(res => {
-        if (res.success && res.data) {
-          const msgs = (res.data as Message[]) ?? []
-          setMessages(msgs)
-          setLoadState(msgs.length > 0 ? 'loaded' : 'empty')
-        }
-      }).catch(err => {
-        console.error('[AppChatView] Failed to reload messages after completion:', err)
-      })
+      api
+        .appChatMessages(appId, spaceId)
+        .then((res) => {
+          if (res.success && res.data) {
+            const msgs = (res.data as Message[]) ?? [];
+            setMessages(msgs);
+            setLoadState(msgs.length > 0 ? 'loaded' : 'empty');
+          }
+        })
+        .catch((err) => {
+          console.error('[AppChatView] Failed to reload messages after completion:', err);
+        });
     }
-    prevIsGeneratingRef.current = isGenerating
-  }, [isGenerating, appId, spaceId])
+    prevIsGeneratingRef.current = isGenerating;
+  }, [isGenerating, appId, spaceId]);
 
   // ── Auto-scroll to bottom when streaming ──
   useEffect(() => {
     if (isStreaming || isThinking) {
-      const el = scrollRef.current
+      const el = scrollRef.current;
       if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       }
     }
-  }, [streamingContent, thoughts.length, isStreaming, isThinking])
+  }, [streamingContent, thoughts.length, isStreaming, isThinking]);
 
   // ── Send message ──
-  const handleSend = useCallback(async (content: string, _images?: unknown[], thinkingEnabled?: boolean) => {
-    try {
-      const res = await api.appChatSend({
-        appId,
-        spaceId,
-        message: content,
-        thinkingEnabled,
-      })
-      if (!res.success) {
-        console.error('[AppChatView] Send failed:', res.error)
-      }
-      // Optimistically add user message to local list
-      const userMsg: Message = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content,
-        timestamp: Date.now(),
-      }
-      setMessages(prev => [...prev, userMsg])
-      setLoadState('loaded')
+  const handleSend = useCallback(
+    async (content: string, _images?: unknown[], thinkingEnabled?: boolean) => {
+      try {
+        const res = await api.appChatSend({
+          appId,
+          spaceId,
+          message: content,
+          thinkingEnabled,
+        });
+        if (!res.success) {
+          console.error('[AppChatView] Send failed:', res.error);
+        }
+        // Optimistically add user message to local list
+        const userMsg: Message = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, userMsg]);
+        setLoadState('loaded');
 
-      // Scroll to bottom after sending
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-      })
-    } catch (err) {
-      console.error('[AppChatView] Send error:', err)
-    }
-  }, [appId, spaceId])
+        // Scroll to bottom after sending
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+        });
+      } catch (err) {
+        console.error('[AppChatView] Send error:', err);
+      }
+    },
+    [appId, spaceId],
+  );
 
   // ── Stop generation ──
   const handleStop = useCallback(async () => {
     try {
-      await api.appChatStop(appId)
+      await api.appChatStop(appId);
     } catch (err) {
-      console.error('[AppChatView] Stop error:', err)
+      console.error('[AppChatView] Stop error:', err);
     }
-  }, [appId])
+  }, [appId]);
 
   // ── Loading state ──
   if (loadState === 'loading') {
@@ -183,7 +185,7 @@ export function AppChatView({ appId, spaceId }: AppChatViewProps) {
           />
         </div>
       </div>
-    )
+    );
   }
 
   // ── Error state ──
@@ -207,11 +209,12 @@ export function AppChatView({ appId, spaceId }: AppChatViewProps) {
           />
         </div>
       </div>
-    )
+    );
   }
 
   // ── Active state: messages + streaming + input ──
-  const hasStreamingContent = isGenerating && (streamingContent || thoughts.length > 0 || isThinking)
+  const hasStreamingContent =
+    isGenerating && (streamingContent || thoughts.length > 0 || isThinking);
 
   return (
     <div className="flex flex-col h-full">
@@ -221,13 +224,16 @@ export function AppChatView({ appId, spaceId }: AppChatViewProps) {
           {/* Empty state hint */}
           {loadState === 'empty' && !hasStreamingContent && (
             <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-muted-foreground">{t('Send a message to start chatting with this App')}</p>
+              <p className="text-sm text-muted-foreground">
+                {t('Send a message to start chatting with this App')}
+              </p>
             </div>
           )}
 
           {/* Persisted messages */}
           {messages.map((message) => {
-            const hasInlineThoughts = Array.isArray(message.thoughts) && message.thoughts.length > 0
+            const hasInlineThoughts =
+              Array.isArray(message.thoughts) && message.thoughts.length > 0;
 
             if (message.role === 'assistant' && hasInlineThoughts) {
               return (
@@ -241,22 +247,18 @@ export function AppChatView({ appId, spaceId }: AppChatViewProps) {
                         Assistant events with only tool_use/thinking blocks have empty content —
                         rendering MessageItem for those would produce empty visible bubbles. */}
                     {message.content && (
-                      <MessageItem
-                        message={message}
-                        hideThoughts
-                        isInContainer
-                      />
+                      <MessageItem message={message} hideThoughts isInContainer />
                     )}
                   </div>
                 </div>
-              )
+              );
             }
 
             return (
               <div key={message.id} className="pb-4">
                 <MessageItem message={message} />
               </div>
-            )
+            );
           })}
 
           {/* Live streaming content */}
@@ -291,5 +293,5 @@ export function AppChatView({ appId, spaceId }: AppChatViewProps) {
         />
       </div>
     </div>
-  )
+  );
 }
