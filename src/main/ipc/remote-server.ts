@@ -288,15 +288,6 @@ export function registerRemoteServerHandlers(): void {
     }
   })
 
-  ipcMain.handle('remote-agent:fs-delete', async (_event, serverId: string, path: string) => {
-    try {
-      await deployService.deleteRemoteFile(serverId, path)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  })
-
   console.log('[IPC] Remote server handlers registered')
 
   // Test connection handler
