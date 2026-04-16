@@ -11,24 +11,24 @@
 /**
  * Process types that can be tracked by the health system
  */
-export type ProcessType = 'v2-session' | 'tunnel' | 'openai-router' | 'http-server'
+export type ProcessType = 'v2-session' | 'tunnel' | 'openai-router' | 'http-server';
 
 /**
  * Individual process entry in the registry
  */
 export interface ProcessEntry {
   /** Logical ID (e.g., conversationId for v2-session) */
-  id: string
+  id: string;
   /** OS process ID (null if PID unavailable) */
-  pid: number | null
+  pid: number | null;
   /** Type of process */
-  type: ProcessType
+  type: ProcessType;
   /** App instance that created this process */
-  instanceId: string
+  instanceId: string;
   /** When the process was started */
-  startedAt: number
+  startedAt: number;
   /** Last known heartbeat time */
-  lastHeartbeat: number
+  lastHeartbeat: number;
 }
 
 /**
@@ -37,17 +37,17 @@ export interface ProcessEntry {
  */
 export interface HealthRegistry {
   /** Registry format version */
-  version: 1
+  version: 1;
   /** Current app instance UUID */
-  instanceId: string
+  instanceId: string;
   /** Previous instance ID (for cleanup reference) */
-  previousInstanceId?: string
+  previousInstanceId?: string;
   /** When this instance started */
-  startedAt: number
+  startedAt: number;
   /** Did the last run exit cleanly? */
-  lastCleanExit: boolean
+  lastCleanExit: boolean;
   /** Registered processes */
-  processes: ProcessEntry[]
+  processes: ProcessEntry[];
 }
 
 // ============================================
@@ -57,94 +57,94 @@ export interface HealthRegistry {
 /**
  * Severity levels for health issues
  */
-export type HealthSeverity = 'info' | 'warning' | 'critical'
+export type HealthSeverity = 'info' | 'warning' | 'critical';
 
 /**
  * Health check result status
  */
-export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy'
+export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 
 /**
  * Base interface for all probe results
  */
 export interface ProbeResult {
   /** Probe name for identification */
-  name: string
+  name: string;
   /** Whether the check passed */
-  healthy: boolean
+  healthy: boolean;
   /** Severity of any issues found */
-  severity: HealthSeverity
+  severity: HealthSeverity;
   /** Human-readable message */
-  message: string
+  message: string;
   /** When the check was performed */
-  timestamp: number
+  timestamp: number;
   /** Optional structured data */
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>;
 }
 
 /**
  * Config probe result
  */
 export interface ConfigProbeResult extends ProbeResult {
-  name: 'config'
+  name: 'config';
   data?: {
-    fileExists: boolean
-    jsonValid: boolean
-    criticalFieldsPresent: boolean
-    apiKeyConfigured: boolean
-    errors: string[]
-  }
+    fileExists: boolean;
+    jsonValid: boolean;
+    criticalFieldsPresent: boolean;
+    apiKeyConfigured: boolean;
+    errors: string[];
+  };
 }
 
 /**
  * Port probe result
  */
 export interface PortProbeResult extends ProbeResult {
-  name: 'port'
+  name: 'port';
   data?: {
-    portsChecked: number[]
-    portsOccupied: Array<{ port: number; processName?: string }>
-    portsAvailable: number[]
-  }
+    portsChecked: number[];
+    portsOccupied: Array<{ port: number; processName?: string }>;
+    portsAvailable: number[];
+  };
 }
 
 /**
  * Disk probe result
  */
 export interface DiskProbeResult extends ProbeResult {
-  name: 'disk'
+  name: 'disk';
   data?: {
-    path: string
-    freeSpace: number
-    totalSpace: number
-    freePercent: number
-    thresholdMB: number
-  }
+    path: string;
+    freeSpace: number;
+    totalSpace: number;
+    freePercent: number;
+    thresholdMB: number;
+  };
 }
 
 /**
  * Process probe result
  */
 export interface ProcessProbeResult extends ProbeResult {
-  name: 'process'
+  name: 'process';
   data?: {
-    orphansFound: Array<{ pid: number; type: ProcessType; instanceId: string }>
-    currentProcesses: ProcessEntry[]
-    zombiesKilled: number
-  }
+    orphansFound: Array<{ pid: number; type: ProcessType; instanceId: string }>;
+    currentProcesses: ProcessEntry[];
+    zombiesKilled: number;
+  };
 }
 
 /**
  * Service probe result (for runtime checks)
  */
 export interface ServiceProbeResult extends ProbeResult {
-  name: 'service'
+  name: 'service';
   data?: {
-    serviceName: string
-    responsive: boolean
-    responseTime?: number
-    error?: string
-  }
+    serviceName: string;
+    responsive: boolean;
+    responseTime?: number;
+    error?: string;
+  };
 }
 
 /**
@@ -152,13 +152,13 @@ export interface ServiceProbeResult extends ProbeResult {
  */
 export interface StartupCheckResult {
   /** Overall health status */
-  status: HealthStatus
+  status: HealthStatus;
   /** All probe results */
-  probes: ProbeResult[]
+  probes: ProbeResult[];
   /** Total check duration in ms */
-  duration: number
+  duration: number;
   /** When checks were performed */
-  timestamp: number
+  timestamp: number;
 }
 
 // ============================================
@@ -168,24 +168,24 @@ export interface StartupCheckResult {
 /**
  * Recovery strategy identifiers
  */
-export type RecoveryStrategyId = 'S1' | 'S2' | 'S3' | 'S4'
+export type RecoveryStrategyId = 'S1' | 'S2' | 'S3' | 'S4';
 
 /**
  * Recovery strategy definition
  */
 export interface RecoveryStrategy {
   /** Strategy ID */
-  id: RecoveryStrategyId
+  id: RecoveryStrategyId;
   /** Human-readable name */
-  name: string
+  name: string;
   /** Description of what this strategy does */
-  description: string
+  description: string;
   /** When to trigger this strategy */
-  trigger: string
+  trigger: string;
   /** Actions to perform */
-  actions: string[]
+  actions: string[];
   /** Does this require user consent? */
-  requiresConsent: boolean
+  requiresConsent: boolean;
 }
 
 /**
@@ -193,15 +193,15 @@ export interface RecoveryStrategy {
  */
 export interface RecoveryResult {
   /** Strategy that was executed */
-  strategyId: RecoveryStrategyId
+  strategyId: RecoveryStrategyId;
   /** Whether recovery succeeded */
-  success: boolean
+  success: boolean;
   /** Result message */
-  message: string
+  message: string;
   /** When recovery was attempted */
-  timestamp: number
+  timestamp: number;
   /** Additional data */
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>;
 }
 
 // ============================================
@@ -211,7 +211,7 @@ export interface RecoveryResult {
 /**
  * Health event categories
  */
-export type HealthEventCategory = 'critical' | 'warning' | 'info'
+export type HealthEventCategory = 'critical' | 'warning' | 'info';
 
 /**
  * Health event types
@@ -224,24 +224,24 @@ export type HealthEventType =
   | 'network_error'
   | 'config_change'
   | 'recovery_success'
-  | 'startup_check'
+  | 'startup_check';
 
 /**
  * Health event emitted by the system
  */
 export interface HealthEvent {
   /** Event type */
-  type: HealthEventType
+  type: HealthEventType;
   /** Event category */
-  category: HealthEventCategory
+  category: HealthEventCategory;
   /** When the event occurred */
-  timestamp: number
+  timestamp: number;
   /** Event source (e.g., conversationId, service name) */
-  source: string
+  source: string;
   /** Event message */
-  message: string
+  message: string;
   /** Additional data */
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>;
 }
 
 // ============================================
@@ -253,33 +253,33 @@ export interface HealthEvent {
  */
 export interface HealthSystemState {
   /** Current health status */
-  status: HealthStatus
+  status: HealthStatus;
   /** Current app instance ID */
-  instanceId: string
+  instanceId: string;
   /** When health system started */
-  startedAt: number
+  startedAt: number;
   /** Number of consecutive failures */
-  consecutiveFailures: number
+  consecutiveFailures: number;
   /** Number of recovery attempts */
-  recoveryAttempts: number
+  recoveryAttempts: number;
   /** Is fallback polling running? */
-  isPollingActive: boolean
+  isPollingActive: boolean;
   /** Is health system enabled? */
-  isEnabled: boolean
+  isEnabled: boolean;
   /** Last startup check result */
-  lastStartupCheck?: StartupCheckResult
+  lastStartupCheck?: StartupCheckResult;
   /** Recent health events */
-  recentEvents: HealthEvent[]
+  recentEvents: HealthEvent[];
 }
 
 /**
  * Health status change event (sent to renderer)
  */
 export interface HealthStatusChange {
-  status: HealthStatus
-  previousStatus: HealthStatus
-  reason: string
-  timestamp: number
+  status: HealthStatus;
+  previousStatus: HealthStatus;
+  reason: string;
+  timestamp: number;
 }
 
 // ============================================
@@ -291,49 +291,49 @@ export interface HealthStatusChange {
  */
 export interface DiagnosticReport {
   /** Report generation timestamp */
-  timestamp: string
+  timestamp: string;
   /** App version */
-  version: string
+  version: string;
   /** Platform (darwin/win32/linux) */
-  platform: string
+  platform: string;
   /** Architecture */
-  arch: string
+  arch: string;
 
   /** Config summary (sanitized) */
   config: {
-    currentSource: string
-    provider: string
-    hasApiKey: boolean
-    apiUrlHost: string
-    mcpServerCount: number
-  }
+    currentSource: string;
+    provider: string;
+    hasApiKey: boolean;
+    apiUrlHost: string;
+    mcpServerCount: number;
+  };
 
   /** Process summary */
   processes: {
-    registered: number
-    orphansFound: number
-    orphansCleaned: number
-  }
+    registered: number;
+    orphansFound: number;
+    orphansCleaned: number;
+  };
 
   /** Health summary */
   health: {
-    lastCheckTime: string
-    consecutiveFailures: number
-    recoveryAttempts: number
-  }
+    lastCheckTime: string;
+    consecutiveFailures: number;
+    recoveryAttempts: number;
+  };
 
   /** Recent errors (sanitized) */
   recentErrors: Array<{
-    time: string
-    source: string
-    message: string
-  }>
+    time: string;
+    source: string;
+    message: string;
+  }>;
 
   /** System info */
   system: {
-    memory: { total: string; free: string }
-    uptime: number
-  }
+    memory: { total: string; free: string };
+    uptime: number;
+  };
 }
 
 // ============================================
@@ -345,31 +345,31 @@ export interface DiagnosticReport {
  */
 export interface PlatformProcessOps {
   /** Find processes by command-line pattern */
-  findByArgs(pattern: string): Promise<ProcessInfo[]>
+  findByArgs(pattern: string): Promise<ProcessInfo[]>;
   /** Find child processes by parent PID */
-  findChildProcesses(ppid: number): Promise<ChildProcessInfo[]>
+  findChildProcesses(ppid: number): Promise<ChildProcessInfo[]>;
   /** Kill a process by PID */
-  killProcess(pid: number, signal?: string): Promise<void>
+  killProcess(pid: number, signal?: string): Promise<void>;
   /** Check if a process is alive */
-  isProcessAlive(pid: number): boolean
+  isProcessAlive(pid: number): boolean;
 }
 
 /**
  * Process info from platform-specific discovery
  */
 export interface ProcessInfo {
-  pid: number
-  commandLine: string
-  name?: string
+  pid: number;
+  commandLine: string;
+  name?: string;
 }
 
 /**
  * Child process info from PPID scanning
  */
 export interface ChildProcessInfo {
-  pid: number
-  ppid: number
-  name: string
+  pid: number;
+  ppid: number;
+  name: string;
 }
 
 // ============================================
@@ -381,15 +381,15 @@ export interface ChildProcessInfo {
  */
 export interface CleanupResult {
   /** Number of processes cleaned */
-  cleaned: number
+  cleaned: number;
   /** Number of cleanup failures */
-  failed: number
+  failed: number;
   /** Details of cleaned processes */
   details: Array<{
-    pid: number
-    type: ProcessType
-    method: 'pid' | 'args'
-  }>
+    pid: number;
+    type: ProcessType;
+    method: 'pid' | 'args';
+  }>;
 }
 
 // ============================================
@@ -401,13 +401,13 @@ export interface CleanupResult {
  */
 export interface ProcessCheckStatus {
   /** Number of processes expected (from Registry) */
-  expected: number
+  expected: number;
   /** Number of processes actually running */
-  actual: number
+  actual: number;
   /** PIDs of running processes */
-  pids: number[]
+  pids: number[];
   /** Whether the count matches */
-  healthy: boolean
+  healthy: boolean;
 }
 
 /**
@@ -415,13 +415,13 @@ export interface ProcessCheckStatus {
  */
 export interface ServiceCheckStatus {
   /** Port number (null if not running) */
-  port: number | null
+  port: number | null;
   /** Whether the service responded to health check */
-  responsive: boolean
+  responsive: boolean;
   /** Response time in ms */
-  responseTime?: number
+  responseTime?: number;
   /** Error message if not responsive */
-  error?: string
+  error?: string;
 }
 
 /**
@@ -429,31 +429,31 @@ export interface ServiceCheckStatus {
  */
 export interface ImmediateCheckResult {
   /** When the check was performed */
-  timestamp: number
+  timestamp: number;
 
   /** Process status by type */
   processes: {
-    claude: ProcessCheckStatus
-    cloudflared: ProcessCheckStatus
-  }
+    claude: ProcessCheckStatus;
+    cloudflared: ProcessCheckStatus;
+  };
 
   /** Service status */
   services: {
-    openaiRouter: ServiceCheckStatus
-    httpServer: ServiceCheckStatus
-  }
+    openaiRouter: ServiceCheckStatus;
+    httpServer: ServiceCheckStatus;
+  };
 
   /** List of issues found */
-  issues: string[]
+  issues: string[];
 
   /** Overall health status */
-  healthy: boolean
+  healthy: boolean;
 
   /** Registry cleanup actions taken */
   registryCleanup: {
     /** Dead processes removed from registry */
-    removed: number
+    removed: number;
     /** Orphan processes found (running but not in registry) */
-    orphans: number
-  }
+    orphans: number;
+  };
 }

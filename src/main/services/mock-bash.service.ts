@@ -6,12 +6,12 @@
  * This enables "degraded mode" where AI can chat but cannot execute system commands.
  */
 
-import { join } from 'path'
-import { app } from 'electron'
-import { existsSync, writeFileSync, mkdirSync } from 'fs'
+import { join } from 'path';
+import { app } from 'electron';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
 
 // Marker to identify mock bash in path
-const MOCK_BASH_MARKER = 'mock-bash'
+const MOCK_BASH_MARKER = 'mock-bash';
 
 /**
  * Create a mock bash.cmd that satisfies Claude Code's detection
@@ -26,11 +26,11 @@ const MOCK_BASH_MARKER = 'mock-bash'
  * @returns Path to the mock bash.cmd
  */
 export function createMockBash(): string {
-  const mockDir = join(app.getPath('userData'), MOCK_BASH_MARKER, 'bin')
-  const mockBashPath = join(mockDir, 'bash.cmd')  // Use .cmd directly
+  const mockDir = join(app.getPath('userData'), MOCK_BASH_MARKER, 'bin');
+  const mockBashPath = join(mockDir, 'bash.cmd'); // Use .cmd directly
 
   // Always recreate to ensure latest message format
-  mkdirSync(mockDir, { recursive: true })
+  mkdirSync(mockDir, { recursive: true });
 
   // Create a batch file that outputs a clear, LLM-friendly message
   // The LLM will see this output and explain to the user
@@ -62,50 +62,50 @@ echo After installation, restart AICO-Bot to enable command execution.
 echo ============================================================
 echo.
 exit /b 0
-`
+`;
 
-  writeFileSync(mockBashPath, mockScript, 'utf-8')
+  writeFileSync(mockBashPath, mockScript, 'utf-8');
 
-  console.log('[MockBash] Created mock bash at:', mockBashPath)
-  return mockBashPath
+  console.log('[MockBash] Created mock bash at:', mockBashPath);
+  return mockBashPath;
 }
 
 /**
  * Check if the current Git Bash path is a mock
  */
 export function isMockBashMode(): boolean {
-  const bashPath = process.env.CLAUDE_CODE_GIT_BASH_PATH
-  if (!bashPath) return false
+  const bashPath = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+  if (!bashPath) return false;
 
-  return bashPath.includes(MOCK_BASH_MARKER)
+  return bashPath.includes(MOCK_BASH_MARKER);
 }
 
 /**
  * Get user-friendly error message for mock bash mode
  */
 export function getMockBashErrorMessage(): string {
-  return 'Command execution environment not installed. AI cannot execute system commands. Please install it in settings.'
+  return 'Command execution environment not installed. AI cannot execute system commands. Please install it in settings.';
 }
 
 /**
  * Get the mock bash directory path
  */
 export function getMockBashDir(): string {
-  return join(app.getPath('userData'), MOCK_BASH_MARKER)
+  return join(app.getPath('userData'), MOCK_BASH_MARKER);
 }
 
 /**
  * Clean up mock bash files (used when user installs real Git Bash)
  */
 export function cleanupMockBash(): void {
-  const mockDir = getMockBashDir()
+  const mockDir = getMockBashDir();
   if (existsSync(mockDir)) {
     try {
-      const fs = require('fs')
-      fs.rmSync(mockDir, { recursive: true, force: true })
-      console.log('[MockBash] Cleaned up mock bash directory')
+      const fs = require('fs');
+      fs.rmSync(mockDir, { recursive: true, force: true });
+      console.log('[MockBash] Cleaned up mock bash directory');
     } catch (e) {
-      console.error('[MockBash] Failed to cleanup:', e)
+      console.error('[MockBash] Failed to cleanup:', e);
     }
   }
 }

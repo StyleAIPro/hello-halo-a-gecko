@@ -3,8 +3,12 @@
  * 从对话历史中学习和总结，生成可复用的技能
  */
 
-import { ConversationService } from '../conversation.service';
-import { SkillSpec, SkillGenerateOptions, SkillGenerateResult } from '../../shared/skill/skill-types';
+import type { ConversationService } from '../conversation.service';
+import type {
+  SkillSpec,
+  SkillGenerateOptions,
+  SkillGenerateResult,
+} from '../../shared/skill/skill-types';
 
 /**
  * 对话模式分析结果
@@ -39,9 +43,7 @@ interface SkillDraft {
 export class SkillGeneratorService {
   private static instance: SkillGeneratorService;
 
-  private constructor(
-    private conversationService: ConversationService
-  ) {}
+  private constructor(private conversationService: ConversationService) {}
 
   static getInstance(conversationService?: ConversationService): SkillGeneratorService {
     if (!SkillGeneratorService.instance) {
@@ -58,7 +60,7 @@ export class SkillGeneratorService {
    */
   async generateFromConversation(
     spaceId: string,
-    conversationId?: string
+    conversationId?: string,
   ): Promise<SkillGenerateResult> {
     try {
       // 获取对话历史
@@ -67,7 +69,7 @@ export class SkillGeneratorService {
       if (messages.length === 0) {
         return {
           success: false,
-          error: '没有足够的对话历史来生成技能'
+          error: '没有足够的对话历史来生成技能',
         };
       }
 
@@ -80,13 +82,13 @@ export class SkillGeneratorService {
       if (skillDrafts.length === 0) {
         return {
           success: false,
-          error: '未能从对话中识别出可复用的技能模式'
+          error: '未能从对话中识别出可复用的技能模式',
         };
       }
 
       // 选择最佳匹配
       const bestDraft = skillDrafts.reduce((best, current) =>
-        current.confidence > best.confidence ? current : best
+        current.confidence > best.confidence ? current : best,
       );
 
       // 构建技能规范
@@ -94,13 +96,13 @@ export class SkillGeneratorService {
 
       return {
         success: true,
-        skill: skillSpec
+        skill: skillSpec,
       };
     } catch (error) {
       console.error('[SkillGenerator] Failed to generate skill:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : '生成技能失败'
+        error: error instanceof Error ? error.message : '生成技能失败',
       };
     }
   }
@@ -108,9 +110,7 @@ export class SkillGeneratorService {
   /**
    * 根据用户指定的主题生成技能
    */
-  async generateFromPrompt(
-    options: SkillGenerateOptions
-  ): Promise<SkillGenerateResult> {
+  async generateFromPrompt(options: SkillGenerateOptions): Promise<SkillGenerateResult> {
     try {
       let messages: Array<{
         role: string;
@@ -120,17 +120,14 @@ export class SkillGeneratorService {
 
       // 如果有会话 ID，获取完整对话历史
       if (options.conversationId) {
-        messages = await this.getConversationMessages(
-          options.spaceId,
-          options.conversationId
-        );
+        messages = await this.getConversationMessages(options.spaceId, options.conversationId);
       }
 
       // 使用 AI 分析对话并生成技能
       const skillDraft = await this.analyzeAndGenerateSkill(
         options.name,
         options.description,
-        messages
+        messages,
       );
 
       const skillSpec: SkillSpec = {
@@ -141,18 +138,18 @@ export class SkillGeneratorService {
         trigger_command: skillDraft.triggerCommand,
         version: '1.0',
         author: 'User',
-        tags: this.extractTags(skillDraft)
+        tags: this.extractTags(skillDraft),
       };
 
       return {
         success: true,
-        skill: skillSpec
+        skill: skillSpec,
       };
     } catch (error) {
       console.error('[SkillGenerator] Failed to generate skill from prompt:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : '生成技能失败'
+        error: error instanceof Error ? error.message : '生成技能失败',
       };
     }
   }
@@ -162,7 +159,7 @@ export class SkillGeneratorService {
    */
   private async getConversationMessages(
     spaceId: string,
-    conversationId?: string
+    conversationId?: string,
   ): Promise<Array<any>> {
     if (conversationId) {
       // 获取特定会话的消息
@@ -173,7 +170,8 @@ export class SkillGeneratorService {
       const conversations = await this.conversationService.getSpaceConversations(spaceId);
       const allMessages: any[] = [];
 
-      for (const conv of conversations.slice(0, 5)) { // 最近 5 个会话
+      for (const conv of conversations.slice(0, 5)) {
+        // 最近 5 个会话
         allMessages.push(...(conv.messages || []));
       }
 
@@ -184,14 +182,12 @@ export class SkillGeneratorService {
   /**
    * 分析对话模式
    */
-  private analyzeConversationPattern(
-    messages: Array<any>
-  ): ConversationPattern {
+  private analyzeConversationPattern(messages: Array<any>): ConversationPattern {
     const pattern: ConversationPattern = {
       taskTypes: [],
       commonCommands: [],
       parameterPatterns: [],
-      successfulSequences: []
+      successfulSequences: [],
     };
 
     // 分析用户请求类型
@@ -214,7 +210,7 @@ export class SkillGeneratorService {
         pattern.successfulSequences.push({
           userInput: userMsg.content,
           assistantResponse: assistantMsg.content,
-          toolsUsed: assistantMsg.toolCalls.map((tc: any) => tc.name || tc.type)
+          toolsUsed: assistantMsg.toolCalls.map((tc: any) => tc.name || tc.type),
         });
       }
     }
@@ -241,7 +237,7 @@ export class SkillGeneratorService {
       { regex: /(debug|调试|fix|修复)/i, type: '调试修复' },
       { regex: /(create|新建|generate|生成)/i, type: '创建生成' },
       { regex: /(search|查找|搜索)/i, type: '搜索查询' },
-      { regex: /(analyze|分析|explain|解释)/i, type: '分析解释' }
+      { regex: /(analyze|分析|explain|解释)/i, type: '分析解释' },
     ];
 
     for (const { regex, type } of patterns) {
@@ -261,8 +257,8 @@ export class SkillGeneratorService {
 
     // 基于任务类型生成技能草稿
     for (const taskType of pattern.taskTypes) {
-      const relatedSequences = pattern.successfulSequences.filter(seq =>
-        seq.userInput.toLowerCase().includes(taskType.toLowerCase())
+      const relatedSequences = pattern.successfulSequences.filter((seq) =>
+        seq.userInput.toLowerCase().includes(taskType.toLowerCase()),
       );
 
       if (relatedSequences.length > 0) {
@@ -280,8 +276,7 @@ export class SkillGeneratorService {
     }
 
     // 为频繁使用的工具组合创建技能
-    const frequentTools = Array.from(toolUsageCount.entries())
-      .filter(([_, count]) => count >= 3);
+    const frequentTools = Array.from(toolUsageCount.entries()).filter(([_, count]) => count >= 3);
 
     if (frequentTools.length > 0) {
       drafts.push(this.createToolBasedSkillDraft(frequentTools));
@@ -295,9 +290,9 @@ export class SkillGeneratorService {
    */
   private createSkillDraftFromSequences(
     taskType: string,
-    sequences: Array<{ userInput: string; assistantResponse: string; toolsUsed: string[] }>
+    sequences: Array<{ userInput: string; assistantResponse: string; toolsUsed: string[] }>,
   ): SkillDraft {
-    const examples = sequences.slice(0, 3).map(seq => seq.userInput);
+    const examples = sequences.slice(0, 3).map((seq) => seq.userInput);
 
     // 生成系统提示
     const systemPrompt = this.generateSystemPrompt(taskType, sequences[0]);
@@ -311,16 +306,14 @@ export class SkillGeneratorService {
       triggerCommand: triggerCommand,
       systemPrompt: systemPrompt,
       examples,
-      confidence: sequences.length * 0.3 // 基于出现频率的置信度
+      confidence: sequences.length * 0.3, // 基于出现频率的置信度
     };
   }
 
   /**
    * 从工具使用创建技能草稿
    */
-  private createToolBasedSkillDraft(
-    frequentTools: Array<[string, number]>
-  ): SkillDraft {
+  private createToolBasedSkillDraft(frequentTools: Array<[string, number]>): SkillDraft {
     const toolNames = frequentTools.map(([tool]) => tool).join(', ');
     const mainTool = frequentTools[0][0];
 
@@ -330,7 +323,7 @@ export class SkillGeneratorService {
       triggerCommand: `/${mainTool.toLowerCase()}-assistant`,
       systemPrompt: `你是一个专门使用 ${toolNames} 的助手。根据用户的请求，选择合适的工具来完成任务。`,
       examples: [`请使用 ${mainTool} 来完成...`],
-      confidence: frequentTools[0][1] * 0.2
+      confidence: frequentTools[0][1] * 0.2,
     };
   }
 
@@ -339,7 +332,7 @@ export class SkillGeneratorService {
    */
   private generateSystemPrompt(
     taskType: string,
-    exampleSequence: { userInput: string; assistantResponse: string; toolsUsed: string[] }
+    exampleSequence: { userInput: string; assistantResponse: string; toolsUsed: string[] },
   ): string {
     const toolsDescription = exampleSequence.toolsUsed.join('、');
 
@@ -367,15 +360,15 @@ export class SkillGeneratorService {
   private taskTypeToCommand(taskType: string): string {
     const mapping: Record<string, string> = {
       'Git 操作': 'git-helper',
-      '构建编译': 'build',
-      '运行测试': 'test',
-      '部署发布': 'deploy',
-      '代码审查': 'review',
-      '代码重构': 'refactor',
-      '调试修复': 'debug',
-      '创建生成': 'create',
-      '搜索查询': 'search',
-      '分析解释': 'analyze'
+      构建编译: 'build',
+      运行测试: 'test',
+      部署发布: 'deploy',
+      代码审查: 'review',
+      代码重构: 'refactor',
+      调试修复: 'debug',
+      创建生成: 'create',
+      搜索查询: 'search',
+      分析解释: 'analyze',
     };
 
     return mapping[taskType] || taskType.toLowerCase().replace(/\s+/g, '-');
@@ -387,7 +380,7 @@ export class SkillGeneratorService {
   private async analyzeAndGenerateSkill(
     name: string,
     description: string,
-    messages: Array<any>
+    messages: Array<any>,
   ): Promise<SkillDraft> {
     // 这里可以调用 Claude SDK 来分析对话并生成技能
     // 目前返回一个基础版本
@@ -400,7 +393,7 @@ export class SkillGeneratorService {
       triggerCommand,
       systemPrompt: this.generateGenericSystemPrompt(name, description),
       examples: this.extractExampleRequests(messages),
-      confidence: 0.8
+      confidence: 0.8,
     };
   }
 
@@ -429,9 +422,9 @@ ${description}
    */
   private extractExampleRequests(messages: Array<any>): string[] {
     return messages
-      .filter(msg => msg.role === 'user')
+      .filter((msg) => msg.role === 'user')
       .slice(0, 3)
-      .map(msg => msg.content);
+      .map((msg) => msg.content);
   }
 
   /**
@@ -441,13 +434,13 @@ ${description}
     const tags = new Set<string>();
 
     // 从名称提取
-    draft.name.split(/\s+/).forEach(word => {
+    draft.name.split(/\s+/).forEach((word) => {
       if (word.length > 2) tags.add(word.toLowerCase());
     });
 
     // 从描述提取关键词
     const keywords = draft.description.match(/[\u4e00-\u9fa5]{2,}|[a-zA-Z]{3,}/g) || [];
-    keywords.slice(0, 5).forEach(kw => tags.add(kw.toLowerCase()));
+    keywords.slice(0, 5).forEach((kw) => tags.add(kw.toLowerCase()));
 
     return Array.from(tags);
   }

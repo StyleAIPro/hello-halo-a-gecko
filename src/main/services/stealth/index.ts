@@ -8,8 +8,8 @@
  * the embedded browser appear as a regular Chrome browser.
  */
 
-import type { WebContents } from 'electron'
-import { stealthUtils } from './utils'
+import type { WebContents } from 'electron';
+import { stealthUtils } from './utils';
 import {
   navigatorWebdriverEvasion,
   navigatorVendorEvasion,
@@ -24,8 +24,8 @@ import {
   webglVendorEvasion,
   mediaCodecsEvasion,
   iframeContentWindowEvasion,
-  windowOuterdimensionsEvasion
-} from './evasions'
+  windowOuterdimensionsEvasion,
+} from './evasions';
 
 /**
  * Build the complete stealth script by combining utils and all evasions.
@@ -80,20 +80,20 @@ function buildStealthScript(): string {
 
   // console.log('[Stealth] All evasions applied successfully');
 })();
-`
+`;
 }
 
 // Pre-built script for performance (build once, use many times)
-let cachedStealthScript: string | null = null
+let cachedStealthScript: string | null = null;
 
 /**
  * Get the stealth script (cached for performance).
  */
 export function getStealthScript(): string {
   if (!cachedStealthScript) {
-    cachedStealthScript = buildStealthScript()
+    cachedStealthScript = buildStealthScript();
   }
-  return cachedStealthScript
+  return cachedStealthScript;
 }
 
 /**
@@ -108,32 +108,32 @@ export function getStealthScript(): string {
  * @param webContents - The WebContents instance to inject into
  */
 export async function injectStealthScripts(webContents: WebContents): Promise<void> {
-  const script = getStealthScript()
+  const script = getStealthScript();
 
   try {
     // Attach debugger to use CDP commands
     // Protocol version 1.3 is widely supported
-    webContents.debugger.attach('1.3')
+    webContents.debugger.attach('1.3');
 
     // Use CDP to inject script before any page scripts run
     // This is equivalent to puppeteer's evaluateOnNewDocument
     await webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: script
-    })
+      source: script,
+    });
 
     // Handle debugger detach gracefully (e.g., when DevTools is opened)
     webContents.debugger.on('detach', (_event, reason) => {
       if (reason !== 'target closed') {
-        console.log('[Stealth] Debugger detached:', reason)
+        console.log('[Stealth] Debugger detached:', reason);
       }
-    })
+    });
 
-    console.log('[Stealth] CDP injection configured successfully')
+    console.log('[Stealth] CDP injection configured successfully');
   } catch (err) {
     // Debugger might already be attached or CDP failed
     // Fall back to the event-based method
-    console.warn('[Stealth] CDP injection failed, using fallback method:', err)
-    setupFallbackInjection(webContents, script)
+    console.warn('[Stealth] CDP injection failed, using fallback method:', err);
+    setupFallbackInjection(webContents, script);
   }
 }
 
@@ -148,28 +148,28 @@ function setupFallbackInjection(webContents: WebContents, script: string): void 
       try {
         webContents.once('dom-ready', async () => {
           try {
-            await webContents.executeJavaScript(script, true)
+            await webContents.executeJavaScript(script, true);
           } catch (err) {
             // Silently ignore errors (page might have navigated away)
           }
-        })
+        });
       } catch (err) {
         // Silently ignore errors
       }
     }
-  })
+  });
 
   // Also inject immediately if there's already a page loaded
   try {
-    const url = webContents.getURL()
+    const url = webContents.getURL();
     if (url && !url.startsWith('devtools://') && url !== 'about:blank') {
-      webContents.executeJavaScript(script, true).catch(() => {})
+      webContents.executeJavaScript(script, true).catch(() => {});
     }
   } catch (err) {
     // Silently ignore errors
   }
 
-  console.log('[Stealth] Fallback injection configured')
+  console.log('[Stealth] Fallback injection configured');
 }
 
 /**
@@ -178,24 +178,24 @@ function setupFallbackInjection(webContents: WebContents, script: string): void 
  * @param webContents - The WebContents instance to inject into
  */
 export async function injectStealthScriptsOnce(webContents: WebContents): Promise<void> {
-  const script = getStealthScript()
+  const script = getStealthScript();
 
   try {
-    await webContents.executeJavaScript(script, true)
-    console.log('[Stealth] Stealth scripts injected successfully')
+    await webContents.executeJavaScript(script, true);
+    console.log('[Stealth] Stealth scripts injected successfully');
   } catch (err) {
-    console.error('[Stealth] Failed to inject stealth scripts:', err)
+    console.error('[Stealth] Failed to inject stealth scripts:', err);
   }
 }
 
 // Export types
 export interface StealthConfig {
-  languages?: string[]
-  vendor?: string
-  hardwareConcurrency?: number
-  webglVendor?: string
-  webglRenderer?: string
+  languages?: string[];
+  vendor?: string;
+  hardwareConcurrency?: number;
+  webglVendor?: string;
+  webglRenderer?: string;
 }
 
 // Export for testing
-export { buildStealthScript }
+export { buildStealthScript };
