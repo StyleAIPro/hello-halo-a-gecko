@@ -16,21 +16,21 @@
  * - Hover preview of recent messages
  */
 
-import { MessageCircle } from 'lucide-react'
-import { useCanvasStore } from '../../stores/canvas.store'
-import { useTranslation } from '../../i18n'
+import { MessageCircle } from 'lucide-react';
+import { useCanvasStore } from '../../stores/canvas.store';
+import { useTranslation } from '../../i18n';
 
 interface ChatCapsuleProps {
-  className?: string
+  className?: string;
 }
 
 export function ChatCapsule({ className = '' }: ChatCapsuleProps) {
-  const { t } = useTranslation()
-  const setMaximized = useCanvasStore(state => state.setMaximized)
+  const { t } = useTranslation();
+  const setMaximized = useCanvasStore((state) => state.setMaximized);
 
   const handleClick = () => {
-    setMaximized(false)
-  }
+    setMaximized(false);
+  };
 
   return (
     <button
@@ -94,5 +94,5 @@ export function ChatCapsule({ className = '' }: ChatCapsuleProps) {
         )}
       */}
     </button>
-  )
+  );
 }

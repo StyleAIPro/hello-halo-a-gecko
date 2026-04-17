@@ -14,27 +14,27 @@
  *    the event was already sent.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain } from 'electron';
 
 export interface BootstrapStatus {
   /** Whether extended services have been initialized */
-  extendedReady: boolean
+  extendedReady: boolean;
   /** Timestamp when extended services became ready (0 if not ready) */
-  extendedReadyAt: number
+  extendedReadyAt: number;
 }
 
 // Internal state
-let extendedServicesReady = false
-let extendedReadyTimestamp = 0
+let extendedServicesReady = false;
+let extendedReadyTimestamp = 0;
 
 /**
  * Mark extended services as ready
  * Called after initializeExtendedServices completes
  */
 export function markExtendedServicesReady(): void {
-  extendedServicesReady = true
-  extendedReadyTimestamp = Date.now()
-  console.log('[Bootstrap] Extended services marked as ready')
+  extendedServicesReady = true;
+  extendedReadyTimestamp = Date.now();
+  console.log('[Bootstrap] Extended services marked as ready');
 }
 
 /**
@@ -44,8 +44,8 @@ export function markExtendedServicesReady(): void {
 export function getBootstrapStatus(): BootstrapStatus {
   return {
     extendedReady: extendedServicesReady,
-    extendedReadyAt: extendedReadyTimestamp
-  }
+    extendedReadyAt: extendedReadyTimestamp,
+  };
 }
 
 /**
@@ -57,8 +57,8 @@ export function registerBootstrapStatusHandler(): void {
     // Return standard IpcResponse format for consistency with other handlers
     return {
       success: true,
-      data: getBootstrapStatus()
-    }
-  })
-  console.log('[Bootstrap] Status handler registered')
+      data: getBootstrapStatus(),
+    };
+  });
+  console.log('[Bootstrap] Status handler registered');
 }

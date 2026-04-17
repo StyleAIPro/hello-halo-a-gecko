@@ -13,9 +13,9 @@
  * - Automation app completion with output.notify enabled
  */
 
-import { Notification } from 'electron'
-import { getConfig } from './config.service'
-import { getMainWindow, sendToRenderer } from './window.service'
+import { Notification } from 'electron';
+import { getConfig } from './config.service';
+import { getMainWindow, sendToRenderer } from './window.service';
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -23,8 +23,8 @@ import { getMainWindow, sendToRenderer } from './window.service'
  * Check if the main window is currently focused.
  */
 function isWindowFocused(): boolean {
-  const mainWindow = getMainWindow()
-  return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused())
+  const mainWindow = getMainWindow();
+  return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused());
 }
 
 /**
@@ -34,7 +34,11 @@ function isWindowFocused(): boolean {
 function sendInAppToast(
   title: string,
   body: string,
-  options?: { appId?: string; variant?: 'default' | 'success' | 'warning' | 'error'; duration?: number }
+  options?: {
+    appId?: string;
+    variant?: 'default' | 'success' | 'warning' | 'error';
+    duration?: number;
+  },
 ): void {
   const sent = sendToRenderer('notification:toast', {
     title,
@@ -42,8 +46,8 @@ function sendInAppToast(
     variant: options?.variant ?? 'default',
     duration: options?.duration ?? 0,
     appId: options?.appId,
-  })
-  console.log(`[Notification] In-app toast sent=${sent}: title="${title}"`)
+  });
+  console.log(`[Notification] In-app toast sent=${sent}: title="${title}"`);
 }
 
 // ── Public API ─────────────────────────────────────────
@@ -57,38 +61,38 @@ function sendInAppToast(
  */
 export function notifyTaskComplete(conversationTitle: string): void {
   // Skip if notifications aren't supported
-  if (!Notification.isSupported()) return
+  if (!Notification.isSupported()) return;
 
   // Skip if window is focused - user is already looking at the app
-  if (isWindowFocused()) return
+  if (isWindowFocused()) return;
 
   // Check config preference
   try {
-    const config = getConfig()
-    if (!config.notifications?.taskComplete) return
+    const config = getConfig();
+    if (!config.notifications?.taskComplete) return;
   } catch {
     // Config not available, skip silently
-    return
+    return;
   }
 
   try {
-    const mainWindow = getMainWindow()
+    const mainWindow = getMainWindow();
     const notification = new Notification({
       title: 'AICO-Bot',
       body: `Task complete: ${conversationTitle}`,
-      silent: false
-    })
+      silent: false,
+    });
 
     notification.on('click', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore()
-        mainWindow.focus()
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
       }
-    })
+    });
 
-    notification.show()
+    notification.show();
   } catch (error) {
-    console.error('[Notification] Failed to show notification:', error)
+    console.error('[Notification] Failed to show notification:', error);
   }
 }
 
@@ -97,9 +101,9 @@ export function notifyTaskComplete(conversationTitle: string): void {
  */
 interface AppNotificationOptions {
   /** App ID — enables deep navigation to the App's Activity Thread on click */
-  appId?: string
+  appId?: string;
   /** Skip system/in-app notification (when output.notify.system === false) */
-  skipSystem?: boolean
+  skipSystem?: boolean;
 }
 
 /**
@@ -116,49 +120,55 @@ interface AppNotificationOptions {
  * @param body    - Notification body text
  * @param options - Optional: appId, skipSystem
  */
-export function notifyAppEvent(title: string, body: string, options?: AppNotificationOptions): void {
-  console.log(`[Notification] notifyAppEvent called: title="${title}", appId=${options?.appId}`)
+export function notifyAppEvent(
+  title: string,
+  body: string,
+  options?: AppNotificationOptions,
+): void {
+  console.log(`[Notification] notifyAppEvent called: title="${title}", appId=${options?.appId}`);
 
-  if (options?.skipSystem) return
+  if (options?.skipSystem) return;
 
-  const focused = isWindowFocused()
-  console.log(`[Notification] mainWindow focused=${focused}`)
+  const focused = isWindowFocused();
+  console.log(`[Notification] mainWindow focused=${focused}`);
 
   if (focused) {
     // Window is focused — macOS suppresses OS notifications for foreground apps.
     // Send an in-app toast instead so the user always sees it.
-    sendInAppToast(title, body, { appId: options?.appId, variant: 'default' })
+    sendInAppToast(title, body, { appId: options?.appId, variant: 'default' });
   } else if (!Notification.isSupported()) {
-    console.warn('[Notification] Notification.isSupported() = false — falling back to in-app toast')
-    sendInAppToast(title, body, { appId: options?.appId, variant: 'default' })
+    console.warn(
+      '[Notification] Notification.isSupported() = false — falling back to in-app toast',
+    );
+    sendInAppToast(title, body, { appId: options?.appId, variant: 'default' });
   } else {
     try {
-      const mainWindow = getMainWindow()
+      const mainWindow = getMainWindow();
 
       const notification = new Notification({
         title,
         body,
         silent: false,
-      })
+      });
 
       notification.on('click', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.focus()
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
 
           // Deep navigation: tell the renderer to open this App's Activity Thread
           if (options?.appId) {
-            sendToRenderer('app:navigate', { appId: options.appId })
+            sendToRenderer('app:navigate', { appId: options.appId });
           }
         }
-      })
+      });
 
-      notification.show()
-      console.log(`[Notification] OS notification.show() called`)
+      notification.show();
+      console.log(`[Notification] OS notification.show() called`);
     } catch (error) {
-      console.error('[Notification] Failed to show app event notification:', error)
+      console.error('[Notification] Failed to show app event notification:', error);
       // Fallback to in-app toast if OS notification fails
-      sendInAppToast(title, body, { appId: options?.appId, variant: 'default' })
+      sendInAppToast(title, body, { appId: options?.appId, variant: 'default' });
     }
   }
 }

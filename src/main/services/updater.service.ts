@@ -14,51 +14,52 @@
  */
 
 // Node/Electron imports
-import { app, ipcMain, powerMonitor } from 'electron'
+import { app, ipcMain, powerMonitor } from 'electron';
 
 // Third-party imports
-import electronUpdater from 'electron-updater'
-import { is } from '@electron-toolkit/utils'
+import electronUpdater from 'electron-updater';
+import { is } from '@electron-toolkit/utils';
 
 // Local imports
-import { getMainWindow } from './window.service'
-import { loadProductConfig, UpdateConfig } from './ai-sources/auth-loader'
+import { getMainWindow } from './window.service';
+import type { UpdateConfig } from './ai-sources/auth-loader';
+import { loadProductConfig } from './ai-sources/auth-loader';
 
 // Type imports
-const { autoUpdater } = electronUpdater
-type UpdateInfo = electronUpdater.UpdateInfo
+const { autoUpdater } = electronUpdater;
+type UpdateInfo = electronUpdater.UpdateInfo;
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 /** Delay before quitAndInstall to ensure windows close properly (ms) */
-const QUIT_AND_INSTALL_DELAY_MS = 300
+const QUIT_AND_INSTALL_DELAY_MS = 300;
 
 /** Delay before first update check after startup (ms) */
-const STARTUP_CHECK_DELAY_MS = 5000
+const STARTUP_CHECK_DELAY_MS = 5000;
 
 /** Interval between periodic update checks (ms) - 1 hour */
-const CHECK_INTERVAL_MS = 60 * 60 * 1000
+const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 /** Delay after system resume before checking for updates (ms) */
-const RESUME_CHECK_DELAY_MS = 3000
+const RESUME_CHECK_DELAY_MS = 3000;
 
 // ============================================================================
 // State
 // ============================================================================
 
 /** Track if we're in manual check mode (no auto-download) */
-let isManualCheck = false
+let isManualCheck = false;
 
 /** Track last check time to avoid duplicate checks */
-let lastCheckTime = 0
+let lastCheckTime = 0;
 
 /** Minimum interval between checks (5 minutes) to prevent spam */
-const MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000
+const MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Cached update config for constructing download URLs */
-let cachedUpdateConfig: UpdateConfig | undefined
+let cachedUpdateConfig: UpdateConfig | undefined;
 
 // ============================================================================
 // Configuration
@@ -72,38 +73,38 @@ let cachedUpdateConfig: UpdateConfig | undefined
  */
 function getDownloadPageUrl(version: string): string {
   if (!cachedUpdateConfig) {
-    return ''
+    return '';
   }
 
-  const { provider, url, owner, repo } = cachedUpdateConfig
+  const { provider, url, owner, repo } = cachedUpdateConfig;
 
   if (provider === 'generic' && url) {
     // Internal server: use the configured URL directly
-    return url
+    return url;
   }
 
   if (provider === 'github') {
     // GitHub: construct releases page URL
     if (owner && repo) {
-      return `https://github.com/${owner}/${repo}/releases/tag/v${version}`
+      return `https://github.com/${owner}/${repo}/releases/tag/v${version}`;
     }
   }
 
-  return ''
+  return '';
 }
 
 // Configure logging
-autoUpdater.logger = console
+autoUpdater.logger = console;
 
 // Platform-specific auto-download configuration
 // macOS: Disable auto-download (no code signing, download is useless)
 // Windows/Linux: Enable auto-download for seamless updates
 if (process.platform === 'darwin') {
-  autoUpdater.autoDownload = false
-  autoUpdater.forceDevUpdateConfig = true
+  autoUpdater.autoDownload = false;
+  autoUpdater.forceDevUpdateConfig = true;
 } else {
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
 }
 
 // ============================================================================
@@ -116,91 +117,91 @@ if (process.platform === 'darwin') {
 export function initAutoUpdater(): void {
   // Skip updates in development
   if (is.dev) {
-    console.log('[Updater] Skipping auto-update in development mode')
-    return
+    console.log('[Updater] Skipping auto-update in development mode');
+    return;
   }
 
   // ========================================
   // Check updateConfig from product.json
   // ========================================
-  const productConfig = loadProductConfig()
-  const updateConfig = productConfig.updateConfig
+  const productConfig = loadProductConfig();
+  const updateConfig = productConfig.updateConfig;
 
   // Cache updateConfig for constructing download URLs later
-  cachedUpdateConfig = updateConfig
+  cachedUpdateConfig = updateConfig;
 
   if (!updateConfig) {
-    console.log('[Updater] No updateConfig in product.json, using default GitHub provider')
+    console.log('[Updater] No updateConfig in product.json, using default GitHub provider');
   } else if (updateConfig.provider === 'generic' && !updateConfig.url) {
     // Empty URL means updates are disabled (e.g., internal network version)
-    console.log('[Updater] updateConfig.url is empty, auto-update disabled')
-    return
+    console.log('[Updater] updateConfig.url is empty, auto-update disabled');
+    return;
   } else if (updateConfig.provider === 'generic' && updateConfig.url) {
     // Set custom update server URL
     autoUpdater.setFeedURL({
       provider: 'generic',
-      url: updateConfig.url
-    })
-    console.log('[Updater] Using custom update URL:', updateConfig.url)
+      url: updateConfig.url,
+    });
+    console.log('[Updater] Using custom update URL:', updateConfig.url);
   }
   // For 'github' provider, use default configuration from electron-builder.yml
 
   // Set up event handlers
   autoUpdater.on('checking-for-update', () => {
-    console.log('[Updater] Checking for updates...')
-    sendUpdateStatus('checking')
-  })
+    console.log('[Updater] Checking for updates...');
+    sendUpdateStatus('checking');
+  });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
-    console.log('[Updater] Update available:', info.version)
+    console.log('[Updater] Update available:', info.version);
 
     // Manual check or macOS: Always show manual download option (no auto-download)
     if (isManualCheck || process.platform === 'darwin') {
-      console.log('[Updater] Showing manual download option')
+      console.log('[Updater] Showing manual download option');
       sendUpdateStatus('manual-download', {
         version: info.version,
         releaseDate: info.releaseDate,
         releaseNotes: info.releaseNotes,
-        downloadUrl: getDownloadPageUrl(info.version)
-      })
+        downloadUrl: getDownloadPageUrl(info.version),
+      });
     } else {
       // Windows/Linux background check: Proceed with auto-download
       sendUpdateStatus('available', {
         version: info.version,
         releaseDate: info.releaseDate,
-        releaseNotes: info.releaseNotes
-      })
+        releaseNotes: info.releaseNotes,
+      });
     }
-  })
+  });
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
-    console.log('[Updater] No update available, current version is latest:', info.version)
-    sendUpdateStatus('not-available', { version: info.version })
-  })
+    console.log('[Updater] No update available, current version is latest:', info.version);
+    sendUpdateStatus('not-available', { version: info.version });
+  });
 
   autoUpdater.on('download-progress', (progress) => {
-    console.log(`[Updater] Download progress: ${progress.percent.toFixed(1)}%`)
+    console.log(`[Updater] Download progress: ${progress.percent.toFixed(1)}%`);
     sendUpdateStatus('downloading', {
       percent: progress.percent,
       bytesPerSecond: progress.bytesPerSecond,
       transferred: progress.transferred,
-      total: progress.total
-    })
-  })
+      total: progress.total,
+    });
+  });
 
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
-    console.log('[Updater] Update downloaded:', info.version)
+    console.log('[Updater] Update downloaded:', info.version);
     sendUpdateStatus('downloaded', {
       version: info.version,
       releaseNotes: info.releaseNotes,
-      downloadUrl: getDownloadPageUrl(info.version)
-    })
-  })
+      downloadUrl: getDownloadPageUrl(info.version),
+    });
+  });
 
   autoUpdater.on('error', (error) => {
-    console.error('[Updater] Error:', error.message)
-    sendUpdateStatus('error', { message: error.message })
-  })
+    console.error('[Updater] Error:', error.message);
+    sendUpdateStatus('error', { message: error.message });
+  });
 
   // ========================================
   // Update Check Scheduling
@@ -208,23 +209,27 @@ export function initAutoUpdater(): void {
 
   // 1. Startup check (with delay to not block app launch)
   setTimeout(() => {
-    autoCheckForUpdates()
-  }, STARTUP_CHECK_DELAY_MS)
+    autoCheckForUpdates();
+  }, STARTUP_CHECK_DELAY_MS);
 
   // 2. Periodic check (every hour)
   setInterval(() => {
-    autoCheckForUpdates()
-  }, CHECK_INTERVAL_MS)
+    autoCheckForUpdates();
+  }, CHECK_INTERVAL_MS);
 
   // 3. Resume check (when system wakes from sleep)
   powerMonitor.on('resume', () => {
-    console.log('[Updater] System resumed from sleep, scheduling update check')
+    console.log('[Updater] System resumed from sleep, scheduling update check');
     setTimeout(() => {
-      autoCheckForUpdates()
-    }, RESUME_CHECK_DELAY_MS)
-  })
+      autoCheckForUpdates();
+    }, RESUME_CHECK_DELAY_MS);
+  });
 
-  console.log('[Updater] Initialized with periodic check interval:', CHECK_INTERVAL_MS / 1000 / 60, 'minutes')
+  console.log(
+    '[Updater] Initialized with periodic check interval:',
+    CHECK_INTERVAL_MS / 1000 / 60,
+    'minutes',
+  );
 }
 
 // ============================================================================
@@ -235,12 +240,19 @@ export function initAutoUpdater(): void {
  * Send update status to renderer
  */
 function sendUpdateStatus(
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'manual-download' | 'error',
-  data?: Record<string, unknown>
+  status:
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'downloading'
+    | 'downloaded'
+    | 'manual-download'
+    | 'error',
+  data?: Record<string, unknown>,
 ): void {
-  const mainWindow = getMainWindow()
+  const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:status', { status, ...data })
+    mainWindow.webContents.send('updater:status', { status, ...data });
   }
 }
 
@@ -248,13 +260,13 @@ function sendUpdateStatus(
  * Check if enough time has passed since last check
  */
 function canCheck(): boolean {
-  const now = Date.now()
+  const now = Date.now();
   if (now - lastCheckTime < MIN_CHECK_INTERVAL_MS) {
-    console.log('[Updater] Skipping check, too soon since last check')
-    return false
+    console.log('[Updater] Skipping check, too soon since last check');
+    return false;
   }
-  lastCheckTime = now
-  return true
+  lastCheckTime = now;
+  return true;
 }
 
 /**
@@ -264,19 +276,19 @@ function canCheck(): boolean {
  */
 export async function autoCheckForUpdates(): Promise<void> {
   if (is.dev) {
-    console.log('[Updater] Skipping update check in development mode')
-    return
+    console.log('[Updater] Skipping update check in development mode');
+    return;
   }
 
   if (!canCheck()) {
-    return
+    return;
   }
 
   try {
-    isManualCheck = false
-    await autoUpdater.checkForUpdates()
+    isManualCheck = false;
+    await autoUpdater.checkForUpdates();
   } catch (error) {
-    console.error('[Updater] Failed to check for updates:', error)
+    console.error('[Updater] Failed to check for updates:', error);
   }
 }
 
@@ -287,26 +299,26 @@ export async function autoCheckForUpdates(): Promise<void> {
  */
 export async function manualCheckForUpdates(): Promise<void> {
   if (is.dev) {
-    console.log('[Updater] Skipping update check in development mode')
-    sendUpdateStatus('not-available', { version: app.getVersion() })
-    return
+    console.log('[Updater] Skipping update check in development mode');
+    sendUpdateStatus('not-available', { version: app.getVersion() });
+    return;
   }
 
   // Manual check bypasses the time throttle
-  lastCheckTime = Date.now()
+  lastCheckTime = Date.now();
 
   // Save original autoDownload setting and disable it for manual check
-  const originalAutoDownload = autoUpdater.autoDownload
+  const originalAutoDownload = autoUpdater.autoDownload;
   try {
-    isManualCheck = true
-    autoUpdater.autoDownload = false
-    await autoUpdater.checkForUpdates()
+    isManualCheck = true;
+    autoUpdater.autoDownload = false;
+    await autoUpdater.checkForUpdates();
   } catch (error) {
-    console.error('[Updater] Failed to check for updates:', error)
-    sendUpdateStatus('error', { message: 'Failed to check for updates' })
+    console.error('[Updater] Failed to check for updates:', error);
+    sendUpdateStatus('error', { message: 'Failed to check for updates' });
   } finally {
-    isManualCheck = false
-    autoUpdater.autoDownload = originalAutoDownload
+    isManualCheck = false;
+    autoUpdater.autoDownload = originalAutoDownload;
   }
 }
 
@@ -316,7 +328,7 @@ export async function manualCheckForUpdates(): Promise<void> {
  * @deprecated Use autoCheckForUpdates or manualCheckForUpdates instead
  */
 export async function checkForUpdates(): Promise<void> {
-  return autoCheckForUpdates()
+  return autoCheckForUpdates();
 }
 
 // ============================================================================
@@ -338,11 +350,11 @@ export function quitAndInstall(): void {
     try {
       // isSilent=false: show installer UI for user feedback
       // isForceRunAfter=true: restart app after install completes
-      autoUpdater.quitAndInstall(false, true)
+      autoUpdater.quitAndInstall(false, true);
     } catch (error) {
-      console.error('[Updater] quitAndInstall failed:', error)
+      console.error('[Updater] quitAndInstall failed:', error);
     }
-  }, QUIT_AND_INSTALL_DELAY_MS)
+  }, QUIT_AND_INSTALL_DELAY_MS);
 }
 
 // ============================================================================
@@ -355,14 +367,14 @@ export function quitAndInstall(): void {
 export function registerUpdaterHandlers(): void {
   // Manual check - user triggered, no auto-download
   ipcMain.handle('updater:check', async () => {
-    await manualCheckForUpdates()
-  })
+    await manualCheckForUpdates();
+  });
 
   ipcMain.handle('updater:install', () => {
-    quitAndInstall()
-  })
+    quitAndInstall();
+  });
 
   ipcMain.handle('updater:get-version', () => {
-    return app.getVersion()
-  })
+    return app.getVersion();
+  });
 }

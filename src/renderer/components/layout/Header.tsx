@@ -10,35 +10,35 @@
  * Traffic light vertical center formula: y = height/2 - 7 = 13
  */
 
-import { ReactNode } from 'react'
-import { isElectron } from '../../api/transport'
+import type { ReactNode } from 'react';
+import { isElectron } from '../../api/transport';
 
 interface HeaderProps {
   /** Left side content (after platform padding) */
-  left?: ReactNode
+  left?: ReactNode;
   /** Right side content (before platform padding) */
-  right?: ReactNode
+  right?: ReactNode;
   /** Additional className for header */
-  className?: string
+  className?: string;
 }
 
 // Get platform info with fallback for SSR/browser
 const getPlatform = () => {
   if (typeof window !== 'undefined' && window.platform) {
-    return window.platform
+    return window.platform;
   }
   // Fallback for non-Electron environments (e.g., remote web access)
   return {
     platform: 'darwin' as const,
     isMac: true,
     isWindows: false,
-    isLinux: false
-  }
-}
+    isLinux: false,
+  };
+};
 
 export function Header({ left, right, className = '' }: HeaderProps) {
-  const platform = getPlatform()
-  const isInElectron = isElectron()
+  const platform = getPlatform();
+  const isInElectron = isElectron();
 
   // Platform-specific padding classes
   // macOS: traffic lights overlay on the left
@@ -46,9 +46,9 @@ export function Header({ left, right, className = '' }: HeaderProps) {
   // Browser/Mobile: no overlay, use normal padding
   const platformPadding = isInElectron
     ? platform.isMac
-      ? 'pl-20 pr-4'   // Electron macOS: 80px left for traffic lights
-      : 'pl-4 pr-36'   // Electron Windows/Linux: 140px right for titleBarOverlay buttons
-    : 'pl-4 pr-4'      // Browser/Mobile: normal padding
+      ? 'pl-20 pr-4' // Electron macOS: 80px left for traffic lights
+      : 'pl-4 pr-36' // Electron Windows/Linux: 140px right for titleBarOverlay buttons
+    : 'pl-4 pr-4'; // Browser/Mobile: normal padding
 
   // Header height: 40px, trafficLightPosition.y should be 40/2 - 7 = 13
   return (
@@ -58,13 +58,13 @@ export function Header({ left, right, className = '' }: HeaderProps) {
         border-b border-border drag-region
         ${platformPadding}
         ${className}
-      `.trim().replace(/\s+/g, ' ')}
+      `
+        .trim()
+        .replace(/\s+/g, ' ')}
     >
       {/* Left side: Interactive elements need no-drag to allow clicks */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div className="no-drag flex items-center gap-2 sm:gap-3">
-          {left}
-        </div>
+        <div className="no-drag flex items-center gap-2 sm:gap-3">{left}</div>
       </div>
 
       {/* Center: Draggable area - grows to fill space */}
@@ -72,15 +72,13 @@ export function Header({ left, right, className = '' }: HeaderProps) {
 
       {/* Right side: Interactive elements need no-drag to allow clicks */}
       <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-        <div className="no-drag flex items-center gap-1 sm:gap-2">
-          {right}
-        </div>
+        <div className="no-drag flex items-center gap-1 sm:gap-2">{right}</div>
       </div>
     </header>
-  )
+  );
 }
 
 // Export platform detection hook for use in other components
 export function usePlatform() {
-  return getPlatform()
+  return getPlatform();
 }

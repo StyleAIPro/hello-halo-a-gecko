@@ -44,16 +44,16 @@ import type {
   CustomSourceConfig,
   OAuthStartResult,
   OAuthCompleteResult,
-  AISourceUserInfo
-} from '../types'
+  AISourceUserInfo,
+} from '../types';
 
 /**
  * Result type for async operations
  */
 export interface ProviderResult<T> {
-  success: boolean
-  data?: T
-  error?: string
+  success: boolean;
+  data?: T;
+  error?: string;
 }
 
 /**
@@ -66,28 +66,28 @@ export interface OAuthProvider {
    * Start the OAuth login flow
    * Opens browser to login URL and returns state for tracking
    */
-  startLogin(): Promise<ProviderResult<OAuthStartResult>>
+  startLogin(): Promise<ProviderResult<OAuthStartResult>>;
 
   /**
    * Complete the OAuth login flow
    * Polls for token completion and returns user info
    */
-  completeLogin(state: string): Promise<ProviderResult<OAuthCompleteResult>>
+  completeLogin(state: string): Promise<ProviderResult<OAuthCompleteResult>>;
 
   /**
    * Refresh the access token if expired
    */
-  refreshToken(): Promise<ProviderResult<void>>
+  refreshToken(): Promise<ProviderResult<void>>;
 
   /**
    * Check if the current token is valid
    */
-  checkToken(): Promise<ProviderResult<{ valid: boolean; expiresIn?: number }>>
+  checkToken(): Promise<ProviderResult<{ valid: boolean; expiresIn?: number }>>;
 
   /**
    * Logout and clear tokens
    */
-  logout(): Promise<ProviderResult<void>>
+  logout(): Promise<ProviderResult<void>>;
 }
 
 /**
@@ -106,12 +106,12 @@ export interface AISourceProvider {
   /**
    * Unique identifier for this provider
    */
-  readonly type: AISourceType
+  readonly type: AISourceType;
 
   /**
    * Human-readable name for display
    */
-  readonly displayName: string
+  readonly displayName: string;
 
   /**
    * Check if this provider is configured and ready to use
@@ -120,7 +120,7 @@ export interface AISourceProvider {
    *               For OAuth providers, manager passes converted v1 format.
    *               For API Key providers, this method is NOT called at runtime.
    */
-  isConfigured(config: AISourcesConfig): boolean
+  isConfigured(config: AISourcesConfig): boolean;
 
   /**
    * Get backend request configuration for making API calls
@@ -133,14 +133,14 @@ export interface AISourceProvider {
    *               For API Key providers, this method is NOT called at runtime.
    * @returns Backend request config or null if not configured
    */
-  getBackendConfig(config: AISourcesConfig): BackendRequestConfig | null
+  getBackendConfig(config: AISourcesConfig): BackendRequestConfig | null;
 
   /**
    * Get the current model ID for this provider
    *
    * @param config Legacy format (see above)
    */
-  getCurrentModel(config: AISourcesConfig): string | null
+  getCurrentModel(config: AISourcesConfig): string | null;
 
   /**
    * Get available models for this provider
@@ -148,7 +148,7 @@ export interface AISourceProvider {
    *
    * @param config Legacy format (see above)
    */
-  getAvailableModels(config: AISourcesConfig): Promise<string[]>
+  getAvailableModels(config: AISourcesConfig): Promise<string[]>;
 
   /**
    * Refresh provider-specific configuration from remote API
@@ -157,7 +157,7 @@ export interface AISourceProvider {
    * @param config Legacy format (see above)
    * @returns Updated configuration for this provider
    */
-  refreshConfig?(config: AISourcesConfig): Promise<ProviderResult<Partial<AISourcesConfig>>>
+  refreshConfig?(config: AISourcesConfig): Promise<ProviderResult<Partial<AISourcesConfig>>>;
 }
 
 /**
@@ -169,14 +169,14 @@ export interface OAuthAISourceProvider extends AISourceProvider, OAuthProvider {
   /**
    * Get the current logged-in user info
    */
-  getUserInfo(config: AISourcesConfig): AISourceUserInfo | null
+  getUserInfo(config: AISourcesConfig): AISourceUserInfo | null;
 }
 
 /**
  * Type guard to check if provider supports OAuth
  */
 export function isOAuthProvider(provider: AISourceProvider): provider is OAuthAISourceProvider {
-  return 'startLogin' in provider && 'completeLogin' in provider
+  return 'startLogin' in provider && 'completeLogin' in provider;
 }
 
 /**
@@ -185,7 +185,7 @@ export function isOAuthProvider(provider: AISourceProvider): provider is OAuthAI
  * Used by AISourceManager to maintain provider instances
  */
 export interface ProviderRegistryEntry {
-  type: AISourceType
-  provider: AISourceProvider
-  priority: number // Lower = higher priority for fallback selection
+  type: AISourceType;
+  provider: AISourceProvider;
+  priority: number; // Lower = higher priority for fallback selection
 }

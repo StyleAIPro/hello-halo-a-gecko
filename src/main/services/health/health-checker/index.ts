@@ -5,10 +5,7 @@
  */
 
 // Startup checks
-export {
-  runStartupChecks,
-  runQuickHealthCheck
-} from './startup-checker'
+export { runStartupChecks, runQuickHealthCheck } from './startup-checker';
 
 // Runtime monitoring
 export {
@@ -17,8 +14,8 @@ export {
   isPollingActive,
   runImmediateCheck,
   getRuntimeStatus,
-  runPpidScanAndCleanup
-} from './runtime-checker'
+  runPpidScanAndCleanup,
+} from './runtime-checker';
 
 // Event handling
 export {
@@ -37,12 +34,12 @@ export {
   emitNetworkError,
   emitConfigChange,
   emitRecoverySuccess,
-  emitStartupCheck
-} from './event-listener'
+  emitStartupCheck,
+} from './event-listener';
 
 // Probes (for direct access if needed)
-export { runConfigProbe } from './probes/config-probe'
-export { runPortProbe, findAvailablePort } from './probes/port-probe'
-export { runDiskProbe } from './probes/disk-probe'
-export { runProcessProbe } from './probes/process-probe'
-export { checkOpenAIRouter, checkHttpServer } from './probes/service-probe'
+export { runConfigProbe } from './probes/config-probe';
+export { runPortProbe, findAvailablePort } from './probes/port-probe';
+export { runDiskProbe } from './probes/disk-probe';
+export { runProcessProbe } from './probes/process-probe';
+export { checkOpenAIRouter, checkHttpServer } from './probes/service-probe';

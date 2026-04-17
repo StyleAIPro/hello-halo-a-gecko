@@ -773,13 +773,31 @@ export class RemoteAgentServer {
           let authRetries = 0
           let needsAuthRetry = false
 
+          // Outer loop: process current message, then any pending messages queued during streaming
+          let currentChatMessages = chatMessages
+          let currentOptions = resolvedOptions
+          let isFirstIteration = true
+
+          while (true) {
           do {
             needsAuthRetry = false
 
+          // Check if session has an active stream — if so, queue message and return.
+          // Only check on the first iteration (subsequent iterations are for pending messages
+          // and the previous streamChat has already completed).
+          if (isFirstIteration) {
+          const lastMessage = currentChatMessages[currentChatMessages.length - 1]
+          if (this.claudeManager.isActive(sessionId) && lastMessage?.role === 'user') {
+            this.claudeManager.queueMessage(sessionId, lastMessage.content, currentOptions)
+            return
+          }
+          isFirstIteration = false
+          }
+
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
-            chatMessages,
-            resolvedOptions,
+            currentChatMessages,
+            currentOptions,
             authRetries > 0 ? undefined : sdkSessionIdToUse,  // Don't resume on auth retry
             onToolCall,
             onTerminalOutput,
@@ -867,6 +885,20 @@ export class RemoteAgentServer {
           }
           } while (needsAuthRetry && authRetries < MAX_AUTH_RETRIES)
           console.log(`[RemoteAgentServer] Stream completed for session ${sessionId}`)
+
+          // Check for pending messages queued during streaming
+          const pending = this.claudeManager.consumePendingMessages(sessionId)
+          if (pending.length === 0) break
+
+          // Process first pending message, put the rest back
+          const nextMsg = pending[0]
+          for (const extra of pending.slice(1)) {
+            this.claudeManager.queueMessage(sessionId, extra.content, extra.options)
+          }
+          currentChatMessages = [{ role: 'user' as const, content: nextMsg.content }]
+          currentOptions = nextMsg.options || resolvedOptions
+          console.log(`[RemoteAgentServer] Processing ${pending.length} pending message(s) for session ${sessionId}`)
+          } // end while (pending messages loop)
         } catch (streamError) {
           // Check if this is an expected interrupt
           const errorMessage = streamError instanceof Error ? streamError.message : String(streamError)
@@ -913,6 +945,8 @@ export class RemoteAgentServer {
         })
       }
     } catch (error) {
+      // Clear pending messages on error to prevent stale queue
+      this.claudeManager.clearPendingMessages(sessionId)
       console.error(`[RemoteAgentServer] Chat error for session ${sessionId}:`, error)
       console.error(`[RemoteAgentServer] Error details:`, error instanceof Error ? {
         message: error.message,

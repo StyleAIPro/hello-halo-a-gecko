@@ -4,34 +4,32 @@
  * Handles formatting and exporting diagnostic reports.
  */
 
-import { writeFileSync } from 'fs'
-import { join } from 'path'
-import { app } from 'electron'
-import type { DiagnosticReport } from '../types'
-import { collectDiagnosticReport } from './collector'
+import { writeFileSync } from 'fs';
+import { join } from 'path';
+import { app } from 'electron';
+import type { DiagnosticReport } from '../types';
+import { collectDiagnosticReport } from './collector';
 
 /**
  * Generate a diagnostic report
  */
 export async function generateReport(): Promise<DiagnosticReport> {
-  return collectDiagnosticReport()
+  return collectDiagnosticReport();
 }
 
 /**
  * Export report to file
  */
 export async function exportReport(filePath?: string): Promise<string> {
-  const report = await generateReport()
+  const report = await generateReport();
 
   // Default to downloads folder
-  const outputPath = filePath || join(
-    app.getPath('downloads'),
-    `aico-bot-diagnostics-${Date.now()}.json`
-  )
+  const outputPath =
+    filePath || join(app.getPath('downloads'), `aico-bot-diagnostics-${Date.now()}.json`);
 
-  writeFileSync(outputPath, JSON.stringify(report, null, 2))
+  writeFileSync(outputPath, JSON.stringify(report, null, 2));
 
-  return outputPath
+  return outputPath;
 }
 
 /**
@@ -66,34 +64,34 @@ export function formatReportAsText(report: DiagnosticReport): string {
     '--- System ---',
     `Memory: ${report.system.memory.free} free / ${report.system.memory.total} total`,
     `Uptime: ${formatUptime(report.system.uptime)}`,
-    ''
-  ]
+    '',
+  ];
 
   if (report.recentErrors.length > 0) {
-    lines.push('--- Recent Errors ---')
+    lines.push('--- Recent Errors ---');
     for (const error of report.recentErrors) {
-      lines.push(`[${error.time}] ${error.source}: ${error.message}`)
+      lines.push(`[${error.time}] ${error.source}: ${error.message}`);
     }
-    lines.push('')
+    lines.push('');
   }
 
-  lines.push('='.repeat(50))
+  lines.push('='.repeat(50));
 
-  return lines.join('\n')
+  return lines.join('\n');
 }
 
 /**
  * Format uptime as human-readable string
  */
 function formatUptime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = Math.floor(seconds % 60)
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
 
-  const parts: string[] = []
-  if (hours > 0) parts.push(`${hours}h`)
-  if (minutes > 0) parts.push(`${minutes}m`)
-  parts.push(`${secs}s`)
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  parts.push(`${secs}s`);
 
-  return parts.join(' ')
+  return parts.join(' ');
 }

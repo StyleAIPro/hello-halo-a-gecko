@@ -20,6 +20,7 @@ import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt';
 import { removePooledConnection } from '../remote-ws/remote-ws-client';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
+import { CLAUDE_AGENT_SDK_VERSION } from '../../../shared/constants/sdk';
 
 /**
  * Escape a value for use in shell environment variable
@@ -68,7 +69,7 @@ export interface RemoteServerConfigInput extends Omit<
 
 const DEPLOY_AGENT_PATH_FALLBACK = '/opt/claude-deployment';
 const DEPLOY_AGENT_PATH_DEV = '/opt/claude-deployment-dev';
-const REQUIRED_SDK_VERSION = '0.2.104';
+const REQUIRED_SDK_VERSION = CLAUDE_AGENT_SDK_VERSION;
 const AGENT_CHECK_COMMAND =
   'npm list -g @anthropic-ai/claude-agent-sdk 2>/dev/null || echo "NOT_INSTALLED"';
 
@@ -119,8 +120,16 @@ export class RemoteDeployService {
   // Track update operations so the UI can restore state after component remount
   private updateOperations: Map<string, UpdateOperationState> = new Map();
 
+
+  // Health monitor
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private healthCheckInProgress = false;
+  private static readonly HEALTH_CHECK_INTERVAL_MS = 30_000;
+  private static globalHealthTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor() {
     this.loadServers();
+    this.startHealthMonitor();
   }
 
   /**
@@ -376,40 +385,104 @@ export class RemoteDeployService {
       try {
         console.log(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`);
         this.emitDeployProgress(id, 'detect', 'Detecting remote agent...', 55);
-        const detectResult = await this.detectAgentInstalled(id);
-        if (detectResult.installed) {
-          console.log(
-            `[RemoteDeployService] Existing agent detected on ${server.name} (version: ${detectResult.version})`,
-          );
-        } else {
-          console.log(`[RemoteDeployService] No existing agent found on ${server.name}`);
-        }
 
-        // If proxy is already running, restart it to pick up the new authToken.
-        // This handles the re-add scenario: user deletes and re-adds the same server,
-        // clientId stays the same (same machine), deployPath is the same, but a new
-        // authToken was generated. The old proxy process still has the stale token.
-        const currentServer = this.servers.get(id);
-        if (currentServer?.proxyRunning && currentServer.assignedPort) {
-          this.emitDeployProgress(id, 'restart', 'Restarting proxy with new credentials...', 90);
+        const deployCheck = await this.checkDeployFilesIntegrity(id);
+        const sdkOk = await this.checkRemoteSdkVersion(id);
+
+        console.log(
+          `[RemoteDeployService] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
+        );
+
+        if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
+          // Auto-deploy: files missing, version outdated, or SDK mismatch
+          const reasons: string[] = [];
+          if (!deployCheck.filesOk) reasons.push('files missing');
+          if (deployCheck.needsUpdate && deployCheck.filesOk) reasons.push('version outdated');
+          if (!sdkOk) reasons.push('SDK mismatch');
+          const reasonMsg = reasons.join(', ');
+
+          this.emitDeployProgress(id, 'deploy', `Deploying (${reasonMsg})...`, 60);
           console.log(
-            `[RemoteDeployService] Proxy is running on ${server.name}, restarting to sync new auth token...`,
+            `[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`,
           );
+
+          await this.updateServer(id, { status: 'deploying' });
+
           try {
-            await this.stopAgent(id);
-            await this.startAgent(id);
-            console.log(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
-          } catch (restartError) {
-            console.warn(
-              `[RemoteDeployService] Failed to restart proxy on ${server.name}:`,
-              restartError,
+            // Deploy SDK if needed
+            if (!sdkOk) {
+              await this.deployAgentSDK(id);
+            }
+
+            // Deploy code if needed
+            if (!deployCheck.filesOk || deployCheck.needsUpdate) {
+              await this.deployAgentCode(id);
+            }
+
+            await this.updateServer(id, { status: 'connected' });
+
+            // Verify after deploy
+            await this.verifyProxyHealth(id);
+
+            this.emitDeployProgress(id, 'complete', 'Server added and agent deployed', 100);
+            console.log(`[RemoteDeployService] Auto-deploy completed for ${server.name}`);
+          } catch (deployError) {
+            console.error(
+              `[RemoteDeployService] Auto-deploy failed for ${server.name}:`,
+              deployError,
             );
-            // Non-fatal: user can manually update agent later
+            await this.updateServer(id, {
+              status: 'connected',
+              error: `Auto-deploy failed: ${(deployError as Error).message}`,
+            });
+            this.emitDeployProgress(
+              id,
+              'complete',
+              `Server added but deploy failed: ${(deployError as Error).message}. Use Update Agent to retry.`,
+              100,
+            );
           }
+        } else {
+          // Files and SDK are OK — check if proxy needs restart
+          const currentServer = this.servers.get(id);
+          if (currentServer?.proxyRunning && currentServer.assignedPort) {
+            // Proxy running — restart to sync new authToken
+            this.emitDeployProgress(id, 'restart', 'Restarting proxy with new credentials...', 90);
+            console.log(
+              `[RemoteDeployService] Proxy is running on ${server.name}, restarting to sync new auth token...`,
+            );
+            try {
+              await this.stopAgent(id);
+              await this.startAgent(id);
+              await this.verifyProxyHealth(id);
+              console.log(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
+            } catch (restartError) {
+              console.warn(
+                `[RemoteDeployService] Failed to restart proxy on ${server.name}:`,
+                restartError,
+              );
+            }
+          } else {
+            // Proxy not running — start it
+            this.emitDeployProgress(id, 'start', 'Starting proxy...', 90);
+            try {
+              await this.startAgent(id);
+              await this.verifyProxyHealth(id);
+              console.log(`[RemoteDeployService] Proxy started on ${server.name}`);
+            } catch (startError) {
+              console.warn(
+                `[RemoteDeployService] Failed to start proxy on ${server.name}:`,
+                startError,
+              );
+            }
+          }
+
+          this.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
         }
       } catch (detectError) {
         // Detection failure should not block the server addition
         console.warn(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError);
+        this.emitDeployProgress(id, 'complete', 'Server added (detection failed)', 100);
       }
 
       this.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
@@ -747,6 +820,8 @@ export class RemoteDeployService {
           detectError,
         );
       }
+
+      // Reset auto-recover failure count on successful (re)connection
 
       console.log(`[RemoteDeployService] Connected to server: ${server.name}`);
     } catch (error) {
@@ -1096,12 +1171,12 @@ WRAPPER
       this.emitCommandOutput(
         id,
         'command',
-        '$ npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}',
+        `$ npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`,
       );
       // Connection health check before SDK install
       await this.ensureSshConnectionHealthy(id);
       const globalSdkResult = await manager.executeCommandStreaming(
-        'export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION} 2>&1',
+        `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION} 2>&1`,
         (type, data) => {
           const lines = data.split('\n').filter((line) => line.trim());
           for (const line of lines) {
@@ -1725,12 +1800,24 @@ WRAPPER
     );
 
     if (checkResult.exitCode === 0 && !checkResult.stdout.includes('not running')) {
-      console.log(
-        '[RemoteDeployService] Proxy process exists but health check failed — killing stale process before restart',
+      // Process exists — verify it's actually healthy via health endpoint
+      const healthPort = port + 1;
+      const healthCheck = await manager.executeCommandFull(
+        `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`,
       );
-      await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
-      // Brief wait for process to exit
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        const healthData = JSON.parse(healthCheck.stdout || '{}');
+        if (healthData.status === 'ok') {
+          console.log(
+            '[RemoteDeployService] Agent already running and healthy, skipping start',
+          );
+          return;
+        }
+      } catch {
+        // Health check failed — process is zombie, kill and restart
+      }
+      console.log('[RemoteDeployService] Agent process exists but unhealthy, killing and restarting...');
+      await this.stopAgent(id);
     }
 
     // Start the agent server with environment variables
@@ -2176,22 +2263,66 @@ WRAPPER
     localVersion: string;
     localBuildTime?: string;
   }> {
+    const server = this.servers.get(id);
+    if (!server) throw new Error(`Server not found: ${id}`);
     console.log(`[RemoteDeploy] Updating agent for ${id}...`);
 
-    // Stop the agent
+    // Check remote environment: files, version freshness, and SDK independently
+    const deployCheck = await this.checkDeployFilesIntegrity(id);
+    const sdkOk = await this.checkRemoteSdkVersion(id);
+    const needsCodeDeploy = !deployCheck.filesOk || deployCheck.needsUpdate;
+
+    console.log(
+      `[RemoteDeploy] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
+    );
+
+    // Stop agent first (regardless of what needs updating)
     await this.stopAgent(id);
 
-    // Deploy the latest code (incremental update, restarts agent internally)
-    await this.updateAgentCode(id);
+    // Deploy only what's needed
+    if (needsCodeDeploy || !sdkOk) {
+      const reasons: string[] = [];
+      if (!deployCheck.filesOk) reasons.push('files missing');
+      if (deployCheck.needsUpdate && deployCheck.filesOk) reasons.push('version outdated');
+      if (!sdkOk) reasons.push('SDK mismatch');
 
-    // Verify remote agent version
-    const agentCheckResult = await this.checkAgentInstalled(id);
+      this.emitDeployProgress(id, 'update', `Deploying (${reasons.join(', ')})...`);
+
+      if (!sdkOk) {
+        console.log(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
+        await this.deployAgentSDK(id);
+      }
+
+      if (needsCodeDeploy) {
+        console.log(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
+        await this.deployAgentCode(id);
+      }
+    } else {
+      console.log(
+        `[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`,
+      );
+      this.emitDeployProgress(
+        id,
+        'update',
+        'Files and SDK verified, restarting agent...',
+      );
+    }
+
+    // Start proxy (or let deployAgentCode's internal start handle it)
+    // deployAgentCode internally calls startAgent, so only call if we didn't deploy code
+    if (!needsCodeDeploy) {
+      await this.startAgent(id);
+    }
+
+    // Immediately verify proxy health
+    await this.verifyProxyHealth(id);
+
     const localVersionInfo = this.getLocalAgentVersion();
-
     const result = {
-      message: 'Agent updated and restarted successfully',
-      remoteVersion: agentCheckResult.version || 'unknown',
-      remoteBuildTime: agentCheckResult.buildTime,
+      message: needsCodeDeploy || !sdkOk
+        ? 'Agent updated and restarted successfully'
+        : 'Agent restarted (files and SDK already up to date)',
+      remoteVersion: REQUIRED_SDK_VERSION,
       localVersion: localVersionInfo?.version || 'unknown',
       localBuildTime: localVersionInfo?.buildTime,
     };
@@ -2199,6 +2330,62 @@ WRAPPER
     console.log(`[RemoteDeploy] Agent update complete for ${id}`, result);
     this.completeUpdate(id, result);
     return result;
+  }
+
+  /**
+   * Verify proxy health immediately after starting agent.
+   * Updates proxyRunning on the server config so the UI reflects the real state
+   * without waiting for the background health monitor cycle.
+   */
+  private async verifyProxyHealth(id: string): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server || !server.assignedPort) return;
+
+    const manager = this.sshManagers.get(id);
+    if (!manager?.isConnected()) return;
+
+    // Wait briefly for proxy to initialize
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    const healthPort = server.assignedPort + 1;
+    const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+    try {
+      const healthResult = await manager.executeCommandFull(healthCmd);
+      const healthData = JSON.parse(healthResult.stdout || '{}');
+      const isOk = healthData.status === 'ok';
+      await this.updateServer(id, { proxyRunning: isOk });
+      console.log(
+        `[RemoteDeploy] Immediate health check for ${server.name}: proxyRunning=${isOk}`,
+      );
+    } catch {
+      await this.updateServer(id, { proxyRunning: false });
+      console.warn(`[RemoteDeploy] Immediate health check failed for ${server.name}`);
+    }
+  }
+
+  /**
+   * Check if the remote SDK version matches the required version.
+   */
+  private async checkRemoteSdkVersion(id: string): Promise<boolean> {
+    const server = this.servers.get(id);
+    if (!server) return false;
+
+    const manager = this.sshManagers.get(id);
+    if (!manager?.isConnected()) return false;
+
+    try {
+      const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
+      const stdout = result.stdout.trim();
+      const installed =
+        stdout.includes('@anthropic-ai/claude-agent-sdk') && !stdout.includes('NOT_INSTALLED');
+      if (!installed) return false;
+
+      const versionMatch = stdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/);
+      const version = versionMatch ? versionMatch[1] : '';
+      return version === REQUIRED_SDK_VERSION;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -2423,6 +2610,167 @@ WRAPPER
   disconnectAll(): void {
     for (const [id] of this.servers) {
       this.disconnectServer(id);
+    }
+  }
+
+  // ===== Health Monitor =====
+
+  /**
+   * Start the periodic health check loop.
+   * Runs every 30 seconds for all connected servers with an assigned port.
+   */
+  startHealthMonitor(): void {
+    // Use static flag to prevent duplicate timers across hot-reloads
+    if (RemoteDeployService.globalHealthTimer) {
+      this.healthCheckTimer = RemoteDeployService.globalHealthTimer;
+      return;
+    }
+
+    RemoteDeployService.globalHealthTimer = setInterval(() => {
+      this.runHealthCheck().catch((err) => {
+        console.error('[RemoteDeployService] Health check error:', err);
+      });
+    }, RemoteDeployService.HEALTH_CHECK_INTERVAL_MS);
+    this.healthCheckTimer = RemoteDeployService.globalHealthTimer;
+
+    console.log('[RemoteDeployService] Health monitor started');
+  }
+
+  /**
+   * Stop the periodic health check loop.
+   */
+  stopHealthMonitor(): void {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+      RemoteDeployService.globalHealthTimer = null;
+      console.log('[RemoteDeployService] Health monitor stopped');
+    }
+  }
+
+  /**
+   * Run a single health check pass over all eligible servers.
+   */
+  private async runHealthCheck(): Promise<void> {
+    if (this.healthCheckInProgress) return;
+    this.healthCheckInProgress = true;
+
+    try {
+      const eligibleServers: Array<{ id: string; server: RemoteServerConfig }> = [];
+      for (const [id, server] of this.servers) {
+        if (server.status === 'connected' && server.assignedPort) {
+          const manager = this.sshManagers.get(id);
+          if (manager?.isConnected()) {
+            eligibleServers.push({ id, server });
+          }
+        }
+      }
+
+      // Check all servers in parallel
+      await Promise.allSettled(
+        eligibleServers.map(({ id }) => this.checkServerHealth(id)),
+      );
+    } finally {
+      this.healthCheckInProgress = false;
+    }
+  }
+
+  /**
+   * Check proxy health for a single server.
+   */
+  private async checkServerHealth(id: string): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server || !server.assignedPort) return;
+
+    const manager = this.sshManagers.get(id);
+    if (!manager?.isConnected()) return;
+
+    try {
+      const port = server.assignedPort;
+      const healthPort = port + 1;
+      const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+      const healthResult = await manager.executeCommandFull(healthCmd);
+
+      let proxyRunning = false;
+      try {
+        const healthData = JSON.parse(healthResult.stdout || '{}');
+        proxyRunning = healthData.status === 'ok';
+      } catch {
+        proxyRunning = false;
+      }
+
+      if (proxyRunning) {
+        if (server.proxyRunning !== true) {
+          await this.updateServer(id, { proxyRunning: true });
+          this.emitDeployProgress(id, 'health-ok', 'Proxy is running');
+          console.log(`[HealthMonitor] ${server.name}: proxy recovered, status OK`);
+        }
+      } else {
+        if (server.proxyRunning !== false) {
+          await this.updateServer(id, { proxyRunning: false });
+          console.log(`[HealthMonitor] ${server.name}: proxy is down`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[HealthMonitor] ${server?.name}: health check failed:`, err);
+    }
+  }
+
+  /**
+   * Check remote deploy status: file integrity and version freshness.
+   * Returns { filesOk, needsUpdate } where needsUpdate is true if files are missing
+   * or the remote build timestamp is older than the local one.
+   */
+  async checkDeployFilesIntegrity(id: string): Promise<{ filesOk: boolean; needsUpdate: boolean }> {
+    const server = this.servers.get(id);
+    if (!server) return { filesOk: false, needsUpdate: true };
+
+    const manager = this.sshManagers.get(id);
+    if (!manager?.isConnected()) return { filesOk: false, needsUpdate: true };
+
+    const deployPath = getDeployPath(server);
+    const checkCmd = [
+      `test -f ${deployPath}/dist/index.js`,
+      `test -f ${deployPath}/dist/server.js`,
+      `test -f ${deployPath}/dist/claude-manager.js`,
+      `test -f ${deployPath}/dist/types.js`,
+      `test -f ${deployPath}/package.json`,
+      `test -d ${deployPath}/node_modules`,
+      `test -f ${deployPath}/dist/version.json`,
+    ].join(' && ');
+
+    try {
+      const result = await manager.executeCommandFull(`${checkCmd} && echo OK || echo MISSING`);
+      const filesOk = result.stdout.trim() === 'OK';
+      if (!filesOk) {
+        return { filesOk: false, needsUpdate: true };
+      }
+
+      // Files exist — compare build timestamps
+      const localVersion = this.getLocalAgentVersion();
+      if (!localVersion?.buildTimestamp) {
+        return { filesOk: true, needsUpdate: false };
+      }
+
+      const remoteVersionResult = await manager.executeCommandFull(
+        `cat ${deployPath}/dist/version.json 2>/dev/null || echo ""`,
+      );
+      try {
+        const remoteVersion = JSON.parse(remoteVersionResult.stdout || '{}');
+        const remoteTs = remoteVersion.buildTimestamp || '';
+        const needsUpdate = remoteTs !== localVersion.buildTimestamp;
+        if (needsUpdate) {
+          console.log(
+            `[RemoteDeploy] Version mismatch for ${server.name}: remote=${remoteTs}, local=${localVersion.buildTimestamp}`,
+          );
+        }
+        return { filesOk: true, needsUpdate };
+      } catch {
+        // version.json parse failed — treat as needing update
+        return { filesOk: true, needsUpdate: true };
+      }
+    } catch {
+      return { filesOk: false, needsUpdate: true };
     }
   }
 
@@ -2682,10 +3030,12 @@ WRAPPER
         `[RemoteDeployService] Agent check for ${server.name}: installed=${installed}, version=${version}`,
       );
 
-      // Update server config with SDK status
+      // Update server config with SDK status (only mark installed if version matches exactly)
+      const versionMatched = installed && version === REQUIRED_SDK_VERSION;
       await this.updateServer(id, {
-        sdkInstalled: installed,
+        sdkInstalled: versionMatched,
         sdkVersion: version,
+        sdkVersionMismatch: installed && !versionMatched,
       });
 
       // Also read the deployed package.json to get build timestamp
@@ -2993,7 +3343,7 @@ WRAPPER
         console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
         await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
 
-        const installCmd = 'npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}';
+        const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
         this.emitCommandOutput(id, 'command', installCmd);
         const installResult = await manager.executeCommandFull(installCmd);
         console.log('[RemoteDeployService] npm install output:', installResult.stdout);

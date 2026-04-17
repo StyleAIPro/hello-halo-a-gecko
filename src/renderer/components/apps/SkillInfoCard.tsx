@@ -5,24 +5,24 @@
  * Shows trigger command, description, and uninstall action.
  */
 
-import { Terminal, Unplug } from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { AppStatusDot } from './AppStatusDot'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
+import { Terminal, Unplug } from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { AppStatusDot } from './AppStatusDot';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
 
 interface SkillInfoCardProps {
-  appId: string
+  appId: string;
 }
 
 export function SkillInfoCard({ appId }: SkillInfoCardProps) {
-  const { t } = useTranslation()
-  const { apps, uninstallApp } = useAppsStore()
-  const app = apps.find(a => a.id === appId)
+  const { t } = useTranslation();
+  const { apps, uninstallApp } = useAppsStore();
+  const app = apps.find((a) => a.id === appId);
 
-  if (!app) return null
+  if (!app) return null;
 
-  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage());
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -54,7 +54,9 @@ export function SkillInfoCard({ appId }: SkillInfoCardProps) {
 
       {/* Description */}
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('Description')}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('Description')}
+        </h3>
         <p className="text-sm text-foreground">{description}</p>
       </div>
 
@@ -69,5 +71,5 @@ export function SkillInfoCard({ appId }: SkillInfoCardProps) {
         </button>
       </div>
     </div>
-  )
+  );
 }

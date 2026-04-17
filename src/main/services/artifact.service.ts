@@ -8,10 +8,19 @@
  * - Integration with artifact-cache.service for file watching
  */
 
-import { statSync, existsSync, realpathSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from 'fs'
-import { join, extname, basename, sep } from 'path'
-import { getTempSpacePath } from './config.service'
-import { getSpace } from './space.service'
+import {
+  statSync,
+  existsSync,
+  realpathSync,
+  readFileSync,
+  writeFileSync,
+  openSync,
+  readSync,
+  closeSync,
+} from 'fs';
+import { join, extname, basename, sep } from 'path';
+import { getTempSpacePath } from './config.service';
+import { getSpace } from './space.service';
 import {
   listArtifacts as listArtifactsCached,
   listArtifactsTree as listArtifactsTreeCached,
@@ -21,36 +30,36 @@ import {
   onArtifactChange,
   type CachedArtifact,
   type CachedTreeNode,
-  type ArtifactChangeEvent
-} from './artifact-cache.service'
+  type ArtifactChangeEvent,
+} from './artifact-cache.service';
 
 export interface Artifact {
-  id: string
-  spaceId: string
-  conversationId: string
-  name: string
-  type: 'file' | 'folder'
-  path: string
-  extension: string
-  icon: string
-  createdAt: string
-  preview?: string
-  size?: number
+  id: string;
+  spaceId: string;
+  conversationId: string;
+  name: string;
+  type: 'file' | 'folder';
+  path: string;
+  extension: string;
+  icon: string;
+  createdAt: string;
+  preview?: string;
+  size?: number;
 }
 
 // Get working directory for a space
 function getWorkingDir(spaceId: string): string {
   if (spaceId === 'aico-bot-temp') {
-    const artifactsDir = join(getTempSpacePath(), 'artifacts')
-    return artifactsDir
+    const artifactsDir = join(getTempSpacePath(), 'artifacts');
+    return artifactsDir;
   }
 
-  const space = getSpace(spaceId)
+  const space = getSpace(spaceId);
   if (space) {
-    return space.workingDir || space.path
+    return space.workingDir || space.path;
   }
 
-  return getTempSpacePath()
+  return getTempSpacePath();
 }
 
 /**
@@ -58,19 +67,19 @@ function getWorkingDir(spaceId: string): string {
  * Uses caching and file watching for optimal performance
  */
 export async function listArtifacts(spaceId: string): Promise<Artifact[]> {
-  console.log(`[Artifact] listArtifacts for space: ${spaceId}`)
+  console.log(`[Artifact] listArtifacts for space: ${spaceId}`);
 
-  const workDir = getWorkingDir(spaceId)
+  const workDir = getWorkingDir(spaceId);
 
   if (!existsSync(workDir)) {
-    console.log(`[Artifact] Directory does not exist: ${workDir}`)
-    return []
+    console.log(`[Artifact] Directory does not exist: ${workDir}`);
+    return [];
   }
 
-  const cachedArtifacts = await listArtifactsCached(spaceId, workDir, 2)
+  const cachedArtifacts = await listArtifactsCached(spaceId, workDir, 2);
 
   // Convert to Artifact format
-  const artifacts: Artifact[] = cachedArtifacts.map(ca => ({
+  const artifacts: Artifact[] = cachedArtifacts.map((ca) => ({
     id: ca.id,
     spaceId: ca.spaceId,
     conversationId: 'all',
@@ -81,18 +90,18 @@ export async function listArtifacts(spaceId: string): Promise<Artifact[]> {
     icon: ca.icon,
     createdAt: ca.createdAt,
     size: ca.size,
-    preview: undefined  // Don't load preview by default for performance
-  }))
+    preview: undefined, // Don't load preview by default for performance
+  }));
 
-  console.log(`[Artifact] Found ${artifacts.length} artifacts`)
-  return artifacts
+  console.log(`[Artifact] Found ${artifacts.length} artifacts`);
+  return artifacts;
 }
 
 // Get artifact by ID
 export function getArtifact(artifactId: string): Artifact | null {
   // This would typically query a database or cache
   // For now, we don't have persistent artifact storage
-  return null
+  return null;
 }
 
 // Watch for file changes
@@ -100,11 +109,11 @@ export function getArtifact(artifactId: string): Artifact | null {
 // This function is kept for API compatibility but delegates to the cache service.
 export function watchArtifacts(
   spaceId: string,
-  callback: (artifacts: Artifact[]) => void
+  callback: (artifacts: Artifact[]) => void,
 ): () => void {
   // File watching is handled by artifact-cache.service.ts via IPC events
   // Callers should use api.onArtifactChanged() instead
-  return () => {}
+  return () => {};
 }
 
 /**
@@ -112,20 +121,20 @@ export function watchArtifacts(
  * Only loads root level initially, children are loaded on demand
  */
 export async function listArtifactsTree(spaceId: string): Promise<CachedTreeNode[]> {
-  console.log(`[Artifact] listArtifactsTree for space: ${spaceId}`)
+  console.log(`[Artifact] listArtifactsTree for space: ${spaceId}`);
 
-  const workDir = getWorkingDir(spaceId)
-  console.log(`[Artifact] listArtifactsTree workDir resolved: ${workDir}`)
+  const workDir = getWorkingDir(spaceId);
+  console.log(`[Artifact] listArtifactsTree workDir resolved: ${workDir}`);
 
   if (!existsSync(workDir)) {
-    console.log(`[Artifact] Directory does not exist: ${workDir}`)
-    return []
+    console.log(`[Artifact] Directory does not exist: ${workDir}`);
+    return [];
   }
 
-  const nodes = await listArtifactsTreeCached(spaceId, workDir)
+  const nodes = await listArtifactsTreeCached(spaceId, workDir);
 
-  console.log(`[Artifact] listArtifactsTree result: ${nodes.length} root nodes`)
-  return nodes
+  console.log(`[Artifact] listArtifactsTree result: ${nodes.length} root nodes`);
+  return nodes;
 }
 
 /**
@@ -133,40 +142,42 @@ export async function listArtifactsTree(spaceId: string): Promise<CachedTreeNode
  */
 export async function loadTreeChildren(
   spaceId: string,
-  dirPath: string
+  dirPath: string,
 ): Promise<CachedTreeNode[]> {
-  console.log(`[Artifact] loadTreeChildren for: ${dirPath}`)
+  console.log(`[Artifact] loadTreeChildren for: ${dirPath}`);
 
-  const workDir = getWorkingDir(spaceId)
-  console.log(`[Artifact] loadTreeChildren workDir resolved: ${workDir}`)
+  const workDir = getWorkingDir(spaceId);
+  console.log(`[Artifact] loadTreeChildren workDir resolved: ${workDir}`);
 
   if (!existsSync(dirPath)) {
-    console.log(`[Artifact] Directory does not exist: ${dirPath}`)
-    return []
+    console.log(`[Artifact] Directory does not exist: ${dirPath}`);
+    return [];
   }
 
   // Security: Validate path is within workspace to prevent path traversal
   try {
-    const realPath = realpathSync(dirPath)
-    const realWorkDir = realpathSync(workDir)
+    const realPath = realpathSync(dirPath);
+    const realWorkDir = realpathSync(workDir);
     // Must use sep suffix to prevent /workspace_tmp matching /workspace
-    const realWorkDirWithSep = realWorkDir.endsWith(sep) ? realWorkDir : realWorkDir + sep
+    const realWorkDirWithSep = realWorkDir.endsWith(sep) ? realWorkDir : realWorkDir + sep;
     if (realPath !== realWorkDir && !realPath.startsWith(realWorkDirWithSep)) {
-      console.warn(`[Artifact] Path traversal blocked: ${dirPath} (realPath=${realPath}, workDir=${realWorkDir})`)
-      return []
+      console.warn(
+        `[Artifact] Path traversal blocked: ${dirPath} (realPath=${realPath}, workDir=${realWorkDir})`,
+      );
+      return [];
     }
   } catch {
-    console.warn(`[Artifact] Failed to resolve path: ${dirPath}`)
-    return []
+    console.warn(`[Artifact] Failed to resolve path: ${dirPath}`);
+    return [];
   }
 
   try {
-    const result = await loadDirectoryChildren(spaceId, dirPath, workDir)
-    console.log(`[Artifact] loadTreeChildren result: ${result.length} children for ${dirPath}`)
-    return result
+    const result = await loadDirectoryChildren(spaceId, dirPath, workDir);
+    console.log(`[Artifact] loadTreeChildren result: ${result.length} children for ${dirPath}`);
+    return result;
   } catch (error) {
-    console.error(`[Artifact] loadTreeChildren error:`, error)
-    return []
+    console.error(`[Artifact] loadTreeChildren error:`, error);
+    return [];
   }
 }
 
@@ -174,27 +185,27 @@ export async function loadTreeChildren(
  * Initialize artifact watcher for a space
  */
 export async function initArtifactWatcher(spaceId: string): Promise<void> {
-  const workDir = getWorkingDir(spaceId)
+  const workDir = getWorkingDir(spaceId);
 
   if (!existsSync(workDir)) {
-    console.log(`[Artifact] Cannot init watcher, directory does not exist: ${workDir}`)
-    return
+    console.log(`[Artifact] Cannot init watcher, directory does not exist: ${workDir}`);
+    return;
   }
 
-  await ensureSpaceCache(spaceId, workDir)
+  await ensureSpaceCache(spaceId, workDir);
 }
 
 /**
  * Subscribe to artifact change events
  */
 export function subscribeToArtifactChanges(
-  callback: (event: ArtifactChangeEvent) => void
+  callback: (event: ArtifactChangeEvent) => void,
 ): () => void {
-  return onArtifactChange(callback)
+  return onArtifactChange(callback);
 }
 
 // Re-export types for external use
-export type { ArtifactChangeEvent }
+export type { ArtifactChangeEvent };
 
 // ============================================
 // Content Canvas Support
@@ -253,22 +264,35 @@ const MIME_TYPES: Record<string, string> = {
   webp: 'image/webp',
   ico: 'image/x-icon',
   bmp: 'image/bmp',
-}
+};
 
 /**
  * Get MIME type for a file extension
  */
 function getMimeType(ext: string): string {
-  const normalized = ext.toLowerCase().replace('.', '')
-  return MIME_TYPES[normalized] || 'text/plain'
+  const normalized = ext.toLowerCase().replace('.', '');
+  return MIME_TYPES[normalized] || 'text/plain';
 }
 
 /**
  * Check if file is binary (image, etc.)
  */
 function isBinaryFile(ext: string): boolean {
-  const binaryExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'pdf', 'zip', 'tar', 'gz', 'rar']
-  return binaryExtensions.includes(ext.toLowerCase().replace('.', ''))
+  const binaryExtensions = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'ico',
+    'bmp',
+    'pdf',
+    'zip',
+    'tar',
+    'gz',
+    'rar',
+  ];
+  return binaryExtensions.includes(ext.toLowerCase().replace('.', ''));
 }
 
 /**
@@ -276,60 +300,60 @@ function isBinaryFile(ext: string): boolean {
  * Returns content as string (for text files) or base64 (for binary files)
  */
 export interface ArtifactContent {
-  content: string
-  mimeType: string
-  encoding: 'utf-8' | 'base64'
-  size: number
+  content: string;
+  mimeType: string;
+  encoding: 'utf-8' | 'base64';
+  size: number;
 }
 
 export function readArtifactContent(filePath: string): ArtifactContent {
-  console.log(`[Artifact] Reading content: ${filePath}`)
+  console.log(`[Artifact] Reading content: ${filePath}`);
 
   if (!existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`)
+    throw new Error(`File not found: ${filePath}`);
   }
 
-  const stats = statSync(filePath)
+  const stats = statSync(filePath);
   if (stats.isDirectory()) {
-    throw new Error(`Cannot read directory content: ${filePath}`)
+    throw new Error(`Cannot read directory content: ${filePath}`);
   }
 
-  const ext = extname(filePath)
-  const mimeType = getMimeType(ext)
+  const ext = extname(filePath);
+  const mimeType = getMimeType(ext);
 
   // Check file size limit (10MB for text, 50MB for binary)
-  const maxTextSize = 10 * 1024 * 1024  // 10MB
-  const maxBinarySize = 50 * 1024 * 1024  // 50MB
-  const isBinary = isBinaryFile(ext)
-  const maxSize = isBinary ? maxBinarySize : maxTextSize
+  const maxTextSize = 10 * 1024 * 1024; // 10MB
+  const maxBinarySize = 50 * 1024 * 1024; // 50MB
+  const isBinary = isBinaryFile(ext);
+  const maxSize = isBinary ? maxBinarySize : maxTextSize;
 
   if (stats.size > maxSize) {
-    throw new Error(`File too large: ${stats.size} bytes (max: ${maxSize} bytes)`)
+    throw new Error(`File too large: ${stats.size} bytes (max: ${maxSize} bytes)`);
   }
 
   try {
     if (isBinary) {
       // Read as base64 for binary files
-      const buffer = readFileSync(filePath)
+      const buffer = readFileSync(filePath);
       return {
         content: buffer.toString('base64'),
         mimeType,
         encoding: 'base64',
-        size: stats.size
-      }
+        size: stats.size,
+      };
     } else {
       // Read as UTF-8 for text files
-      const content = readFileSync(filePath, 'utf-8')
+      const content = readFileSync(filePath, 'utf-8');
       return {
         content,
         mimeType,
         encoding: 'utf-8',
-        size: stats.size
-      }
+        size: stats.size,
+      };
     }
   } catch (error) {
-    console.error(`[Artifact] Failed to read file: ${filePath}`, error)
-    throw new Error(`Failed to read file: ${(error as Error).message}`)
+    console.error(`[Artifact] Failed to read file: ${filePath}`, error);
+    throw new Error(`Failed to read file: ${(error as Error).message}`);
   }
 }
 
@@ -337,26 +361,26 @@ export function readArtifactContent(filePath: string): ArtifactContent {
  * Get artifact download info for remote mode
  */
 export function getArtifactDownloadInfo(filePath: string): {
-  exists: boolean
-  name: string
-  size: number
-  mimeType: string
+  exists: boolean;
+  name: string;
+  size: number;
+  mimeType: string;
 } | null {
   if (!existsSync(filePath)) {
-    return null
+    return null;
   }
 
   try {
-    const stats = statSync(filePath)
-    const ext = extname(filePath)
+    const stats = statSync(filePath);
+    const ext = extname(filePath);
     return {
       exists: true,
       name: basename(filePath),
       size: stats.size,
-      mimeType: getMimeType(ext)
-    }
+      mimeType: getMimeType(ext),
+    };
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -376,86 +400,216 @@ export type CanvasContentType =
   | 'text'
   | 'json'
   | 'csv'
-  | 'binary'
+  | 'binary';
 
 /**
  * File type detection result
  */
 export interface FileTypeInfo {
-  isText: boolean           // Whether the file is text-based
-  canViewInCanvas: boolean  // Whether it can be viewed in Canvas
-  contentType: CanvasContentType
-  language?: string         // Programming language (for code files)
-  mimeType: string          // MIME type
+  isText: boolean; // Whether the file is text-based
+  canViewInCanvas: boolean; // Whether it can be viewed in Canvas
+  contentType: CanvasContentType;
+  language?: string; // Programming language (for code files)
+  mimeType: string; // MIME type
 }
 
 // Known binary extensions (will NOT open in Canvas)
 const BINARY_EXTENSIONS = new Set([
   // Executables & Libraries
-  'exe', 'dll', 'so', 'dylib', 'bin', 'app', 'msi', 'dmg', 'pkg',
+  'exe',
+  'dll',
+  'so',
+  'dylib',
+  'bin',
+  'app',
+  'msi',
+  'dmg',
+  'pkg',
   // Archives
-  'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar', 'tgz',
+  'zip',
+  'tar',
+  'gz',
+  'bz2',
+  'xz',
+  '7z',
+  'rar',
+  'tgz',
   // Media (non-viewable)
-  'mp3', 'mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'wav', 'flac', 'aac', 'ogg',
+  'mp3',
+  'mp4',
+  'avi',
+  'mov',
+  'mkv',
+  'flv',
+  'wmv',
+  'wav',
+  'flac',
+  'aac',
+  'ogg',
   // Office documents (use external app)
-  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'odt',
+  'ods',
+  'odp',
   // Fonts
-  'ttf', 'otf', 'woff', 'woff2', 'eot',
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
+  'eot',
   // Database
-  'db', 'sqlite', 'sqlite3', 'mdb',
+  'db',
+  'sqlite',
+  'sqlite3',
+  'mdb',
   // Other binary
-  'class', 'pyc', 'pyo', 'o', 'obj', 'a', 'lib',
-  'iso', 'img', 'vmdk', 'vdi',
-])
+  'class',
+  'pyc',
+  'pyo',
+  'o',
+  'obj',
+  'a',
+  'lib',
+  'iso',
+  'img',
+  'vmdk',
+  'vdi',
+]);
 
 // Known image extensions (open in ImageViewer)
 const IMAGE_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'tiff', 'tif',
-])
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'ico',
+  'bmp',
+  'tiff',
+  'tif',
+]);
 
 // Known code extensions with their languages
 const CODE_EXTENSIONS: Record<string, string> = {
   // JavaScript/TypeScript
-  js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-  mjs: 'javascript', cjs: 'javascript',
+  js: 'javascript',
+  jsx: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  mjs: 'javascript',
+  cjs: 'javascript',
   // Web frameworks
-  vue: 'vue', svelte: 'svelte',
+  vue: 'vue',
+  svelte: 'svelte',
   // Systems programming
-  py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
-  java: 'java', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp',
-  cs: 'csharp', swift: 'swift', kt: 'kotlin', kts: 'kotlin',
-  scala: 'scala', dart: 'dart', m: 'objectivec', mm: 'objectivec',
-  d: 'd', cr: 'crystal',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  c: 'c',
+  cpp: 'cpp',
+  h: 'c',
+  hpp: 'cpp',
+  cs: 'csharp',
+  swift: 'swift',
+  kt: 'kotlin',
+  kts: 'kotlin',
+  scala: 'scala',
+  dart: 'dart',
+  m: 'objectivec',
+  mm: 'objectivec',
+  d: 'd',
+  cr: 'crystal',
   // Scripting
-  php: 'php', lua: 'lua', pl: 'perl', pm: 'perl',
-  r: 'r', R: 'r', rmd: 'r', hs: 'haskell', tcl: 'tcl',
+  php: 'php',
+  lua: 'lua',
+  pl: 'perl',
+  pm: 'perl',
+  r: 'r',
+  R: 'r',
+  rmd: 'r',
+  hs: 'haskell',
+  tcl: 'tcl',
   // Shell
-  sh: 'bash', bash: 'bash', zsh: 'bash',
-  ps1: 'powershell', psm1: 'powershell', psd1: 'powershell',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  ps1: 'powershell',
+  psm1: 'powershell',
+  psd1: 'powershell',
   // Config & Data
-  sql: 'sql', yaml: 'yaml', yml: 'yaml', xml: 'xml',
-  toml: 'toml', ini: 'ini', conf: 'ini', properties: 'properties',
+  sql: 'sql',
+  yaml: 'yaml',
+  yml: 'yaml',
+  xml: 'xml',
+  toml: 'toml',
+  ini: 'ini',
+  conf: 'ini',
+  properties: 'properties',
   proto: 'protobuf',
   // Functional
-  clj: 'clojure', cljs: 'clojure', cljc: 'clojure', edn: 'clojure',
-  erl: 'erlang', hrl: 'erlang', ex: 'elixir', exs: 'elixir', elm: 'elm',
-  fs: 'fsharp', fsi: 'fsharp', fsx: 'fsharp',
-  ml: 'ocaml', mli: 'ocaml', sml: 'sml',
+  clj: 'clojure',
+  cljs: 'clojure',
+  cljc: 'clojure',
+  edn: 'clojure',
+  erl: 'erlang',
+  hrl: 'erlang',
+  ex: 'elixir',
+  exs: 'elixir',
+  elm: 'elm',
+  fs: 'fsharp',
+  fsi: 'fsharp',
+  fsx: 'fsharp',
+  ml: 'ocaml',
+  mli: 'ocaml',
+  sml: 'sml',
   // Scientific
-  jl: 'julia', f: 'fortran', f90: 'fortran', f95: 'fortran', for: 'fortran',
+  jl: 'julia',
+  f: 'fortran',
+  f90: 'fortran',
+  f95: 'fortran',
+  for: 'fortran',
   // Legacy
-  pas: 'pascal', dpr: 'pascal', vb: 'vb', vbs: 'vbscript', bas: 'vb',
-  scm: 'scheme', rkt: 'scheme', lisp: 'lisp', lsp: 'lisp', cl: 'lisp',
+  pas: 'pascal',
+  dpr: 'pascal',
+  vb: 'vb',
+  vbs: 'vbscript',
+  bas: 'vb',
+  scm: 'scheme',
+  rkt: 'scheme',
+  lisp: 'lisp',
+  lsp: 'lisp',
+  cl: 'lisp',
   // CSS & Templates
-  css: 'css', scss: 'scss', less: 'less', sass: 'sass', styl: 'stylus',
-  pug: 'pug', jade: 'pug', coffee: 'coffeescript', groovy: 'groovy',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  sass: 'sass',
+  styl: 'stylus',
+  pug: 'pug',
+  jade: 'pug',
+  coffee: 'coffeescript',
+  groovy: 'groovy',
   // Hardware
-  v: 'verilog', sv: 'verilog', vhd: 'vhdl', vhdl: 'vhdl',
+  v: 'verilog',
+  sv: 'verilog',
+  vhd: 'vhdl',
+  vhdl: 'vhdl',
   // DevOps
-  pp: 'puppet', nsh: 'nsis',
+  pp: 'puppet',
+  nsh: 'nsis',
   // Other
-  diff: 'diff', patch: 'diff', dockerfile: 'dockerfile',
-}
+  diff: 'diff',
+  patch: 'diff',
+  dockerfile: 'dockerfile',
+};
 
 // Special filenames (no extension) that are code
 const SPECIAL_FILENAMES: Record<string, string> = {
@@ -473,7 +627,7 @@ const SPECIAL_FILENAMES: Record<string, string> = {
   '.env.local': 'shell',
   '.env.development': 'shell',
   '.env.production': 'shell',
-}
+};
 
 /**
  * Detect if file content is binary by checking for NULL bytes
@@ -481,40 +635,40 @@ const SPECIAL_FILENAMES: Record<string, string> = {
  */
 function detectBinaryContent(filePath: string): boolean {
   try {
-    const fd = openSync(filePath, 'r')
-    const buffer = Buffer.alloc(8192) // Read first 8KB
-    const bytesRead = readSync(fd, buffer, 0, 8192, 0)
-    closeSync(fd)
+    const fd = openSync(filePath, 'r');
+    const buffer = Buffer.alloc(8192); // Read first 8KB
+    const bytesRead = readSync(fd, buffer, 0, 8192, 0);
+    closeSync(fd);
 
     // Empty file is considered text
     if (bytesRead === 0) {
-      return false
+      return false;
     }
 
     // Check for NULL bytes (strong indicator of binary)
     for (let i = 0; i < bytesRead; i++) {
       if (buffer[i] === 0) {
-        return true
+        return true;
       }
     }
 
     // Check ratio of non-printable characters
-    let nonPrintable = 0
+    let nonPrintable = 0;
     for (let i = 0; i < bytesRead; i++) {
-      const byte = buffer[i]
+      const byte = buffer[i];
       // Allow common text characters: printable ASCII, newline, tab, carriage return
       if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
-        nonPrintable++
+        nonPrintable++;
       }
       // Allow extended ASCII and UTF-8
       // High bytes (> 127) are valid in UTF-8 sequences
     }
 
     // If more than 10% non-printable, likely binary
-    return nonPrintable / bytesRead > 0.1
+    return nonPrintable / bytesRead > 0.1;
   } catch {
     // If we can't read the file, assume binary to be safe
-    return true
+    return true;
   }
 }
 
@@ -529,21 +683,21 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: false,
       contentType: 'binary',
       mimeType: 'application/octet-stream',
-    }
+    };
   }
 
-  const stats = statSync(filePath)
+  const stats = statSync(filePath);
   if (stats.isDirectory()) {
     return {
       isText: false,
       canViewInCanvas: false,
       contentType: 'binary',
       mimeType: 'inode/directory',
-    }
+    };
   }
 
-  const ext = extname(filePath).toLowerCase().replace('.', '')
-  const filename = basename(filePath).toLowerCase()
+  const ext = extname(filePath).toLowerCase().replace('.', '');
+  const filename = basename(filePath).toLowerCase();
 
   // Check special filenames first
   if (SPECIAL_FILENAMES[filename]) {
@@ -553,7 +707,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       contentType: 'code',
       language: SPECIAL_FILENAMES[filename],
       mimeType: 'text/plain',
-    }
+    };
   }
 
   // Known binary extensions → cannot view
@@ -563,7 +717,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: false,
       contentType: 'binary',
       mimeType: 'application/octet-stream',
-    }
+    };
   }
 
   // Known image extensions → ImageViewer
@@ -573,7 +727,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: true,
       contentType: 'image',
       mimeType: getMimeType(ext),
-    }
+    };
   }
 
   // PDF → BrowserView
@@ -583,7 +737,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: true,
       contentType: 'pdf',
       mimeType: 'application/pdf',
-    }
+    };
   }
 
   // Known code extensions → CodeViewer
@@ -594,7 +748,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       contentType: 'code',
       language: CODE_EXTENSIONS[ext],
       mimeType: getMimeType(ext),
-    }
+    };
   }
 
   // Markdown
@@ -605,7 +759,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       contentType: 'markdown',
       language: 'markdown',
       mimeType: 'text/markdown',
-    }
+    };
   }
 
   // HTML
@@ -616,7 +770,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       contentType: 'html',
       language: 'html',
       mimeType: 'text/html',
-    }
+    };
   }
 
   // JSON
@@ -627,7 +781,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       contentType: 'json',
       language: 'json',
       mimeType: 'application/json',
-    }
+    };
   }
 
   // CSV
@@ -637,22 +791,22 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: true,
       contentType: 'csv',
       mimeType: 'text/csv',
-    }
+    };
   }
 
   // Known text extensions without syntax highlighting
-  const textExtensions = ['txt', 'log', 'env', 'gitignore', 'dockerignore']
+  const textExtensions = ['txt', 'log', 'env', 'gitignore', 'dockerignore'];
   if (textExtensions.includes(ext)) {
     return {
       isText: true,
       canViewInCanvas: true,
       contentType: 'text',
       mimeType: 'text/plain',
-    }
+    };
   }
 
   // Unknown extension → detect by content
-  const isBinary = detectBinaryContent(filePath)
+  const isBinary = detectBinaryContent(filePath);
 
   if (isBinary) {
     return {
@@ -660,7 +814,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
       canViewInCanvas: false,
       contentType: 'binary',
       mimeType: 'application/octet-stream',
-    }
+    };
   }
 
   // Unknown but appears to be text → open as plain text (editable)
@@ -669,7 +823,7 @@ export function detectFileType(filePath: string): FileTypeInfo {
     canViewInCanvas: true,
     contentType: 'text',
     mimeType: 'text/plain',
-  }
+  };
 }
 
 /**
@@ -677,17 +831,17 @@ export function detectFileType(filePath: string): FileTypeInfo {
  * Used by CodeViewer edit mode
  */
 export function saveArtifactContent(filePath: string, content: string): void {
-  console.log(`[Artifact] Saving content to: ${filePath}`)
+  console.log(`[Artifact] Saving content to: ${filePath}`);
 
   if (!filePath) {
-    throw new Error('File path is required')
+    throw new Error('File path is required');
   }
 
   try {
-    writeFileSync(filePath, content, 'utf-8')
-    console.log(`[Artifact] File saved successfully: ${filePath}`)
+    writeFileSync(filePath, content, 'utf-8');
+    console.log(`[Artifact] File saved successfully: ${filePath}`);
   } catch (error) {
-    console.error(`[Artifact] Failed to save file: ${filePath}`, error)
-    throw new Error(`Failed to save file: ${(error as Error).message}`)
+    console.error(`[Artifact] Failed to save file: ${filePath}`, error);
+    throw new Error(`Failed to save file: ${(error as Error).message}`);
   }
 }

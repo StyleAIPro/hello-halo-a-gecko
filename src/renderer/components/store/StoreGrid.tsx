@@ -5,15 +5,15 @@
  * Handles empty/loading states for the grid area.
  */
 
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { StoreCard } from './StoreCard'
-import { useTranslation } from '../../i18n'
-import { Package } from 'lucide-react'
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { StoreCard } from './StoreCard';
+import { useTranslation } from '../../i18n';
+import { Package } from 'lucide-react';
 
 export function StoreGrid() {
-  const { t } = useTranslation()
-  const storeApps = useAppsPageStore(state => state.storeApps)
-  const selectStoreApp = useAppsPageStore(state => state.selectStoreApp)
+  const { t } = useTranslation();
+  const storeApps = useAppsPageStore((state) => state.storeApps);
+  const selectStoreApp = useAppsPageStore((state) => state.selectStoreApp);
 
   if (storeApps.length === 0) {
     return (
@@ -22,26 +22,20 @@ export function StoreGrid() {
           <Package className="w-6 h-6 text-muted-foreground" />
         </div>
         <div>
-          <p className="text-sm font-medium text-foreground">
-            {t('No apps found')}
-          </p>
+          <p className="text-sm font-medium text-foreground">{t('No apps found')}</p>
           <p className="text-xs text-muted-foreground mt-1">
             {t('Try adjusting your search or filters')}
           </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-      {storeApps.map(entry => (
-        <StoreCard
-          key={entry.slug}
-          entry={entry}
-          onClick={() => selectStoreApp(entry.slug)}
-        />
+      {storeApps.map((entry) => (
+        <StoreCard key={entry.slug} entry={entry} onClick={() => selectStoreApp(entry.slug)} />
       ))}
     </div>
-  )
+  );
 }

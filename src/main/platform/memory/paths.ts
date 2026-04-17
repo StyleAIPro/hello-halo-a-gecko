@@ -14,15 +14,15 @@
  *   {basePath}/memory/   (session summaries, compaction archives)
  */
 
-import { join, sep } from 'path'
-import { getAicoBotDir } from '../../services/config.service'
-import type { MemoryCallerScope, MemoryScopeType } from './types'
+import { join, sep } from 'path';
+import { getAicoBotDir } from '../../services/config.service';
+import type { MemoryCallerScope, MemoryScopeType } from './types';
 
 /** Memory file name (main file for each scope) */
-const MEMORY_FILENAME = 'memory.md'
+const MEMORY_FILENAME = 'memory.md';
 
 /** Subdirectory for compaction archives; session summaries go to memory/run/ */
-const MEMORY_ARCHIVE_DIR = 'memory'
+const MEMORY_ARCHIVE_DIR = 'memory';
 
 // ============================================================================
 // Path Resolution
@@ -42,22 +42,22 @@ export function getMemoryBaseDir(caller: MemoryCallerScope, scope: MemoryScopeTy
   switch (scope) {
     case 'user':
       // User memory lives directly in the AICO-Bot data directory
-      return getAicoBotDir()
+      return getAicoBotDir();
 
     case 'space':
       // Space memory lives in the space's .aico-bot directory
-      return join(caller.spacePath, '.aico-bot')
+      return join(caller.spacePath, '.aico-bot');
 
     case 'app': {
       if (!caller.appId) {
-        throw new Error('Memory scope "app" requires an appId in the caller scope')
+        throw new Error('Memory scope "app" requires an appId in the caller scope');
       }
       // App memory lives in the space's .aico-bot/apps/{appId}/ directory
-      return join(caller.spacePath, '.aico-bot', 'apps', caller.appId)
+      return join(caller.spacePath, '.aico-bot', 'apps', caller.appId);
     }
 
     default:
-      throw new Error(`Unknown memory scope: ${scope as string}`)
+      throw new Error(`Unknown memory scope: ${scope as string}`);
   }
 }
 
@@ -68,26 +68,26 @@ export function getMemoryBaseDir(caller: MemoryCallerScope, scope: MemoryScopeTy
  * to avoid confusion with other files in the AICO-Bot data directory.
  */
 export function getMemoryFilePath(caller: MemoryCallerScope, scope: MemoryScopeType): string {
-  const baseDir = getMemoryBaseDir(caller, scope)
+  const baseDir = getMemoryBaseDir(caller, scope);
 
   if (scope === 'user') {
-    return join(baseDir, 'user-memory.md')
+    return join(baseDir, 'user-memory.md');
   }
 
-  return join(baseDir, MEMORY_FILENAME)
+  return join(baseDir, MEMORY_FILENAME);
 }
 
 /**
  * Get the path to the memory archive directory (memory/).
  */
 export function getMemoryArchiveDir(caller: MemoryCallerScope, scope: MemoryScopeType): string {
-  const baseDir = getMemoryBaseDir(caller, scope)
+  const baseDir = getMemoryBaseDir(caller, scope);
 
   if (scope === 'user') {
-    return join(baseDir, 'user-memory')
+    return join(baseDir, 'user-memory');
   }
 
-  return join(baseDir, MEMORY_ARCHIVE_DIR)
+  return join(baseDir, MEMORY_ARCHIVE_DIR);
 }
 
 /**
@@ -106,17 +106,19 @@ export function getMemoryArchiveDir(caller: MemoryCallerScope, scope: MemoryScop
 export function resolveArchivePath(
   caller: MemoryCallerScope,
   scope: MemoryScopeType,
-  relativePath: string
+  relativePath: string,
 ): string {
-  const archiveDir = getMemoryArchiveDir(caller, scope)
-  const resolved = join(archiveDir, relativePath)
+  const archiveDir = getMemoryArchiveDir(caller, scope);
+  const resolved = join(archiveDir, relativePath);
 
   // Security: prevent directory traversal.
   // Use archiveDir + sep to ensure a file named with archiveDir as prefix
   // (e.g. archiveDir + "evil") cannot bypass the check.
   if (!resolved.startsWith(archiveDir + sep)) {
-    throw new Error(`Path traversal detected: "${relativePath}" escapes the memory archive directory`)
+    throw new Error(
+      `Path traversal detected: "${relativePath}" escapes the memory archive directory`,
+    );
   }
 
-  return resolved
+  return resolved;
 }

@@ -6,7 +6,7 @@
  *
  */
 
-import os from 'os'
+import os from 'os';
 
 // ============================================
 // Constants
@@ -23,10 +23,10 @@ export const DEFAULT_ALLOWED_TOOLS = [
   'Grep',
   'Glob',
   'Bash',
-  'Skill'
-] as const
+  'Skill',
+] as const;
 
-export type AllowedTool = (typeof DEFAULT_ALLOWED_TOOLS)[number]
+export type AllowedTool = (typeof DEFAULT_ALLOWED_TOOLS)[number];
 
 // ============================================
 // System Prompt Context
@@ -37,19 +37,19 @@ export type AllowedTool = (typeof DEFAULT_ALLOWED_TOOLS)[number]
  */
 export interface SystemPromptContext {
   /** Current working directory */
-  workDir: string
+  workDir: string;
   /** Model name/identifier being used */
-  modelInfo?: string
+  modelInfo?: string;
   /** Operating system platform */
-  platform?: string
+  platform?: string;
   /** OS version string */
-  osVersion?: string
+  osVersion?: string;
   /** Current date in YYYY-MM-DD format */
-  today?: string
+  today?: string;
   /** Whether the current directory is a git repo */
-  isGitRepo?: boolean
+  isGitRepo?: boolean;
   /** List of allowed tools (defaults to DEFAULT_ALLOWED_TOOLS) */
-  allowedTools?: readonly string[]
+  allowedTools?: readonly string[];
 }
 
 // ============================================
@@ -234,7 +234,7 @@ You have built-in GitHub capabilities via the MCP server "gh-search". Use these 
 **Common Search Qualifiers:** \`repo:owner/name\`, \`org:orgname\`, \`user:username\`, \`language:name\`, \`stars:>N\`, \`is:open\`, \`is:closed\`, \`label:name\`, \`author:username\`
 
 Example: Search for popular TypeScript CLI tools: \`mcp__gh-search__gh_search_repos\` with query "stars:>1000 language:typescript topic:cli"
-`.trim()
+`.trim();
 
 // ============================================
 // Dynamic System Prompt Builder
@@ -248,24 +248,23 @@ Example: Search for popular TypeScript CLI tools: \`mcp__gh-search__gh_search_re
  * @returns Complete system prompt string
  */
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
-  const tools = ctx.allowedTools || DEFAULT_ALLOWED_TOOLS
-  const platform = ctx.platform || process.platform
-  const osVersion = ctx.osVersion || `${os.type()} ${os.release()}`
-  const today = ctx.today || new Date().toISOString().split('T')[0]
-  const isGitRepo = ctx.isGitRepo !== undefined ? (ctx.isGitRepo ? 'Yes' : 'No') : 'No'
-  const modelInfo = ctx.modelInfo ? `You are powered by ${ctx.modelInfo}.` : ''
+  const tools = ctx.allowedTools || DEFAULT_ALLOWED_TOOLS;
+  const platform = ctx.platform || process.platform;
+  const osVersion = ctx.osVersion || `${os.type()} ${os.release()}`;
+  const today = ctx.today || new Date().toISOString().split('T')[0];
+  const isGitRepo = ctx.isGitRepo !== undefined ? (ctx.isGitRepo ? 'Yes' : 'No') : 'No';
+  const modelInfo = ctx.modelInfo ? `You are powered by ${ctx.modelInfo}.` : '';
 
   // Escape $ in replacement strings to prevent template literal interpretation
-  const safeModelInfo = modelInfo.replace(/\$/g, '\\$')
+  const safeModelInfo = modelInfo.replace(/\$/g, '\\$');
 
-  return SYSTEM_PROMPT_TEMPLATE
-    .replace(/\${ALLOWED_TOOLS}/g, tools.join(', '))
+  return SYSTEM_PROMPT_TEMPLATE.replace(/\${ALLOWED_TOOLS}/g, tools.join(', '))
     .replace(/\${WORK_DIR}/g, ctx.workDir.replace(/\$/g, '\\$'))
     .replace(/\${IS_GIT_REPO}/g, isGitRepo)
     .replace(/\${PLATFORM}/g, platform)
     .replace(/\${OS_VERSION}/g, osVersion)
     .replace(/\${TODAY}/g, today)
-    .replace(/\${MODEL_INFO}/g, safeModelInfo)
+    .replace(/\${MODEL_INFO}/g, safeModelInfo);
 }
 
 /**
@@ -277,7 +276,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
  */
 export function buildSystemPromptWithAIBrowser(
   ctx: SystemPromptContext,
-  aiBrowserPrompt: string
+  aiBrowserPrompt: string,
 ): string {
-  return buildSystemPrompt(ctx) + '\n\n' + aiBrowserPrompt
+  return buildSystemPrompt(ctx) + '\n\n' + aiBrowserPrompt;
 }

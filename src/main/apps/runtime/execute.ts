@@ -12,29 +12,29 @@
  * - Stream processing: collect final result only
  */
 
-import { randomUUID } from 'crypto'
-import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
-import type { InstalledApp } from '../manager'
-import { resolvePermission } from '../../../shared/apps/app-types'
-import type { MemoryService, MemoryCallerScope } from '../../platform/memory'
-import { buildMemorySnapshot, createMemoryStatusMcpServer } from '../../platform/memory/snapshot'
-import type { ActivityStore } from './store'
-import type {
-  TriggerContext,
-  AppRunResult,
-  RunStatus,
-  ActivityEntry,
-} from './types'
-import { RunExecutionError } from './errors'
-import { buildAppSystemPrompt, buildInitialMessage } from './prompt'
-import { createReportToolServer } from './report-tool'
-import type { ReportToolContext } from './report-tool'
-import { getApiCredentials, getApiCredentialsForSource, getHeadlessElectronPath, getWorkingDir } from '../../services/agent/helpers'
-import { resolveCredentialsForSdk, buildBaseSdkOptions } from '../../services/agent/sdk-config'
-import { createAIBrowserMcpServer, createScopedBrowserContext } from '../../services/ai-browser'
-import { getConfig } from '../../services/config.service'
-import { getSpace } from '../../services/space.service'
-import { openSessionWriter, type SessionWriter } from './session-store'
+import { randomUUID } from 'crypto';
+import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
+import type { InstalledApp } from '../manager';
+import { resolvePermission } from '../../../shared/apps/app-types';
+import type { MemoryService, MemoryCallerScope } from '../../platform/memory';
+import { buildMemorySnapshot, createMemoryStatusMcpServer } from '../../platform/memory/snapshot';
+import type { ActivityStore } from './store';
+import type { TriggerContext, AppRunResult, RunStatus, ActivityEntry } from './types';
+import { RunExecutionError } from './errors';
+import { buildAppSystemPrompt, buildInitialMessage } from './prompt';
+import { createReportToolServer } from './report-tool';
+import type { ReportToolContext } from './report-tool';
+import {
+  getApiCredentials,
+  getApiCredentialsForSource,
+  getHeadlessElectronPath,
+  getWorkingDir,
+} from '../../services/agent/helpers';
+import { resolveCredentialsForSdk, buildBaseSdkOptions } from '../../services/agent/sdk-config';
+import { createAIBrowserMcpServer, createScopedBrowserContext } from '../../services/ai-browser';
+import { getConfig } from '../../services/config.service';
+import { getSpace } from '../../services/space.service';
+import { openSessionWriter, type SessionWriter } from './session-store';
 
 // ============================================
 // Types
@@ -43,27 +43,27 @@ import { openSessionWriter, type SessionWriter } from './session-store'
 /** Options for executing a single run */
 export interface ExecuteRunOptions {
   /** The installed App to execute */
-  app: InstalledApp
+  app: InstalledApp;
   /** What triggered this run */
-  trigger: TriggerContext
+  trigger: TriggerContext;
   /** Activity store for recording results */
-  store: ActivityStore
+  store: ActivityStore;
   /** Memory service for AI memory tools and prompt instructions */
-  memory: MemoryService
+  memory: MemoryService;
   /** Abort signal for cancellation */
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal;
 }
 
 /** Internal result from stream processing */
 interface StreamResult {
   /** Final text content from the AI */
-  finalText: string
+  finalText: string;
   /** Total input + output tokens consumed */
-  totalTokens: number
+  totalTokens: number;
   /** Whether the AI reported an error via report_to_user */
-  aiReportedError: boolean
+  aiReportedError: boolean;
   /** Whether the AI called report_to_user during this stream cycle */
-  reportToolCalled: boolean
+  reportToolCalled: boolean;
 }
 
 // ============================================
@@ -71,7 +71,7 @@ interface StreamResult {
 // ============================================
 
 /** Max turns per stream cycle for automation runs (higher than conversation's 50 for autonomous operation) */
-const MAX_TURNS = 100
+const MAX_TURNS = 100;
 
 /**
  * Max auto-continue attempts when AI ends without calling report_to_user.
@@ -81,24 +81,24 @@ const MAX_TURNS = 100
  * message prompting the AI to continue — mimicking a human typing "continue"
  * in an interactive session.
  */
-const MAX_AUTO_CONTINUES = 3
+const MAX_AUTO_CONTINUES = 3;
 
 /** Message sent to AI when auto-continuing (non-final attempt) */
 const AUTO_CONTINUE_MESSAGE =
   'You ended your response without calling report_to_user. ' +
   'Every execution MUST end with a report_to_user call. ' +
   'If your task is complete, call report_to_user now with a summary of what you did. ' +
-  'If your task is not complete, continue working and call report_to_user when finished.'
+  'If your task is not complete, continue working and call report_to_user when finished.';
 
 /** Message sent on the final auto-continue attempt */
 const AUTO_CONTINUE_FINAL_MESSAGE =
   'FINAL REMINDER: You must call report_to_user NOW. ' +
   'This is your last chance to report results. Summarize whatever you have accomplished ' +
   'and call mcp__aico-bot-report__report_to_user immediately. ' +
-  'If you do not call it, this run will be marked as failed.'
+  'If you do not call it, this run will be marked as failed.';
 
 /** Session key prefix for automation runs */
-const SESSION_KEY_PREFIX = 'app-run'
+const SESSION_KEY_PREFIX = 'app-run';
 
 // ============================================
 // Core Execution
@@ -122,16 +122,16 @@ const SESSION_KEY_PREFIX = 'app-run'
  * @throws RunExecutionError on unrecoverable failure
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResult> {
-  const { app, trigger, store, memory, abortSignal } = options
-  const runId = randomUUID()
-  const sessionKey = `${SESSION_KEY_PREFIX}-${runId.slice(0, 8)}`
-  const startedAt = Date.now()
+  const { app, trigger, store, memory, abortSignal } = options;
+  const runId = randomUUID();
+  const sessionKey = `${SESSION_KEY_PREFIX}-${runId.slice(0, 8)}`;
+  const startedAt = Date.now();
 
-  const runTag = runId.slice(0, 8)
+  const runTag = runId.slice(0, 8);
   console.log(
     `[Runtime][${runTag}] ▶ Starting run: app=${app.id}, trigger=${trigger.type}, ` +
-    `appName="${app.spec.name}", spaceId=${app.spaceId}`
-  )
+      `appName="${app.spec.name}", spaceId=${app.spaceId}`,
+  );
 
   // Record run start
   store.insertRun({
@@ -140,18 +140,19 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     sessionKey,
     status: 'running',
     triggerType: trigger.type,
-    triggerData: trigger.eventPayload ?? (trigger.escalation ? { escalation: trigger.escalation } : undefined),
+    triggerData:
+      trigger.eventPayload ?? (trigger.escalation ? { escalation: trigger.escalation } : undefined),
     startedAt,
-  })
+  });
 
   // Track escalation from report_to_user callback
-  let escalationEntryId: string | undefined
+  let escalationEntryId: string | undefined;
 
   // Session reference for cleanup
-  let session: any = null
+  let session: any = null;
 
   // Scoped browser context for this run (created in try, cleaned up in finally)
-  let scopedBrowserCtx: ReturnType<typeof createScopedBrowserContext> | undefined
+  let scopedBrowserCtx: ReturnType<typeof createScopedBrowserContext> | undefined;
 
   // ── Build memory scope (before try so it's available in catch) ─────
   const memoryScope: MemoryCallerScope = {
@@ -161,33 +162,37 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
     // AppManager creates: {space.path}/.aico-bot/apps/{appId}/memory/
     spacePath: getSpace(app.spaceId)?.path ?? '',
     appId: app.id,
-  }
+  };
 
   try {
     // ── 1. Resolve credentials and working directory ─────
     //    (needed early: workDir feeds into system prompt,
     //     modelInfo feeds into base prompt's model display)
-    const config = getConfig()
+    const config = getConfig();
     const credentials = app.userOverrides?.modelSourceId
-      ? await getApiCredentialsForSource(config, app.userOverrides.modelSourceId, app.userOverrides.modelId)
-      : await getApiCredentials(config)
-    const resolvedCreds = await resolveCredentialsForSdk(credentials)
-    const electronPath = getHeadlessElectronPath()
-    const workDir = getWorkingDir(app.spaceId)
+      ? await getApiCredentialsForSource(
+          config,
+          app.userOverrides.modelSourceId,
+          app.userOverrides.modelId,
+        )
+      : await getApiCredentials(config);
+    const resolvedCreds = await resolveCredentialsForSdk(credentials);
+    const electronPath = getHeadlessElectronPath();
+    const workDir = getWorkingDir(app.spaceId);
 
     console.log(
       `[Runtime][${runTag}] Credentials resolved: provider=${credentials.provider}, ` +
-      `model=${resolvedCreds.displayModel}, workDir=${workDir}`
-    )
+        `model=${resolvedCreds.displayModel}, workDir=${workDir}`,
+    );
 
     // ── 2. Build system prompt ─────────────────────────────
-    const memoryInstructions = memory.getPromptInstructions()
-    const usesAIBrowser = resolvePermission(app, 'ai-browser')
+    const memoryInstructions = memory.getPromptInstructions();
+    const usesAIBrowser = resolvePermission(app, 'ai-browser');
 
     console.log(
       `[Runtime][${runTag}] Memory scope: type=${memoryScope.type}, spaceId=${memoryScope.spaceId}, ` +
-      `appId=${memoryScope.appId}, hasMemoryInstructions=${memoryInstructions.length > 0}`
-    )
+        `appId=${memoryScope.appId}, hasMemoryInstructions=${memoryInstructions.length > 0}`,
+    );
 
     const systemPrompt = buildAppSystemPrompt({
       appSpec: app.spec,
@@ -197,56 +202,58 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       usesAIBrowser,
       workDir,
       modelInfo: resolvedCreds.displayModel,
-    })
+    });
 
     console.log(
       `[Runtime][${runTag}] ── SYSTEM PROMPT ──────────────────────────\n` +
-      systemPrompt +
-      `\n[Runtime][${runTag}] ── END SYSTEM PROMPT ──────────────────────`
-    )
+        systemPrompt +
+        `\n[Runtime][${runTag}] ── END SYSTEM PROMPT ──────────────────────`,
+    );
 
     // ── 3. Build initial message ───────────────────────────
     //    Build memory snapshot for trigger-time injection.
     //    This gives the AI immediate memory context without a tool call.
-    const memorySnapshot = await buildMemorySnapshot(memoryScope)
+    const memorySnapshot = await buildMemorySnapshot(memoryScope);
     console.log(
       `[Runtime][${runTag}] Memory snapshot: exists=${memorySnapshot.exists}, ` +
-      `lines=${memorySnapshot.totalLines}, size=${memorySnapshot.sizeBytes}B, ` +
-      `headers=${memorySnapshot.headers.length}, archive=${memorySnapshot.archiveTotalCount}`
-    )
+        `lines=${memorySnapshot.totalLines}, size=${memorySnapshot.sizeBytes}B, ` +
+        `headers=${memorySnapshot.headers.length}, archive=${memorySnapshot.archiveTotalCount}`,
+    );
 
     // ── 3a. Pre-insert timestamp heading in # History ─────
     //    Gives the AI a ready-made heading to Edit with its summary.
     //    Uses the same YYYY-MM-DD-HHmm format as run file names.
     //    Reuses rawContent from the snapshot to avoid a redundant file read.
-    const runTimestamp = formatRunTimestamp(new Date())
-    await preInsertHistoryHeading(memorySnapshot.memoryFilePath, runTimestamp, memorySnapshot.rawContent)
-    console.log(`[Runtime][${runTag}] Pre-inserted History heading: ## ${runTimestamp}`)
+    const runTimestamp = formatRunTimestamp(new Date());
+    await preInsertHistoryHeading(
+      memorySnapshot.memoryFilePath,
+      runTimestamp,
+      memorySnapshot.rawContent,
+    );
+    console.log(`[Runtime][${runTag}] Pre-inserted History heading: ## ${runTimestamp}`);
 
     const initialMessage = buildInitialMessage({
       triggerContext: trigger.description,
       userConfig: app.userConfig,
       appName: app.spec.name,
       memorySnapshot,
-    })
+    });
 
     console.log(
       `[Runtime][${runTag}] ── INITIAL MESSAGE ────────────────────────\n` +
-      initialMessage +
-      `\n[Runtime][${runTag}] ── END INITIAL MESSAGE ────────────────────`
-    )
+        initialMessage +
+        `\n[Runtime][${runTag}] ── END INITIAL MESSAGE ────────────────────`,
+    );
 
     // ── 3b. Create scoped browser context for this run ────
     //    Scoped context isolates activeViewId from user's interactive browser
     //    and other concurrent runs, while sharing the same session/cookies.
-    scopedBrowserCtx = usesAIBrowser
-      ? createScopedBrowserContext(null)
-      : undefined
+    scopedBrowserCtx = usesAIBrowser ? createScopedBrowserContext(null) : undefined;
 
     // ── 4. Create MCP servers ──────────────────────────────
     //    Register the lightweight memory_status tool (structural metadata only).
     //    The AI uses native Read/Edit/Write on memory.md directly.
-    const memoryMcpServer = createMemoryStatusMcpServer(memoryScope)
+    const memoryMcpServer = createMemoryStatusMcpServer(memoryScope);
 
     const reportContext: ReportToolContext = {
       appId: app.id,
@@ -254,27 +261,23 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       runId,
       sessionKey,
       notificationLevel: app.userOverrides.notificationLevel,
-    }
+    };
 
-    const reportMcpServer = createReportToolServer(
-      store,
-      reportContext,
-      (entryId: string) => {
-        escalationEntryId = entryId
-        console.log(`[Runtime] Escalation created: entry=${entryId}, app=${app.id}`)
-      }
-    )
+    const reportMcpServer = createReportToolServer(store, reportContext, (entryId: string) => {
+      escalationEntryId = entryId;
+      console.log(`[Runtime] Escalation created: entry=${entryId}, app=${app.id}`);
+    });
 
     // ── 5. Create V2 session ───────────────────────────────
     //    (credentials, electronPath, workDir resolved in step 1)
 
     // Create an abort controller that respects the external signal
-    const abortController = new AbortController()
+    const abortController = new AbortController();
     if (abortSignal) {
       if (abortSignal.aborted) {
-        abortController.abort()
+        abortController.abort();
       } else {
-        abortSignal.addEventListener('abort', () => abortController.abort(), { once: true })
+        abortSignal.addEventListener('abort', () => abortController.abort(), { once: true });
       }
     }
 
@@ -286,36 +289,36 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       conversationId: sessionKey, // Use session key as conversation ID
       abortController,
       stderrHandler: (data: string) => {
-        console.error(`[Runtime][${app.id}] CLI stderr:`, data)
+        console.error(`[Runtime][${app.id}] CLI stderr:`, data);
       },
       mcpServers: {
         'aico-bot-memory': memoryMcpServer,
         'aico-bot-report': reportMcpServer,
         ...(usesAIBrowser ? { 'ai-browser': createAIBrowserMcpServer(scopedBrowserCtx) } : {}),
       },
-    })
+    });
 
     // Override SDK options for automation context
-    sdkOptions.systemPrompt = systemPrompt
-    sdkOptions.maxTurns = MAX_TURNS
+    sdkOptions.systemPrompt = systemPrompt;
+    sdkOptions.maxTurns = MAX_TURNS;
     // Automation runs don't need token-level streaming
-    sdkOptions.includePartialMessages = false
+    sdkOptions.includePartialMessages = false;
 
-    const mcpServerNames = sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : []
+    const mcpServerNames = sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [];
     console.log(
       `[Runtime][${runTag}] Creating V2 session: workDir=${workDir}, ` +
-      `promptLen=${systemPrompt.length}, maxTurns=${MAX_TURNS}, ` +
-      `mcpServers=[${mcpServerNames.join(', ')}], aiBrowser=${usesAIBrowser}`
-    )
-    session = await unstable_v2_createSession(sdkOptions as any)
-    console.log(`[Runtime][${runTag}] V2 session created, sending initial message`)
+        `promptLen=${systemPrompt.length}, maxTurns=${MAX_TURNS}, ` +
+        `mcpServers=[${mcpServerNames.join(', ')}], aiBrowser=${usesAIBrowser}`,
+    );
+    session = await unstable_v2_createSession(sdkOptions as any);
+    console.log(`[Runtime][${runTag}] V2 session created, sending initial message`);
 
     // ── 5b. Open session writer for "View process" ────────
-    const spacePath = getSpace(app.spaceId)?.path ?? ''
-    let sessionWriter: SessionWriter | undefined
+    const spacePath = getSpace(app.spaceId)?.path ?? '';
+    let sessionWriter: SessionWriter | undefined;
     if (spacePath) {
-      sessionWriter = openSessionWriter(spacePath, app.id, runId)
-      sessionWriter.writeTrigger(initialMessage)
+      sessionWriter = openSessionWriter(spacePath, app.id, runId);
+      sessionWriter.writeTrigger(initialMessage);
     }
 
     // ── 6. Process stream ──────────────────────────────────
@@ -324,35 +327,33 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       initialMessage,
       abortController,
       runTag,
-      sessionWriter
-    )
+      sessionWriter,
+    );
 
     // ── 6b. Auto-continue if AI ended without calling report_to_user ──
     //    report_to_user is the definitive completion signal for automation runs.
     //    If the LLM returns without calling it (model quirks, context issues,
     //    or bugs), we automatically prompt it to continue — mimicking a human
     //    typing "continue" in an interactive session.
-    let autoContinueCount = 0
+    let autoContinueCount = 0;
     while (
       !streamResult.reportToolCalled &&
       !streamResult.aiReportedError &&
       !abortController.signal.aborted &&
       autoContinueCount < MAX_AUTO_CONTINUES
     ) {
-      autoContinueCount++
-      const isLastAttempt = autoContinueCount >= MAX_AUTO_CONTINUES
-      const continueMessage = isLastAttempt
-        ? AUTO_CONTINUE_FINAL_MESSAGE
-        : AUTO_CONTINUE_MESSAGE
+      autoContinueCount++;
+      const isLastAttempt = autoContinueCount >= MAX_AUTO_CONTINUES;
+      const continueMessage = isLastAttempt ? AUTO_CONTINUE_FINAL_MESSAGE : AUTO_CONTINUE_MESSAGE;
 
       console.log(
         `[Runtime][${runTag}] ⟳ Auto-continue #${autoContinueCount}/${MAX_AUTO_CONTINUES}: ` +
-        `AI ended without calling report_to_user`
-      )
+          `AI ended without calling report_to_user`,
+      );
 
       // Log the continue prompt to the session file for "View process" drill-down
       if (sessionWriter) {
-        sessionWriter.writeTrigger(`[Auto-continue #${autoContinueCount}] ${continueMessage}`)
+        sessionWriter.writeTrigger(`[Auto-continue #${autoContinueCount}] ${continueMessage}`);
       }
 
       const nextResult = await processStream(
@@ -360,8 +361,8 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         continueMessage,
         abortController,
         runTag,
-        sessionWriter
-      )
+        sessionWriter,
+      );
 
       // Merge results: accumulate text and tokens, take latest flags
       streamResult = {
@@ -369,45 +370,45 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         totalTokens: streamResult.totalTokens + nextResult.totalTokens,
         aiReportedError: nextResult.aiReportedError,
         reportToolCalled: nextResult.reportToolCalled,
-      }
+      };
     }
 
     if (autoContinueCount > 0) {
       console.log(
         `[Runtime][${runTag}] Auto-continue finished: attempts=${autoContinueCount}, ` +
-        `reportCalled=${streamResult.reportToolCalled}, ` +
-        `error=${streamResult.aiReportedError}`
-      )
+          `reportCalled=${streamResult.reportToolCalled}, ` +
+          `error=${streamResult.aiReportedError}`,
+      );
     }
 
     // ── 7. Record completion ───────────────────────────────
-    const finishedAt = Date.now()
-    const durationMs = finishedAt - startedAt
+    const finishedAt = Date.now();
+    const durationMs = finishedAt - startedAt;
 
-    let finalStatus: RunStatus
-    let outcome: AppRunResult['outcome']
+    let finalStatus: RunStatus;
+    let outcome: AppRunResult['outcome'];
 
     // Escalation is detected via the onEscalation callback closure,
     // which sets escalationEntryId when report_to_user(type="escalation") is called.
     if (escalationEntryId) {
-      finalStatus = 'waiting_user'
-      outcome = 'useful'
+      finalStatus = 'waiting_user';
+      outcome = 'useful';
     } else if (streamResult.aiReportedError) {
-      finalStatus = 'error'
-      outcome = 'error'
+      finalStatus = 'error';
+      outcome = 'error';
     } else if (!streamResult.reportToolCalled) {
       // AI never called report_to_user despite auto-continue prompts —
       // treat as error so it shows in Activity Thread and counts toward
       // consecutive error tracking.
-      finalStatus = 'error'
-      outcome = 'error'
+      finalStatus = 'error';
+      outcome = 'error';
       console.warn(
         `[Runtime][${runTag}] AI never called report_to_user after ` +
-        `${autoContinueCount} auto-continue attempt(s) — marking as error`
-      )
+          `${autoContinueCount} auto-continue attempt(s) — marking as error`,
+      );
     } else {
-      finalStatus = 'ok'
-      outcome = streamResult.finalText.length > 0 ? 'useful' : 'noop'
+      finalStatus = 'ok';
+      outcome = streamResult.finalText.length > 0 ? 'useful' : 'noop';
     }
 
     store.completeRun(runId, {
@@ -415,7 +416,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       finishedAt,
       durationMs,
       tokensUsed: streamResult.totalTokens || undefined,
-    })
+    });
 
     // Insert an error activity entry when AI never called report_to_user,
     // so the failure is visible in the Activity Thread.
@@ -428,26 +429,27 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         ts: finishedAt,
         sessionKey,
         content: {
-          summary: `AI ended without reporting results after ${autoContinueCount} auto-continue attempt(s). ` +
+          summary:
+            `AI ended without reporting results after ${autoContinueCount} auto-continue attempt(s). ` +
             'The model may have encountered an issue or exhausted its context.',
           status: 'error',
           durationMs,
           error: 'report_to_user not called',
         },
-      }
+      };
       try {
-        store.insertEntry(noReportEntry)
+        store.insertEntry(noReportEntry);
       } catch (insertErr) {
-        console.error('[Runtime] Failed to insert no-report error entry:', insertErr)
+        console.error('[Runtime] Failed to insert no-report error entry:', insertErr);
       }
     }
 
     console.log(
       `[Runtime][${runTag}] ✓ Run completed: outcome=${outcome}, status=${finalStatus}, ` +
-      `duration=${durationMs}ms, tokens=${streamResult.totalTokens}, ` +
-      `textLen=${streamResult.finalText.length}, ` +
-      `escalation=${escalationEntryId ? 'yes' : 'no'}`
-    )
+        `duration=${durationMs}ms, tokens=${streamResult.totalTokens}, ` +
+        `textLen=${streamResult.finalText.length}, ` +
+        `escalation=${escalationEntryId ? 'yes' : 'no'}`,
+    );
 
     // ── 7b. Save session summary to memory ────────────────
     await saveRunSessionSummary(memory, memoryScope, {
@@ -460,10 +462,10 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       finalText: streamResult.finalText,
       escalation: !!escalationEntryId,
       runTag,
-    })
+    });
 
     // ── 7c. Check if memory needs compaction ─────────────
-    await checkAndCompactMemory(memory, memoryScope, app, runTag)
+    await checkAndCompactMemory(memory, memoryScope, app, runTag);
 
     return {
       appId: app.id,
@@ -475,13 +477,16 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       durationMs,
       tokensUsed: streamResult.totalTokens || undefined,
       finalText: streamResult.finalText || undefined,
-    }
+    };
   } catch (err) {
-    const finishedAt = Date.now()
-    const durationMs = finishedAt - startedAt
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const finishedAt = Date.now();
+    const durationMs = finishedAt - startedAt;
+    const errorMessage = err instanceof Error ? err.message : String(err);
 
-    console.error(`[Runtime][${runTag}] ✗ Run failed: app=${app.id}, duration=${durationMs}ms:`, err)
+    console.error(
+      `[Runtime][${runTag}] ✗ Run failed: app=${app.id}, duration=${durationMs}ms:`,
+      err,
+    );
 
     // Record failure
     store.completeRun(runId, {
@@ -489,7 +494,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       finishedAt,
       durationMs,
       errorMessage,
-    })
+    });
 
     // Insert a run_error activity entry so it shows in the Activity Thread
     const errorEntry: ActivityEntry = {
@@ -505,12 +510,12 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
         durationMs,
         error: errorMessage,
       },
-    }
+    };
 
     try {
-      store.insertEntry(errorEntry)
+      store.insertEntry(errorEntry);
     } catch (insertErr) {
-      console.error('[Runtime] Failed to insert error activity entry:', insertErr)
+      console.error('[Runtime] Failed to insert error activity entry:', insertErr);
     }
 
     // Save error session summary to memory
@@ -524,7 +529,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       finalText: `Error: ${errorMessage}`,
       escalation: false,
       runTag,
-    })
+    });
 
     return {
       appId: app.id,
@@ -535,22 +540,22 @@ export async function executeRun(options: ExecuteRunOptions): Promise<AppRunResu
       finishedAt,
       durationMs,
       errorMessage,
-    }
+    };
   } finally {
     // ── 8. Close session ────────────────────────────────────
     if (session) {
       try {
-        session.close()
-        console.log(`[Runtime][${runTag}] Session closed`)
+        session.close();
+        console.log(`[Runtime][${runTag}] Session closed`);
       } catch (closeErr) {
-        console.error(`[Runtime] Failed to close session: run=${runId}:`, closeErr)
+        console.error(`[Runtime] Failed to close session: run=${runId}:`, closeErr);
       }
     }
 
     // ── 9. Destroy scoped browser context (cleans up owned views) ──
     if (scopedBrowserCtx) {
-      scopedBrowserCtx.destroy()
-      console.log(`[Runtime][${runTag}] Scoped browser context destroyed`)
+      scopedBrowserCtx.destroy();
+      console.log(`[Runtime][${runTag}] Scoped browser context destroyed`);
     }
   }
 }
@@ -578,76 +583,76 @@ async function processStream(
   message: string,
   abortController: AbortController,
   runTag?: string,
-  writer?: SessionWriter
+  writer?: SessionWriter,
 ): Promise<StreamResult> {
-  const tag = runTag || '????'
+  const tag = runTag || '????';
   const result: StreamResult = {
     finalText: '',
     totalTokens: 0,
     aiReportedError: false,
     reportToolCalled: false,
-  }
+  };
 
   // Send the initial message
-  session.send(message)
+  session.send(message);
 
-  let messageCount = 0
-  let toolUseCount = 0
+  let messageCount = 0;
+  let toolUseCount = 0;
 
   // Consume the stream
   try {
     for await (const sdkMessage of session.stream()) {
       // Check for abort
       if (abortController.signal.aborted) {
-        console.log(`[Runtime][${tag}] Run aborted during stream processing`)
-        break
+        console.log(`[Runtime][${tag}] Run aborted during stream processing`);
+        break;
       }
 
-      if (!sdkMessage || typeof sdkMessage !== 'object') continue
+      if (!sdkMessage || typeof sdkMessage !== 'object') continue;
 
-      const msgType = sdkMessage.type
-      messageCount++
+      const msgType = sdkMessage.type;
+      messageCount++;
 
       // Persist stream event for "View process" drill-down
       if (writer && (msgType === 'assistant' || msgType === 'user')) {
-        writer.writeEvent(sdkMessage)
+        writer.writeEvent(sdkMessage);
       }
 
       // Handle assistant messages (final responses)
       if (msgType === 'assistant') {
-        const content = sdkMessage.message?.content
+        const content = sdkMessage.message?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'thinking' && typeof block.thinking === 'string') {
               console.log(
                 `[Runtime][${tag}] ── THINKING ───────────────────────────────\n` +
-                block.thinking +
-                `\n[Runtime][${tag}] ── END THINKING ───────────────────────────`
-              )
+                  block.thinking +
+                  `\n[Runtime][${tag}] ── END THINKING ───────────────────────────`,
+              );
             }
             if (block.type === 'text' && typeof block.text === 'string') {
-              result.finalText += block.text
+              result.finalText += block.text;
               if (block.text.trim()) {
                 console.log(
                   `[Runtime][${tag}] ── AI TEXT ────────────────────────────────\n` +
-                  block.text +
-                  `\n[Runtime][${tag}] ── END AI TEXT ────────────────────────────`
-                )
+                    block.text +
+                    `\n[Runtime][${tag}] ── END AI TEXT ────────────────────────────`,
+                );
               }
             }
             if (block.type === 'tool_use') {
-              toolUseCount++
+              toolUseCount++;
               // Detect report_to_user calls (MCP name: mcp__aico-bot-report__report_to_user)
               if (typeof block.name === 'string' && block.name.includes('report_to_user')) {
-                result.reportToolCalled = true
+                result.reportToolCalled = true;
               }
               console.log(
                 `[Runtime][${tag}] ── TOOL CALL ──────────────────────────────\n` +
-                `  name:  ${block.name}\n` +
-                `  id:    ${block.id || '(none)'}\n` +
-                `  input: ${JSON.stringify(block.input, null, 2)}\n` +
-                `[Runtime][${tag}] ── END TOOL CALL ──────────────────────────`
-              )
+                  `  name:  ${block.name}\n` +
+                  `  id:    ${block.id || '(none)'}\n` +
+                  `  input: ${JSON.stringify(block.input, null, 2)}\n` +
+                  `[Runtime][${tag}] ── END TOOL CALL ──────────────────────────`,
+              );
             }
           }
         }
@@ -655,22 +660,26 @@ async function processStream(
 
       // Handle user messages — these carry tool results back to the AI
       if (msgType === 'user') {
-        const content = sdkMessage.message?.content
+        const content = sdkMessage.message?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'tool_result') {
-              const resultText = typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? block.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('')
-                  : JSON.stringify(block.content ?? '')
+              const resultText =
+                typeof block.content === 'string'
+                  ? block.content
+                  : Array.isArray(block.content)
+                    ? block.content
+                        .filter((c: any) => c.type === 'text')
+                        .map((c: any) => c.text)
+                        .join('')
+                    : JSON.stringify(block.content ?? '');
               console.log(
                 `[Runtime][${tag}] ── TOOL RESULT ────────────────────────────\n` +
-                `  id:      ${block.tool_use_id || '(none)'}\n` +
-                `  error:   ${block.is_error ? 'YES' : 'no'}\n` +
-                `  content: ${resultText}\n` +
-                `[Runtime][${tag}] ── END TOOL RESULT ──────────────────────────`
-              )
+                  `  id:      ${block.tool_use_id || '(none)'}\n` +
+                  `  error:   ${block.is_error ? 'YES' : 'no'}\n` +
+                  `  content: ${resultText}\n` +
+                  `[Runtime][${tag}] ── END TOOL RESULT ──────────────────────────`,
+              );
             }
           }
         }
@@ -681,63 +690,62 @@ async function processStream(
         // Extract token usage from result
         if (sdkMessage.usage) {
           result.totalTokens =
-            (sdkMessage.usage.input_tokens || 0) +
-            (sdkMessage.usage.output_tokens || 0)
+            (sdkMessage.usage.input_tokens || 0) + (sdkMessage.usage.output_tokens || 0);
         }
 
         // Check if the result indicates an error
         if (sdkMessage.is_error || sdkMessage.error_during_execution) {
-          result.aiReportedError = true
-          console.warn(`[Runtime][${tag}] AI reported error in result message`)
+          result.aiReportedError = true;
+          console.warn(`[Runtime][${tag}] AI reported error in result message`);
         }
 
         // Extract cumulative usage if available
         if (sdkMessage.cumulative_usage) {
           result.totalTokens =
             (sdkMessage.cumulative_usage.input_tokens || 0) +
-            (sdkMessage.cumulative_usage.output_tokens || 0)
+            (sdkMessage.cumulative_usage.output_tokens || 0);
         }
 
         console.log(
           `[Runtime][${tag}] Stream result: tokens=${result.totalTokens}, ` +
-          `isError=${result.aiReportedError}, stopReason=${sdkMessage.stop_reason || 'unknown'}`
-        )
+            `isError=${result.aiReportedError}, stopReason=${sdkMessage.stop_reason || 'unknown'}`,
+        );
       }
 
       // Handle system messages (may contain session info)
       if (msgType === 'system') {
         if (sdkMessage.subtype === 'init') {
-          const tools = sdkMessage.tools || []
-          const mcpInfo = sdkMessage.mcp_servers || []
+          const tools = sdkMessage.tools || [];
+          const mcpInfo = sdkMessage.mcp_servers || [];
           console.log(
             `[Runtime][${tag}] Session initialized: ${sdkMessage.session_id || 'unknown'}\n` +
-            `  tools: [${tools.join(', ')}]\n` +
-            `  mcp_servers: ${JSON.stringify(mcpInfo)}\n` +
-            `  model: ${sdkMessage.model || 'unknown'}`
-          )
+              `  tools: [${tools.join(', ')}]\n` +
+              `  mcp_servers: ${JSON.stringify(mcpInfo)}\n` +
+              `  model: ${sdkMessage.model || 'unknown'}`,
+          );
         }
       }
     }
   } catch (streamErr) {
     // Stream errors may include abort, network issues, etc.
     if (abortController.signal.aborted) {
-      console.log(`[Runtime][${tag}] Stream aborted (expected)`)
+      console.log(`[Runtime][${tag}] Stream aborted (expected)`);
     } else {
-      console.error(`[Runtime][${tag}] Stream processing error:`, streamErr)
+      console.error(`[Runtime][${tag}] Stream processing error:`, streamErr);
       throw new RunExecutionError(
         'unknown',
         'unknown',
-        streamErr instanceof Error ? streamErr.message : String(streamErr)
-      )
+        streamErr instanceof Error ? streamErr.message : String(streamErr),
+      );
     }
   }
 
   console.log(
     `[Runtime][${tag}] Stream finished: messages=${messageCount}, toolCalls=${toolUseCount}, ` +
-    `textLen=${result.finalText.length}`
-  )
+      `textLen=${result.finalText.length}`,
+  );
 
-  return result
+  return result;
 }
 
 // ============================================
@@ -745,19 +753,19 @@ async function processStream(
 // ============================================
 
 /** Max length for the summary content written to memory */
-const MAX_SUMMARY_LENGTH = 2000
+const MAX_SUMMARY_LENGTH = 2000;
 
 /** Parameters for building a session summary */
 interface RunSummaryContext {
-  appName: string
-  runId: string
-  trigger: TriggerContext
-  outcome: AppRunResult['outcome']
-  durationMs: number
-  tokensUsed: number
-  finalText: string
-  escalation: boolean
-  runTag: string
+  appName: string;
+  runId: string;
+  trigger: TriggerContext;
+  outcome: AppRunResult['outcome'];
+  durationMs: number;
+  tokensUsed: number;
+  finalText: string;
+  escalation: boolean;
+  runTag: string;
 }
 
 /**
@@ -770,23 +778,23 @@ interface RunSummaryContext {
 async function saveRunSessionSummary(
   memory: MemoryService,
   scope: MemoryCallerScope,
-  ctx: RunSummaryContext
+  ctx: RunSummaryContext,
 ): Promise<void> {
   // Skip noop runs -- they have no meaningful content to summarize
   if (ctx.outcome === 'noop') {
-    console.log(`[Runtime][${ctx.runTag}] Skipping session summary (noop run)`)
-    return
+    console.log(`[Runtime][${ctx.runTag}] Skipping session summary (noop run)`);
+    return;
   }
 
   try {
-    const summaryContent = buildSummaryContent(ctx)
-    const slug = buildSummarySlug(ctx)
+    const summaryContent = buildSummaryContent(ctx);
+    const slug = buildSummarySlug(ctx);
 
-    await memory.saveSessionSummary(scope, 'app', { content: summaryContent, slug })
-    console.log(`[Runtime][${ctx.runTag}] Session summary saved (slug=${slug})`)
+    await memory.saveSessionSummary(scope, 'app', { content: summaryContent, slug });
+    console.log(`[Runtime][${ctx.runTag}] Session summary saved (slug=${slug})`);
   } catch (err) {
     // Best-effort: do not fail the run if summary write fails
-    console.error(`[Runtime][${ctx.runTag}] Failed to save session summary:`, err)
+    console.error(`[Runtime][${ctx.runTag}] Failed to save session summary:`, err);
   }
 }
 
@@ -794,33 +802,34 @@ async function saveRunSessionSummary(
  * Build a concise markdown summary from the run context.
  */
 function buildSummaryContent(ctx: RunSummaryContext): string {
-  const lines: string[] = []
+  const lines: string[] = [];
 
-  lines.push(`**App:** ${ctx.appName}`)
-  lines.push(`**Trigger:** ${ctx.trigger.type}`)
-  lines.push(`**Outcome:** ${ctx.outcome}`)
-  lines.push(`**Duration:** ${ctx.durationMs}ms`)
+  lines.push(`**App:** ${ctx.appName}`);
+  lines.push(`**Trigger:** ${ctx.trigger.type}`);
+  lines.push(`**Outcome:** ${ctx.outcome}`);
+  lines.push(`**Duration:** ${ctx.durationMs}ms`);
 
   if (ctx.tokensUsed > 0) {
-    lines.push(`**Tokens:** ${ctx.tokensUsed}`)
+    lines.push(`**Tokens:** ${ctx.tokensUsed}`);
   }
 
   if (ctx.escalation) {
-    lines.push(`**Escalation:** yes`)
+    lines.push(`**Escalation:** yes`);
   }
 
   // Include the AI's output (truncated to keep file sizes manageable)
   if (ctx.finalText.trim()) {
-    const truncated = ctx.finalText.length > MAX_SUMMARY_LENGTH
-      ? ctx.finalText.slice(0, MAX_SUMMARY_LENGTH) + '\n\n*(truncated)*'
-      : ctx.finalText
-    lines.push('')
-    lines.push('## Output')
-    lines.push('')
-    lines.push(truncated)
+    const truncated =
+      ctx.finalText.length > MAX_SUMMARY_LENGTH
+        ? ctx.finalText.slice(0, MAX_SUMMARY_LENGTH) + '\n\n*(truncated)*'
+        : ctx.finalText;
+    lines.push('');
+    lines.push('## Output');
+    lines.push('');
+    lines.push(truncated);
   }
 
-  return lines.join('\n')
+  return lines.join('\n');
 }
 
 /**
@@ -828,14 +837,14 @@ function buildSummaryContent(ctx: RunSummaryContext): string {
  * Produces slugs like "run-daily-report" or "run-error".
  */
 function buildSummarySlug(ctx: RunSummaryContext): string {
-  const prefix = ctx.outcome === 'error' ? 'error' : 'run'
+  const prefix = ctx.outcome === 'error' ? 'error' : 'run';
   // Use first few words of the app name for a human-readable slug
   const appSlug = ctx.appName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 30)
-  return `${prefix}-${appSlug}`
+    .slice(0, 30);
+  return `${prefix}-${appSlug}`;
 }
 
 // ============================================
@@ -843,7 +852,7 @@ function buildSummarySlug(ctx: RunSummaryContext): string {
 // ============================================
 
 /** Max content length to send for LLM compaction (to control token usage) */
-const MAX_COMPACTION_INPUT_LENGTH = 50000
+const MAX_COMPACTION_INPUT_LENGTH = 50000;
 
 /**
  * Max LLM output tokens for compaction.
@@ -852,10 +861,10 @@ const MAX_COMPACTION_INPUT_LENGTH = 50000
  * Actual output length is guided by prompt instructions (target 60-120 lines),
  * not by this limit. A hard cutoff would produce malformed markdown.
  */
-const COMPACTION_MAX_TOKENS = 16384
+const COMPACTION_MAX_TOKENS = 16384;
 
 /** Max retry attempts when LLM output fails format validation */
-const COMPACTION_MAX_RETRIES = 2
+const COMPACTION_MAX_RETRIES = 2;
 
 /**
  * Check if app memory needs compaction and perform it if necessary.
@@ -873,53 +882,48 @@ async function checkAndCompactMemory(
   memory: MemoryService,
   scope: MemoryCallerScope,
   app: InstalledApp,
-  runTag: string
+  runTag: string,
 ): Promise<void> {
   try {
-    const needsCompaction = await memory.needsCompaction(scope, 'app')
-    if (!needsCompaction) return
+    const needsCompaction = await memory.needsCompaction(scope, 'app');
+    if (!needsCompaction) return;
 
-    console.log(`[Runtime][${runTag}] Memory compaction triggered for app=${app.id}`)
+    console.log(`[Runtime][${runTag}] Memory compaction triggered for app=${app.id}`);
 
     // Read the current content BEFORE archiving (so we can summarize it)
-    const currentContent = await memory.read(scope, { scope: 'app', mode: 'full' })
+    const currentContent = await memory.read(scope, { scope: 'app', mode: 'full' });
     if (!currentContent) {
-      console.log(`[Runtime][${runTag}] Memory file empty/missing, skipping compaction`)
-      return
+      console.log(`[Runtime][${runTag}] Memory file empty/missing, skipping compaction`);
+      return;
     }
 
     // Archive the old memory.md
-    const { archived, needsSummary } = await memory.compact(scope, 'app')
+    const { archived, needsSummary } = await memory.compact(scope, 'app');
     if (!needsSummary) {
-      console.log(`[Runtime][${runTag}] Compaction complete, no summary needed`)
-      return
+      console.log(`[Runtime][${runTag}] Compaction complete, no summary needed`);
+      return;
     }
 
-    console.log(`[Runtime][${runTag}] Memory archived to ${archived}, generating LLM summary...`)
+    console.log(`[Runtime][${runTag}] Memory archived to ${archived}, generating LLM summary...`);
 
     // Generate compaction summary via LLM (with validation + retry)
-    const summary = await generateCompactionSummary(
-      currentContent,
-      app.spec.name,
-      app,
-      runTag
-    )
+    const summary = await generateCompactionSummary(currentContent, app.spec.name, app, runTag);
 
     // Write the summary as the new memory.md
     await memory.write(scope, {
       scope: 'app',
       content: summary,
-      mode: 'replace'
-    })
+      mode: 'replace',
+    });
 
     console.log(
       `[Runtime][${runTag}] Memory compacted: ` +
-      `old=${(currentContent.length / 1024).toFixed(1)}KB → ` +
-      `new=${(summary.length / 1024).toFixed(1)}KB`
-    )
+        `old=${(currentContent.length / 1024).toFixed(1)}KB → ` +
+        `new=${(summary.length / 1024).toFixed(1)}KB`,
+    );
   } catch (err) {
     // Best-effort: compaction failure should not break the run
-    console.error(`[Runtime][${runTag}] Memory compaction failed:`, err)
+    console.error(`[Runtime][${runTag}] Memory compaction failed:`, err);
   }
 }
 
@@ -931,7 +935,7 @@ async function checkAndCompactMemory(
  * injection) will produce corrupt state.
  */
 function isValidCompaction(content: string): boolean {
-  return /^# now\s*$/m.test(content) && /^# History\s*$/m.test(content)
+  return /^# now\s*$/m.test(content) && /^# History\s*$/m.test(content);
 }
 
 /** Build the compaction prompt for the LLM */
@@ -962,7 +966,7 @@ function buildCompactionPrompt(content: string, appName: string): string {
     `- Both \`# now\` and \`# History\` H1 headings are MANDATORY — never omit them\n` +
     `- Preserve the original entity names and data values exactly\n` +
     `- Older History entries are already archived in memory/run/ files, safe to drop`
-  )
+  );
 }
 
 /**
@@ -984,34 +988,39 @@ async function generateCompactionSummary(
   content: string,
   appName: string,
   app: InstalledApp,
-  runTag: string
+  runTag: string,
 ): Promise<string> {
   try {
-    const { default: Anthropic } = await import('@anthropic-ai/sdk')
-    const config = getConfig()
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const config = getConfig();
     const credentials = app.userOverrides?.modelSourceId
-      ? await getApiCredentialsForSource(config, app.userOverrides.modelSourceId, app.userOverrides.modelId)
-      : await getApiCredentials(config)
-    const resolved = await resolveCredentialsForSdk(credentials)
+      ? await getApiCredentialsForSource(
+          config,
+          app.userOverrides.modelSourceId,
+          app.userOverrides.modelId,
+        )
+      : await getApiCredentials(config);
+    const resolved = await resolveCredentialsForSdk(credentials);
 
     // Truncate input if too large
-    const truncatedContent = content.length > MAX_COMPACTION_INPUT_LENGTH
-      ? content.slice(0, MAX_COMPACTION_INPUT_LENGTH) + '\n\n... (truncated)'
-      : content
+    const truncatedContent =
+      content.length > MAX_COMPACTION_INPUT_LENGTH
+        ? content.slice(0, MAX_COMPACTION_INPUT_LENGTH) + '\n\n... (truncated)'
+        : content;
 
     const client = new Anthropic({
       apiKey: resolved.anthropicApiKey,
       baseURL: resolved.anthropicBaseUrl,
-    })
+    });
 
-    const prompt = buildCompactionPrompt(truncatedContent, appName)
+    const prompt = buildCompactionPrompt(truncatedContent, appName);
 
     // Build conversation for multi-turn retry
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
       { role: 'user', content: prompt },
-    ]
+    ];
 
-    let lastOutput = ''
+    let lastOutput = '';
 
     // Attempt 1 + up to COMPACTION_MAX_RETRIES retries
     for (let attempt = 0; attempt <= COMPACTION_MAX_RETRIES; attempt++) {
@@ -1019,38 +1028,40 @@ async function generateCompactionSummary(
         model: resolved.sdkModel,
         max_tokens: COMPACTION_MAX_TOKENS,
         messages,
-      })
+      });
 
       const output = response.content
         .filter((block: any) => block.type === 'text')
         .map((block: any) => block.text)
-        .join('')
+        .join('');
 
       if (output.trim().length === 0) {
-        console.warn(`[Runtime][${runTag}] Compaction attempt ${attempt + 1}: LLM returned empty output`)
+        console.warn(
+          `[Runtime][${runTag}] Compaction attempt ${attempt + 1}: LLM returned empty output`,
+        );
         // On empty output, don't retry — go to fallback
-        break
+        break;
       }
 
-      lastOutput = output
+      lastOutput = output;
 
       if (isValidCompaction(output)) {
         if (attempt > 0) {
-          console.log(`[Runtime][${runTag}] Compaction succeeded on retry ${attempt}`)
+          console.log(`[Runtime][${runTag}] Compaction succeeded on retry ${attempt}`);
         }
-        return output
+        return output;
       }
 
       // Validation failed — log and prepare retry
       console.warn(
         `[Runtime][${runTag}] Compaction attempt ${attempt + 1}: ` +
-        `output missing required headings (has # now: ${/^# now\s*$/m.test(output)}, ` +
-        `has # History: ${/^# History\s*$/m.test(output)})`
-      )
+          `output missing required headings (has # now: ${/^# now\s*$/m.test(output)}, ` +
+          `has # History: ${/^# History\s*$/m.test(output)})`,
+      );
 
       if (attempt < COMPACTION_MAX_RETRIES) {
         // Add the failed output as assistant message, then feedback as user message
-        messages.push({ role: 'assistant', content: output })
+        messages.push({ role: 'assistant', content: output });
         messages.push({
           role: 'user',
           content:
@@ -1058,7 +1069,7 @@ async function generateCompactionSummary(
             'The compacted memory MUST contain both `# now` and `# History` as H1 headings ' +
             '(lines starting with exactly `# now` and `# History`). ' +
             'Please output the corrected compacted memory.',
-        })
+        });
       }
     }
 
@@ -1066,16 +1077,16 @@ async function generateCompactionSummary(
     if (lastOutput.trim().length > 0) {
       console.warn(
         `[Runtime][${runTag}] Compaction retries exhausted, ` +
-        `keeping last LLM output (${lastOutput.length} chars)`
-      )
-      return lastOutput
+          `keeping last LLM output (${lastOutput.length} chars)`,
+      );
+      return lastOutput;
     }
 
-    console.warn(`[Runtime][${runTag}] LLM returned no usable output, using fallback`)
-    return buildFallbackCompactionSummary(content)
+    console.warn(`[Runtime][${runTag}] LLM returned no usable output, using fallback`);
+    return buildFallbackCompactionSummary(content);
   } catch (err) {
-    console.error(`[Runtime][${runTag}] LLM compaction failed, using fallback:`, err)
-    return buildFallbackCompactionSummary(content)
+    console.error(`[Runtime][${runTag}] LLM compaction failed, using fallback:`, err);
+    return buildFallbackCompactionSummary(content);
   }
 }
 
@@ -1091,60 +1102,60 @@ async function generateCompactionSummary(
  * - `# History` block: last 10 `## YYYY-` timestamped entry groups
  */
 function buildFallbackCompactionSummary(content: string): string {
-  const lines = content.split('\n')
+  const lines = content.split('\n');
 
   // ── Extract # now section ──────────────────────────────────
-  let nowStart = -1
-  let nowEnd = lines.length
+  let nowStart = -1;
+  let nowEnd = lines.length;
   for (let i = 0; i < lines.length; i++) {
     if (/^# now\s*$/.test(lines[i])) {
-      nowStart = i
+      nowStart = i;
     } else if (nowStart >= 0 && /^# [^#]/.test(lines[i]) && !/^# now\s*$/.test(lines[i])) {
       // Hit another H1 heading — end of # now
-      nowEnd = i
-      break
+      nowEnd = i;
+      break;
     }
   }
 
-  let nowLines: string[]
+  let nowLines: string[];
   if (nowStart >= 0) {
     // Take the # now section, capped at 50 content lines
-    const sectionLines = lines.slice(nowStart, nowEnd)
-    nowLines = sectionLines.slice(0, 51) // # now heading + up to 50 lines
+    const sectionLines = lines.slice(nowStart, nowEnd);
+    nowLines = sectionLines.slice(0, 51); // # now heading + up to 50 lines
   } else {
     // No # now found — create a minimal skeleton
-    nowLines = ['# now', '', '## State']
+    nowLines = ['# now', '', '## State'];
   }
 
   // ── Extract recent # History entries ───────────────────────
-  let historyStart = -1
+  let historyStart = -1;
   for (let i = 0; i < lines.length; i++) {
     if (/^# History\s*$/.test(lines[i])) {
-      historyStart = i
-      break
+      historyStart = i;
+      break;
     }
   }
 
-  const historyEntries: string[][] = []
+  const historyEntries: string[][] = [];
   if (historyStart >= 0) {
-    let currentEntry: string[] = []
+    let currentEntry: string[] = [];
     for (let i = historyStart + 1; i < lines.length; i++) {
       if (/^## /.test(lines[i])) {
         if (currentEntry.length > 0) {
-          historyEntries.push(currentEntry)
+          historyEntries.push(currentEntry);
         }
-        currentEntry = [lines[i]]
+        currentEntry = [lines[i]];
       } else if (currentEntry.length > 0) {
-        currentEntry.push(lines[i])
+        currentEntry.push(lines[i]);
       }
     }
     if (currentEntry.length > 0) {
-      historyEntries.push(currentEntry)
+      historyEntries.push(currentEntry);
     }
   }
 
   // Keep last 10 entries (they are newest-first in the file)
-  const recentEntries = historyEntries.slice(0, 10)
+  const recentEntries = historyEntries.slice(0, 10);
 
   // ── Assemble valid output ──────────────────────────────────
   const parts = [
@@ -1154,10 +1165,10 @@ function buildFallbackCompactionSummary(content: string): string {
     '',
     '# History',
     '',
-    ...recentEntries.flatMap(entry => [...entry, '']),
-  ]
+    ...recentEntries.flatMap((entry) => [...entry, '']),
+  ];
 
-  return parts.join('\n').trimEnd() + '\n'
+  return parts.join('\n').trimEnd() + '\n';
 }
 
 // ============================================
@@ -1172,12 +1183,12 @@ function buildFallbackCompactionSummary(content: string): string {
  * - Compaction archive file names
  */
 function formatRunTimestamp(date: Date): string {
-  const y = date.getFullYear()
-  const m = (date.getMonth() + 1).toString().padStart(2, '0')
-  const d = date.getDate().toString().padStart(2, '0')
-  const h = date.getHours().toString().padStart(2, '0')
-  const min = date.getMinutes().toString().padStart(2, '0')
-  return `${y}-${m}-${d}-${h}${min}`
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const d = date.getDate().toString().padStart(2, '0');
+  const h = date.getHours().toString().padStart(2, '0');
+  const min = date.getMinutes().toString().padStart(2, '0');
+  return `${y}-${m}-${d}-${h}${min}`;
 }
 
 /**
@@ -1195,40 +1206,40 @@ function formatRunTimestamp(date: Date): string {
 async function preInsertHistoryHeading(
   memoryFilePath: string,
   timestamp: string,
-  preReadContent: string | null
+  preReadContent: string | null,
 ): Promise<void> {
-  const { readFile, writeFile, mkdir } = await import('fs/promises')
-  const { dirname } = await import('path')
-  const { existsSync } = await import('fs')
+  const { readFile, writeFile, mkdir } = await import('fs/promises');
+  const { dirname } = await import('path');
+  const { existsSync } = await import('fs');
 
-  const dir = dirname(memoryFilePath)
+  const dir = dirname(memoryFilePath);
   if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true })
+    await mkdir(dir, { recursive: true });
   }
 
-  const heading = `## ${timestamp}`
+  const heading = `## ${timestamp}`;
 
   if (preReadContent === null) {
     // Create skeleton with # now and # History
-    const skeleton = `# now\n\n## State\n\n# History\n\n${heading}\n`
-    await writeFile(memoryFilePath, skeleton, 'utf-8')
-    return
+    const skeleton = `# now\n\n## State\n\n# History\n\n${heading}\n`;
+    await writeFile(memoryFilePath, skeleton, 'utf-8');
+    return;
   }
 
-  const content = preReadContent
+  const content = preReadContent;
 
   // Find # History line
-  const historyMatch = content.match(/^# History\s*$/m)
+  const historyMatch = content.match(/^# History\s*$/m);
   if (historyMatch && historyMatch.index !== undefined) {
     // Insert the new heading right after "# History\n"
-    const insertPos = historyMatch.index + historyMatch[0].length
-    const before = content.slice(0, insertPos)
-    const after = content.slice(insertPos)
-    const newContent = before + `\n\n${heading}` + after
-    await writeFile(memoryFilePath, newContent, 'utf-8')
+    const insertPos = historyMatch.index + historyMatch[0].length;
+    const before = content.slice(0, insertPos);
+    const after = content.slice(insertPos);
+    const newContent = before + `\n\n${heading}` + after;
+    await writeFile(memoryFilePath, newContent, 'utf-8');
   } else {
     // No # History section found — append it
-    const appendContent = content.trimEnd() + `\n\n# History\n\n${heading}\n`
-    await writeFile(memoryFilePath, appendContent, 'utf-8')
+    const appendContent = content.trimEnd() + `\n\n# History\n\n${heading}\n`;
+    await writeFile(memoryFilePath, appendContent, 'utf-8');
   }
 }

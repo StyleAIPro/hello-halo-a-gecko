@@ -9,21 +9,20 @@
  * - ~8x faster first-paint on large documents
  */
 
-import { memo } from 'react'
-import { Streamdown } from 'streamdown'
-import 'streamdown/styles.css'
-import { useCodePlugin } from '../../lib/streamdown-plugins'
+import { memo } from 'react';
+import { Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
+import { useCodePlugin } from '../../lib/streamdown-plugins';
 
 interface MarkdownRendererProps {
-  content: string
-  className?: string
+  content: string;
+  className?: string;
   /** Render mode: "streaming" for live token output, "static" for completed messages */
-  mode?: 'streaming' | 'static'
+  mode?: 'streaming' | 'static';
 }
 
 // Custom components for markdown elements
 const components = {
-
   // Paragraphs
   p: ({ children }: { children?: React.ReactNode }) => (
     <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
@@ -93,9 +92,7 @@ const components = {
   strong: ({ children }: { children?: React.ReactNode }) => (
     <strong className="font-semibold">{children}</strong>
   ),
-  em: ({ children }: { children?: React.ReactNode }) => (
-    <em className="italic">{children}</em>
-  ),
+  em: ({ children }: { children?: React.ReactNode }) => <em className="italic">{children}</em>,
 
   // Strikethrough
   del: ({ children }: { children?: React.ReactNode }) => (
@@ -112,16 +109,16 @@ const components = {
       {...props}
     />
   ),
-}
+};
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className = '',
   mode = 'static',
 }: MarkdownRendererProps) {
-  const codePlugin = useCodePlugin()
+  const codePlugin = useCodePlugin();
 
-  if (!content) return null
+  if (!content) return null;
 
   return (
     <div className={`markdown-content overflow-x-auto ${className}`}>
@@ -134,5 +131,5 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
         {content}
       </Streamdown>
     </div>
-  )
-})
+  );
+});

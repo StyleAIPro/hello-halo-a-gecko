@@ -16,47 +16,45 @@
  * - Copy support: Easy clipboard access
  */
 
-import { memo } from 'react'
-import type { ToolResultViewerProps } from './types'
-import { detectContentType, getLanguageForTool } from './detection'
-import { CodeResultViewer } from './CodeResultViewer'
-import { SearchResultViewer } from './SearchResultViewer'
-import { FileListViewer } from './FileListViewer'
-import { MarkdownResultViewer } from './MarkdownResultViewer'
-import { JsonResultViewer } from './JsonResultViewer'
-import { PlainTextViewer } from './PlainTextViewer'
-import { DiffResultViewer } from './DiffResultViewer'
-import { useTranslation } from '../../../i18n'
+import { memo } from 'react';
+import type { ToolResultViewerProps } from './types';
+import { detectContentType, getLanguageForTool } from './detection';
+import { CodeResultViewer } from './CodeResultViewer';
+import { SearchResultViewer } from './SearchResultViewer';
+import { FileListViewer } from './FileListViewer';
+import { MarkdownResultViewer } from './MarkdownResultViewer';
+import { JsonResultViewer } from './JsonResultViewer';
+import { PlainTextViewer } from './PlainTextViewer';
+import { DiffResultViewer } from './DiffResultViewer';
+import { useTranslation } from '../../../i18n';
 
 export const ToolResultViewer = memo(function ToolResultViewer({
   toolName,
   toolInput,
   output,
-  isError
+  isError,
 }: ToolResultViewerProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Handle empty output
   if (!output || output.trim() === '') {
     return (
       <div className="mt-1.5 px-2.5 py-1.5 rounded-lg bg-muted/20 border border-border/30">
-        <span className="text-[11px] text-muted-foreground/50 italic">
-          {t('No output')}
-        </span>
+        <span className="text-[11px] text-muted-foreground/50 italic">{t('No output')}</span>
       </div>
-    )
+    );
   }
 
   // Edit/Write tools: show inline diff from toolInput instead of raw output
   if ((toolName === 'Edit' || toolName === 'Write') && toolInput) {
-    return <DiffResultViewer toolInput={toolInput} output={output} isError={isError} />
+    return <DiffResultViewer toolInput={toolInput} output={output} isError={isError} />;
   }
 
   // Detect content type
-  const contentType = detectContentType(toolName, toolInput, output)
+  const contentType = detectContentType(toolName, toolInput, output);
 
   // Get language for code viewer
-  const language = getLanguageForTool(toolName, toolInput)
+  const language = getLanguageForTool(toolName, toolInput);
 
   // Render based on content type
   switch (contentType) {
@@ -68,51 +66,21 @@ export const ToolResultViewer = memo(function ToolResultViewer({
           language={language}
           toolInput={toolInput}
         />
-      )
+      );
 
     case 'search-result':
-      return (
-        <SearchResultViewer
-          output={output}
-          isError={isError}
-          toolInput={toolInput}
-        />
-      )
+      return <SearchResultViewer output={output} isError={isError} toolInput={toolInput} />;
 
     case 'file-list':
-      return (
-        <FileListViewer
-          output={output}
-          isError={isError}
-          toolInput={toolInput}
-        />
-      )
+      return <FileListViewer output={output} isError={isError} toolInput={toolInput} />;
 
     case 'markdown':
-      return (
-        <MarkdownResultViewer
-          output={output}
-          isError={isError}
-          toolInput={toolInput}
-        />
-      )
+      return <MarkdownResultViewer output={output} isError={isError} toolInput={toolInput} />;
 
     case 'json':
-      return (
-        <JsonResultViewer
-          output={output}
-          isError={isError}
-          toolInput={toolInput}
-        />
-      )
+      return <JsonResultViewer output={output} isError={isError} toolInput={toolInput} />;
 
     default:
-      return (
-        <PlainTextViewer
-          output={output}
-          isError={isError}
-          toolInput={toolInput}
-        />
-      )
+      return <PlainTextViewer output={output} isError={isError} toolInput={toolInput} />;
   }
-})
+});

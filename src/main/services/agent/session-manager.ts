@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Agent Module - Session Manager
  *
  * Manages V2 Session lifecycle including creation, reuse, cleanup,
@@ -8,29 +8,23 @@
  * reuse the running CC process, avoiding process restart each time (cold start ~3-5s).
  */
 
-import path from 'path'
-import os from 'os'
-import { existsSync, copyFileSync, mkdirSync, readdirSync } from 'fs'
-import { app } from 'electron'
-import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk'
-import { getConfig, onApiConfigChange, getCredentialsGeneration } from '../config.service'
-import { getConversation, discardPendingWritesForSpace } from '../conversation.service'
-import type {
-  V2SDKSession,
-  V2SessionInfo,
-  SessionConfig,
-  SessionState,
-  Thought
-} from './types'
+import path from 'path';
+import os from 'os';
+import { existsSync, copyFileSync, mkdirSync, readdirSync } from 'fs';
+import { app } from 'electron';
+import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
+import { getConfig, onApiConfigChange, getCredentialsGeneration } from '../config.service';
+import { getConversation, discardPendingWritesForSpace } from '../conversation.service';
+import type { V2SDKSession, V2SessionInfo, SessionConfig, SessionState, Thought } from './types';
 import {
   getHeadlessElectronPath,
   getWorkingDir,
   getApiCredentials,
-  getEnabledMcpServers
-} from './helpers'
-import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../health'
-import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config'
-import { createAicoBotAppsMcpServer } from '../../apps/conversation-mcp'
+  getEnabledMcpServers,
+} from './helpers';
+import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../health';
+import { resolveCredentialsForSdk, buildBaseSdkOptions } from './sdk-config';
+import { createAicoBotAppsMcpServer } from '../../apps/conversation-mcp';
 
 // ============================================
 // Session Maps
@@ -40,19 +34,19 @@ import { createAicoBotAppsMcpServer } from '../../apps/conversation-mcp'
  * Active sessions map: conversationId -> SessionState
  * Tracks in-flight requests with abort controllers and accumulated thoughts
  */
-export const activeSessions = new Map<string, SessionState>()
+export const activeSessions = new Map<string, SessionState>();
 
 /**
  * V2 Sessions map: conversationId -> V2SessionInfo
  * Persistent sessions that can be reused across multiple messages
  */
-export const v2Sessions = new Map<string, V2SessionInfo>()
+export const v2Sessions = new Map<string, V2SessionInfo>();
 
 /**
  * Sessions that should be invalidated after current in-flight request finishes
  * (e.g., model switch during streaming).
  */
-const pendingInvalidations = new Set<string>()
+const pendingInvalidations = new Set<string>();
 
 // ============================================
 // Session Cleanup Helper
@@ -69,25 +63,25 @@ const pendingInvalidations = new Set<string>()
  * @param skipMapCheck - If true, skip checking if session exists in map (for batch operations)
  */
 function cleanupSession(conversationId: string, reason: string, skipMapCheck = false): void {
-  const info = v2Sessions.get(conversationId)
-  if (!info && !skipMapCheck) return
+  const info = v2Sessions.get(conversationId);
+  if (!info && !skipMapCheck) return;
 
-  console.log(`[Agent][${conversationId}] Cleaning up session: ${reason}`)
+  console.log(`[Agent][${conversationId}] Cleaning up session: ${reason}`);
 
   if (info) {
     try {
-      info.session.close()  // Release FDs (stdin/stdout/stderr pipes)
+      info.session.close(); // Release FDs (stdin/stdout/stderr pipes)
     } catch (e: any) {
       // Ignore close errors - session may already be dead
       // Log EPIPE errors specifically (process already exited)
       if (e?.code === 'EPIPE' || e?.message?.includes('EPIPE')) {
-        console.log(`[Agent][${conversationId}] Session close: EPIPE (process already exited)`)
+        console.log(`[Agent][${conversationId}] Session close: EPIPE (process already exited)`);
       }
     }
   }
 
-  unregisterProcess(conversationId, 'v2-session')
-  v2Sessions.delete(conversationId)
+  unregisterProcess(conversationId, 'v2-session');
+  v2Sessions.delete(conversationId);
 }
 
 // ============================================
@@ -99,7 +93,7 @@ function cleanupSession(conversationId: string, reason: string, skipMapCheck = f
  */
 const HEALTH_CHECK_CONFIG = {
   // Maximum consecutive health check failures before forcing restart
-  maxFailures: 5,  // Increased from 3 to allow more transient failures
+  maxFailures: 5, // Increased from 3 to allow more transient failures
   // Health check interval in ms
   checkInterval: 60 * 1000, // 60 seconds (increased from 30s to reduce false positives)
   // Request timeout threshold (requests taking longer are considered stuck)
@@ -107,52 +101,54 @@ const HEALTH_CHECK_CONFIG = {
   requestTimeout: 45 * 60 * 1000, // 45 minutes (increased from 15 minutes)
   // Warning threshold - notify user before timeout
   warningThreshold: 30 * 60 * 1000, // 30 minutes
-} as const
+} as const;
 
 /**
  * Track session health status
  */
 interface SessionHealthStatus {
-  consecutiveFailures: number
-  lastHealthCheck: number
-  lastRequestStart?: number
-  lastActivityAt: number  // Track last activity time (streaming data received)
-  isHealthy: boolean
+  consecutiveFailures: number;
+  lastHealthCheck: number;
+  lastRequestStart?: number;
+  lastActivityAt: number; // Track last activity time (streaming data received)
+  isHealthy: boolean;
 }
 
-const sessionHealthMap = new Map<string, SessionHealthStatus>()
+const sessionHealthMap = new Map<string, SessionHealthStatus>();
 
 /**
  * Update session health status
  */
 function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
-  const existing = sessionHealthMap.get(conversationId)
-  const now = Date.now()
+  const existing = sessionHealthMap.get(conversationId);
+  const now = Date.now();
 
   if (isHealthy) {
     sessionHealthMap.set(conversationId, {
       consecutiveFailures: 0,
       lastHealthCheck: now,
       lastRequestStart: existing?.lastRequestStart,
-      lastActivityAt: existing?.lastActivityAt ?? now,  // Preserve activity time
-      isHealthy: true
-    })
+      lastActivityAt: existing?.lastActivityAt ?? now, // Preserve activity time
+      isHealthy: true,
+    });
   } else {
-    const failures = (existing?.consecutiveFailures ?? 0) + 1
-    const needsRestart = failures >= HEALTH_CHECK_CONFIG.maxFailures
+    const failures = (existing?.consecutiveFailures ?? 0) + 1;
+    const needsRestart = failures >= HEALTH_CHECK_CONFIG.maxFailures;
 
-    console.log(`[Agent][${conversationId}] Health check failed (failures: ${failures}/${HEALTH_CHECK_CONFIG.maxFailures})`)
+    console.log(
+      `[Agent][${conversationId}] Health check failed (failures: ${failures}/${HEALTH_CHECK_CONFIG.maxFailures})`,
+    );
 
     sessionHealthMap.set(conversationId, {
       consecutiveFailures: failures,
       lastHealthCheck: now,
       lastRequestStart: existing?.lastRequestStart,
-      lastActivityAt: existing?.lastActivityAt ?? now,  // Preserve activity time
-      isHealthy: !needsRestart
-    })
+      lastActivityAt: existing?.lastActivityAt ?? now, // Preserve activity time
+      isHealthy: !needsRestart,
+    });
 
     if (needsRestart) {
-      console.log(`[Agent][${conversationId}] Too many health failures, marking for restart`)
+      console.log(`[Agent][${conversationId}] Too many health failures, marking for restart`);
     }
   }
 }
@@ -161,25 +157,25 @@ function updateSessionHealth(conversationId: string, isHealthy: boolean): void {
  * Mark session request start for timeout tracking
  */
 export function markSessionRequestStart(conversationId: string): void {
-  const existing = sessionHealthMap.get(conversationId)
-  const now = Date.now()
+  const existing = sessionHealthMap.get(conversationId);
+  const now = Date.now();
   sessionHealthMap.set(conversationId, {
     consecutiveFailures: 0,
     lastHealthCheck: now,
     lastRequestStart: now,
-    lastActivityAt: now,  // Initialize activity time
-    isHealthy: true
-  })
+    lastActivityAt: now, // Initialize activity time
+    isHealthy: true,
+  });
 }
 
 /**
  * Mark session request complete
  */
 export function markSessionRequestComplete(conversationId: string): void {
-  const existing = sessionHealthMap.get(conversationId)
+  const existing = sessionHealthMap.get(conversationId);
   if (existing) {
-    existing.lastRequestStart = undefined
-    sessionHealthMap.set(conversationId, existing)
+    existing.lastRequestStart = undefined;
+    sessionHealthMap.set(conversationId, existing);
   }
 }
 
@@ -188,10 +184,10 @@ export function markSessionRequestComplete(conversationId: string): void {
  * This prevents false positives where long-running tasks are marked as stuck
  */
 export function markSessionActivity(conversationId: string): void {
-  const existing = sessionHealthMap.get(conversationId)
+  const existing = sessionHealthMap.get(conversationId);
   if (existing) {
-    existing.lastActivityAt = Date.now()
-    sessionHealthMap.set(conversationId, existing)
+    existing.lastActivityAt = Date.now();
+    sessionHealthMap.set(conversationId, existing);
   }
 }
 
@@ -206,30 +202,30 @@ export function markSessionActivity(conversationId: string): void {
  * AND has had no activity for the configured idle threshold (45 minutes).
  */
 function isSessionStuck(conversationId: string): boolean {
-  const health = sessionHealthMap.get(conversationId)
-  if (!health?.lastRequestStart) return false
+  const health = sessionHealthMap.get(conversationId);
+  if (!health?.lastRequestStart) return false;
 
-  const now = Date.now()
-  const requestDuration = now - health.lastRequestStart
-  const timeSinceActivity = now - health.lastActivityAt
+  const now = Date.now();
+  const requestDuration = now - health.lastRequestStart;
+  const timeSinceActivity = now - health.lastActivityAt;
 
   // Session is stuck only if:
   // 1. Request has been running for a while (> 5 minutes) AND
   // 2. No activity received for the idle threshold
   // We intentionally do NOT check cumulative duration — long-running tasks
   // (builds, deployments, large refactors) may legitimately run for hours.
-  const hasStarted = requestDuration > 5 * 60 * 1000
-  const isIdle = timeSinceActivity > HEALTH_CHECK_CONFIG.requestTimeout
+  const hasStarted = requestDuration > 5 * 60 * 1000;
+  const isIdle = timeSinceActivity > HEALTH_CHECK_CONFIG.requestTimeout;
 
   if (hasStarted && isIdle) {
     console.log(
-      `[Agent][${conversationId}] Session stuck: request=${Math.round(requestDuration/60000)}m, ` +
-      `idle=${Math.round(timeSinceActivity/60000)}m`
-    )
-    return true
+      `[Agent][${conversationId}] Session stuck: request=${Math.round(requestDuration / 60000)}m, ` +
+        `idle=${Math.round(timeSinceActivity / 60000)}m`,
+    );
+    return true;
   }
 
-  return false
+  return false;
 }
 
 /**
@@ -254,39 +250,39 @@ function isSessionTransportReady(session: V2SDKSession, conversationId?: string)
   try {
     // Access SDK internal state: session.query.transport
     // This is the authoritative source for process health
-    const query = (session as any).query
-    const transport = query?.transport
+    const query = (session as any).query;
+    const transport = query?.transport;
 
     if (!transport) {
       // No transport means session is definitely not ready
-      if (conversationId) updateSessionHealth(conversationId, false)
-      return false
+      if (conversationId) updateSessionHealth(conversationId, false);
+      return false;
     }
 
     // Check using isReady() method if available (preferred)
     if (typeof transport.isReady === 'function') {
-      const ready = transport.isReady()
-      if (conversationId) updateSessionHealth(conversationId, ready)
-      return ready
+      const ready = transport.isReady();
+      if (conversationId) updateSessionHealth(conversationId, ready);
+      return ready;
     }
 
     // Fallback to ready property
     if (typeof transport.ready === 'boolean') {
-      const ready = transport.ready
-      if (conversationId) updateSessionHealth(conversationId, ready)
-      return ready
+      const ready = transport.ready;
+      if (conversationId) updateSessionHealth(conversationId, ready);
+      return ready;
     }
 
     // If we can't determine state, assume it's ready (conservative approach)
     // This prevents unnecessary session recreation if SDK structure changes
-    if (conversationId) updateSessionHealth(conversationId, true)
-    return true
+    if (conversationId) updateSessionHealth(conversationId, true);
+    return true;
   } catch (e) {
     // If any error occurs during check, log and assume session is invalid
     // Better to recreate than to fail with cryptic error
-    console.error(`[Agent] Error checking session transport state:`, e)
-    if (conversationId) updateSessionHealth(conversationId, false)
-    return false
+    console.error(`[Agent] Error checking session transport state:`, e);
+    if (conversationId) updateSessionHealth(conversationId, false);
+    return false;
   }
 }
 
@@ -294,9 +290,9 @@ function isSessionTransportReady(session: V2SDKSession, conversationId?: string)
  * Force restart a stuck or unhealthy session
  */
 function forceRestartSession(conversationId: string, reason: string): void {
-  console.log(`[Agent][${conversationId}] Force restarting session: ${reason}`)
-  cleanupSession(conversationId, reason)
-  sessionHealthMap.delete(conversationId)
+  console.log(`[Agent][${conversationId}] Force restarting session: ${reason}`);
+  cleanupSession(conversationId, reason);
+  sessionHealthMap.delete(conversationId);
 }
 
 // ============================================
@@ -322,11 +318,11 @@ function forceRestartSession(conversationId: string, reason: string): void {
 function registerProcessExitListener(session: V2SDKSession, conversationId: string): void {
   try {
     // Access SDK internal transport to register exit listener
-    const transport = (session as any).query?.transport
+    const transport = (session as any).query?.transport;
 
     if (!transport) {
-      console.warn(`[Agent][${conversationId}] Cannot register exit listener: no transport`)
-      return
+      console.warn(`[Agent][${conversationId}] Cannot register exit listener: no transport`);
+      return;
     }
 
     // SDK provides onExit(callback) method for process exit notification
@@ -336,25 +332,29 @@ function registerProcessExitListener(session: V2SDKSession, conversationId: stri
         // Race condition: when a session is rebuilt (e.g., config change), the old session's
         // process may exit AFTER the new session is stored in v2Sessions under the same key.
         // Without this check, the old process exit would accidentally close the new session.
-        const currentInfo = v2Sessions.get(conversationId)
+        const currentInfo = v2Sessions.get(conversationId);
         if (currentInfo?.session !== session) {
-          console.log(`[Agent][${conversationId}] Process exited but session was replaced, skipping cleanup`)
-          return
+          console.log(
+            `[Agent][${conversationId}] Process exited but session was replaced, skipping cleanup`,
+          );
+          return;
         }
-        const errorMsg = error ? `: ${error.message}` : ''
-        cleanupSession(conversationId, `process exited${errorMsg}`)
-        console.log(`[Agent][${conversationId}] Remaining sessions: ${v2Sessions.size}`)
-      })
+        const errorMsg = error ? `: ${error.message}` : '';
+        cleanupSession(conversationId, `process exited${errorMsg}`);
+        console.log(`[Agent][${conversationId}] Remaining sessions: ${v2Sessions.size}`);
+      });
 
-      console.log(`[Agent][${conversationId}] Process exit listener registered`)
+      console.log(`[Agent][${conversationId}] Process exit listener registered`);
 
       // Note: unsubscribe is returned but we don't need to call it
       // The listener will be automatically removed when transport.close() is called
     } else {
-      console.warn(`[Agent][${conversationId}] SDK transport.onExit not available, relying on polling cleanup`)
+      console.warn(
+        `[Agent][${conversationId}] SDK transport.onExit not available, relying on polling cleanup`,
+      );
     }
   } catch (e) {
-    console.error(`[Agent][${conversationId}] Failed to register exit listener:`, e)
+    console.error(`[Agent][${conversationId}] Failed to register exit listener:`, e);
     // Not fatal - we still have polling cleanup as fallback
   }
 }
@@ -364,8 +364,8 @@ function registerProcessExitListener(session: V2SDKSession, conversationId: stri
 // ============================================
 
 // Session cleanup interval (clean up sessions not used for 30 minutes)
-const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
-let cleanupIntervalId: NodeJS.Timeout | null = null
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+let cleanupIntervalId: NodeJS.Timeout | null = null;
 
 /**
  * Start the session cleanup interval (polling fallback)
@@ -381,31 +381,31 @@ let cleanupIntervalId: NodeJS.Timeout | null = null
  * - Auto-restarts unhealthy sessions after consecutive failures
  */
 function startSessionCleanup(): void {
-  if (cleanupIntervalId) return
+  if (cleanupIntervalId) return;
 
   cleanupIntervalId = setInterval(() => {
-    const now = Date.now()
+    const now = Date.now();
     // Avoid TS downlevelIteration requirement (main process tsconfig doesn't force target=es2015)
     for (const [convId, info] of Array.from(v2Sessions.entries())) {
       // Check 1: Clean up sessions with dead processes (killed by OS, crashed, etc.)
       if (!isSessionTransportReady(info.session, convId)) {
-        cleanupSession(convId, 'process not ready (polling fallback)')
-        continue
+        cleanupSession(convId, 'process not ready (polling fallback)');
+        continue;
       }
 
       // Check 2: Detect stuck sessions (request taking too long)
       if (isSessionStuck(convId)) {
-        console.log(`[Agent][${convId}] Session stuck (request timeout), forcing restart`)
-        forceRestartSession(convId, 'stuck session (request timeout)')
-        continue
+        console.log(`[Agent][${convId}] Session stuck (request timeout), forcing restart`);
+        forceRestartSession(convId, 'stuck session (request timeout)');
+        continue;
       }
 
       // Check 3: Check health status - restart if too many failures
-      const health = sessionHealthMap.get(convId)
+      const health = sessionHealthMap.get(convId);
       if (health && !health.isHealthy) {
-        console.log(`[Agent][${convId}] Session marked unhealthy, forcing restart`)
-        forceRestartSession(convId, 'unhealthy session')
-        continue
+        console.log(`[Agent][${convId}] Session marked unhealthy, forcing restart`);
+        forceRestartSession(convId, 'unhealthy session');
+        continue;
       }
 
       // Check 4: Clean up idle sessions (not used for 30 minutes)
@@ -413,14 +413,14 @@ function startSessionCleanup(): void {
       // activeSessions is the authoritative source for this, consistent with
       // how invalidateAllSessions() and getOrCreateV2Session() defer cleanup.
       if (activeSessions.has(convId)) {
-        info.lastUsedAt = now // keep the clock fresh so timeout resets after task ends
-        continue
+        info.lastUsedAt = now; // keep the clock fresh so timeout resets after task ends
+        continue;
       }
       if (now - info.lastUsedAt > SESSION_IDLE_TIMEOUT_MS) {
-        cleanupSession(convId, 'idle timeout (30 min)')
+        cleanupSession(convId, 'idle timeout (30 min)');
       }
     }
-  }, 60 * 1000) // Check every minute
+  }, 60 * 1000); // Check every minute
 }
 
 /**
@@ -428,8 +428,8 @@ function startSessionCleanup(): void {
  */
 export function stopSessionCleanup(): void {
   if (cleanupIntervalId) {
-    clearInterval(cleanupIntervalId)
-    cleanupIntervalId = null
+    clearInterval(cleanupIntervalId);
+    cleanupIntervalId = null;
   }
 }
 
@@ -464,49 +464,49 @@ export function stopSessionCleanup(): void {
 function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
   // 1. Compute project directory name using the same rule as Claude Code CLI:
   //    Replace all non-alphanumeric characters with '-'
-  const projectDir = workDir.replace(/[^a-zA-Z0-9]/g, '-')
-  const sessionFile = `${sessionId}.jsonl`
+  const projectDir = workDir.replace(/[^a-zA-Z0-9]/g, '-');
+  const sessionFile = `${sessionId}.jsonl`;
 
-  console.log(`[Agent] Migration check: workDir="${workDir}" -> projectDir="${projectDir}"`)
+  console.log(`[Agent] Migration check: workDir="${workDir}" -> projectDir="${projectDir}"`);
 
   // 2. Build old and new paths
   // Note: CLAUDE_CONFIG_DIR is set to ~/.agents/claude-config/ in sdk-config.ts
   // This is the actual path where SDK writes session files
-  const newConfigDir = path.join(os.homedir(), '.agents', 'claude-config')
+  const newConfigDir = path.join(os.homedir(), '.agents', 'claude-config');
   // Legacy path (used by original Claude Code CLI before AICO-Bot's isolation)
-  const oldConfigDir = path.join(os.homedir(), '.claude')
+  const oldConfigDir = path.join(os.homedir(), '.claude');
 
-  const newPath = path.join(newConfigDir, 'projects', projectDir, sessionFile)
-  const oldPath = path.join(oldConfigDir, 'projects', projectDir, sessionFile)
+  const newPath = path.join(newConfigDir, 'projects', projectDir, sessionFile);
+  const oldPath = path.join(oldConfigDir, 'projects', projectDir, sessionFile);
 
-  console.log(`[Agent] Checking paths:`)
-  console.log(`[Agent]   New: ${newPath}`)
-  console.log(`[Agent]   Old: ${oldPath}`)
+  console.log(`[Agent] Checking paths:`);
+  console.log(`[Agent]   New: ${newPath}`);
+  console.log(`[Agent]   Old: ${oldPath}`);
 
   // 3. Check if already exists in new directory
   if (existsSync(newPath)) {
-    console.log(`[Agent] ✓ Session file already exists in new directory: ${sessionId}`)
-    return true
+    console.log(`[Agent] ✓ Session file already exists in new directory: ${sessionId}`);
+    return true;
   }
 
   // 4. Check if exists in old directory
   if (existsSync(oldPath)) {
     // 5. Ensure new project directory exists
-    const newProjectDir = path.join(newConfigDir, 'projects', projectDir)
+    const newProjectDir = path.join(newConfigDir, 'projects', projectDir);
     if (!existsSync(newProjectDir)) {
-      mkdirSync(newProjectDir, { recursive: true })
+      mkdirSync(newProjectDir, { recursive: true });
     }
 
     // 6. Copy file (not move - preserve old directory for user's own Claude Code)
     try {
-      copyFileSync(oldPath, newPath)
-      console.log(`[Agent] Migrated session file: ${sessionId}`)
-      console.log(`[Agent]   From: ${oldPath}`)
-      console.log(`[Agent]   To: ${newPath}`)
-      return true
+      copyFileSync(oldPath, newPath);
+      console.log(`[Agent] Migrated session file: ${sessionId}`);
+      console.log(`[Agent]   From: ${oldPath}`);
+      console.log(`[Agent]   To: ${newPath}`);
+      return true;
     } catch (error) {
-      console.error(`[Agent] Failed to migrate session file: ${sessionId}`, error)
-      return false
+      console.error(`[Agent] Failed to migrate session file: ${sessionId}`, error);
+      return false;
     }
   }
 
@@ -514,33 +514,33 @@ function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
   //    The SDK may compute a different projectDir (e.g., from the Electron process CWD
   //    rather than the cwd option passed to the SDK). This happens because the CLI
   //    subprocess inherits the parent process CWD and uses it as originalCwd.
-  const projectsDir = path.join(newConfigDir, 'projects')
+  const projectsDir = path.join(newConfigDir, 'projects');
   if (existsSync(projectsDir)) {
     try {
-      const entries = readdirSync(projectsDir, { withFileTypes: true })
+      const entries = readdirSync(projectsDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name === projectDir) continue
-        const candidatePath = path.join(projectsDir, entry.name, sessionFile)
+        if (!entry.isDirectory() || entry.name === projectDir) continue;
+        const candidatePath = path.join(projectsDir, entry.name, sessionFile);
         if (existsSync(candidatePath)) {
           // Found it in an unexpected project directory - copy to expected location
-          const targetDir = path.join(newConfigDir, 'projects', projectDir)
+          const targetDir = path.join(newConfigDir, 'projects', projectDir);
           if (!existsSync(targetDir)) {
-            mkdirSync(targetDir, { recursive: true })
+            mkdirSync(targetDir, { recursive: true });
           }
-          copyFileSync(candidatePath, newPath)
-          console.log(`[Agent] ✓ Found session in unexpected project dir: ${entry.name}`)
-          console.log(`[Agent]   Copied from: ${candidatePath}`)
-          console.log(`[Agent]   Copied to: ${newPath}`)
-          return true
+          copyFileSync(candidatePath, newPath);
+          console.log(`[Agent] ✓ Found session in unexpected project dir: ${entry.name}`);
+          console.log(`[Agent]   Copied from: ${candidatePath}`);
+          console.log(`[Agent]   Copied to: ${newPath}`);
+          return true;
         }
       }
     } catch (err) {
-      console.error('[Agent] Failed to scan project directories:', err)
+      console.error('[Agent] Failed to scan project directories:', err);
     }
   }
 
-  console.log(`[Agent] ✗ Session file not found in any directory: ${sessionId}`)
-  return false
+  console.log(`[Agent] ✗ Session file not found in any directory: ${sessionId}`);
+  return false;
 }
 
 // ============================================
@@ -552,14 +552,14 @@ function migrateSessionIfNeeded(workDir: string, sessionId: string): boolean {
  * Only "process-level" params need rebuild; runtime params use setXxx() methods
  */
 export function needsSessionRebuild(existing: V2SessionInfo, newConfig: SessionConfig): boolean {
-  return existing.config.aiBrowserEnabled !== newConfig.aiBrowserEnabled
+  return existing.config.aiBrowserEnabled !== newConfig.aiBrowserEnabled;
 }
 
 /**
  * Close and remove an existing V2 session (internal helper for rebuild)
  */
 function closeV2SessionForRebuild(conversationId: string): void {
-  cleanupSession(conversationId, 'rebuild required')
+  cleanupSession(conversationId, 'rebuild required');
 }
 
 // ============================================
@@ -583,35 +583,37 @@ function closeV2SessionForRebuild(conversationId: string): void {
  * @param workDir - Working directory (required for session migration when sessionId is provided)
  */
 export interface GetOrCreateSessionOptions {
-  sdkOptions: Record<string, any>
-  sessionId?: string
-  config?: SessionConfig
-  workDir?: string
+  sdkOptions: Record<string, any>;
+  sessionId?: string;
+  config?: SessionConfig;
+  workDir?: string;
 }
 
 export async function getOrCreateV2Session(
   spaceId: string,
   conversationId: string,
-  options: GetOrCreateSessionOptions
+  options: GetOrCreateSessionOptions,
 ): Promise<V2SessionInfo['session']> {
   // Check if we have an existing session for this conversation
-  const existing = v2Sessions.get(conversationId)
+  const existing = v2Sessions.get(conversationId);
   if (existing) {
     // CRITICAL: First check if the underlying process is still alive
     // The CC subprocess may have been killed by OS (OOM, etc.) or crashed,
     // but our v2Sessions Map still holds a reference to the dead session.
     // We must check SDK's transport state (Single Source of Truth) before reusing.
     if (!isSessionTransportReady(existing.session)) {
-      console.log(`[Agent][${conversationId}] Session transport not ready (process dead), recreating...`)
-      closeV2SessionForRebuild(conversationId)
+      console.log(
+        `[Agent][${conversationId}] Session transport not ready (process dead), recreating...`,
+      );
+      closeV2SessionForRebuild(conversationId);
       // Fall through to create new session
     } else {
       // Check if credentials have changed since session was created
       // This catches race conditions where session was created with stale credentials
       // (e.g., warm-up started before config save completed)
-      const currentGen = getCredentialsGeneration()
-      const needsCredentialRebuild = existing.credentialsGeneration !== currentGen
-      const needsConfigRebuild = options.config && needsSessionRebuild(existing, options.config)
+      const currentGen = getCredentialsGeneration();
+      const needsCredentialRebuild = existing.credentialsGeneration !== currentGen;
+      const needsConfigRebuild = options.config && needsSessionRebuild(existing, options.config);
 
       if (needsCredentialRebuild || needsConfigRebuild) {
         // If a request is in flight for this conversation, defer rebuild to avoid
@@ -619,25 +621,31 @@ export async function getOrCreateV2Session(
         if (activeSessions.has(conversationId)) {
           const reason = needsCredentialRebuild
             ? `credentials (gen ${existing.credentialsGeneration} → ${currentGen})`
-            : `config (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled})`
-          console.log(`[Agent][${conversationId}] ${reason} changed but request in flight, deferring rebuild`)
-          pendingInvalidations.add(conversationId)
-          existing.lastUsedAt = Date.now()
-          return existing.session
+            : `config (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled})`;
+          console.log(
+            `[Agent][${conversationId}] ${reason} changed but request in flight, deferring rebuild`,
+          );
+          pendingInvalidations.add(conversationId);
+          existing.lastUsedAt = Date.now();
+          return existing.session;
         }
 
         if (needsCredentialRebuild) {
-          console.log(`[Agent][${conversationId}] Credentials changed (gen ${existing.credentialsGeneration} → ${currentGen}), recreating session`)
+          console.log(
+            `[Agent][${conversationId}] Credentials changed (gen ${existing.credentialsGeneration} → ${currentGen}), recreating session`,
+          );
         } else {
-          console.log(`[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled}), rebuilding session...`)
+          console.log(
+            `[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${options.config!.aiBrowserEnabled}), rebuilding session...`,
+          );
         }
-        closeV2SessionForRebuild(conversationId)
+        closeV2SessionForRebuild(conversationId);
         // Fall through to create new session
       } else {
         // Session is alive and config is compatible, reuse it
-        console.log(`[Agent][${conversationId}] Reusing existing V2 session`)
-        existing.lastUsedAt = Date.now()
-        return existing.session
+        console.log(`[Agent][${conversationId}] Reusing existing V2 session`);
+        existing.lastUsedAt = Date.now();
+        return existing.session;
       }
     }
   }
@@ -645,33 +653,37 @@ export async function getOrCreateV2Session(
   // Create new session
   // If sessionId exists, pass resume to let CC restore history from disk
   // After first message, the process stays alive and maintains context in memory
-  console.log(`[Agent][${conversationId}] Creating new V2 session...`)
+  console.log(`[Agent][${conversationId}] Creating new V2 session...`);
 
   // Handle session resumption with migration support
-  let effectiveSessionId = options.sessionId
+  let effectiveSessionId = options.sessionId;
   if (options.sessionId && options.workDir) {
     // Attempt to migrate session file from old config directory if needed
-    const sessionExists = migrateSessionIfNeeded(options.workDir, options.sessionId)
+    const sessionExists = migrateSessionIfNeeded(options.workDir, options.sessionId);
     if (sessionExists) {
-      console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`)
+      console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`);
     } else {
       // Session file not found in either directory - start fresh conversation
-      console.log(`[Agent][${conversationId}] Session ${options.sessionId} not found, starting fresh conversation`)
-      effectiveSessionId = undefined
+      console.log(
+        `[Agent][${conversationId}] Session ${options.sessionId} not found, starting fresh conversation`,
+      );
+      effectiveSessionId = undefined;
     }
   } else if (options.sessionId) {
-    console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`)
+    console.log(`[Agent][${conversationId}] With resume: ${options.sessionId}`);
   }
-  const startTime = Date.now()
+  const startTime = Date.now();
 
   // Requires SDK patch: resume parameter lets CC restore history from disk
   // Native SDK V2 Session doesn't support resume parameter
   if (effectiveSessionId) {
-    options.sdkOptions.resume = effectiveSessionId
+    options.sdkOptions.resume = effectiveSessionId;
   }
   // Requires SDK patch: native SDK ignores most sdkOptions parameters
   // Use 'as any' to bypass type check, actual params handled by patched SDK
-  const session = (await unstable_v2_createSession(options.sdkOptions as any)) as unknown as V2SDKSession
+  const session = (await unstable_v2_createSession(
+    options.sdkOptions as any,
+  )) as unknown as V2SDKSession;
 
   // WORKAROUND: V2 Session constructor does not register in-process SDK MCP server instances
   // into the Query layer. It only passes mcpServers to the CLI subprocess config.
@@ -679,37 +691,43 @@ export async function getOrCreateV2Session(
   // Fix: manually call setMcpServers() to properly register SDK MCP server instances.
   if (options.sdkOptions.mcpServers && Object.keys(options.sdkOptions.mcpServers).length > 0) {
     try {
-      const query = (session as any).query
+      const query = (session as any).query;
       if (query && typeof query.setMcpServers === 'function') {
-        await query.setMcpServers(options.sdkOptions.mcpServers)
-        console.log(`[Agent][${conversationId}] SDK MCP servers registered via setMcpServers: ${Object.keys(options.sdkOptions.mcpServers).join(', ')}`)
+        await query.setMcpServers(options.sdkOptions.mcpServers);
+        console.log(
+          `[Agent][${conversationId}] SDK MCP servers registered via setMcpServers: ${Object.keys(options.sdkOptions.mcpServers).join(', ')}`,
+        );
       } else {
-        console.warn(`[Agent][${conversationId}] V2 session has no setMcpServers method, SDK MCP servers may not work`)
+        console.warn(
+          `[Agent][${conversationId}] V2 session has no setMcpServers method, SDK MCP servers may not work`,
+        );
       }
     } catch (err) {
-      console.error(`[Agent][${conversationId}] Failed to register SDK MCP servers:`, err)
+      console.error(`[Agent][${conversationId}] Failed to register SDK MCP servers:`, err);
     }
   }
 
   // Log PID for health system verification (via SDK patch)
-  const pid = (session as any).pid
-  console.log(`[Agent][${conversationId}] V2 session created in ${Date.now() - startTime}ms, PID: ${pid ?? 'unavailable'}`)
+  const pid = (session as any).pid;
+  console.log(
+    `[Agent][${conversationId}] V2 session created in ${Date.now() - startTime}ms, PID: ${pid ?? 'unavailable'}`,
+  );
 
   // Register with health system for orphan detection
-  const instanceId = getCurrentInstanceId()
+  const instanceId = getCurrentInstanceId();
   if (instanceId) {
     registerProcess({
       id: conversationId,
       pid: pid ?? null,
       type: 'v2-session',
       instanceId,
-      startedAt: Date.now()
-    })
+      startedAt: Date.now(),
+    });
   }
 
   // Register process exit listener for immediate cleanup
   // This is event-driven (better than polling) - when process dies, we clean up immediately
-  registerProcessExitListener(session, conversationId)
+  registerProcessExitListener(session, conversationId);
 
   // Store session with config and current credentials generation
   // Generation is used to detect stale credentials on session reuse
@@ -720,13 +738,13 @@ export async function getOrCreateV2Session(
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
     config: options.config || { aiBrowserEnabled: false },
-    credentialsGeneration: getCredentialsGeneration()
-  })
+    credentialsGeneration: getCredentialsGeneration(),
+  });
 
   // Start cleanup if not already running
-  startSessionCleanup()
+  startSessionCleanup();
 
-  return session
+  return session;
 }
 
 // ============================================
@@ -746,32 +764,29 @@ export async function getOrCreateV2Session(
  *
  * Important: Parameters must be identical to sendMessage for session reliability
  */
-export async function ensureSessionWarm(
-  spaceId: string,
-  conversationId: string
-): Promise<void> {
-  const config = getConfig()
-  const workDir = getWorkingDir(spaceId)
-  const conversation = getConversation(spaceId, conversationId)
-  const sessionId = conversation?.sessionId
-  const electronPath = getHeadlessElectronPath()
+export async function ensureSessionWarm(spaceId: string, conversationId: string): Promise<void> {
+  const config = getConfig();
+  const workDir = getWorkingDir(spaceId);
+  const conversation = getConversation(spaceId, conversationId);
+  const sessionId = conversation?.sessionId;
+  const electronPath = getHeadlessElectronPath();
 
   // Create abortController - consistent with sendMessage
-  const abortController = new AbortController()
+  const abortController = new AbortController();
 
   // Get API credentials and resolve for SDK use
-  const credentials = await getApiCredentials(config)
-  console.log(`[Agent] Session warm using: ${credentials.provider}, model: ${credentials.model}`)
+  const credentials = await getApiCredentials(config);
+  console.log(`[Agent] Session warm using: ${credentials.provider}, model: ${credentials.model}`);
 
   // Resolve credentials for SDK (handles OpenAI compat router for non-Anthropic providers)
-  const resolvedCredentials = await resolveCredentialsForSdk(credentials)
+  const resolvedCredentials = await resolveCredentialsForSdk(credentials);
 
   // Get enabled MCP servers
-  const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
+  const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {});
 
   // Build MCP servers config (must match sendMessage to avoid session rebuild)
-  const mcpServers: Record<string, any> = enabledMcpServers ? { ...enabledMcpServers } : {}
-  mcpServers['aico-bot-apps'] = createAicoBotAppsMcpServer(spaceId)
+  const mcpServers: Record<string, any> = enabledMcpServers ? { ...enabledMcpServers } : {};
+  mcpServers['aico-bot-apps'] = createAicoBotAppsMcpServer(spaceId);
 
   // Build SDK options using shared configuration
   const sdkOptions = buildBaseSdkOptions({
@@ -782,19 +797,19 @@ export async function ensureSessionWarm(
     conversationId,
     abortController,
     stderrHandler: (data: string) => {
-      console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data)
+      console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data);
     },
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
     maxTurns: config.agent?.maxTurns,
-    contextWindow: resolvedCredentials.contextWindow
-  })
+    contextWindow: resolvedCredentials.contextWindow,
+  });
 
   try {
-    console.log(`[Agent] Warming up V2 session: ${conversationId}`)
-    await getOrCreateV2Session(spaceId, conversationId, { sdkOptions, sessionId, workDir })
-    console.log(`[Agent] V2 session warmed up: ${conversationId}`)
+    console.log(`[Agent] Warming up V2 session: ${conversationId}`);
+    await getOrCreateV2Session(spaceId, conversationId, { sdkOptions, sessionId, workDir });
+    console.log(`[Agent] V2 session warmed up: ${conversationId}`);
   } catch (error) {
-    console.error(`[Agent] Failed to warm up session ${conversationId}:`, error)
+    console.error(`[Agent] Failed to warm up session ${conversationId}:`, error);
     // Don't throw on warm-up failure, sendMessage() will reinitialize (just slower)
   }
 }
@@ -807,99 +822,156 @@ export async function ensureSessionWarm(
  * Close V2 session for a conversation
  */
 export function closeV2Session(conversationId: string): void {
-  cleanupSession(conversationId, 'explicit close')
+  cleanupSession(conversationId, 'explicit close');
+}
+
+/**
+ * Wait for a SDK subprocess to exit by polling its PID.
+ * On Windows, file handles are not released until the process fully exits,
+ * so we must wait before deleting the space directory.
+ */
+async function waitForSessionExit(conversationId: string, pid: number, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      process.kill(pid, 0); // Signal 0 = check if process exists (no-op)
+      // Process still alive, wait and retry
+      await new Promise((r) => setTimeout(r, 200));
+    } catch {
+      // Process no longer exists
+      console.log(`[Agent][${conversationId}] Process ${pid} exited (${Date.now() - start}ms)`);
+      return;
+    }
+  }
+  // Timeout — force kill
+  try {
+    process.kill(pid, 'SIGKILL');
+    console.log(`[Agent][${conversationId}] Force killed process ${pid} after timeout`);
+  } catch {
+    // Process already dead
+  }
 }
 
 /**
  * Close all V2 sessions belonging to a specific space (for space deletion).
  * Also aborts any in-flight requests and cleans up activeSessions entries
  * that may not have a corresponding v2Session (e.g. transient sessions).
+ *
+ * Returns a Promise that resolves when all subprocesses have exited,
+ * ensuring file handles are released for directory deletion on Windows.
  */
-export function closeSessionsBySpaceId(spaceId: string): void {
-  const toClose: string[] = []
+export async function closeSessionsBySpaceId(spaceId: string): Promise<void> {
+  const toClose: string[] = [];
 
   // Collect V2 sessions for this space
   for (const [convId, info] of v2Sessions) {
     if (info.spaceId === spaceId) {
-      toClose.push(convId)
+      toClose.push(convId);
     }
   }
 
   // Also collect active sessions (in-flight requests) that belong to this space
   // but may not have a V2 session entry yet
-  const activeToClean: string[] = []
+  const activeToClean: string[] = [];
   for (const [convId, state] of activeSessions) {
     if (state.spaceId === spaceId && !toClose.includes(convId)) {
-      activeToClean.push(convId)
+      activeToClean.push(convId);
     }
   }
 
   if (toClose.length > 0) {
-    console.log(`[Agent] Closing ${toClose.length} session(s) for space ${spaceId}`)
+    console.log(`[Agent] Closing ${toClose.length} session(s) for space ${spaceId}`);
+    // Collect PIDs before cleanup removes session info from map
+    const pids: Array<{ convId: string; pid: number }> = [];
     for (const convId of toClose) {
-      cleanupSession(convId, 'space deletion')
-      activeSessions.delete(convId)
+      const info = v2Sessions.get(convId);
+      const pid = (info?.session as any)?.pid;
+      if (pid) {
+        pids.push({ convId, pid });
+      }
+      cleanupSession(convId, 'space deletion');
+      activeSessions.delete(convId);
     }
+    // Wait for all subprocesses to exit (Windows needs this for file handle release)
+    await Promise.all(pids.map(({ convId, pid }) => waitForSessionExit(convId, pid)));
   }
 
   if (activeToClean.length > 0) {
-    console.log(`[Agent] Aborting ${activeToClean.length} active request(s) for space ${spaceId}`)
+    console.log(`[Agent] Aborting ${activeToClean.length} active request(s) for space ${spaceId}`);
     for (const convId of activeToClean) {
-      const state = activeSessions.get(convId)
+      const state = activeSessions.get(convId);
       if (state?.abortController && !state.abortController.signal.aborted) {
-        state.abortController.abort()
+        state.abortController.abort();
       }
-      activeSessions.delete(convId)
+      activeSessions.delete(convId);
     }
   }
 
   // Discard any pending debounced conversation index writes for this space.
   // This prevents stale writes from firing after the space directory is deleted.
-  discardPendingWritesForSpace(spaceId)
+  discardPendingWritesForSpace(spaceId);
 }
 
 /**
  * Close all V2 sessions (for app shutdown)
  */
 export function closeAllV2Sessions(): void {
-  const count = v2Sessions.size
-  console.log(`[Agent] Closing all ${count} V2 sessions`)
+  const count = v2Sessions.size;
+  console.log(`[Agent] Closing all ${count} V2 sessions`);
 
   for (const convId of Array.from(v2Sessions.keys())) {
-    cleanupSession(convId, 'app shutdown')
+    cleanupSession(convId, 'app shutdown');
   }
 
-  stopSessionCleanup()
+  stopSessionCleanup();
 }
 
 /**
  * Invalidate all V2 sessions due to API config change.
  * Called by config.service via callback when API config changes.
- *
+/**
+ * Mark a single V2 session for recreation on next use.
+ * The session is closed when the current in-flight request finishes
+ * (via unregisterActiveSession) or immediately if no request is in flight.
+ */
+export function invalidateSession(conversationId: string): void {
+  if (activeSessions.has(conversationId)) {
+    // Defer until the current request finishes
+    pendingInvalidations.add(conversationId);
+    console.log(`[Agent] Session marked for recreation (deferred): ${conversationId}`);
+  } else {
+    // No active request, close immediately
+    closeV2Session(conversationId);
+    console.log(`[Agent] Session closed for recreation: ${conversationId}`);
+  }
+}
+
+/**
+ * Invalidate all V2 sessions.
  * Sessions are closed immediately, but users are not interrupted.
  * New sessions will be created with updated config on next message.
  */
 export function invalidateAllSessions(): void {
-  const count = v2Sessions.size
+  const count = v2Sessions.size;
   if (count === 0) {
-    console.log('[Agent] No active sessions to invalidate')
-    return
+    console.log('[Agent] No active sessions to invalidate');
+    return;
   }
 
-  console.log(`[Agent] Invalidating ${count} sessions due to API config change`)
+  console.log(`[Agent] Invalidating ${count} sessions due to API config change`);
 
   for (const convId of Array.from(v2Sessions.keys())) {
     // If a request is in flight, defer closing until it finishes
     if (activeSessions.has(convId)) {
-      pendingInvalidations.add(convId)
-      console.log(`[Agent] Deferring session close until idle: ${convId}`)
-      continue
+      pendingInvalidations.add(convId);
+      console.log(`[Agent] Deferring session close until idle: ${convId}`);
+      continue;
     }
 
-    cleanupSession(convId, 'API config change')
+    cleanupSession(convId, 'API config change');
   }
 
-  console.log('[Agent] All sessions invalidated, will use new config on next message')
+  console.log('[Agent] All sessions invalidated, will use new config on next message');
 }
 
 // ============================================
@@ -912,32 +984,32 @@ export function invalidateAllSessions(): void {
 export function createSessionState(
   spaceId: string,
   conversationId: string,
-  abortController: AbortController
+  abortController: AbortController,
 ): SessionState {
   return {
     abortController,
     spaceId,
     conversationId,
-    thoughts: []
-  }
+    thoughts: [],
+  };
 }
 
 /**
  * Register an active session
  */
 export function registerActiveSession(conversationId: string, state: SessionState): void {
-  activeSessions.set(conversationId, state)
+  activeSessions.set(conversationId, state);
 }
 
 /**
  * Unregister an active session
  */
 export function unregisterActiveSession(conversationId: string): void {
-  activeSessions.delete(conversationId)
+  activeSessions.delete(conversationId);
 
   if (pendingInvalidations.has(conversationId)) {
-    pendingInvalidations.delete(conversationId)
-    closeV2Session(conversationId)
+    pendingInvalidations.delete(conversationId);
+    closeV2Session(conversationId);
   }
 }
 
@@ -945,7 +1017,7 @@ export function unregisterActiveSession(conversationId: string): void {
  * Get an active session by conversation ID
  */
 export function getActiveSession(conversationId: string): SessionState | undefined {
-  return activeSessions.get(conversationId)
+  return activeSessions.get(conversationId);
 }
 
 // ============================================
@@ -955,8 +1027,8 @@ export function getActiveSession(conversationId: string): SessionState | undefin
 // Register for API config change notifications
 // This is called once when the module loads
 onApiConfigChange(() => {
-  invalidateAllSessions()
-})
+  invalidateAllSessions();
+});
 
 // ============================================
 // Manual Context Compression
@@ -969,40 +1041,47 @@ onApiConfigChange(() => {
  * @param conversationId - Conversation ID to compact
  * @returns true if compression was triggered, false if session not found or not supported
  */
-export async function compactContext(conversationId: string): Promise<{ success: boolean; error?: string }> {
-  const sessionInfo = v2Sessions.get(conversationId)
+export async function compactContext(
+  conversationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const sessionInfo = v2Sessions.get(conversationId);
   if (!sessionInfo) {
-    console.log(`[Agent][${conversationId}] No session found for manual compact`)
-    return { success: false, error: 'No active session. Please send a message first.' }
+    console.log(`[Agent][${conversationId}] No session found for manual compact`);
+    return { success: false, error: 'No active session. Please send a message first.' };
   }
 
   try {
-    console.log(`[Agent][${conversationId}] Manually compacting context...`)
+    console.log(`[Agent][${conversationId}] Manually compacting context...`);
 
-    const session = sessionInfo.session
+    const session = sessionInfo.session;
 
     // Use the SDK's compact method (added via SDK patch)
     if (typeof session.compact === 'function') {
-      const result = await session.compact()
+      const result = await session.compact();
       if (result.compacted) {
         console.log(`[Agent][${conversationId}] Context compacted successfully`, {
           preCompactTokenCount: result.preCompactTokenCount,
-          postCompactTokenCount: result.postCompactTokenCount
-        })
-        return { success: true }
+          postCompactTokenCount: result.postCompactTokenCount,
+        });
+        return { success: true };
       } else {
-        console.log(`[Agent][${conversationId}] Compact skipped: threshold not met`)
-        return { success: false, error: 'Context is not large enough to compress. The SDK auto-compacts when needed.' }
+        console.log(`[Agent][${conversationId}] Compact skipped: threshold not met`);
+        return {
+          success: false,
+          error: 'Context is not large enough to compress. The SDK auto-compacts when needed.',
+        };
       }
     } else {
       // Fallback: close and recreate session to clear context
-      console.log(`[Agent][${conversationId}] SDK compact not available, recreating session to clear context`)
-      cleanupSession(conversationId, 'manual compact')
-      sessionHealthMap.delete(conversationId)
-      return { success: true }
+      console.log(
+        `[Agent][${conversationId}] SDK compact not available, recreating session to clear context`,
+      );
+      cleanupSession(conversationId, 'manual compact');
+      sessionHealthMap.delete(conversationId);
+      return { success: true };
     }
   } catch (error) {
-    console.error(`[Agent][${conversationId}] Manual compact failed:`, error)
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    console.error(`[Agent][${conversationId}] Manual compact failed:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }

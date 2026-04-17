@@ -637,6 +637,8 @@ export class ClaudeManager {
   private interruptedSessions: Set<string> = new Set()  // Sessions marked for interrupt
   // Track active stream iterators for forceful interruption
   private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
+  // Pending messages queue — stores messages for sessions with active streams
+  private pendingMessages: Map<string, Array<{content: string, options?: any}>> = new Map()
 
   // Configuration
   private apiKey?: string
@@ -1416,6 +1418,53 @@ export class ClaudeManager {
    */
   unregisterActiveSession(conversationId: string): void {
     this.activeSessions.delete(conversationId)
+  }
+
+  /**
+   * Check if a session has an active stream (i.e., SDK is currently processing)
+   */
+  isActive(conversationId: string): boolean {
+    return this.activeSessions.has(conversationId)
+  }
+
+  /**
+   * Queue a message for a session that has an active stream.
+   * Simply stores the message — does NOT interrupt or inject via SDK patch.
+   * The caller (server.ts) will process pending messages after the stream completes naturally.
+   */
+  queueMessage(conversationId: string, content: string, options?: any): boolean {
+    if (!this.activeSessions.has(conversationId)) return false
+
+    const pending = this.pendingMessages.get(conversationId) || []
+    pending.push({ content, options })
+    this.pendingMessages.set(conversationId, pending)
+    console.log(`[ClaudeManager][${conversationId}] Message queued (${pending.length} pending)`)
+    return true
+  }
+
+  /**
+   * Check if a session has pending messages in the queue
+   */
+  hasPendingMessages(conversationId: string): boolean {
+    const pending = this.pendingMessages.get(conversationId)
+    return !!pending && pending.length > 0
+  }
+
+  /**
+   * Consume all pending messages for a session (get and clear)
+   */
+  consumePendingMessages(conversationId: string): Array<{content: string, options?: any}> {
+    const pending = this.pendingMessages.get(conversationId)
+    if (!pending) return []
+    this.pendingMessages.delete(conversationId)
+    return pending
+  }
+
+  /**
+   * Clear pending messages for a session (e.g., on error or disconnect)
+   */
+  clearPendingMessages(conversationId: string): void {
+    this.pendingMessages.delete(conversationId)
   }
 
   /**

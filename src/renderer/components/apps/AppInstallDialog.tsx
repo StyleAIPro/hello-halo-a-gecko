@@ -8,25 +8,25 @@
  *   - Import: drag-and-drop / browse a .yaml spec file to install
  */
 
-import { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react'
-import { X, Loader2, Sparkles, Upload } from 'lucide-react'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { useAppsStore } from '../../stores/apps.store'
-import { useSpaceStore } from '../../stores/space.store'
-import { useTranslation } from '../../i18n'
-import type { AppSpec } from '../../../shared/apps/spec-types'
-import { AppModelSelector } from './AppModelSelector'
+import { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
+import { X, Loader2, Sparkles, Upload } from 'lucide-react';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { useAppsStore } from '../../stores/apps.store';
+import { useSpaceStore } from '../../stores/space.store';
+import { useTranslation } from '../../i18n';
+import type { AppSpec } from '../../../shared/apps/spec-types';
+import { AppModelSelector } from './AppModelSelector';
 
 // Lazy-load CodeMirrorEditor to keep initial bundle small
 const CodeMirrorEditor = lazy(() =>
-  import('../canvas/viewers/CodeMirrorEditor').then(m => ({ default: m.CodeMirrorEditor }))
-)
+  import('../canvas/viewers/CodeMirrorEditor').then((m) => ({ default: m.CodeMirrorEditor })),
+);
 
 // ============================================
 // Constants
 // ============================================
 
-type InstallMode = 'visual' | 'yaml' | 'import'
+type InstallMode = 'visual' | 'yaml' | 'import';
 
 const FREQUENCY_PRESETS = [
   { label: '1m', value: '1m' },
@@ -38,7 +38,7 @@ const FREQUENCY_PRESETS = [
   { label: '6h', value: '6h' },
   { label: '12h', value: '12h' },
   { label: '1d', value: '1d' },
-]
+];
 
 const DEFAULT_YAML_TEMPLATE = `\
 # ============================================
@@ -133,18 +133,18 @@ escalation:
 permissions:
   - browser.navigate
   - notification.send
-`
+`;
 
 // ============================================
 // Helpers
 // ============================================
 
 interface VisualFormState {
-  name: string
-  description: string
-  author: string
-  systemPrompt: string
-  frequency: string
+  name: string;
+  description: string;
+  author: string;
+  systemPrompt: string;
+  frequency: string;
 }
 
 const INITIAL_FORM: VisualFormState = {
@@ -153,7 +153,7 @@ const INITIAL_FORM: VisualFormState = {
   author: '',
   systemPrompt: '',
   frequency: '1h',
-}
+};
 
 /** Build an AppSpec object from the visual form state */
 function buildSpecFromForm(form: VisualFormState): AppSpec {
@@ -175,26 +175,26 @@ function buildSpecFromForm(form: VisualFormState): AppSpec {
         },
       },
     ],
-  }
+  };
 }
 
 /** Try to extract a frequency string from a parsed YAML object */
 function extractFrequency(parsed: Record<string, unknown>): string | null {
   try {
-    const subs = parsed.subscriptions as Array<Record<string, unknown>> | undefined
-    if (!subs || subs.length === 0) return null
-    const source = subs[0]?.source as Record<string, unknown> | undefined
-    if (!source) return null
-    const config = source.config as Record<string, unknown> | undefined
-    return (config?.every as string) ?? null
+    const subs = parsed.subscriptions as Array<Record<string, unknown>> | undefined;
+    if (!subs || subs.length === 0) return null;
+    const source = subs[0]?.source as Record<string, unknown> | undefined;
+    if (!source) return null;
+    const config = source.config as Record<string, unknown> | undefined;
+    return (config?.every as string) ?? null;
   } catch {
-    return null
+    return null;
   }
 }
 
 /** Check if a frequency value is in the presets */
 function isValidPreset(freq: string): boolean {
-  return FREQUENCY_PRESETS.some(p => p.value === freq)
+  return FREQUENCY_PRESETS.some((p) => p.value === freq);
 }
 
 // ============================================
@@ -202,221 +202,237 @@ function isValidPreset(freq: string): boolean {
 // ============================================
 
 interface AppInstallDialogProps {
-  onClose: () => void
+  onClose: () => void;
 }
 
 export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
-  const { t } = useTranslation()
-  const { installApp, importApp, loadApps, updateAppOverrides } = useAppsStore()
+  const { t } = useTranslation();
+  const { installApp, importApp, loadApps, updateAppOverrides } = useAppsStore();
 
   // Get all spaces
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const defaultSpace = useSpaceStore(state => state.defaultSpace)
-  const spaces = useSpaceStore(state => state.spaces)
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const defaultSpace = useSpaceStore((state) => state.defaultSpace);
+  const spaces = useSpaceStore((state) => state.spaces);
 
   // Combine all available spaces (defaultSpace + dedicated spaces)
   const allSpaces = useMemo(() => {
-    const result: Array<{ id: string; name: string; icon: string }> = []
-    if (defaultSpace) result.push(defaultSpace)
-    result.push(...spaces)
-    return result
-  }, [defaultSpace, spaces])
+    const result: Array<{ id: string; name: string; icon: string }> = [];
+    if (defaultSpace) result.push(defaultSpace);
+    result.push(...spaces);
+    return result;
+  }, [defaultSpace, spaces]);
 
-  const [mode, setMode] = useState<InstallMode>('visual')
-  const [form, setForm] = useState<VisualFormState>({ ...INITIAL_FORM })
-  const [yamlContent, setYamlContent] = useState(DEFAULT_YAML_TEMPLATE)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<InstallMode>('visual');
+  const [form, setForm] = useState<VisualFormState>({ ...INITIAL_FORM });
+  const [yamlContent, setYamlContent] = useState(DEFAULT_YAML_TEMPLATE);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // Per-app model override (optional, applied after install)
-  const [modelSourceId, setModelSourceId] = useState<string | undefined>(undefined)
-  const [modelId, setModelId] = useState<string | undefined>(undefined)
+  const [modelSourceId, setModelSourceId] = useState<string | undefined>(undefined);
+  const [modelId, setModelId] = useState<string | undefined>(undefined);
 
   // Import mode state
-  const [importYaml, setImportYaml] = useState<string | null>(null)
-  const [importFileName, setImportFileName] = useState<string | null>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importYaml, setImportYaml] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Default space: currentSpace if set, else first available
   const [selectedSpaceId, setSelectedSpaceId] = useState(
-    currentSpace?.id ?? allSpaces[0]?.id ?? ''
-  )
+    currentSpace?.id ?? allSpaces[0]?.id ?? '',
+  );
 
   // ── Form field updater ──
-  const updateField = useCallback(<K extends keyof VisualFormState>(key: K, value: VisualFormState[K]) => {
-    setForm(prev => ({ ...prev, [key]: value }))
-    setError(null)
-  }, [])
+  const updateField = useCallback(
+    <K extends keyof VisualFormState>(key: K, value: VisualFormState[K]) => {
+      setForm((prev) => ({ ...prev, [key]: value }));
+      setError(null);
+    },
+    [],
+  );
 
   // ── Mode switching ──
   const handleSwitchToYaml = useCallback(() => {
-    setError(null)
+    setError(null);
     // If form has content, serialize it to YAML
     if (form.name || form.systemPrompt) {
-      const spec = buildSpecFromForm(form)
-      setYamlContent(stringifyYaml(spec, { lineWidth: 0 }))
+      const spec = buildSpecFromForm(form);
+      setYamlContent(stringifyYaml(spec, { lineWidth: 0 }));
     } else {
-      setYamlContent(DEFAULT_YAML_TEMPLATE)
+      setYamlContent(DEFAULT_YAML_TEMPLATE);
     }
-    setMode('yaml')
-  }, [form])
+    setMode('yaml');
+  }, [form]);
 
   const handleSwitchToVisual = useCallback(() => {
-    setError(null)
+    setError(null);
     try {
-      const parsed = parseYaml(yamlContent) as Record<string, unknown> | null
+      const parsed = parseYaml(yamlContent) as Record<string, unknown> | null;
       if (parsed && typeof parsed === 'object') {
-        const freq = extractFrequency(parsed)
+        const freq = extractFrequency(parsed);
         setForm({
           name: String(parsed.name ?? ''),
           description: String(parsed.description ?? ''),
           author: String(parsed.author ?? ''),
           systemPrompt: String(parsed.system_prompt ?? ''),
-          frequency: (freq && isValidPreset(freq)) ? freq : '1h',
-        })
+          frequency: freq && isValidPreset(freq) ? freq : '1h',
+        });
       }
     } catch {
-      setError(t('Could not parse YAML. Some fields may be empty.'))
+      setError(t('Could not parse YAML. Some fields may be empty.'));
     }
-    setMode('visual')
-  }, [yamlContent, t])
+    setMode('visual');
+  }, [yamlContent, t]);
 
   // ── Import mode: file handling ──
-  const handleImportFile = useCallback((file: File) => {
-    setError(null)
-    if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
-      setError(t('Please select a .yaml or .yml file'))
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const content = e.target?.result as string
-      if (content) {
-        setImportYaml(content)
-        setImportFileName(file.name)
+  const handleImportFile = useCallback(
+    (file: File) => {
+      setError(null);
+      if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+        setError(t('Please select a .yaml or .yml file'));
+        return;
       }
-    }
-    reader.onerror = () => {
-      setError(t('Failed to read file'))
-    }
-    reader.readAsText(file)
-  }, [t])
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        if (content) {
+          setImportYaml(content);
+          setImportFileName(file.name);
+        }
+      };
+      reader.onerror = () => {
+        setError(t('Failed to read file'));
+      };
+      reader.readAsText(file);
+    },
+    [t],
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleImportFile(file)
-  }, [handleImportFile])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const file = e.dataTransfer.files[0];
+      if (file) handleImportFile(file);
+    },
+    [handleImportFile],
+  );
 
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) handleImportFile(file)
-    // Reset input so re-selecting the same file works
-    e.target.value = ''
-  }, [handleImportFile])
+  const handleFileInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) handleImportFile(file);
+      // Reset input so re-selecting the same file works
+      e.target.value = '';
+    },
+    [handleImportFile],
+  );
 
   const handleClearImport = useCallback(() => {
-    setImportYaml(null)
-    setImportFileName(null)
-    setError(null)
-  }, [])
+    setImportYaml(null);
+    setImportFileName(null);
+    setError(null);
+  }, []);
 
   // ── Install handler (all modes) ──
   async function handleInstall() {
-    setError(null)
-    setLoading(true)
+    setError(null);
+    setLoading(true);
 
     try {
       // ── Import mode: use dedicated import API ──
       if (mode === 'import') {
         if (!importYaml) {
-          setError(t('No file loaded'))
-          setLoading(false)
-          return
+          setError(t('No file loaded'));
+          setLoading(false);
+          return;
         }
-        const appId = await importApp(selectedSpaceId, importYaml)
+        const appId = await importApp(selectedSpaceId, importYaml);
         if (appId) {
-          onClose()
+          onClose();
         } else {
-          setError(t('Import failed. Check the YAML spec and try again.'))
+          setError(t('Import failed. Check the YAML spec and try again.'));
         }
-        setLoading(false)
-        return
+        setLoading(false);
+        return;
       }
 
       // ── Visual / YAML modes ──
-      let specObj: AppSpec
+      let specObj: AppSpec;
 
       if (mode === 'visual') {
         if (!form.name.trim()) {
-          setError(t('App name is required'))
-          setLoading(false)
-          return
+          setError(t('App name is required'));
+          setLoading(false);
+          return;
         }
         if (!form.description.trim()) {
-          setError(t('Description is required'))
-          setLoading(false)
-          return
+          setError(t('Description is required'));
+          setLoading(false);
+          return;
         }
         if (!form.author.trim()) {
-          setError(t('Author is required'))
-          setLoading(false)
-          return
+          setError(t('Author is required'));
+          setLoading(false);
+          return;
         }
         if (!form.systemPrompt.trim()) {
-          setError(t('System prompt is required'))
-          setLoading(false)
-          return
+          setError(t('System prompt is required'));
+          setLoading(false);
+          return;
         }
-        specObj = buildSpecFromForm(form)
+        specObj = buildSpecFromForm(form);
       } else {
         // YAML mode
         try {
-          specObj = parseYaml(yamlContent) as AppSpec
+          specObj = parseYaml(yamlContent) as AppSpec;
         } catch {
-          setError(t('Invalid YAML format. Please check your spec.'))
-          setLoading(false)
-          return
+          setError(t('Invalid YAML format. Please check your spec.'));
+          setLoading(false);
+          return;
         }
         if (!specObj || typeof specObj !== 'object') {
-          setError(t('YAML must be an object'))
-          setLoading(false)
-          return
+          setError(t('YAML must be an object'));
+          setLoading(false);
+          return;
         }
       }
 
-      const appId = await installApp(selectedSpaceId, specObj)
+      const appId = await installApp(selectedSpaceId, specObj);
       if (appId) {
         // Apply per-app model override if user selected one
         if (modelSourceId) {
-          await updateAppOverrides(appId, { modelSourceId, modelId })
+          await updateAppOverrides(appId, { modelSourceId, modelId });
         }
-        await loadApps() // Global reload
-        onClose()
+        await loadApps(); // Global reload
+        onClose();
       } else {
-        setError(t('Installation failed. Check the spec and try again.'))
+        setError(t('Installation failed. Check the spec and try again.'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Installation failed'))
+      setError(err instanceof Error ? err.message : t('Installation failed'));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   // ── Can install? ──
-  const canInstall = mode === 'import'
-    ? importYaml !== null
-    : mode === 'yaml'
-      ? yamlContent.trim().length > 0
-      : (form.name.trim().length > 0 && form.systemPrompt.trim().length > 0)
+  const canInstall =
+    mode === 'import'
+      ? importYaml !== null
+      : mode === 'yaml'
+        ? yamlContent.trim().length > 0
+        : form.name.trim().length > 0 && form.systemPrompt.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
       <div
         className="relative w-full max-w-2xl mx-4 bg-background border border-border rounded-xl shadow-xl flex flex-col max-h-[90vh]"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
@@ -446,7 +462,10 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 {t('YAML')}
               </button>
               <button
-                onClick={() => { setError(null); setMode('import') }}
+                onClick={() => {
+                  setError(null);
+                  setMode('import');
+                }}
                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                   mode === 'import'
                     ? 'bg-background text-foreground shadow-sm'
@@ -471,13 +490,17 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
           {mode === 'visual' ? (
             <>
               <p className="text-xs text-muted-foreground">
-                {t('Create a new digital human using the visual form, or switch to YAML for full control.')}
+                {t(
+                  'Create a new digital human using the visual form, or switch to YAML for full control.',
+                )}
               </p>
 
               <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10">
                 <Sparkles className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  {t('You can also tell AI to create one for you through natural language in any space chat.')}
+                  {t(
+                    'You can also tell AI to create one for you through natural language in any space chat.',
+                  )}
                 </p>
               </div>
 
@@ -489,7 +512,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 <input
                   type="text"
                   value={form.name}
-                  onChange={e => updateField('name', e.target.value)}
+                  onChange={(e) => updateField('name', e.target.value)}
                   placeholder={t('My Digital Human')}
                   className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
                 />
@@ -503,7 +526,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 <input
                   type="text"
                   value={form.description}
-                  onChange={e => updateField('description', e.target.value)}
+                  onChange={(e) => updateField('description', e.target.value)}
                   placeholder={t('What does this app do?')}
                   className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
                 />
@@ -517,7 +540,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 <input
                   type="text"
                   value={form.author}
-                  onChange={e => updateField('author', e.target.value)}
+                  onChange={(e) => updateField('author', e.target.value)}
                   placeholder={t('Your name')}
                   className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
                 />
@@ -530,8 +553,10 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                 </label>
                 <textarea
                   value={form.systemPrompt}
-                  onChange={e => updateField('systemPrompt', e.target.value)}
-                  placeholder={t('Describe what this app should do on each scheduled run. This is the core instruction that drives the AI.')}
+                  onChange={(e) => updateField('systemPrompt', e.target.value)}
+                  placeholder={t(
+                    'Describe what this app should do on each scheduled run. This is the core instruction that drives the AI.',
+                  )}
                   rows={6}
                   className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
                   spellCheck={false}
@@ -547,7 +572,7 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                   <span className="text-sm text-foreground">{t('Run every')}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {FREQUENCY_PRESETS.map(preset => (
+                  {FREQUENCY_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
                       type="button"
@@ -568,13 +593,17 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
             /* YAML mode */
             <>
               <p className="text-xs text-muted-foreground">
-                {t('Edit the YAML spec directly. This template includes all available fields for a digital human.')}
+                {t(
+                  'Edit the YAML spec directly. This template includes all available fields for a digital human.',
+                )}
               </p>
-              <Suspense fallback={
-                <div className="h-80 flex items-center justify-center bg-secondary rounded-lg border border-border">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              }>
+              <Suspense
+                fallback={
+                  <div className="h-80 flex items-center justify-center bg-secondary rounded-lg border border-border">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                }
+              >
                 <div className="h-80 border border-border rounded-lg overflow-hidden">
                   <CodeMirrorEditor
                     content={yamlContent}
@@ -595,7 +624,10 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
               {importYaml === null ? (
                 /* File drop zone */
                 <div
-                  onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(true);
+                  }}
                   onDragLeave={() => setIsDragOver(false)}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
@@ -605,7 +637,9 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                       : 'border-border hover:border-muted-foreground/50'
                   }`}
                 >
-                  <Upload className={`w-8 h-8 ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <Upload
+                    className={`w-8 h-8 ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`}
+                  />
                   <div className="text-center">
                     <p className="text-sm text-foreground">{t('Drop .yaml file here')}</p>
                     <p className="text-xs text-muted-foreground mt-1">{t('or click to browse')}</p>
@@ -630,17 +664,15 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
                       {t('Clear')}
                     </button>
                   </div>
-                  <Suspense fallback={
-                    <div className="h-64 flex items-center justify-center bg-secondary rounded-lg border border-border">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                    </div>
-                  }>
+                  <Suspense
+                    fallback={
+                      <div className="h-64 flex items-center justify-center bg-secondary rounded-lg border border-border">
+                        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                      </div>
+                    }
+                  >
                     <div className="h-64 border border-border rounded-lg overflow-hidden">
-                      <CodeMirrorEditor
-                        content={importYaml}
-                        language="yaml"
-                        readOnly={true}
-                      />
+                      <CodeMirrorEditor content={importYaml} language="yaml" readOnly={true} />
                     </div>
                   </Suspense>
                 </div>
@@ -654,8 +686,8 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
               modelSourceId={modelSourceId}
               modelId={modelId}
               onChange={(srcId, mdlId) => {
-                setModelSourceId(srcId)
-                setModelId(mdlId)
+                setModelSourceId(srcId);
+                setModelId(mdlId);
               }}
             />
           )}
@@ -674,19 +706,19 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
               // Multiple spaces — show dropdown
               <select
                 value={selectedSpaceId}
-                onChange={e => setSelectedSpaceId(e.target.value)}
+                onChange={(e) => setSelectedSpaceId(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
               >
-                {allSpaces.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                {allSpaces.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             )}
           </div>
 
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -708,5 +740,5 @@ export function AppInstallDialog({ onClose }: AppInstallDialogProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }

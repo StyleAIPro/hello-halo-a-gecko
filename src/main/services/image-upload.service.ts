@@ -10,13 +10,13 @@
  * 3. Otherwise use file:// URL (local only)
  */
 
-import { app } from 'electron'
-import { writeFileSync, mkdirSync, existsSync } from 'fs'
-import { join } from 'path'
-import { randomUUID } from 'crypto'
-import type { ImageAttachment } from './agent/types'
-import { getConfig } from './config.service'
-import { getServerInfo } from '../http/server'
+import { app } from 'electron';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
+import type { ImageAttachment } from './agent/types';
+import { getConfig } from './config.service';
+import { getServerInfo } from '../http/server';
 
 // ============================================
 // Types
@@ -24,11 +24,11 @@ import { getServerInfo } from '../http/server'
 
 export interface UploadedImage {
   /** The original image ID */
-  id: string
+  id: string;
   /** URL that can be accessed remotely */
-  url: string
+  url: string;
   /** The media type (e.g., 'image/png') */
-  mediaType: string
+  mediaType: string;
 }
 
 // ============================================
@@ -44,35 +44,35 @@ export interface UploadedImage {
  */
 export async function uploadImagesForMcp(
   images: ImageAttachment[],
-  spaceId: string
+  spaceId: string,
 ): Promise<UploadedImage[]> {
   if (!images || images.length === 0) {
-    return []
+    return [];
   }
 
-  const results: UploadedImage[] = []
+  const results: UploadedImage[] = [];
 
   for (const image of images) {
     try {
-      const url = await uploadSingleImage(image, spaceId)
+      const url = await uploadSingleImage(image, spaceId);
       results.push({
         id: image.id,
         url,
-        mediaType: image.mediaType
-      })
+        mediaType: image.mediaType,
+      });
     } catch (error) {
-      console.error(`[ImageUpload] Failed to upload image ${image.id}:`, error)
+      console.error(`[ImageUpload] Failed to upload image ${image.id}:`, error);
       // Fallback: use data URL (may not work with all MCP tools)
-      const dataUrl = `data:${image.mediaType};base64,${image.data}`
+      const dataUrl = `data:${image.mediaType};base64,${image.data}`;
       results.push({
         id: image.id,
         url: dataUrl,
-        mediaType: image.mediaType
-      })
+        mediaType: image.mediaType,
+      });
     }
   }
 
-  return results
+  return results;
 }
 
 /**
@@ -80,38 +80,38 @@ export async function uploadImagesForMcp(
  */
 async function uploadSingleImage(image: ImageAttachment, spaceId: string): Promise<string> {
   // Create uploads directory in AICO-Bot data dir
-  const uploadsDir = join(getUploadsDir(), spaceId)
+  const uploadsDir = join(getUploadsDir(), spaceId);
   if (!existsSync(uploadsDir)) {
-    mkdirSync(uploadsDir, { recursive: true })
+    mkdirSync(uploadsDir, { recursive: true });
   }
 
   // Generate unique filename
-  const ext = getExtensionFromMediaType(image.mediaType)
-  const filename = `${randomUUID()}${ext}`
-  const filepath = join(uploadsDir, filename)
+  const ext = getExtensionFromMediaType(image.mediaType);
+  const filename = `${randomUUID()}${ext}`;
+  const filepath = join(uploadsDir, filename);
 
   // Decode base64 and write to file
-  const buffer = Buffer.from(image.data, 'base64')
-  writeFileSync(filepath, buffer)
+  const buffer = Buffer.from(image.data, 'base64');
+  writeFileSync(filepath, buffer);
 
-  console.log(`[ImageUpload] Saved image to: ${filepath}`)
+  console.log(`[ImageUpload] Saved image to: ${filepath}`);
 
   // Check if HTTP server is running and remote access is enabled
-  const config = getConfig()
-  const serverInfo = getServerInfo()
+  const config = getConfig();
+  const serverInfo = getServerInfo();
 
   if (config.remoteAccess?.enabled && serverInfo.running && serverInfo.port) {
     // Use HTTP server URL for remote access
     // The HTTP server needs to serve the uploads directory
-    const httpUrl = `http://localhost:${serverInfo.port}/api/remote/uploads/${spaceId}/${filename}`
-    console.log(`[ImageUpload] Image accessible at: ${httpUrl}`)
-    return httpUrl
+    const httpUrl = `http://localhost:${serverInfo.port}/api/remote/uploads/${spaceId}/${filename}`;
+    console.log(`[ImageUpload] Image accessible at: ${httpUrl}`);
+    return httpUrl;
   }
 
   // Fallback: use file URL (only works locally)
-  const fileUrl = `file://${filepath}`
-  console.log(`[ImageUpload] Using local file URL: ${fileUrl}`)
-  return fileUrl
+  const fileUrl = `file://${filepath}`;
+  console.log(`[ImageUpload] Using local file URL: ${fileUrl}`);
+  return fileUrl;
 }
 
 /**
@@ -119,8 +119,8 @@ async function uploadSingleImage(image: ImageAttachment, spaceId: string): Promi
  */
 function getUploadsDir(): string {
   // Use AICO-Bot data directory
-  const spaceDataDir = app.getPath('userData')
-  return join(spaceDataDir, 'uploads')
+  const spaceDataDir = app.getPath('userData');
+  return join(spaceDataDir, 'uploads');
 }
 
 /**
@@ -129,15 +129,15 @@ function getUploadsDir(): string {
 function getExtensionFromMediaType(mediaType: string): string {
   switch (mediaType) {
     case 'image/jpeg':
-      return '.jpg'
+      return '.jpg';
     case 'image/png':
-      return '.png'
+      return '.png';
     case 'image/gif':
-      return '.gif'
+      return '.gif';
     case 'image/webp':
-      return '.webp'
+      return '.webp';
     default:
-      return '.png'
+      return '.png';
   }
 }
 
@@ -145,17 +145,17 @@ function getExtensionFromMediaType(mediaType: string): string {
  * Clean up old uploaded images (call periodically)
  */
 export function cleanupOldUploads(maxAgeMs: number = 24 * 60 * 60 * 1000): void {
-  const uploadsDir = getUploadsDir()
+  const uploadsDir = getUploadsDir();
 
   if (!existsSync(uploadsDir)) {
-    return
+    return;
   }
 
-  const now = Date.now()
+  const now = Date.now();
 
   // This is a simplified cleanup - in production you'd want to
   // check file modification times and delete old files
-  console.log(`[ImageUpload] Cleanup would run on: ${uploadsDir}`)
+  console.log(`[ImageUpload] Cleanup would run on: ${uploadsDir}`);
 }
 
 // ============================================
@@ -164,5 +164,5 @@ export function cleanupOldUploads(maxAgeMs: number = 24 * 60 * 60 * 1000): void 
 
 export const imageUploadService = {
   uploadImagesForMcp,
-  cleanupOldUploads
-}
+  cleanupOldUploads,
+};

@@ -2,33 +2,39 @@
  * Space Store - Workspace state management
  */
 
-import { create } from 'zustand'
-import { api } from '../api'
-import type { Space, CreateSpaceInput, SpacePreferences } from '../types'
+import { create } from 'zustand';
+import { api } from '../api';
+import type { Space, CreateSpaceInput, SpacePreferences } from '../types';
 
 interface SpaceState {
   // Spaces data
-  defaultSpace: Space | null
-  spaces: Space[]
-  currentSpace: Space | null
+  defaultSpace: Space | null;
+  spaces: Space[];
+  currentSpace: Space | null;
 
   // Loading states
-  isLoading: boolean
-  error: string | null
+  isLoading: boolean;
+  error: string | null;
 
   // Actions
-  loadSpaces: () => Promise<void>
-  loadDefaultSpace: () => Promise<void>
-  setCurrentSpace: (space: Space | null) => void
-  createSpace: (input: CreateSpaceInput) => Promise<Space | null>
-  updateSpace: (spaceId: string, updates: { name?: string; icon?: string }) => Promise<Space | null>
-  deleteSpace: (spaceId: string) => Promise<{ success: boolean; error?: string }>
-  openSpaceFolder: (spaceId: string) => Promise<void>
-  refreshCurrentSpace: () => Promise<void>
+  loadSpaces: () => Promise<void>;
+  loadDefaultSpace: () => Promise<void>;
+  setCurrentSpace: (space: Space | null) => void;
+  createSpace: (input: CreateSpaceInput) => Promise<Space | null>;
+  updateSpace: (
+    spaceId: string,
+    updates: { name?: string; icon?: string },
+  ) => Promise<Space | null>;
+  deleteSpace: (spaceId: string) => Promise<{ success: boolean; error?: string }>;
+  openSpaceFolder: (spaceId: string) => Promise<void>;
+  refreshCurrentSpace: () => Promise<void>;
 
   // Preferences actions
-  updateSpacePreferences: (spaceId: string, preferences: Partial<SpacePreferences>) => Promise<void>
-  getSpacePreferences: (spaceId: string) => SpacePreferences | undefined
+  updateSpacePreferences: (
+    spaceId: string,
+    preferences: Partial<SpacePreferences>,
+  ) => Promise<void>;
+  getSpacePreferences: (spaceId: string) => SpacePreferences | undefined;
 }
 
 export const useSpaceStore = create<SpaceState>((set, get) => ({
@@ -42,217 +48,224 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
   // Load default temp space
   loadDefaultSpace: async () => {
     try {
-      const response = await api.getAicoBotSpace()
-      console.log('[SpaceStore] getDefaultSpace: success=%s id=%s', response.success, (response.data as Space)?.id)
+      const response = await api.getAicoBotSpace();
+      console.log(
+        '[SpaceStore] getDefaultSpace: success=%s id=%s',
+        response.success,
+        (response.data as Space)?.id,
+      );
 
       if (response.success && response.data) {
-        set({ defaultSpace: response.data as Space })
+        set({ defaultSpace: response.data as Space });
       }
     } catch (error) {
-      console.error('[SpaceStore] Failed to load default space:', error)
+      console.error('[SpaceStore] Failed to load default space:', error);
     }
   },
 
   // Load all spaces
   loadSpaces: async () => {
     try {
-      set({ isLoading: true, error: null })
+      set({ isLoading: true, error: null });
 
       // Load both default space and user spaces
-      await get().loadDefaultSpace()
+      await get().loadDefaultSpace();
 
-      const response = await api.listSpaces()
-      console.log('[SpaceStore] listSpaces: success=%s count=%d', response.success, Array.isArray(response.data) ? (response.data as Space[]).length : 0)
-      console.log('[SpaceStore] listSpaces: response.data type:', typeof response.data)
-      console.log('[SpaceStore] listSpaces: response.data:', response.data)
-      console.log('[SpaceStore] listSpaces: response.data JSON:', JSON.stringify(response.data, null, 2))
+      const response = await api.listSpaces();
+      console.log(
+        '[SpaceStore] listSpaces: success=%s count=%d',
+        response.success,
+        Array.isArray(response.data) ? (response.data as Space[]).length : 0,
+      );
+      console.log('[SpaceStore] listSpaces: response.data type:', typeof response.data);
+      console.log('[SpaceStore] listSpaces: response.data:', response.data);
+      console.log(
+        '[SpaceStore] listSpaces: response.data JSON:',
+        JSON.stringify(response.data, null, 2),
+      );
 
       if (response.success && response.data) {
-        set({ spaces: response.data as Space[] })
+        set({ spaces: response.data as Space[] });
       } else {
-        set({ error: response.error || 'Failed to load spaces' })
+        set({ error: response.error || 'Failed to load spaces' });
       }
     } catch (error) {
-      console.error('[SpaceStore] Failed to load spaces:', error)
-      set({ error: 'Failed to load spaces' })
+      console.error('[SpaceStore] Failed to load spaces:', error);
+      set({ error: 'Failed to load spaces' });
     } finally {
-      set({ isLoading: false })
+      set({ isLoading: false });
     }
   },
 
   // Set current space
   setCurrentSpace: (space) => {
-    set({ currentSpace: space })
+    set({ currentSpace: space });
   },
 
   // Create new space
   createSpace: async (input) => {
     try {
-      const response = await api.createSpace(input)
+      const response = await api.createSpace(input);
 
       if (response.success && response.data) {
-        const newSpace = response.data as Space
+        const newSpace = response.data as Space;
 
         // Add to spaces list
         set((state) => ({
-          spaces: [newSpace, ...state.spaces]
-        }))
+          spaces: [newSpace, ...state.spaces],
+        }));
 
-        return newSpace
+        return newSpace;
       } else {
-        set({ error: response.error || 'Failed to create space' })
-        return null
+        set({ error: response.error || 'Failed to create space' });
+        return null;
       }
     } catch (error) {
-      console.error('Failed to create space:', error)
-      set({ error: 'Failed to create space' })
-      return null
+      console.error('Failed to create space:', error);
+      set({ error: 'Failed to create space' });
+      return null;
     }
   },
 
   // Update space name/icon
   updateSpace: async (spaceId, updates) => {
     try {
-      const response = await api.updateSpace(spaceId, updates)
+      const response = await api.updateSpace(spaceId, updates);
 
       if (response.success && response.data) {
-        const updatedSpace = response.data as Space
+        const updatedSpace = response.data as Space;
 
         // Update in spaces list
         set((state) => ({
-          spaces: state.spaces.map((s) =>
-            s.id === spaceId ? updatedSpace : s
-          )
-        }))
+          spaces: state.spaces.map((s) => (s.id === spaceId ? updatedSpace : s)),
+        }));
 
         // Update current space if it's the one being edited
-        const currentSpace = get().currentSpace
+        const currentSpace = get().currentSpace;
         if (currentSpace?.id === spaceId) {
-          set({ currentSpace: updatedSpace })
+          set({ currentSpace: updatedSpace });
         }
 
-        return updatedSpace
+        return updatedSpace;
       } else {
-        set({ error: response.error || 'Failed to update space' })
-        return null
+        set({ error: response.error || 'Failed to update space' });
+        return null;
       }
     } catch (error) {
-      console.error('Failed to update space:', error)
-      set({ error: 'Failed to update space' })
-      return null
+      console.error('Failed to update space:', error);
+      set({ error: 'Failed to update space' });
+      return null;
     }
   },
 
   // Delete space
   deleteSpace: async (spaceId) => {
     try {
-      const response = await api.deleteSpace(spaceId)
+      const response = await api.deleteSpace(spaceId);
 
       if (response.success) {
         // Remove from spaces list
         set((state) => ({
-          spaces: state.spaces.filter((s) => s.id !== spaceId)
-        }))
+          spaces: state.spaces.filter((s) => s.id !== spaceId),
+        }));
 
         // Clear current space if it was deleted
-        const currentSpace = get().currentSpace
+        const currentSpace = get().currentSpace;
         if (currentSpace?.id === spaceId) {
-          set({ currentSpace: null })
+          set({ currentSpace: null });
         }
 
-        return { success: true }
+        return { success: true };
       }
 
-      return { success: false, error: response.error }
+      return { success: false, error: response.error };
     } catch (error) {
-      console.error('Failed to delete space:', error)
-      return { success: false, error: String(error) }
+      console.error('Failed to delete space:', error);
+      return { success: false, error: String(error) };
     }
   },
 
   // Open space folder in file explorer
   openSpaceFolder: async (spaceId) => {
     try {
-      await api.openSpaceFolder(spaceId)
+      await api.openSpaceFolder(spaceId);
     } catch (error) {
-      console.error('Failed to open folder:', error)
+      console.error('Failed to open folder:', error);
     }
   },
 
   // Refresh current space data
   refreshCurrentSpace: async () => {
-    const currentSpace = get().currentSpace
+    const currentSpace = get().currentSpace;
 
-    if (!currentSpace) return
+    if (!currentSpace) return;
 
     try {
-      const response = await api.getSpace(currentSpace.id)
+      const response = await api.getSpace(currentSpace.id);
 
       if (response.success && response.data) {
-        set({ currentSpace: response.data as Space })
+        set({ currentSpace: response.data as Space });
 
         // Also update in spaces list
         if (!currentSpace.isTemp) {
           set((state) => ({
             spaces: state.spaces.map((s) =>
-              s.id === currentSpace.id ? (response.data as Space) : s
-            )
-          }))
+              s.id === currentSpace.id ? (response.data as Space) : s,
+            ),
+          }));
         } else {
-          set({ defaultSpace: response.data as Space })
+          set({ defaultSpace: response.data as Space });
         }
       }
     } catch (error) {
-      console.error('Failed to refresh space:', error)
+      console.error('Failed to refresh space:', error);
     }
   },
 
   // Update space preferences (layout settings, etc.)
   updateSpacePreferences: async (spaceId, preferences) => {
     try {
-      const response = await api.updateSpacePreferences(spaceId, preferences)
+      const response = await api.updateSpacePreferences(spaceId, preferences);
 
       if (response.success && response.data) {
-        const updatedSpace = response.data as Space
+        const updatedSpace = response.data as Space;
 
         // Update in current space if it matches
-        const currentSpace = get().currentSpace
+        const currentSpace = get().currentSpace;
         if (currentSpace?.id === spaceId) {
-          set({ currentSpace: updatedSpace })
+          set({ currentSpace: updatedSpace });
         }
 
         // Update in spaces list or default space
         if (updatedSpace.isTemp) {
-          set({ defaultSpace: updatedSpace })
+          set({ defaultSpace: updatedSpace });
         } else {
           set((state) => ({
-            spaces: state.spaces.map((s) =>
-              s.id === spaceId ? updatedSpace : s
-            )
-          }))
+            spaces: state.spaces.map((s) => (s.id === spaceId ? updatedSpace : s)),
+          }));
         }
       }
     } catch (error) {
-      console.error('Failed to update space preferences:', error)
+      console.error('Failed to update space preferences:', error);
     }
   },
 
   // Get space preferences from state (sync, for UI reads)
   getSpacePreferences: (spaceId) => {
-    const { defaultSpace, spaces, currentSpace } = get()
+    const { defaultSpace, spaces, currentSpace } = get();
 
     // Check current space first (most likely case)
     if (currentSpace?.id === spaceId) {
-      return currentSpace.preferences
+      return currentSpace.preferences;
     }
 
     // Check default space
     if (defaultSpace?.id === spaceId) {
-      return defaultSpace.preferences
+      return defaultSpace.preferences;
     }
 
     // Search in spaces list
-    const space = spaces.find(s => s.id === spaceId)
-    return space?.preferences
-  }
-}))
+    const space = spaces.find((s) => s.id === spaceId);
+    return space?.preferences;
+  },
+}));

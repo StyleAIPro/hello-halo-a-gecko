@@ -16,17 +16,17 @@
  * are handled by specialized logic; chat/direct are user-facing.
  */
 export type MailboxMessageType =
-  | 'chat'                // Group chat message (broadcast)
-  | 'direct'              // Direct message to a specific agent
-  | 'task_assignment'     // Task posted to the shared TaskBoard
-  | 'task_claimed'        // Worker claims a task
-  | 'task_progress'       // Worker reports intermediate progress
-  | 'task_completed'      // Worker completes a task
-  | 'permission_request'  // Worker needs user/leader approval
+  | 'chat' // Group chat message (broadcast)
+  | 'direct' // Direct message to a specific agent
+  | 'task_assignment' // Task posted to the shared TaskBoard
+  | 'task_claimed' // Worker claims a task
+  | 'task_progress' // Worker reports intermediate progress
+  | 'task_completed' // Worker completes a task
+  | 'permission_request' // Worker needs user/leader approval
   | 'permission_response' // Approval/denial response
-  | 'idle_notification'   // Worker announces it is idle and available
-  | 'shutdown_request'    // Coordinator asks worker to shut down
-  | 'shutdown_approved'   // Worker confirms shutdown
+  | 'idle_notification' // Worker announces it is idle and available
+  | 'shutdown_request' // Coordinator asks worker to shut down
+  | 'shutdown_approved'; // Worker confirms shutdown
 
 /**
  * Optional payload for structured protocol messages.
@@ -34,33 +34,33 @@ export type MailboxMessageType =
  */
 export interface MailboxPayload {
   // Task-related fields
-  taskId?: string
-  priority?: 'low' | 'normal' | 'high' | 'urgent'
-  requiredCapabilities?: string[]
-  title?: string
-  description?: string
+  taskId?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  requiredCapabilities?: string[];
+  title?: string;
+  description?: string;
 
   // Permission-related fields
-  toolName?: string
-  toolInput?: Record<string, unknown>
-  approved?: boolean
-  permissionRequestId?: string
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  approved?: boolean;
+  permissionRequestId?: string;
 
   // Task completion
-  result?: string
-  error?: string
+  result?: string;
+  error?: string;
 
   // Idle notification
-  idleReason?: 'available' | 'interrupted' | 'failed'
-  completedTaskId?: string
-  completedStatus?: 'completed' | 'failed'
-  failureReason?: string
+  idleReason?: 'available' | 'interrupted' | 'failed';
+  completedTaskId?: string;
+  completedStatus?: 'completed' | 'failed';
+  failureReason?: string;
 
   // Shutdown
-  reason?: string
+  reason?: string;
 
   // Target server (for NPU cluster routing)
-  targetServerId?: string
+  targetServerId?: string;
 }
 
 /**
@@ -69,28 +69,28 @@ export interface MailboxPayload {
  */
 export interface MailboxMessage {
   /** Unique message ID (UUID) */
-  id: string
+  id: string;
 
   /** Message type determining routing and handling */
-  type: MailboxMessageType
+  type: MailboxMessageType;
 
   /** Sender agent ID ('user' for messages from the human user) */
-  senderId: string
+  senderId: string;
 
   /** Human-readable sender name */
-  senderName: string
+  senderName: string;
 
   /** Recipient agent ID (absent = broadcast to all) */
-  recipientId?: string
+  recipientId?: string;
 
   /** Message content (plain text, may contain markdown) */
-  content: string
+  content: string;
 
   /** Unix timestamp in milliseconds */
-  timestamp: number
+  timestamp: number;
 
   /** Type-specific structured payload */
-  payload?: MailboxPayload
+  payload?: MailboxPayload;
 }
 
 // ============================================
@@ -103,16 +103,16 @@ export interface MailboxMessage {
  */
 export interface MailboxFile {
   /** Agent ID this mailbox belongs to */
-  agentId: string
+  agentId: string;
 
   /** Team ID this mailbox belongs to */
-  teamId: string
+  teamId: string;
 
   /** Read cursor: agent has read up to this message index */
-  lastReadIndex: number
+  lastReadIndex: number;
 
   /** Ordered array of messages */
-  messages: MailboxMessage[]
+  messages: MailboxMessage[];
 }
 
 // ============================================
@@ -134,7 +134,7 @@ export function isProtocolMessage(msg: MailboxMessage): boolean {
     msg.type === 'idle_notification' ||
     msg.type === 'shutdown_request' ||
     msg.type === 'shutdown_approved'
-  )
+  );
 }
 
 /**
@@ -145,6 +145,6 @@ export function createEmptyMailboxFile(agentId: string, teamId: string): Mailbox
     agentId,
     teamId,
     lastReadIndex: -1,
-    messages: []
-  }
+    messages: [],
+  };
 }

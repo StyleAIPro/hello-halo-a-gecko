@@ -5,49 +5,50 @@
  * This complements the global error handler in index.html which catches pre-React errors.
  */
 
-import { Component, ReactNode } from 'react'
-import { AicoBotLogo } from './brand/AicoBotLogo'
+import type { ReactNode } from 'react';
+import { Component } from 'react';
+import { AicoBotLogo } from './brand/AicoBotLogo';
 
 interface Props {
-  children: ReactNode
+  children: ReactNode;
 }
 
 interface State {
-  hasError: boolean
-  error: Error | null
-  errorInfo: string | null
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: string | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   state: State = {
     hasError: false,
     error: null,
-    errorInfo: null
-  }
+    errorInfo: null,
+  };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error }
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     // Log for debugging
-    console.error('[ErrorBoundary] Caught error:', error)
-    console.error('[ErrorBoundary] Component stack:', info.componentStack)
+    console.error('[ErrorBoundary] Caught error:', error);
+    console.error('[ErrorBoundary] Component stack:', info.componentStack);
 
     this.setState({
-      errorInfo: info.componentStack || null
-    })
+      errorInfo: info.componentStack || null,
+    });
   }
 
   private handleReload = () => {
-    window.location.reload()
-  }
+    window.location.reload();
+  };
 
   render() {
     if (this.state.hasError) {
-      const { error, errorInfo } = this.state
-      const errorMessage = error?.message || 'Unknown error'
-      const errorStack = error?.stack || ''
+      const { error, errorInfo } = this.state;
+      const errorMessage = error?.message || 'Unknown error';
+      const errorStack = error?.stack || '';
 
       return (
         <div className="h-full w-full flex flex-col items-center justify-center bg-background p-8 overflow-auto">
@@ -58,11 +59,10 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             {/* Title */}
-            <h1 className="text-xl font-medium text-center mb-2">
-              Something went wrong
-            </h1>
+            <h1 className="text-xl font-medium text-center mb-2">Something went wrong</h1>
             <p className="text-muted-foreground text-sm text-center mb-6">
-              An error occurred while rendering the application. Please copy the error below and report it.
+              An error occurred while rendering the application. Please copy the error below and
+              report it.
             </p>
 
             {/* Error Details */}
@@ -89,9 +89,9 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
           </div>
         </div>
-      )
+      );
     }
 
-    return this.props.children
+    return this.props.children;
   }
 }

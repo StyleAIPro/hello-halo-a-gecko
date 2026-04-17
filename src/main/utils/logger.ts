@@ -12,16 +12,16 @@
  *   log.info('lifecycle event')      // always shows
  *   log.error('something failed')    // always shows
  */
-import log from 'electron-log/main.js'
+import log from 'electron-log/main.js';
 
-export type LogFn = (...params: any[]) => void
+export type LogFn = (...params: any[]) => void;
 
 export interface ScopedLogger {
-  debug: LogFn
-  info: LogFn
-  warn: LogFn
-  error: LogFn
-  silly: LogFn
+  debug: LogFn;
+  info: LogFn;
+  warn: LogFn;
+  error: LogFn;
+  silly: LogFn;
 }
 
 /**
@@ -29,5 +29,5 @@ export interface ScopedLogger {
  * Output format: [scope] Your message here
  */
 export function createLogger(scope: string): ScopedLogger {
-  return log.create({ logId: scope }) as unknown as ScopedLogger
+  return log.create({ logId: scope }) as unknown as ScopedLogger;
 }

@@ -33,9 +33,9 @@
  *   runtime route removal, so the handler becomes a no-op)
  */
 
-import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import type { Express, Request, Response, NextFunction } from 'express'
-import type { EventSourceAdapter, EventEmitFn } from '../types'
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import type { Express, Request, Response, NextFunction } from 'express';
+import type { EventSourceAdapter, EventEmitFn } from '../types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,14 +51,14 @@ import type { EventSourceAdapter, EventEmitFn } from '../types'
  * subscription configs (WebhookSourceConfig.secret) where
  * WebhookSourceConfig.path matches the incoming hookPath.
  */
-export type WebhookSecretResolver = (hookPath: string) => string | null | undefined
+export type WebhookSecretResolver = (hookPath: string) => string | null | undefined;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_BODY_BYTES = 256 * 1024 // 256KB
-const HOOKS_BASE_PATH = '/hooks'
+const MAX_BODY_BYTES = 256 * 1024; // 256KB
+const HOOKS_BASE_PATH = '/hooks';
 
 /**
  * Ordered list of headers to check for HMAC signatures.
@@ -66,23 +66,23 @@ const HOOKS_BASE_PATH = '/hooks'
  * signature value uses (e.g., GitHub sends "sha256=<hex>").
  */
 const SIGNATURE_HEADERS: Array<{ header: string; prefix: string }> = [
-  { header: 'x-hub-signature-256', prefix: 'sha256=' },    // GitHub
-  { header: 'x-signature-256', prefix: '' },                // Generic
-  { header: 'x-webhook-signature', prefix: '' },            // Alternative
-]
+  { header: 'x-hub-signature-256', prefix: 'sha256=' }, // GitHub
+  { header: 'x-signature-256', prefix: '' }, // Generic
+  { header: 'x-webhook-signature', prefix: '' }, // Alternative
+];
 
 // ---------------------------------------------------------------------------
 // Source Implementation
 // ---------------------------------------------------------------------------
 
 export class WebhookSource implements EventSourceAdapter {
-  readonly id = 'webhook'
-  readonly type = 'webhook' as const
+  readonly id = 'webhook';
+  readonly type = 'webhook' as const;
 
-  private emitFn: EventEmitFn | null = null
-  private app: Express | null
-  private active = false
-  private secretResolver: WebhookSecretResolver | null
+  private emitFn: EventEmitFn | null = null;
+  private app: Express | null;
+  private active = false;
+  private secretResolver: WebhookSecretResolver | null;
 
   /**
    * @param app - The Express application to mount the webhook route on.
@@ -93,28 +93,28 @@ export class WebhookSource implements EventSourceAdapter {
    *   is performed (all webhooks are accepted).
    */
   constructor(app: Express | null, secretResolver?: WebhookSecretResolver | null) {
-    this.app = app
-    this.secretResolver = secretResolver ?? null
+    this.app = app;
+    this.secretResolver = secretResolver ?? null;
   }
 
   start(emit: EventEmitFn): void {
-    this.emitFn = emit
-    this.active = true
+    this.emitFn = emit;
+    this.active = true;
 
     if (this.app) {
-      this.mountRoute(this.app)
-      console.log(`[WebhookSource] Started -- mounted POST ${HOOKS_BASE_PATH}/*`)
+      this.mountRoute(this.app);
+      console.log(`[WebhookSource] Started -- mounted POST ${HOOKS_BASE_PATH}/*`);
     } else {
-      console.log('[WebhookSource] Started (no Express app -- dry run mode)')
+      console.log('[WebhookSource] Started (no Express app -- dry run mode)');
     }
   }
 
   stop(): void {
-    this.emitFn = null
-    this.active = false
+    this.emitFn = null;
+    this.active = false;
     // Express does not support runtime route removal.
     // The mounted handler checks `this.active` and returns 503 when stopped.
-    console.log('[WebhookSource] Stopped')
+    console.log('[WebhookSource] Stopped');
   }
 
   // -------------------------------------------------------------------------
@@ -127,71 +127,77 @@ export class WebhookSource implements EventSourceAdapter {
     // Express 5 syntax: /hooks/{*hookPath}
     // Express 4 syntax: /hooks/*
     // We use both-compatible approach with a single handler.
-    app.post(`${HOOKS_BASE_PATH}/:hookPath(*)`, (req: Request, res: Response, _next: NextFunction) => {
-      this.handleWebhook(req, res)
-    })
+    app.post(
+      `${HOOKS_BASE_PATH}/:hookPath(*)`,
+      (req: Request, res: Response, _next: NextFunction) => {
+        this.handleWebhook(req, res);
+      },
+    );
   }
 
   private handleWebhook(req: Request, res: Response): void {
     // Check if source is active
     if (!this.active || !this.emitFn) {
-      res.status(503).json({ error: 'Webhook source is not active' })
-      return
+      res.status(503).json({ error: 'Webhook source is not active' });
+      return;
     }
 
     // Check body size (Express json middleware already parsed, check original)
-    const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
     if (contentLength > MAX_BODY_BYTES) {
-      res.status(413).json({ error: 'Payload too large' })
-      return
+      res.status(413).json({ error: 'Payload too large' });
+      return;
     }
 
     // Extract hook path (everything after /hooks/)
-    const hookPath = req.params.hookPath || req.params[0] || ''
+    const hookPath = req.params.hookPath || req.params[0] || '';
 
     // ── HMAC signature verification ──────────────────────────
     if (this.secretResolver) {
-      const secret = this.secretResolver(hookPath)
+      const secret = this.secretResolver(hookPath);
       if (secret) {
-        const rawBody = getRawBody(req)
+        const rawBody = getRawBody(req);
         if (!rawBody) {
           // Cannot verify without raw body -- reject
-          console.warn(`[WebhookSource] Rejecting ${hookPath}: raw body not available for HMAC verification`)
-          res.status(400).json({ error: 'Cannot verify signature: raw body unavailable' })
-          return
+          console.warn(
+            `[WebhookSource] Rejecting ${hookPath}: raw body not available for HMAC verification`,
+          );
+          res.status(400).json({ error: 'Cannot verify signature: raw body unavailable' });
+          return;
         }
 
         if (!verifySignature(rawBody, secret, req.headers)) {
-          console.warn(`[WebhookSource] Rejecting ${hookPath}: HMAC signature verification failed`)
-          res.status(401).json({ error: 'Invalid webhook signature' })
-          return
+          console.warn(`[WebhookSource] Rejecting ${hookPath}: HMAC signature verification failed`);
+          res.status(401).json({ error: 'Invalid webhook signature' });
+          return;
         }
       }
     }
 
     // Build payload
-    const body = typeof req.body === 'object' && req.body !== null
-      ? req.body as Record<string, unknown>
-      : {}
+    const body =
+      typeof req.body === 'object' && req.body !== null
+        ? (req.body as Record<string, unknown>)
+        : {};
 
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       if (typeof value === 'string') {
-        headers[key.toLowerCase()] = value
+        headers[key.toLowerCase()] = value;
       } else if (Array.isArray(value) && value.length > 0) {
-        headers[key.toLowerCase()] = value.join(', ')
+        headers[key.toLowerCase()] = value.join(', ');
       }
     }
 
     // Determine dedupKey
-    let dedupKey: string | undefined
+    let dedupKey: string | undefined;
     if (typeof body.dedupKey === 'string' && body.dedupKey.trim()) {
-      dedupKey = `wh:${body.dedupKey.trim()}`
+      dedupKey = `wh:${body.dedupKey.trim()}`;
     } else {
       // Generate hash from path + body for idempotency
-      const bodyStr = JSON.stringify(body)
-      const hash = createHash('sha256').update(bodyStr).digest('hex').slice(0, 16)
-      dedupKey = `wh:${hookPath}:${hash}`
+      const bodyStr = JSON.stringify(body);
+      const hash = createHash('sha256').update(bodyStr).digest('hex').slice(0, 16);
+      dedupKey = `wh:${hookPath}:${hash}`;
     }
 
     // Emit event
@@ -204,13 +210,13 @@ export class WebhookSource implements EventSourceAdapter {
         headers,
         query: req.query as Record<string, unknown>,
         method: req.method,
-        ip: req.ip || req.socket?.remoteAddress || 'unknown'
+        ip: req.ip || req.socket?.remoteAddress || 'unknown',
       },
-      dedupKey
-    })
+      dedupKey,
+    });
 
     // Respond immediately (webhook callers expect fast acknowledgment)
-    res.status(200).json({ ok: true, received: true })
+    res.status(200).json({ ok: true, received: true });
   }
 }
 
@@ -227,24 +233,24 @@ export class WebhookSource implements EventSourceAdapter {
  */
 function getRawBody(req: Request): Buffer | null {
   // Check for raw body stored by Express json middleware's `verify` callback
-  const rawBody = (req as any).rawBody
+  const rawBody = (req as any).rawBody;
   if (Buffer.isBuffer(rawBody)) {
-    return rawBody
+    return rawBody;
   }
   if (typeof rawBody === 'string') {
-    return Buffer.from(rawBody, 'utf-8')
+    return Buffer.from(rawBody, 'utf-8');
   }
 
   // Fallback: re-serialize the parsed JSON body
   if (req.body !== undefined && req.body !== null) {
     try {
-      return Buffer.from(JSON.stringify(req.body), 'utf-8')
+      return Buffer.from(JSON.stringify(req.body), 'utf-8');
     } catch {
-      return null
+      return null;
     }
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -261,34 +267,36 @@ function getRawBody(req: Request): Buffer | null {
 function verifySignature(
   rawBody: Buffer,
   secret: string,
-  headers: Record<string, string | string[] | undefined>
+  headers: Record<string, string | string[] | undefined>,
 ): boolean {
-  const expectedHmac = createHmac('sha256', secret).update(rawBody).digest('hex')
+  const expectedHmac = createHmac('sha256', secret).update(rawBody).digest('hex');
 
   for (const { header, prefix } of SIGNATURE_HEADERS) {
-    const headerValue = headers[header]
-    if (!headerValue || typeof headerValue !== 'string') continue
+    const headerValue = headers[header];
+    if (!headerValue || typeof headerValue !== 'string') continue;
 
     // Strip the prefix (e.g., "sha256=" for GitHub)
-    const signature = prefix && headerValue.startsWith(prefix)
-      ? headerValue.slice(prefix.length)
-      : headerValue
+    const signature =
+      prefix && headerValue.startsWith(prefix) ? headerValue.slice(prefix.length) : headerValue;
 
     // Validate hex format
-    if (!/^[0-9a-f]{64}$/i.test(signature)) continue
+    if (!/^[0-9a-f]{64}$/i.test(signature)) continue;
 
     // Timing-safe comparison
     try {
-      const sigBuffer = Buffer.from(signature, 'hex')
-      const expectedBuffer = Buffer.from(expectedHmac, 'hex')
-      if (sigBuffer.length === expectedBuffer.length && timingSafeEqual(sigBuffer, expectedBuffer)) {
-        return true
+      const sigBuffer = Buffer.from(signature, 'hex');
+      const expectedBuffer = Buffer.from(expectedHmac, 'hex');
+      if (
+        sigBuffer.length === expectedBuffer.length &&
+        timingSafeEqual(sigBuffer, expectedBuffer)
+      ) {
+        return true;
       }
     } catch {
       // Buffer creation failed (invalid hex), try next header
-      continue
+      continue;
     }
   }
 
-  return false
+  return false;
 }

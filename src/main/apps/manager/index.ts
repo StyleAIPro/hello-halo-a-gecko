@@ -25,12 +25,12 @@
  *   }
  */
 
-import type { DatabaseManager } from '../../platform/store'
-import { getSpace } from '../../services/space.service'
-import { AppManagerStore } from './store'
-import { createAppManagerService } from './service'
-import { MIGRATION_NAMESPACE, migrations } from './migrations'
-import type { AppManagerService } from './types'
+import type { DatabaseManager } from '../../platform/store';
+import { getSpace } from '../../services/space.service';
+import { AppManagerStore } from './store';
+import { createAppManagerService } from './service';
+import { MIGRATION_NAMESPACE, migrations } from './migrations';
+import type { AppManagerService } from './types';
 
 // Re-export types for consumers
 export type {
@@ -42,7 +42,7 @@ export type {
   StatusChangeHandler,
   Unsubscribe,
   UninstallOptions,
-} from './types'
+} from './types';
 
 // Re-export error types
 export {
@@ -50,20 +50,20 @@ export {
   AppAlreadyInstalledError,
   InvalidStatusTransitionError,
   SpaceNotFoundError,
-} from './errors'
+} from './errors';
 
 // ============================================
 // Module State
 // ============================================
 
-let managerInstance: AppManagerService | null = null
+let managerInstance: AppManagerService | null = null;
 
 /**
  * Get the current App Manager singleton.
  * Returns null if initAppManager() has not yet been called.
  */
 export function getAppManager(): AppManagerService | null {
-  return managerInstance
+  return managerInstance;
 }
 
 // ============================================
@@ -73,7 +73,7 @@ export function getAppManager(): AppManagerService | null {
 /** Dependencies required to initialize the App Manager */
 interface InitAppManagerDeps {
   /** DatabaseManager from platform/store */
-  db: DatabaseManager
+  db: DatabaseManager;
 }
 
 /**
@@ -90,36 +90,34 @@ interface InitAppManagerDeps {
  * @param deps - Injected dependencies
  * @returns Initialized AppManagerService
  */
-export async function initAppManager(
-  deps: InitAppManagerDeps
-): Promise<AppManagerService> {
-  const start = performance.now()
-  console.log('[AppManager] Initializing...')
+export async function initAppManager(deps: InitAppManagerDeps): Promise<AppManagerService> {
+  const start = performance.now();
+  console.log('[AppManager] Initializing...');
 
   // Get the app-level database
-  const appDb = deps.db.getAppDatabase()
+  const appDb = deps.db.getAppDatabase();
 
   // Run migrations
-  deps.db.runMigrations(appDb, MIGRATION_NAMESPACE, migrations)
+  deps.db.runMigrations(appDb, MIGRATION_NAMESPACE, migrations);
 
   // Create the store (prepared statements on the database)
-  const store = new AppManagerStore(appDb)
+  const store = new AppManagerStore(appDb);
 
   // Create the service with injected dependencies
   const service = createAppManagerService({
     store,
     getSpacePath: (spaceId: string): string | null => {
-      const space = getSpace(spaceId)
-      return space?.path ?? null
+      const space = getSpace(spaceId);
+      return space?.path ?? null;
     },
-  })
+  });
 
-  managerInstance = service
+  managerInstance = service;
 
-  const duration = performance.now() - start
-  console.log(`[AppManager] Initialized in ${duration.toFixed(1)}ms`)
+  const duration = performance.now() - start;
+  console.log(`[AppManager] Initialized in ${duration.toFixed(1)}ms`);
 
-  return service
+  return service;
 }
 
 /**
@@ -131,6 +129,6 @@ export async function initAppManager(
  * Exists to satisfy the bootstrap shutdown contract.
  */
 export async function shutdownAppManager(): Promise<void> {
-  managerInstance = null
-  console.log('[AppManager] Shutdown complete')
+  managerInstance = null;
+  console.log('[AppManager] Shutdown complete');
 }

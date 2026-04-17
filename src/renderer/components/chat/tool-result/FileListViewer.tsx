@@ -8,47 +8,43 @@
  * - File/folder count statistics
  */
 
-import { useState, useCallback, useMemo } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, FileText, Folder, FolderOpen } from 'lucide-react'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { parseGlobOutput } from './detection'
+import { useState, useCallback, useMemo } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, FileText, Folder, FolderOpen } from 'lucide-react';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { parseGlobOutput } from './detection';
 
-const PREVIEW_ITEMS = 6
+const PREVIEW_ITEMS = 6;
 
-export function FileListViewer({
-  output,
-  isError,
-  toolInput
-}: ViewerBaseProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
+export function FileListViewer({ output, isError, toolInput }: ViewerBaseProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Parse glob output
   const { items, fileCount, folderCount } = useMemo(() => {
-    return parseGlobOutput(output)
-  }, [output])
+    return parseGlobOutput(output);
+  }, [output]);
 
   // Determine what to display
-  const displayItems = isExpanded ? items : items.slice(0, PREVIEW_ITEMS)
-  const hasMore = items.length > PREVIEW_ITEMS
+  const displayItems = isExpanded ? items : items.slice(0, PREVIEW_ITEMS);
+  const hasMore = items.length > PREVIEW_ITEMS;
 
   // Copy handler
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(output)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [output])
+  }, [output]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   // If no items, show simple message
   if (items.length === 0) {
@@ -56,27 +52,19 @@ export function FileListViewer({
       <div
         className={`
           mt-1.5 rounded-lg overflow-hidden border
-          ${isError
-            ? 'border-amber-500/30 bg-amber-500/5'
-            : 'border-border/30 bg-muted/20'
-          }
+          ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
         `}
       >
-        <div className="px-3 py-2 text-[11px] text-muted-foreground/60">
-          {t('No files found')}
-        </div>
+        <div className="px-3 py-2 text-[11px] text-muted-foreground/60">{t('No files found')}</div>
       </div>
-    )
+    );
   }
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* File list content */}
@@ -100,9 +88,7 @@ export function FileListViewer({
               )}
 
               {/* Path */}
-              <span className="text-foreground/80 truncate">
-                {item.path}
-              </span>
+              <span className="text-foreground/80 truncate">{item.path}</span>
             </div>
           ))}
 
@@ -121,9 +107,10 @@ export function FileListViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -195,5 +182,5 @@ export function FileListViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -13,8 +13,8 @@
  * existing MessageItem component renders them identically to main-chat messages.
  */
 
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 // ============================================
 // Types
@@ -23,17 +23,17 @@ import { join } from 'path'
 /** A serialized SDK stream event stored as a JSONL line */
 interface StoredEvent {
   /** Timestamp when the event was captured */
-  _ts: string
+  _ts: string;
   /** SDK event type (assistant, user, result, system, etc.) */
-  type: string
+  type: string;
   /** Whether this is a synthetic trigger message (not from SDK stream) */
-  _isTrigger?: boolean
+  _isTrigger?: boolean;
   /** The SDK message payload */
   message?: {
-    role?: string
-    content?: unknown
-  }
-  [key: string]: unknown
+    role?: string;
+    content?: unknown;
+  };
+  [key: string]: unknown;
 }
 
 /**
@@ -41,26 +41,26 @@ interface StoredEvent {
  * so MessageItem can render it without any adaptation layer.
  */
 interface ThoughtRecord {
-  id: string
-  type: 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error'
-  content: string
-  timestamp: string
-  toolName?: string
-  toolInput?: Record<string, unknown>
-  toolOutput?: string
-  isError?: boolean
+  id: string;
+  type: 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error';
+  content: string;
+  timestamp: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  isError?: boolean;
   toolResult?: {
-    output: string
-    isError: boolean
-    timestamp: string
-  }
+    output: string;
+    isError: boolean;
+    timestamp: string;
+  };
 }
 
 /** Lightweight thought summary — matches renderer's ThoughtsSummary */
 interface ThoughtsSummaryRecord {
-  count: number
-  types: Partial<Record<string, number>>
-  duration?: number
+  count: number;
+  types: Partial<Record<string, number>>;
+  duration?: number;
 }
 
 /**
@@ -68,12 +68,12 @@ interface ThoughtsSummaryRecord {
  * Matches renderer's Message interface so MessageItem renders correctly.
  */
 interface MessageRecord {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string
-  thoughts?: ThoughtRecord[]
-  thoughtsSummary?: ThoughtsSummaryRecord
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  thoughts?: ThoughtRecord[];
+  thoughtsSummary?: ThoughtsSummaryRecord;
 }
 
 // ============================================
@@ -82,19 +82,19 @@ interface MessageRecord {
 
 export interface SessionWriter {
   /** Append a raw SDK stream event */
-  writeEvent(event: Record<string, unknown>): void
+  writeEvent(event: Record<string, unknown>): void;
   /** Write the initial trigger message (before stream starts) */
-  writeTrigger(content: string): void
+  writeTrigger(content: string): void;
 }
 
 /** Get the directory for run session files */
 function getRunsDir(spacePath: string, appId: string): string {
-  return join(spacePath, '.aico-bot', 'apps', appId, 'runs')
+  return join(spacePath, '.aico-bot', 'apps', appId, 'runs');
 }
 
 /** Get the JSONL file path for a specific run */
 function getSessionFilePath(spacePath: string, appId: string, runId: string): string {
-  return join(getRunsDir(spacePath, appId), `${runId}.jsonl`)
+  return join(getRunsDir(spacePath, appId), `${runId}.jsonl`);
 }
 
 /**
@@ -102,23 +102,23 @@ function getSessionFilePath(spacePath: string, appId: string, runId: string): st
  * Automatically creates the runs directory if missing.
  */
 export function openSessionWriter(spacePath: string, appId: string, runId: string): SessionWriter {
-  const dir = getRunsDir(spacePath, appId)
+  const dir = getRunsDir(spacePath, appId);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true });
   }
-  const filePath = getSessionFilePath(spacePath, appId, runId)
+  const filePath = getSessionFilePath(spacePath, appId, runId);
 
   function appendLine(event: StoredEvent): void {
     try {
-      appendFileSync(filePath, JSON.stringify(event) + '\n', 'utf8')
+      appendFileSync(filePath, JSON.stringify(event) + '\n', 'utf8');
     } catch (err) {
-      console.error(`[SessionStore] Failed to write event to ${filePath}:`, err)
+      console.error(`[SessionStore] Failed to write event to ${filePath}:`, err);
     }
   }
 
   return {
     writeEvent(event: Record<string, unknown>): void {
-      appendLine({ _ts: new Date().toISOString(), ...event } as StoredEvent)
+      appendLine({ _ts: new Date().toISOString(), ...event } as StoredEvent);
     },
 
     writeTrigger(content: string): void {
@@ -127,9 +127,9 @@ export function openSessionWriter(spacePath: string, appId: string, runId: strin
         type: 'user',
         _isTrigger: true,
         message: { role: 'user', content: [{ type: 'text', text: content }] },
-      })
+      });
     },
-  }
+  };
 }
 
 // ============================================
@@ -141,35 +141,39 @@ export function openSessionWriter(spacePath: string, appId: string, runId: strin
  *
  * Returns an empty array if the file doesn't exist or is unreadable.
  */
-export function readSessionMessages(spacePath: string, appId: string, runId: string): MessageRecord[] {
-  const filePath = getSessionFilePath(spacePath, appId, runId)
-  if (!existsSync(filePath)) return []
+export function readSessionMessages(
+  spacePath: string,
+  appId: string,
+  runId: string,
+): MessageRecord[] {
+  const filePath = getSessionFilePath(spacePath, appId, runId);
+  if (!existsSync(filePath)) return [];
 
-  let raw: string
+  let raw: string;
   try {
-    raw = readFileSync(filePath, 'utf8')
+    raw = readFileSync(filePath, 'utf8');
   } catch {
-    return []
+    return [];
   }
 
-  const lines = raw.split('\n').filter(l => l.trim())
-  const events: StoredEvent[] = []
+  const lines = raw.split('\n').filter((l) => l.trim());
+  const events: StoredEvent[] = [];
   for (const line of lines) {
     try {
-      events.push(JSON.parse(line))
+      events.push(JSON.parse(line));
     } catch {
       // Skip malformed lines
     }
   }
 
-  return convertEventsToMessages(events)
+  return convertEventsToMessages(events);
 }
 
 /**
  * Check if a session file exists for a given run.
  */
 export function sessionExists(spacePath: string, appId: string, runId: string): boolean {
-  return existsSync(getSessionFilePath(spacePath, appId, runId))
+  return existsSync(getSessionFilePath(spacePath, appId, runId));
 }
 
 // ============================================
@@ -177,10 +181,10 @@ export function sessionExists(spacePath: string, appId: string, runId: string): 
 // ============================================
 
 /** Incrementing counter for generating unique IDs within a session read */
-let _thoughtIdx = 0
+let _thoughtIdx = 0;
 
 function generateThoughtId(): string {
-  return `session-thought-${++_thoughtIdx}`
+  return `session-thought-${++_thoughtIdx}`;
 }
 
 /**
@@ -208,94 +212,98 @@ function generateThoughtId(): string {
  * and text outputs displayed as clean message bubbles below.
  */
 function convertEventsToMessages(events: StoredEvent[]): MessageRecord[] {
-  _thoughtIdx = 0  // Reset per read
+  _thoughtIdx = 0; // Reset per read
 
-  const messages: MessageRecord[] = []
-  let msgIdx = 0
+  const messages: MessageRecord[] = [];
+  let msgIdx = 0;
 
   // Map from SDK tool_use block id → ThoughtRecord reference (for result merging)
-  const toolUseMap = new Map<string, ThoughtRecord>()
+  const toolUseMap = new Map<string, ThoughtRecord>();
 
   // ── Accumulator: collects thoughts across multiple assistant events ──
-  let pendingThoughts: ThoughtRecord[] = []
-  let lastThoughtTs = ''
+  let pendingThoughts: ThoughtRecord[] = [];
+  let lastThoughtTs = '';
 
   /** Flush accumulated thoughts + text into one Message */
   function flush(textContent: string, textTs: string): void {
-    if (pendingThoughts.length === 0 && !textContent) return
+    if (pendingThoughts.length === 0 && !textContent) return;
 
     const record: MessageRecord = {
       id: `session-msg-${++msgIdx}`,
       role: 'assistant',
       content: textContent,
       timestamp: textTs || lastThoughtTs || new Date().toISOString(),
-    }
+    };
 
     if (pendingThoughts.length > 0) {
-      record.thoughts = pendingThoughts
-      record.thoughtsSummary = buildThoughtsSummary(pendingThoughts)
+      record.thoughts = pendingThoughts;
+      record.thoughtsSummary = buildThoughtsSummary(pendingThoughts);
     }
 
-    messages.push(record)
-    pendingThoughts = []
-    lastThoughtTs = ''
+    messages.push(record);
+    pendingThoughts = [];
+    lastThoughtTs = '';
   }
 
   for (const event of events) {
-    const ts = event._ts || new Date().toISOString()
+    const ts = event._ts || new Date().toISOString();
 
     // ── User events ──
     if (event.type === 'user') {
-      const content = event.message?.content
-      const toolResults = extractToolResults(content)
+      const content = event.message?.content;
+      const toolResults = extractToolResults(content);
 
       if (toolResults.length > 0) {
         // Tool-result user message: merge results into corresponding tool_use thoughts.
         // These are internal round-trip messages, not visible to the user.
         for (const tr of toolResults) {
-          const toolThought = toolUseMap.get(tr.toolUseId)
+          const toolThought = toolUseMap.get(tr.toolUseId);
           if (toolThought) {
             toolThought.toolResult = {
               output: tr.output,
               isError: tr.isError,
               timestamp: ts,
-            }
+            };
           }
         }
       } else {
         // Normal user message (trigger or escalation response).
         // Flush any pending thoughts before showing the user message.
-        flush('', ts)
-        const textContent = extractTextContent(content)
+        flush('', ts);
+        const textContent = extractTextContent(content);
         if (textContent) {
           messages.push({
             id: `session-msg-${++msgIdx}`,
             role: 'user',
             content: textContent,
             timestamp: ts,
-          })
+          });
         }
       }
-      continue
+      continue;
     }
 
     // ── Assistant events ──
     if (event.type === 'assistant') {
-      const content = event.message?.content
-      if (!Array.isArray(content)) continue
+      const content = event.message?.content;
+      if (!Array.isArray(content)) continue;
 
-      const textContent = extractTextContent(content)
+      const textContent = extractTextContent(content);
 
       // Extract thinking and tool_use blocks into the accumulator
       for (const block of content) {
-        if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+        if (
+          block.type === 'thinking' &&
+          typeof block.thinking === 'string' &&
+          block.thinking.trim()
+        ) {
           pendingThoughts.push({
             id: generateThoughtId(),
             type: 'thinking',
             content: block.thinking,
             timestamp: ts,
-          })
-          lastThoughtTs = ts
+          });
+          lastThoughtTs = ts;
         }
 
         if (block.type === 'tool_use') {
@@ -306,12 +314,12 @@ function convertEventsToMessages(events: StoredEvent[]): MessageRecord[] {
             timestamp: ts,
             toolName: block.name || '',
             toolInput: block.input || {},
-          }
-          pendingThoughts.push(thought)
-          lastThoughtTs = ts
+          };
+          pendingThoughts.push(thought);
+          lastThoughtTs = ts;
 
           if (block.id) {
-            toolUseMap.set(block.id, thought)
+            toolUseMap.set(block.id, thought);
           }
         }
       }
@@ -319,10 +327,10 @@ function convertEventsToMessages(events: StoredEvent[]): MessageRecord[] {
       // If this assistant event has text output, flush everything:
       // all accumulated thoughts become the collapsed block above the text bubble.
       if (textContent) {
-        flush(textContent, ts)
+        flush(textContent, ts);
       }
 
-      continue
+      continue;
     }
 
     // Skip 'result', 'system' events — they are metadata, not displayable messages
@@ -331,9 +339,9 @@ function convertEventsToMessages(events: StoredEvent[]): MessageRecord[] {
   // Flush any trailing thoughts that weren't followed by text output.
   // This happens when the AI only did thinking/tool calls without producing text
   // (common for runs where all output goes through report_to_user).
-  flush('', lastThoughtTs)
+  flush('', lastThoughtTs);
 
-  return messages
+  return messages;
 }
 
 /**
@@ -342,14 +350,14 @@ function convertEventsToMessages(events: StoredEvent[]): MessageRecord[] {
  * without iterating the full thoughts array in the renderer.
  */
 function buildThoughtsSummary(thoughts: ThoughtRecord[]): ThoughtsSummaryRecord {
-  const types: Partial<Record<string, number>> = {}
+  const types: Partial<Record<string, number>> = {};
   for (const t of thoughts) {
-    types[t.type] = (types[t.type] || 0) + 1
+    types[t.type] = (types[t.type] || 0) + 1;
   }
   return {
     count: thoughts.length,
     types,
-  }
+  };
 }
 
 // ============================================
@@ -357,25 +365,31 @@ function buildThoughtsSummary(thoughts: ThoughtRecord[]): ThoughtsSummaryRecord 
 // ============================================
 
 function extractTextContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
   return content
     .filter((b: any) => b.type === 'text')
     .map((b: any) => b.text || '')
-    .join('')
+    .join('');
 }
 
-function extractToolResults(content: unknown): Array<{ toolUseId: string; output: string; isError: boolean }> {
-  if (!Array.isArray(content)) return []
+function extractToolResults(
+  content: unknown,
+): Array<{ toolUseId: string; output: string; isError: boolean }> {
+  if (!Array.isArray(content)) return [];
   return content
     .filter((b: any) => b.type === 'tool_result')
     .map((b: any) => ({
       toolUseId: b.tool_use_id || '',
-      output: typeof b.content === 'string'
-        ? b.content
-        : Array.isArray(b.content)
-          ? b.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('')
-          : JSON.stringify(b.content ?? ''),
+      output:
+        typeof b.content === 'string'
+          ? b.content
+          : Array.isArray(b.content)
+            ? b.content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text)
+                .join('')
+            : JSON.stringify(b.content ?? ''),
       isError: !!b.is_error,
-    }))
+    }));
 }

@@ -22,17 +22,17 @@
  * - Linux: Uses libsecret
  */
 
-import { safeStorage } from 'electron'
+import { safeStorage } from 'electron';
 
 // Prefix to identify encrypted strings
-const ENCRYPTED_PREFIX = 'enc:'
+const ENCRYPTED_PREFIX = 'enc:';
 
 /**
  * Check if encryption is available on this platform
  * @deprecated No longer used - kept for backward compatibility
  */
 export function isEncryptionAvailable(): boolean {
-  return safeStorage.isEncryptionAvailable()
+  return safeStorage.isEncryptionAvailable();
 }
 
 /**
@@ -41,19 +41,19 @@ export function isEncryptionAvailable(): boolean {
  * Returns encrypted base64 string with prefix, or original value if encryption unavailable
  */
 export function encryptString(value: string): string {
-  if (!value) return value
+  if (!value) return value;
 
   if (!safeStorage.isEncryptionAvailable()) {
-    console.warn('[SecureStorage] Encryption not available, storing plaintext')
-    return value
+    console.warn('[SecureStorage] Encryption not available, storing plaintext');
+    return value;
   }
 
   try {
-    const encrypted = safeStorage.encryptString(value)
-    return ENCRYPTED_PREFIX + encrypted.toString('base64')
+    const encrypted = safeStorage.encryptString(value);
+    return ENCRYPTED_PREFIX + encrypted.toString('base64');
   } catch (error) {
-    console.error('[SecureStorage] Encryption failed:', error)
-    return value
+    console.error('[SecureStorage] Encryption failed:', error);
+    return value;
   }
 }
 
@@ -62,26 +62,26 @@ export function encryptString(value: string): string {
  * Handles both encrypted (with prefix) and plaintext values
  */
 export function decryptString(value: string): string {
-  if (!value) return value
+  if (!value) return value;
 
   // Check if it's an encrypted value
   if (!value.startsWith(ENCRYPTED_PREFIX)) {
     // Plaintext or legacy value - return as-is
-    return value
+    return value;
   }
 
   if (!safeStorage.isEncryptionAvailable()) {
-    console.warn('[SecureStorage] Encryption not available, cannot decrypt')
-    return ''
+    console.warn('[SecureStorage] Encryption not available, cannot decrypt');
+    return '';
   }
 
   try {
-    const base64Data = value.slice(ENCRYPTED_PREFIX.length)
-    const buffer = Buffer.from(base64Data, 'base64')
-    return safeStorage.decryptString(buffer)
+    const base64Data = value.slice(ENCRYPTED_PREFIX.length);
+    const buffer = Buffer.from(base64Data, 'base64');
+    return safeStorage.decryptString(buffer);
   } catch (error) {
-    console.error('[SecureStorage] Decryption failed:', error)
-    return ''
+    console.error('[SecureStorage] Decryption failed:', error);
+    return '';
   }
 }
 
@@ -91,19 +91,19 @@ export function decryptString(value: string): string {
  * Encrypts: accessToken, refreshToken
  */
 export function encryptTokens<T extends Record<string, any>>(obj: T): T {
-  if (!obj) return obj
+  if (!obj) return obj;
 
-  const result = { ...obj }
+  const result = { ...obj };
 
   if (result.accessToken && typeof result.accessToken === 'string') {
-    result.accessToken = encryptString(result.accessToken)
+    result.accessToken = encryptString(result.accessToken);
   }
 
   if (result.refreshToken && typeof result.refreshToken === 'string') {
-    result.refreshToken = encryptString(result.refreshToken)
+    result.refreshToken = encryptString(result.refreshToken);
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -111,19 +111,19 @@ export function encryptTokens<T extends Record<string, any>>(obj: T): T {
  * Decrypts: accessToken, refreshToken
  */
 export function decryptTokens<T extends Record<string, any>>(obj: T): T {
-  if (!obj) return obj
+  if (!obj) return obj;
 
-  const result = { ...obj }
+  const result = { ...obj };
 
   if (result.accessToken && typeof result.accessToken === 'string') {
-    result.accessToken = decryptString(result.accessToken)
+    result.accessToken = decryptString(result.accessToken);
   }
 
   if (result.refreshToken && typeof result.refreshToken === 'string') {
-    result.refreshToken = decryptString(result.refreshToken)
+    result.refreshToken = decryptString(result.refreshToken);
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -131,15 +131,15 @@ export function decryptTokens<T extends Record<string, any>>(obj: T): T {
  * Encrypts: password
  */
 export function encryptSshPassword<T extends Record<string, any>>(obj: T): T {
-  if (!obj) return obj
+  if (!obj) return obj;
 
-  const result = { ...obj }
+  const result = { ...obj };
 
   if (result.password && typeof result.password === 'string') {
-    result.password = encryptString(result.password)
+    result.password = encryptString(result.password);
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -147,13 +147,13 @@ export function encryptSshPassword<T extends Record<string, any>>(obj: T): T {
  * Decrypts: password
  */
 export function decryptSshPassword<T extends Record<string, any>>(obj: T): T {
-  if (!obj) return obj
+  if (!obj) return obj;
 
-  const result = { ...obj }
+  const result = { ...obj };
 
   if (result.password && typeof result.password === 'string') {
-    result.password = decryptString(result.password)
+    result.password = decryptString(result.password);
   }
 
-  return result
+  return result;
 }

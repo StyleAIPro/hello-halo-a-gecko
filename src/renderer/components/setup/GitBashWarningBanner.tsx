@@ -5,47 +5,47 @@
  * Supports inline installation with progress display.
  */
 
-import { useState } from 'react'
-import { AlertTriangle, X, Download, Loader2, Check, RefreshCw } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { useState } from 'react';
+import { AlertTriangle, X, Download, Loader2, Check, RefreshCw } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface InstallProgress {
-  phase: 'idle' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error'
-  progress: number
-  message: string
-  error?: string
+  phase: 'idle' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error';
+  progress: number;
+  message: string;
+  error?: string;
 }
 
 interface GitBashWarningBannerProps {
-  installProgress?: InstallProgress
-  onInstall?: () => void
-  onDismiss?: () => void
+  installProgress?: InstallProgress;
+  onInstall?: () => void;
+  onDismiss?: () => void;
 }
 
 export function GitBashWarningBanner({
   installProgress = { phase: 'idle', progress: 0, message: '' },
   onInstall,
-  onDismiss
+  onDismiss,
 }: GitBashWarningBannerProps) {
-  const { t } = useTranslation()
-  const [dismissed, setDismissed] = useState(false)
+  const { t } = useTranslation();
+  const [dismissed, setDismissed] = useState(false);
 
   // Don't show if dismissed or installation completed
-  if (dismissed || installProgress.phase === 'done') return null
+  if (dismissed || installProgress.phase === 'done') return null;
 
-  const isInstalling = ['downloading', 'extracting', 'configuring'].includes(installProgress.phase)
-  const isError = installProgress.phase === 'error'
+  const isInstalling = ['downloading', 'extracting', 'configuring'].includes(installProgress.phase);
+  const isError = installProgress.phase === 'error';
 
   const handleInstall = () => {
     if (onInstall && !isInstalling) {
-      onInstall()
+      onInstall();
     }
-  }
+  };
 
   const handleDismiss = () => {
-    setDismissed(true)
-    onDismiss?.()
-  }
+    setDismissed(true);
+    onDismiss?.();
+  };
 
   // Render installing state
   if (isInstalling) {
@@ -70,7 +70,7 @@ export function GitBashWarningBanner({
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   // Render error state
@@ -100,7 +100,7 @@ export function GitBashWarningBanner({
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   // Render idle state (default warning)
@@ -129,5 +129,5 @@ export function GitBashWarningBanner({
         </button>
       </div>
     </div>
-  )
+  );
 }

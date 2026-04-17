@@ -12,8 +12,8 @@
  * and all runtime behavior are never affected by i18n.
  */
 
-import type { AppSpec, I18nLocaleBlock, InputDef } from '../../shared/apps/spec-types'
-import type { RegistryEntry } from '../../shared/store/store-types'
+import type { AppSpec, I18nLocaleBlock, InputDef } from '../../shared/apps/spec-types';
+import type { RegistryEntry } from '../../shared/store/store-types';
 
 // ============================================
 // Internal helpers
@@ -25,22 +25,20 @@ import type { RegistryEntry } from '../../shared/store/store-types'
  */
 function findLocaleBlock(
   i18n: Record<string, I18nLocaleBlock> | undefined,
-  locale: string
+  locale: string,
 ): I18nLocaleBlock | undefined {
-  if (!i18n) return undefined
+  if (!i18n) return undefined;
 
   // 1. Exact match — "zh-CN" matches "zh-CN"
-  if (i18n[locale]) return i18n[locale]
+  if (i18n[locale]) return i18n[locale];
 
   // 2. Language-prefix match — "zh" matches "zh-CN", "zh-TW", etc.
   //    Find the first block whose key starts with the same language subtag.
-  const prefix = locale.split('-')[0]
-  const matchKey = Object.keys(i18n).find(
-    (k) => k === prefix || k.startsWith(prefix + '-')
-  )
-  if (matchKey) return i18n[matchKey]
+  const prefix = locale.split('-')[0];
+  const matchKey = Object.keys(i18n).find((k) => k === prefix || k.startsWith(prefix + '-'));
+  if (matchKey) return i18n[matchKey];
 
-  return undefined
+  return undefined;
 }
 
 // ============================================
@@ -53,10 +51,10 @@ function findLocaleBlock(
  * in-place (non-mutating — a new array with new objects is returned).
  */
 export interface ResolvedSpecDisplay {
-  name: string
-  description: string
+  name: string;
+  description: string;
   /** Locale-resolved copy of config_schema, or undefined if the spec has none. */
-  config_schema: InputDef[] | undefined
+  config_schema: InputDef[] | undefined;
 }
 
 /**
@@ -70,7 +68,7 @@ export interface ResolvedSpecDisplay {
  * const { name, description, config_schema } = resolveSpecI18n(spec, getCurrentLanguage())
  */
 export function resolveSpecI18n(spec: AppSpec, locale: string): ResolvedSpecDisplay {
-  const block = findLocaleBlock(spec.i18n, locale)
+  const block = findLocaleBlock(spec.i18n, locale);
 
   // No block for this locale — return canonical fields as-is (no copy overhead)
   if (!block) {
@@ -78,13 +76,13 @@ export function resolveSpecI18n(spec: AppSpec, locale: string): ResolvedSpecDisp
       name: spec.name,
       description: spec.description,
       config_schema: spec.config_schema,
-    }
+    };
   }
 
   // Apply config_schema field overrides (sparse — only listed keys are overridden)
   const config_schema = spec.config_schema?.map((field): InputDef => {
-    const override = block.config_schema?.[field.key]
-    if (!override) return field
+    const override = block.config_schema?.[field.key];
+    if (!override) return field;
 
     return {
       ...field,
@@ -96,14 +94,14 @@ export function resolveSpecI18n(spec: AppSpec, locale: string): ResolvedSpecDisp
         ...opt,
         label: override.options?.[String(opt.value)] ?? opt.label,
       })),
-    }
-  })
+    };
+  });
 
   return {
     name: block.name ?? spec.name,
     description: block.description ?? spec.description,
     config_schema,
-  }
+  };
 }
 
 // ============================================
@@ -116,8 +114,8 @@ export function resolveSpecI18n(spec: AppSpec, locale: string): ResolvedSpecDisp
  * overrides require fetching the complete spec (available via resolveSpecI18n).
  */
 export interface ResolvedEntryDisplay {
-  name: string
-  description: string
+  name: string;
+  description: string;
 }
 
 /**
@@ -133,25 +131,23 @@ export interface ResolvedEntryDisplay {
  * const { name, description } = resolveEntryI18n(entry, getCurrentLanguage())
  */
 export function resolveEntryI18n(entry: RegistryEntry, locale: string): ResolvedEntryDisplay {
-  const i18n = entry.i18n
-  if (!i18n) return { name: entry.name, description: entry.description }
+  const i18n = entry.i18n;
+  if (!i18n) return { name: entry.name, description: entry.description };
 
   // Find best locale block (same logic as findLocaleBlock, but typed differently
   // because RegistryEntry.i18n only carries name/description)
-  let block: { name?: string; description?: string } | undefined = i18n[locale]
+  let block: { name?: string; description?: string } | undefined = i18n[locale];
 
   if (!block) {
-    const prefix = locale.split('-')[0]
-    const matchKey = Object.keys(i18n).find(
-      (k) => k === prefix || k.startsWith(prefix + '-')
-    )
-    if (matchKey) block = i18n[matchKey]
+    const prefix = locale.split('-')[0];
+    const matchKey = Object.keys(i18n).find((k) => k === prefix || k.startsWith(prefix + '-'));
+    if (matchKey) block = i18n[matchKey];
   }
 
-  if (!block) return { name: entry.name, description: entry.description }
+  if (!block) return { name: entry.name, description: entry.description };
 
   return {
     name: block.name ?? entry.name,
     description: block.description ?? entry.description,
-  }
+  };
 }

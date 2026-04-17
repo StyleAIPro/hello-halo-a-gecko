@@ -6,25 +6,21 @@
  * Design follows ChatGPT/Claude Web style.
  */
 
-import { ChevronDown } from 'lucide-react'
-import { cn } from '../../lib/utils'
-import { useTranslation } from '../../i18n'
+import { ChevronDown } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { useTranslation } from '../../i18n';
 
 interface ScrollToBottomButtonProps {
   /** Whether to show the button */
-  visible: boolean
+  visible: boolean;
   /** Callback when button is clicked */
-  onClick: () => void
+  onClick: () => void;
   /** Optional class name */
-  className?: string
+  className?: string;
 }
 
-export function ScrollToBottomButton({
-  visible,
-  onClick,
-  className
-}: ScrollToBottomButtonProps) {
-  const { t } = useTranslation()
+export function ScrollToBottomButton({ visible, onClick, className }: ScrollToBottomButtonProps) {
+  const { t } = useTranslation();
 
   return (
     <button
@@ -47,12 +43,12 @@ export function ScrollToBottomButton({
         visible
           ? 'opacity-100 translate-y-0 pointer-events-auto'
           : 'opacity-0 translate-y-2 pointer-events-none',
-        className
+        className,
       )}
       aria-label={t('Scroll to latest message')}
     >
       <ChevronDown className="w-4 h-4" />
       <span>{t('Back to latest')}</span>
     </button>
-  )
+  );
 }

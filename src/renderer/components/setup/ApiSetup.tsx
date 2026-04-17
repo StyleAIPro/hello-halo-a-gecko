@@ -4,67 +4,73 @@
  * for a consistent AI provider configuration experience.
  */
 
-import { useState } from 'react'
-import { useAppStore } from '../../stores/app.store'
-import { api } from '../../api'
-import { Lightbulb } from '../icons/ToolIcons'
-import { Globe, ChevronDown, ArrowLeft } from 'lucide-react'
-import type { AISource, AISourcesConfig } from '../../types'
-import { ProviderSelector } from '../settings/ProviderSelector'
-import { useTranslation, setLanguage, getCurrentLanguage, SUPPORTED_LOCALES, type LocaleCode } from '../../i18n'
+import { useState } from 'react';
+import { useAppStore } from '../../stores/app.store';
+import { api } from '../../api';
+import { Lightbulb } from '../icons/ToolIcons';
+import { Globe, ChevronDown, ArrowLeft } from 'lucide-react';
+import type { AISource, AISourcesConfig } from '../../types';
+import { ProviderSelector } from '../settings/ProviderSelector';
+import {
+  useTranslation,
+  setLanguage,
+  getCurrentLanguage,
+  SUPPORTED_LOCALES,
+  type LocaleCode,
+} from '../../i18n';
 
 interface ApiSetupProps {
   /** Called when user clicks back button */
-  onBack?: () => void
+  onBack?: () => void;
   /** Whether to show the back button */
-  showBack?: boolean
+  showBack?: boolean;
 }
 
 export function ApiSetup({ onBack, showBack = false }: ApiSetupProps) {
-  const { t } = useTranslation()
-  const { config, setConfig, setView } = useAppStore()
+  const { t } = useTranslation();
+  const { config, setConfig, setView } = useAppStore();
 
   // Language selector state
-  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false)
-  const [currentLang, setCurrentLang] = useState<LocaleCode>(getCurrentLanguage())
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const [currentLang, setCurrentLang] = useState<LocaleCode>(getCurrentLanguage());
 
   // Build empty AISourcesConfig for ProviderSelector (first-time setup has no sources)
   const emptyAiSources: AISourcesConfig = {
     version: 2,
     currentId: null,
-    sources: []
-  }
+    sources: [],
+  };
 
   // Handle language change
   const handleLanguageChange = (lang: LocaleCode) => {
-    setLanguage(lang)
-    setCurrentLang(lang)
-    setIsLangDropdownOpen(false)
-  }
+    setLanguage(lang);
+    setCurrentLang(lang);
+    setIsLangDropdownOpen(false);
+  };
 
   // Handle save from ProviderSelector — persist config and enter the app
   const handleSave = async (source: AISource) => {
     const newAiSources: AISourcesConfig = {
       version: 2,
       currentId: source.id,
-      sources: [source]
-    }
+      sources: [source],
+    };
 
     const newConfig = {
       ...config,
       isFirstLaunch: false,
-      aiSources: newAiSources
-    }
+      aiSources: newAiSources,
+    };
 
-    await api.setConfig(newConfig)
-    setConfig(newConfig as any)
-    setView('home')
-  }
+    await api.setConfig(newConfig);
+    setConfig(newConfig as any);
+    setView('home');
+  };
 
   // Handle cancel from ProviderSelector — go back to provider selection
   const handleCancel = () => {
-    onBack?.()
-  }
+    onBack?.();
+  };
 
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-background p-8 relative overflow-auto">
@@ -77,17 +83,16 @@ export function ApiSetup({ onBack, showBack = false }: ApiSetupProps) {
           >
             <Globe className="w-4 h-4" />
             <span>{SUPPORTED_LOCALES[currentLang]}</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''}`}
+            />
           </button>
 
           {/* Dropdown */}
           {isLangDropdownOpen && (
             <>
               {/* Backdrop to close dropdown */}
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setIsLangDropdownOpen(false)}
-              />
+              <div className="fixed inset-0 z-10" onClick={() => setIsLangDropdownOpen(false)} />
               <div className="absolute right-0 mt-1 py-1 w-40 bg-card border border-border rounded-lg shadow-lg z-20">
                 {Object.entries(SUPPORTED_LOCALES).map(([code, name]) => (
                   <button
@@ -128,16 +133,10 @@ export function ApiSetup({ onBack, showBack = false }: ApiSetupProps) {
               <span>{t('Back')}</span>
             </button>
           )}
-          <h2 className="text-center text-lg">
-            {t('Before you start, configure your AI')}
-          </h2>
+          <h2 className="text-center text-lg">{t('Before you start, configure your AI')}</h2>
         </div>
 
-        <ProviderSelector
-          aiSources={emptyAiSources}
-          onSave={handleSave}
-          onCancel={handleCancel}
-        />
+        <ProviderSelector aiSources={emptyAiSources} onSave={handleSave} onCancel={handleCancel} />
 
         {/* Help link */}
         <p className="text-center mt-4 text-sm text-muted-foreground">
@@ -153,5 +152,5 @@ export function ApiSetup({ onBack, showBack = false }: ApiSetupProps) {
         </p>
       </div>
     </div>
-  )
+  );
 }

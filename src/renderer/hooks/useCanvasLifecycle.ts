@@ -11,13 +11,13 @@
  * ```
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 import {
   canvasLifecycle,
   type TabState,
   type BrowserState,
   type ContentType,
-} from '../services/canvas-lifecycle'
+} from '../services/canvas-lifecycle';
 
 /**
  * Main hook for Canvas lifecycle management
@@ -26,144 +26,110 @@ import {
 export function useCanvasLifecycle() {
   // Initialize with current state from canvasLifecycle (not empty)
   // This ensures we have correct state even before useEffect runs
-  const [tabs, setTabs] = useState<TabState[]>(() => canvasLifecycle.getTabs())
-  const [activeTabId, setActiveTabId] = useState<string | null>(() => canvasLifecycle.getActiveTabId())
-  const [isOpen, setIsOpen] = useState(() => canvasLifecycle.getIsOpen())
+  const [tabs, setTabs] = useState<TabState[]>(() => canvasLifecycle.getTabs());
+  const [activeTabId, setActiveTabId] = useState<string | null>(() =>
+    canvasLifecycle.getActiveTabId(),
+  );
+  const [isOpen, setIsOpen] = useState(() => canvasLifecycle.getIsOpen());
 
   // Subscribe to state changes
   useEffect(() => {
     // Subscribe to all changes - callbacks will be called immediately with current state
-    const unsubTabs = canvasLifecycle.onTabsChange(setTabs)
-    const unsubActive = canvasLifecycle.onActiveTabChange(setActiveTabId)
-    const unsubOpen = canvasLifecycle.onOpenStateChange(setIsOpen)
+    const unsubTabs = canvasLifecycle.onTabsChange(setTabs);
+    const unsubActive = canvasLifecycle.onActiveTabChange(setActiveTabId);
+    const unsubOpen = canvasLifecycle.onOpenStateChange(setIsOpen);
 
     return () => {
-      unsubTabs()
-      unsubActive()
-      unsubOpen()
-    }
-  }, [])
+      unsubTabs();
+      unsubActive();
+      unsubOpen();
+    };
+  }, []);
 
   // Compute active tab
-  const activeTab = activeTabId ? tabs.find(t => t.id === activeTabId) : undefined
+  const activeTab = activeTabId ? tabs.find((t) => t.id === activeTabId) : undefined;
 
   // Expose actions (bound to singleton)
   const openFile = useCallback(
     (path: string, title?: string) => canvasLifecycle.openFile(path, title),
-    []
-  )
+    [],
+  );
 
   const openUrl = useCallback(
     (url: string, title?: string) => canvasLifecycle.openUrl(url, title),
-    []
-  )
+    [],
+  );
 
   const attachAIBrowserView = useCallback(
     (viewId: string, url: string, title?: string) =>
       canvasLifecycle.attachAIBrowserView(viewId, url, title),
-    []
-  )
+    [],
+  );
 
   const openContent = useCallback(
     (content: string, title: string, type: ContentType, language?: string) =>
       canvasLifecycle.openContent(content, title, type, language),
-    []
-  )
+    [],
+  );
 
-  const closeTab = useCallback(
-    (tabId: string) => canvasLifecycle.closeTab(tabId),
-    []
-  )
+  const closeTab = useCallback((tabId: string) => canvasLifecycle.closeTab(tabId), []);
 
-  const closeAllTabs = useCallback(
-    () => canvasLifecycle.closeAll(),
-    []
-  )
+  const closeAllTabs = useCallback(() => canvasLifecycle.closeAll(), []);
 
-  const switchTab = useCallback(
-    (tabId: string) => canvasLifecycle.switchTab(tabId),
-    []
-  )
+  const switchTab = useCallback((tabId: string) => canvasLifecycle.switchTab(tabId), []);
 
-  const switchToNextTab = useCallback(
-    () => canvasLifecycle.switchToNextTab(),
-    []
-  )
+  const switchToNextTab = useCallback(() => canvasLifecycle.switchToNextTab(), []);
 
-  const switchToPrevTab = useCallback(
-    () => canvasLifecycle.switchToPrevTab(),
-    []
-  )
+  const switchToPrevTab = useCallback(() => canvasLifecycle.switchToPrevTab(), []);
 
   const switchToTabIndex = useCallback(
     (index: number) => canvasLifecycle.switchToTabIndex(index),
-    []
-  )
+    [],
+  );
 
   const reorderTabs = useCallback(
     (fromIndex: number, toIndex: number) => canvasLifecycle.reorderTabs(fromIndex, toIndex),
-    []
-  )
+    [],
+  );
 
-  const refreshTab = useCallback(
-    (tabId: string) => canvasLifecycle.refreshTab(tabId),
-    []
-  )
+  const refreshTab = useCallback((tabId: string) => canvasLifecycle.refreshTab(tabId), []);
 
   const updateTabContent = useCallback(
     (tabId: string, content: string) => canvasLifecycle.updateTabContent(tabId, content),
-    []
-  )
+    [],
+  );
 
   const markTabSaved = useCallback(
     (tabId: string, content?: string) => canvasLifecycle.markTabSaved(tabId, content),
-    []
-  )
+    [],
+  );
 
   const saveScrollPosition = useCallback(
     (tabId: string, position: number) => canvasLifecycle.saveScrollPosition(tabId, position),
-    []
-  )
+    [],
+  );
 
-  const toggleEditMode = useCallback(
-    (tabId: string) => canvasLifecycle.toggleEditMode(tabId),
-    []
-  )
+  const toggleEditMode = useCallback((tabId: string) => canvasLifecycle.toggleEditMode(tabId), []);
 
   const setEditMode = useCallback(
     (tabId: string, editMode: boolean) => canvasLifecycle.setEditMode(tabId, editMode),
-    []
-  )
+    [],
+  );
 
-  const setOpen = useCallback(
-    (open: boolean) => canvasLifecycle.setOpen(open),
-    []
-  )
+  const setOpen = useCallback((open: boolean) => canvasLifecycle.setOpen(open), []);
 
-  const toggleOpen = useCallback(
-    () => canvasLifecycle.toggleOpen(),
-    []
-  )
+  const toggleOpen = useCallback(() => canvasLifecycle.toggleOpen(), []);
 
-  const openTerminal = useCallback(
-    () => canvasLifecycle.openTerminal(),
-    []
-  )
+  const openTerminal = useCallback(() => canvasLifecycle.openTerminal(), []);
 
-  const openTasks = useCallback(
-    () => canvasLifecycle.openTasks(),
-    []
-  )
+  const openTasks = useCallback(() => canvasLifecycle.openTasks(), []);
 
-  const updateBounds = useCallback(
-    () => canvasLifecycle.updateActiveBounds(),
-    []
-  )
+  const updateBounds = useCallback(() => canvasLifecycle.updateActiveBounds(), []);
 
   const setContainerBoundsGetter = useCallback(
     (getter: () => DOMRect | null) => canvasLifecycle.setContainerBoundsGetter(getter),
-    []
-  )
+    [],
+  );
 
   return {
     // State
@@ -204,7 +170,7 @@ export function useCanvasLifecycle() {
     // BrowserView Actions
     updateBounds,
     setContainerBoundsGetter,
-  }
+  };
 }
 
 /**
@@ -216,76 +182,76 @@ export function useBrowserState(tabId: string | undefined) {
     isLoading: false,
     canGoBack: false,
     canGoForward: false,
-  })
+  });
 
   useEffect(() => {
-    if (!tabId) return
+    if (!tabId) return;
 
     // Get initial state from tab
-    const tab = canvasLifecycle.getTab(tabId)
+    const tab = canvasLifecycle.getTab(tabId);
     if (tab?.browserState) {
-      setBrowserState(tab.browserState)
+      setBrowserState(tab.browserState);
     }
 
     // Subscribe to changes
     const unsub = canvasLifecycle.onBrowserStateChange((id, state) => {
       if (id === tabId) {
-        setBrowserState(state)
+        setBrowserState(state);
       }
-    })
+    });
 
-    return unsub
-  }, [tabId])
+    return unsub;
+  }, [tabId]);
 
-  return browserState
+  return browserState;
 }
 
 /**
  * Hook for just the open state (minimal re-renders)
  */
 export function useCanvasIsOpen(): boolean {
-  const [isOpen, setIsOpen] = useState(canvasLifecycle.getIsOpen())
+  const [isOpen, setIsOpen] = useState(canvasLifecycle.getIsOpen());
 
   useEffect(() => {
-    const unsub = canvasLifecycle.onOpenStateChange(setIsOpen)
-    return unsub
-  }, [])
+    const unsub = canvasLifecycle.onOpenStateChange(setIsOpen);
+    return unsub;
+  }, []);
 
-  return isOpen
+  return isOpen;
 }
 
 /**
  * Hook for just the tab count (minimal re-renders)
  */
 export function useTabCount(): number {
-  const [tabs, setTabs] = useState<TabState[]>(canvasLifecycle.getTabs())
+  const [tabs, setTabs] = useState<TabState[]>(canvasLifecycle.getTabs());
 
   useEffect(() => {
-    const unsub = canvasLifecycle.onTabsChange(setTabs)
-    return unsub
-  }, [])
+    const unsub = canvasLifecycle.onTabsChange(setTabs);
+    return unsub;
+  }, []);
 
-  return tabs.length
+  return tabs.length;
 }
 
 /**
  * Hook for active tab only (minimal re-renders)
  */
 export function useActiveTab(): TabState | undefined {
-  const [tabs, setTabs] = useState<TabState[]>(canvasLifecycle.getTabs())
-  const [activeTabId, setActiveTabId] = useState<string | null>(canvasLifecycle.getActiveTabId())
+  const [tabs, setTabs] = useState<TabState[]>(canvasLifecycle.getTabs());
+  const [activeTabId, setActiveTabId] = useState<string | null>(canvasLifecycle.getActiveTabId());
 
   useEffect(() => {
-    const unsubTabs = canvasLifecycle.onTabsChange(setTabs)
-    const unsubActive = canvasLifecycle.onActiveTabChange(setActiveTabId)
+    const unsubTabs = canvasLifecycle.onTabsChange(setTabs);
+    const unsubActive = canvasLifecycle.onActiveTabChange(setActiveTabId);
     return () => {
-      unsubTabs()
-      unsubActive()
-    }
-  }, [])
+      unsubTabs();
+      unsubActive();
+    };
+  }, []);
 
-  return activeTabId ? tabs.find(t => t.id === activeTabId) : undefined
+  return activeTabId ? tabs.find((t) => t.id === activeTabId) : undefined;
 }
 
 // Re-export types for convenience
-export type { TabState, BrowserState, ContentType }
+export type { TabState, BrowserState, ContentType };

@@ -12,44 +12,44 @@
  * └─────────────────────────────────────────────────────────────┘
  */
 
-import { Wrench, Cloud, Monitor, X, Loader2, CheckCircle2, MessageSquare } from 'lucide-react'
-import { ThoughtProcess } from './ThoughtProcess'
-import { MarkdownRenderer } from './MarkdownRenderer'
-import { AskUserQuestionCard } from './AskUserQuestionCard'
-import { MessageItem } from './MessageItem'
-import type { WorkerSessionState } from '../../stores/chat.store'
-import { useChatStore } from '../../stores/chat.store'
-import type { Message } from '../../types'
-import { useTranslation } from '../../i18n'
-import { useEffect, useState } from 'react'
+import { Wrench, Cloud, Monitor, X, Loader2, CheckCircle2, MessageSquare } from 'lucide-react';
+import { ThoughtProcess } from './ThoughtProcess';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { AskUserQuestionCard } from './AskUserQuestionCard';
+import { MessageItem } from './MessageItem';
+import type { WorkerSessionState } from '../../stores/chat.store';
+import { useChatStore } from '../../stores/chat.store';
+import type { Message } from '../../types';
+import { useTranslation } from '../../i18n';
+import { useEffect, useState } from 'react';
 
 export interface WorkerTab {
-  id: string          // 'main' or agentId
-  name: string        // Display name
-  role: 'leader' | 'worker'
-  type?: 'local' | 'remote'
-  status: 'idle' | 'running' | 'completed' | 'failed'
-  workerSession?: WorkerSessionState
+  id: string; // 'main' or agentId
+  name: string; // Display name
+  role: 'leader' | 'worker';
+  type?: 'local' | 'remote';
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  workerSession?: WorkerSessionState;
 }
 
 interface WorkerTabBarProps {
-  tabs: WorkerTab[]
-  activeTabId: string
-  onTabChange: (tabId: string) => void
-  unreadWorkers?: Set<string>
+  tabs: WorkerTab[];
+  activeTabId: string;
+  onTabChange: (tabId: string) => void;
+  unreadWorkers?: Set<string>;
 }
 
 export function WorkerTabBar({ tabs, activeTabId, onTabChange, unreadWorkers }: WorkerTabBarProps) {
   // Don't show the tab bar if only the main tab exists (no workers spawned)
-  if (tabs.length <= 1) return null
+  if (tabs.length <= 1) return null;
 
   return (
     <div className="flex items-center gap-1 px-4 py-1.5 border-t border-border/30 bg-background/50 overflow-x-auto">
       {tabs.map((tab) => {
-        const isActive = activeTabId === tab.id
-        const isWorker = tab.role === 'worker'
-        const isRunning = tab.status === 'running'
-        const hasUnread = isWorker && unreadWorkers?.has(tab.id)
+        const isActive = activeTabId === tab.id;
+        const isWorker = tab.role === 'worker';
+        const isRunning = tab.status === 'running';
+        const hasUnread = isWorker && unreadWorkers?.has(tab.id);
 
         return (
           <button
@@ -58,17 +58,21 @@ export function WorkerTabBar({ tabs, activeTabId, onTabChange, unreadWorkers }: 
             className={`
               flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
               transition-all duration-150 whitespace-nowrap flex-shrink-0
-              ${isActive
-                ? 'bg-primary/10 text-primary border border-primary/20'
-                : hasUnread
-                  ? 'text-foreground bg-secondary/40 border border-border/50'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
+              ${
+                isActive
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : hasUnread
+                    ? 'text-foreground bg-secondary/40 border border-border/50'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
               }
             `}
           >
             {/* Main tab: group chat icon */}
             {!isWorker && (
-              <MessageSquare size={12} className={isActive ? 'text-primary' : 'text-muted-foreground/60'} />
+              <MessageSquare
+                size={12}
+                className={isActive ? 'text-primary' : 'text-muted-foreground/60'}
+              />
             )}
 
             {/* Worker tab: wrench icon */}
@@ -84,12 +88,8 @@ export function WorkerTabBar({ tabs, activeTabId, onTabChange, unreadWorkers }: 
             )}
 
             {/* Type indicator for remote workers */}
-            {isWorker && tab.type === 'remote' && (
-              <Cloud size={10} className="opacity-40" />
-            )}
-            {isWorker && tab.type === 'local' && (
-              <Monitor size={10} className="opacity-40" />
-            )}
+            {isWorker && tab.type === 'remote' && <Cloud size={10} className="opacity-40" />}
+            {isWorker && tab.type === 'local' && <Monitor size={10} className="opacity-40" />}
 
             {/* Running indicator */}
             {isWorker && isRunning && (
@@ -102,24 +102,23 @@ export function WorkerTabBar({ tabs, activeTabId, onTabChange, unreadWorkers }: 
             )}
 
             {/* Failed indicator */}
-            {isWorker && tab.status === 'failed' && (
-              <X size={11} className="text-red-500/70" />
-            )}
+            {isWorker && tab.status === 'failed' && <X size={11} className="text-red-500/70" />}
 
             {/* Unread badge — worker finished while user was on another tab */}
-            {hasUnread && !isActive && (
-              <span className="ml-0.5 w-2 h-2 rounded-full bg-blue-500" />
-            )}
+            {hasUnread && !isActive && <span className="ml-0.5 w-2 h-2 rounded-full bg-blue-500" />}
 
             {/* Pending question indicator — worker needs user input */}
             {isWorker && tab.workerSession?.pendingQuestion?.status === 'active' && !isActive && (
-              <span className="ml-0.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse" title={t('Waiting for your response')} />
+              <span
+                className="ml-0.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse"
+                title={t('Waiting for your response')}
+              />
             )}
           </button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 /**
@@ -129,56 +128,69 @@ export function WorkerTabBar({ tabs, activeTabId, onTabChange, unreadWorkers }: 
  * Rendered in place of the main message list when a worker tab is active.
  */
 interface WorkerViewProps {
-  worker: WorkerSessionState
-  spaceId?: string
-  isCompact?: boolean
-  onAnswerQuestion?: (answers: Record<string, string>) => void
+  worker: WorkerSessionState;
+  spaceId?: string;
+  isCompact?: boolean;
+  onAnswerQuestion?: (answers: Record<string, string>) => void;
 }
 
-export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestion }: WorkerViewProps) {
-  const { t } = useTranslation()
-  const loadWorkerConversation = useChatStore((s) => s.loadWorkerConversation)
-  const conversationCache = useChatStore((s) => s.conversationCache)
-  const isRunning = worker.status === 'running'
-  const isCompleted = worker.status === 'completed'
-  const isFailed = worker.status === 'failed'
+export function WorkerView({
+  worker,
+  spaceId,
+  isCompact = false,
+  onAnswerQuestion,
+}: WorkerViewProps) {
+  const { t } = useTranslation();
+  const loadWorkerConversation = useChatStore((s) => s.loadWorkerConversation);
+  const conversationCache = useChatStore((s) => s.conversationCache);
+  const isRunning = worker.status === 'running';
+  const isCompleted = worker.status === 'completed';
+  const isFailed = worker.status === 'failed';
 
-  const contentWidthClass = isCompact ? '' : 'max-w-3xl mx-auto w-full'
+  const contentWidthClass = isCompact ? '' : 'max-w-3xl mx-auto w-full';
 
   // Load persisted messages for this worker's child conversation
-  const [historyLoaded, setHistoryLoaded] = useState(false)
-  const [historyMessages, setHistoryMessages] = useState<Message[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
 
   // When a new turn starts (turnStartedAt changes), reset history to force reload.
   // The child conversation on disk accumulates all turns — reloading shows full history.
-  const turnStartedAt = worker.turnStartedAt || 0
+  const turnStartedAt = worker.turnStartedAt || 0;
   useEffect(() => {
-    setHistoryLoaded(false)
-    setHistoryMessages([])
-  }, [turnStartedAt])
+    setHistoryLoaded(false);
+    setHistoryMessages([]);
+  }, [turnStartedAt]);
 
   useEffect(() => {
     if (worker.childConversationId && !historyLoaded) {
       // Check cache first
-      const cached = conversationCache.get(worker.childConversationId!)
+      const cached = conversationCache.get(worker.childConversationId!);
       if (cached?.messages?.length) {
         // Filter out empty placeholder messages and system messages
-        setHistoryMessages(cached.messages.filter((m) => m.content && m.content.trim().length > 0))
-        setHistoryLoaded(true)
+        setHistoryMessages(cached.messages.filter((m) => m.content && m.content.trim().length > 0));
+        setHistoryLoaded(true);
       } else if (spaceId) {
         // Load from backend
         loadWorkerConversation(spaceId, worker.childConversationId!).then((success) => {
           if (success) {
-            const conv = conversationCache.get(worker.childConversationId!)
+            const conv = conversationCache.get(worker.childConversationId!);
             if (conv?.messages?.length) {
-              setHistoryMessages(conv.messages.filter((m) => m.content && m.content.trim().length > 0))
+              setHistoryMessages(
+                conv.messages.filter((m) => m.content && m.content.trim().length > 0),
+              );
             }
           }
-          setHistoryLoaded(true)
-        })
+          setHistoryLoaded(true);
+        });
       }
     }
-  }, [worker.childConversationId, spaceId, historyLoaded, loadWorkerConversation, conversationCache])
+  }, [
+    worker.childConversationId,
+    spaceId,
+    historyLoaded,
+    loadWorkerConversation,
+    conversationCache,
+  ]);
 
   return (
     <div className={`flex-1 flex flex-col h-full overflow-y-auto ${isCompact ? 'px-3' : 'px-4'}`}>
@@ -211,19 +223,16 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
         {/* Task description */}
         <div className="mb-4 p-3 rounded-lg bg-secondary/30 border border-border/20">
           <p className="text-xs text-muted-foreground/60 mb-1">{t('Task')}</p>
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{worker.task}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+            {worker.task}
+          </p>
         </div>
 
         {/* Historical messages from persisted child conversation */}
         {historyMessages.length > 0 && (
           <div className="space-y-3 mb-4">
             {historyMessages.map((msg, idx) => (
-              <MessageItem
-                key={msg.id || idx}
-                message={msg}
-                previousCost={0}
-                hideThoughts={true}
-              />
+              <MessageItem key={msg.id || idx} message={msg} previousCost={0} hideThoughts={true} />
             ))}
           </div>
         )}
@@ -231,7 +240,11 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
         {/* Thought process — always expanded in worker view so users can see all steps */}
         {(worker.thoughts.length > 0 || worker.isThinking) && (
           <div className="mb-4">
-            <ThoughtProcess thoughts={worker.thoughts} isThinking={worker.isThinking} defaultExpanded />
+            <ThoughtProcess
+              thoughts={worker.thoughts}
+              isThinking={worker.isThinking}
+              defaultExpanded
+            />
           </div>
         )}
 
@@ -239,7 +252,10 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
         {worker.streamingContent && (
           <div className="rounded-2xl px-4 py-3 message-assistant">
             <div className="break-words leading-relaxed">
-              <MarkdownRenderer content={worker.streamingContent} mode={isRunning ? 'streaming' : 'static'} />
+              <MarkdownRenderer
+                content={worker.streamingContent}
+                mode={isRunning ? 'streaming' : 'static'}
+              />
               {worker.isStreaming && (
                 <span className="inline-block w-0.5 h-5 ml-0.5 bg-primary streaming-cursor align-middle" />
               )}
@@ -248,22 +264,27 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
         )}
 
         {/* AskUserQuestion card — worker needs user input */}
-        {worker.pendingQuestion && worker.pendingQuestion.status === 'active' && onAnswerQuestion && (
-          <div className="mt-4">
-            <AskUserQuestionCard
-              pendingQuestion={worker.pendingQuestion}
-              onAnswer={onAnswerQuestion}
-            />
-          </div>
-        )}
+        {worker.pendingQuestion &&
+          worker.pendingQuestion.status === 'active' &&
+          onAnswerQuestion && (
+            <div className="mt-4">
+              <AskUserQuestionCard
+                pendingQuestion={worker.pendingQuestion}
+                onAnswer={onAnswerQuestion}
+              />
+            </div>
+          )}
 
         {/* Empty state while waiting for worker to start */}
-        {!worker.streamingContent && worker.thoughts.length === 0 && isRunning && !historyMessages.length && (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/50">
-            <Loader2 size={24} className="animate-spin mb-3 text-blue-400/40" />
-            <p className="text-sm">{t('Worker is processing...')}</p>
-          </div>
-        )}
+        {!worker.streamingContent &&
+          worker.thoughts.length === 0 &&
+          isRunning &&
+          !historyMessages.length && (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/50">
+              <Loader2 size={24} className="animate-spin mb-3 text-blue-400/40" />
+              <p className="text-sm">{t('Worker is processing...')}</p>
+            </div>
+          )}
 
         {/* Error */}
         {worker.error && (
@@ -273,5 +294,5 @@ export function WorkerView({ worker, spaceId, isCompact = false, onAnswerQuestio
         )}
       </div>
     </div>
-  )
+  );
 }

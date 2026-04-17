@@ -18,7 +18,7 @@
  *   app(A)    app(B)    NO       NO               NO
  */
 
-import type { MemoryCallerScope, MemoryScopeType } from './types'
+import type { MemoryCallerScope, MemoryScopeType } from './types';
 
 /**
  * Check if a caller can read from a given scope.
@@ -30,23 +30,23 @@ export function assertReadPermission(caller: MemoryCallerScope, scope: MemorySco
     // User sessions can read user and space memory, but NOT app memory
     if (scope === 'app') {
       throw new MemoryPermissionError(
-        `User sessions cannot read app memory. Only the owning app can access its private memory.`
-      )
+        `User sessions cannot read app memory. Only the owning app can access its private memory.`,
+      );
     }
-    return // user + space: OK
+    return; // user + space: OK
   }
 
   // App caller
   if (scope === 'user') {
-    return // Apps can read user memory (read-only)
+    return; // Apps can read user memory (read-only)
   }
   if (scope === 'space') {
-    return // Apps can read space memory
+    return; // Apps can read space memory
   }
   if (scope === 'app') {
     // Apps can only read their OWN app memory (caller.appId check done at path level)
     // Since the path resolution uses caller.appId, cross-app reads are structurally impossible
-    return
+    return;
   }
 }
 
@@ -58,39 +58,39 @@ export function assertReadPermission(caller: MemoryCallerScope, scope: MemorySco
 export function assertWritePermission(
   caller: MemoryCallerScope,
   scope: MemoryScopeType,
-  mode: 'append' | 'replace'
+  mode: 'append' | 'replace',
 ): void {
   if (caller.type === 'user') {
     // User sessions can write to user and space memory (both modes)
     if (scope === 'app') {
       throw new MemoryPermissionError(
-        `User sessions cannot write to app memory. Only the owning app can modify its private memory.`
-      )
+        `User sessions cannot write to app memory. Only the owning app can modify its private memory.`,
+      );
     }
-    return // user + space: both modes OK
+    return; // user + space: both modes OK
   }
 
   // App caller
   if (scope === 'user') {
     throw new MemoryPermissionError(
-      `Apps cannot write to user memory. User memory is read-only for apps.`
-    )
+      `Apps cannot write to user memory. User memory is read-only for apps.`,
+    );
   }
 
   if (scope === 'space') {
     if (mode === 'replace') {
       throw new MemoryPermissionError(
         `Apps can only append to space memory, not replace it. ` +
-        `Use mode "append" to add observations to the shared space memory.`
-      )
+          `Use mode "append" to add observations to the shared space memory.`,
+      );
     }
-    return // append only
+    return; // append only
   }
 
   if (scope === 'app') {
     // Apps can read/write their own app memory (both modes)
     // Cross-app isolation is enforced at the path level (caller.appId)
-    return
+    return;
   }
 }
 
@@ -100,7 +100,7 @@ export function assertWritePermission(
  */
 export function assertListPermission(caller: MemoryCallerScope, scope: MemoryScopeType): void {
   // List permission follows the same rules as read
-  assertReadPermission(caller, scope)
+  assertReadPermission(caller, scope);
 }
 
 /**
@@ -108,30 +108,30 @@ export function assertListPermission(caller: MemoryCallerScope, scope: MemorySco
  */
 export function getReadableScopes(caller: MemoryCallerScope): MemoryScopeType[] {
   if (caller.type === 'user') {
-    return ['user', 'space']
+    return ['user', 'space'];
   }
   // App callers: can read user (read-only), space, and own app memory
-  return ['user', 'space', 'app']
+  return ['user', 'space', 'app'];
 }
 
 /**
  * Get the scopes available to a caller for writing, along with allowed modes.
  */
 export function getWritableScopes(caller: MemoryCallerScope): Array<{
-  scope: MemoryScopeType
-  modes: Array<'append' | 'replace'>
+  scope: MemoryScopeType;
+  modes: Array<'append' | 'replace'>;
 }> {
   if (caller.type === 'user') {
     return [
       { scope: 'user', modes: ['append', 'replace'] },
-      { scope: 'space', modes: ['append', 'replace'] }
-    ]
+      { scope: 'space', modes: ['append', 'replace'] },
+    ];
   }
   // App callers
   return [
     { scope: 'space', modes: ['append'] },
-    { scope: 'app', modes: ['append', 'replace'] }
-  ]
+    { scope: 'app', modes: ['append', 'replace'] },
+  ];
 }
 
 // ============================================================================
@@ -140,7 +140,7 @@ export function getWritableScopes(caller: MemoryCallerScope): Array<{
 
 export class MemoryPermissionError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = 'MemoryPermissionError'
+    super(message);
+    this.name = 'MemoryPermissionError';
   }
 }

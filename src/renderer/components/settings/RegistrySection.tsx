@@ -3,121 +3,119 @@
  * Manages App Store registry sources (view, add, remove, toggle)
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Loader2 } from 'lucide-react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import type { RegistrySource } from '../../../shared/store/store-types'
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Trash2, Loader2 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import type { RegistrySource } from '../../../shared/store/store-types';
 
 export function RegistrySection() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // State
-  const [registries, setRegistries] = useState<RegistrySource[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newUrl, setNewUrl] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const [registries, setRegistries] = useState<RegistrySource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   // Load registries on mount
   const loadRegistries = useCallback(async () => {
     try {
-      setLoading(true)
-      setError(null)
-      const result = await api.storeGetRegistries()
+      setLoading(true);
+      setError(null);
+      const result = await api.storeGetRegistries();
       if (result.success && result.data) {
-        setRegistries(result.data)
+        setRegistries(result.data);
       } else {
-        setError(result.error || t('Failed to load registries'))
+        setError(result.error || t('Failed to load registries'));
       }
     } catch (err) {
-      setError(t('Failed to load registries'))
+      setError(t('Failed to load registries'));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [t])
+  }, [t]);
 
   useEffect(() => {
-    loadRegistries()
-  }, [loadRegistries])
+    loadRegistries();
+  }, [loadRegistries]);
 
   // Add registry
   const handleAdd = async () => {
-    setAddError(null)
+    setAddError(null);
 
     // Validation
-    const trimmedName = newName.trim()
-    const trimmedUrl = newUrl.trim()
+    const trimmedName = newName.trim();
+    const trimmedUrl = newUrl.trim();
 
     if (!trimmedName) {
-      setAddError(t('Name is required'))
-      return
+      setAddError(t('Name is required'));
+      return;
     }
     if (!trimmedUrl) {
-      setAddError(t('URL is required'))
-      return
+      setAddError(t('URL is required'));
+      return;
     }
 
     try {
-      new URL(trimmedUrl)
+      new URL(trimmedUrl);
     } catch {
-      setAddError(t('Please enter a valid URL'))
-      return
+      setAddError(t('Please enter a valid URL'));
+      return;
     }
 
     try {
-      setAdding(true)
-      const result = await api.storeAddRegistry({ name: trimmedName, url: trimmedUrl })
+      setAdding(true);
+      const result = await api.storeAddRegistry({ name: trimmedName, url: trimmedUrl });
       if (result.success) {
-        setNewName('')
-        setNewUrl('')
-        setShowAddForm(false)
-        await loadRegistries()
+        setNewName('');
+        setNewUrl('');
+        setShowAddForm(false);
+        await loadRegistries();
       } else {
-        setAddError(result.error || t('Failed to add registry'))
+        setAddError(result.error || t('Failed to add registry'));
       }
     } catch {
-      setAddError(t('Failed to add registry'))
+      setAddError(t('Failed to add registry'));
     } finally {
-      setAdding(false)
+      setAdding(false);
     }
-  }
+  };
 
   // Remove registry
   const handleRemove = async (registryId: string) => {
     try {
-      setError(null)
-      const result = await api.storeRemoveRegistry(registryId)
+      setError(null);
+      const result = await api.storeRemoveRegistry(registryId);
       if (result.success) {
-        await loadRegistries()
+        await loadRegistries();
       } else {
-        setError(result.error || t('Failed to remove registry'))
+        setError(result.error || t('Failed to remove registry'));
       }
     } catch {
-      setError(t('Failed to remove registry'))
+      setError(t('Failed to remove registry'));
     }
-  }
+  };
 
   // Toggle registry enabled/disabled
   const handleToggle = async (registryId: string, enabled: boolean) => {
     try {
-      setError(null)
-      const result = await api.storeToggleRegistry(registryId, enabled)
+      setError(null);
+      const result = await api.storeToggleRegistry(registryId, enabled);
       if (result.success) {
         // Optimistic update
-        setRegistries((prev) =>
-          prev.map((r) => (r.id === registryId ? { ...r, enabled } : r))
-        )
+        setRegistries((prev) => prev.map((r) => (r.id === registryId ? { ...r, enabled } : r)));
       } else {
-        setError(result.error || t('Failed to update registry'))
+        setError(result.error || t('Failed to update registry'));
       }
     } catch {
-      setError(t('Failed to update registry'))
+      setError(t('Failed to update registry'));
     }
-  }
+  };
 
   return (
     <section id="app-store" className="bg-card rounded-xl border border-border p-6">
@@ -130,9 +128,7 @@ export function RegistrySection() {
 
       {/* Error message */}
       {error && (
-        <div className="mb-4 px-3 py-2 text-sm text-red-500 bg-red-500/10 rounded-lg">
-          {error}
-        </div>
+        <div className="mb-4 px-3 py-2 text-sm text-red-500 bg-red-500/10 rounded-lg">{error}</div>
       )}
 
       {/* Loading state */}
@@ -146,10 +142,7 @@ export function RegistrySection() {
           {/* Registry list */}
           <div className="space-y-0 divide-y divide-border rounded-lg border border-border overflow-hidden">
             {registries.map((registry) => (
-              <div
-                key={registry.id}
-                className="flex items-center justify-between px-4 py-3"
-              >
+              <div key={registry.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium truncate">{registry.name}</span>
@@ -159,9 +152,7 @@ export function RegistrySection() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {registry.url}
-                  </p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{registry.url}</p>
                 </div>
 
                 <div className="flex items-center gap-3 ml-4 shrink-0">
@@ -235,9 +226,7 @@ export function RegistrySection() {
               </div>
 
               {/* Add form error */}
-              {addError && (
-                <p className="text-sm text-red-500">{addError}</p>
-              )}
+              {addError && <p className="text-sm text-red-500">{addError}</p>}
 
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -252,10 +241,10 @@ export function RegistrySection() {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowAddForm(false)
-                    setNewName('')
-                    setNewUrl('')
-                    setAddError(null)
+                    setShowAddForm(false);
+                    setNewName('');
+                    setNewUrl('');
+                    setAddError(null);
                   }}
                   className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
                 >
@@ -279,5 +268,5 @@ export function RegistrySection() {
         </>
       )}
     </section>
-  )
+  );
 }

@@ -9,14 +9,14 @@
  * Thrown when the YAML string itself is malformed (syntax error).
  */
 export class AppSpecParseError extends Error {
-  readonly code = 'APP_SPEC_PARSE_ERROR' as const
+  readonly code = 'APP_SPEC_PARSE_ERROR' as const;
 
   constructor(
     message: string,
-    public readonly cause?: unknown
+    public readonly cause?: unknown,
   ) {
-    super(`YAML parse error: ${message}`)
-    this.name = 'AppSpecParseError'
+    super(`YAML parse error: ${message}`);
+    this.name = 'AppSpecParseError';
   }
 }
 
@@ -25,11 +25,11 @@ export class AppSpecParseError extends Error {
  */
 export interface ValidationIssue {
   /** Dot-path to the offending field, e.g. "subscriptions.0.source.type" */
-  path: string
+  path: string;
   /** Human-readable description of the problem */
-  message: string
+  message: string;
   /** The invalid value received (if available) */
-  received?: unknown
+  received?: unknown;
 }
 
 /**
@@ -37,13 +37,13 @@ export interface ValidationIssue {
  * Contains structured issue list for UI rendering.
  */
 export class AppSpecValidationError extends Error {
-  readonly code = 'APP_SPEC_VALIDATION_ERROR' as const
+  readonly code = 'APP_SPEC_VALIDATION_ERROR' as const;
 
   constructor(
     message: string,
-    public readonly issues: ValidationIssue[]
+    public readonly issues: ValidationIssue[],
   ) {
-    super(message)
-    this.name = 'AppSpecValidationError'
+    super(message);
+    this.name = 'AppSpecValidationError';
   }
 }

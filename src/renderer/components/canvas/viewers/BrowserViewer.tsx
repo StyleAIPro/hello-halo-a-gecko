@@ -20,7 +20,7 @@
  * by CanvasLifecycle, NOT by this component's useEffects.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,20 +35,24 @@ import {
   Bot,
   MoreVertical,
   Search,
-} from 'lucide-react'
-import { api } from '../../../api'
-import { canvasLifecycle, type TabState, type BrowserState } from '../../../services/canvas-lifecycle'
-import { useBrowserState } from '../../../hooks/useCanvasLifecycle'
-import { useAIBrowserStore } from '../../../stores/ai-browser.store'
-import { useTranslation } from '../../../i18n'
+} from 'lucide-react';
+import { api } from '../../../api';
+import {
+  canvasLifecycle,
+  type TabState,
+  type BrowserState,
+} from '../../../services/canvas-lifecycle';
+import { useBrowserState } from '../../../hooks/useCanvasLifecycle';
+import { useAIBrowserStore } from '../../../stores/ai-browser.store';
+import { useTranslation } from '../../../i18n';
 
 interface BrowserViewerProps {
-  tab: TabState
+  tab: TabState;
 }
 
 // Default home page and search engine
-const DEFAULT_HOME_URL = 'https://www.bing.com'
-const SEARCH_ENGINE_URL = 'https://www.bing.com/search?q='
+const DEFAULT_HOME_URL = 'https://www.bing.com';
+const SEARCH_ENGINE_URL = 'https://www.bing.com/search?q=';
 
 /**
  * Check if input is a valid URL or should be treated as search query
@@ -56,73 +60,77 @@ const SEARCH_ENGINE_URL = 'https://www.bing.com/search?q='
 function isValidUrl(input: string): boolean {
   // Common URL patterns
   if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('file://')) {
-    return true
+    return true;
   }
 
   // Check for domain-like patterns (e.g., "google.com", "localhost:3000")
-  const domainPattern = /^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z]{2,}|:\d+)/
+  const domainPattern = /^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z]{2,}|:\d+)/;
   if (domainPattern.test(input)) {
-    return true
+    return true;
   }
 
   // Localhost without port
   if (input === 'localhost' || input.startsWith('localhost/')) {
-    return true
+    return true;
   }
 
-  return false
+  return false;
 }
 
 /**
  * Convert input to URL - either validates URL or creates search URL
  */
 function inputToUrl(input: string): string {
-  const trimmed = input.trim()
+  const trimmed = input.trim();
 
-  if (!trimmed) return DEFAULT_HOME_URL
+  if (!trimmed) return DEFAULT_HOME_URL;
 
   // Already a full URL
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('file://')) {
-    return trimmed
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('file://')
+  ) {
+    return trimmed;
   }
 
   // Looks like a URL, add https://
   if (isValidUrl(trimmed)) {
-    return `https://${trimmed}`
+    return `https://${trimmed}`;
   }
 
   // Treat as search query
-  return `${SEARCH_ENGINE_URL}${encodeURIComponent(trimmed)}`
+  return `${SEARCH_ENGINE_URL}${encodeURIComponent(trimmed)}`;
 }
 
 export function BrowserViewer({ tab }: BrowserViewerProps) {
-  const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [addressBarValue, setAddressBarValue] = useState(tab.url || '')
-  const [isAddressBarFocused, setIsAddressBarFocused] = useState(false)
-  const [zoomLevel, setZoomLevel] = useState(100)
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [addressBarValue, setAddressBarValue] = useState(tab.url || '');
+  const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   // PDF mode: simplified UI without navigation controls
-  const isPdf = tab.type === 'pdf'
+  const isPdf = tab.type === 'pdf';
 
   // Get browser state from lifecycle manager via hook
-  const browserState = useBrowserState(tab.id)
+  const browserState = useBrowserState(tab.id);
 
   // AI Browser state - detect if AI is operating this browser
-  const isAIOperating = useAIBrowserStore(state => state.isOperating)
-  const aiActiveUrl = useAIBrowserStore(state => state.activeUrl)
+  const isAIOperating = useAIBrowserStore((state) => state.isOperating);
+  const aiActiveUrl = useAIBrowserStore((state) => state.activeUrl);
 
   // Determine if this browser is the one AI is currently operating
   const isThisAIBrowser = (() => {
-    if (!isAIOperating || !aiActiveUrl || !tab.url) return false
-    if (tab.title?.includes('🤖')) return true
+    if (!isAIOperating || !aiActiveUrl || !tab.url) return false;
+    if (tab.title?.includes('🤖')) return true;
     try {
-      const aiHostname = new URL(aiActiveUrl).hostname
-      return tab.url.includes(aiHostname)
+      const aiHostname = new URL(aiActiveUrl).hostname;
+      return tab.url.includes(aiHostname);
     } catch {
-      return false
+      return false;
     }
-  })()
+  })();
 
   // ============================================
   // Container Bounds Registration
@@ -131,8 +139,8 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
   // Register container bounds getter with CanvasLifecycle
   // This allows CanvasLifecycle to position BrowserViews correctly
   useEffect(() => {
-    const getBounds = () => containerRef.current?.getBoundingClientRect() || null
-    canvasLifecycle.setContainerBoundsGetter(getBounds)
+    const getBounds = () => containerRef.current?.getBoundingClientRect() || null;
+    canvasLifecycle.setContainerBoundsGetter(getBounds);
 
     // When container becomes available, ensure BrowserView is shown
     // This handles the case where the BrowserView was created before this
@@ -140,9 +148,9 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
     if (containerRef.current && tab.browserViewId) {
       // Use ensureActiveBrowserViewShown instead of updateActiveBounds
       // because the view may not have been added to the window yet
-      canvasLifecycle.ensureActiveBrowserViewShown()
+      canvasLifecycle.ensureActiveBrowserViewShown();
     }
-  }, [tab.browserViewId])
+  }, [tab.browserViewId]);
 
   // ============================================
   // Resize Observer
@@ -150,17 +158,17 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
 
   // Monitor container size changes and update BrowserView bounds
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current) return;
 
     const resizeObserver = new ResizeObserver(() => {
       if (tab.browserViewId) {
-        canvasLifecycle.updateActiveBounds()
+        canvasLifecycle.updateActiveBounds();
       }
-    })
+    });
 
-    resizeObserver.observe(containerRef.current)
-    return () => resizeObserver.disconnect()
-  }, [tab.browserViewId])
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [tab.browserViewId]);
 
   // ============================================
   // Address Bar Sync
@@ -169,92 +177,98 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
   // Sync address bar with tab URL when URL changes (and not focused)
   useEffect(() => {
     if (!isAddressBarFocused && tab.url) {
-      setAddressBarValue(tab.url)
+      setAddressBarValue(tab.url);
     }
-  }, [tab.url, isAddressBarFocused])
+  }, [tab.url, isAddressBarFocused]);
 
   // ============================================
   // Navigation Handlers
   // ============================================
 
-  const handleNavigate = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!tab.browserViewId) return
+  const handleNavigate = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!tab.browserViewId) return;
 
-    const url = inputToUrl(addressBarValue)
-    await api.navigateBrowserView(tab.browserViewId, url)
-  }, [tab.browserViewId, addressBarValue])
+      const url = inputToUrl(addressBarValue);
+      await api.navigateBrowserView(tab.browserViewId, url);
+    },
+    [tab.browserViewId, addressBarValue],
+  );
 
   const handleBack = useCallback(async () => {
     if (tab.browserViewId && browserState.canGoBack) {
-      await api.browserGoBack(tab.browserViewId)
+      await api.browserGoBack(tab.browserViewId);
     }
-  }, [tab.browserViewId, browserState.canGoBack])
+  }, [tab.browserViewId, browserState.canGoBack]);
 
   const handleForward = useCallback(async () => {
     if (tab.browserViewId && browserState.canGoForward) {
-      await api.browserGoForward(tab.browserViewId)
+      await api.browserGoForward(tab.browserViewId);
     }
-  }, [tab.browserViewId, browserState.canGoForward])
+  }, [tab.browserViewId, browserState.canGoForward]);
 
   const handleReload = useCallback(async () => {
-    if (!tab.browserViewId) return
+    if (!tab.browserViewId) return;
 
     if (browserState.isLoading) {
-      await api.browserStop(tab.browserViewId)
+      await api.browserStop(tab.browserViewId);
     } else {
-      await api.browserReload(tab.browserViewId)
+      await api.browserReload(tab.browserViewId);
     }
-  }, [tab.browserViewId, browserState.isLoading])
+  }, [tab.browserViewId, browserState.isLoading]);
 
   const handleHome = useCallback(async () => {
     if (tab.browserViewId) {
-      await api.navigateBrowserView(tab.browserViewId, DEFAULT_HOME_URL)
+      await api.navigateBrowserView(tab.browserViewId, DEFAULT_HOME_URL);
     }
-  }, [tab.browserViewId])
+  }, [tab.browserViewId]);
 
   const handleCapture = useCallback(async () => {
-    if (!tab.browserViewId) return
+    if (!tab.browserViewId) return;
 
-    const result = await api.captureBrowserView(tab.browserViewId)
+    const result = await api.captureBrowserView(tab.browserViewId);
     if (result.success && result.data) {
-      console.log('[BrowserViewer] Screenshot captured')
+      console.log('[BrowserViewer] Screenshot captured');
     }
-  }, [tab.browserViewId])
+  }, [tab.browserViewId]);
 
   const handleOpenExternal = useCallback(async () => {
     // For PDF, open with system default app; for browser, open URL in external browser
     if (isPdf && tab.path) {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } else if (tab.url) {
-      window.open(tab.url, '_blank')
+      window.open(tab.url, '_blank');
     }
-  }, [isPdf, tab.path, tab.url])
+  }, [isPdf, tab.path, tab.url]);
 
   // ============================================
   // Address Bar Handlers
   // ============================================
 
   const handleAddressBarFocus = useCallback(() => {
-    setIsAddressBarFocused(true)
-  }, [])
+    setIsAddressBarFocused(true);
+  }, []);
 
   const handleAddressBarBlur = useCallback(() => {
-    setIsAddressBarFocused(false)
+    setIsAddressBarFocused(false);
     // Reset to current URL if unchanged
     if (tab.url) {
-      setAddressBarValue(tab.url)
+      setAddressBarValue(tab.url);
     }
-  }, [tab.url])
+  }, [tab.url]);
 
-  const handleAddressBarKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      if (tab.url) {
-        setAddressBarValue(tab.url)
+  const handleAddressBarKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (tab.url) {
+          setAddressBarValue(tab.url);
+        }
+        (e.target as HTMLInputElement).blur();
       }
-      ;(e.target as HTMLInputElement).blur()
-    }
-  }, [tab.url])
+    },
+    [tab.url],
+  );
 
   // ============================================
   // Native Menu Handler
@@ -262,29 +276,29 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
 
   // Show native context menu (renders above BrowserView)
   const handleShowMenu = useCallback(async () => {
-    if (!tab.browserViewId) return
+    if (!tab.browserViewId) return;
     await api.showBrowserContextMenu({
       viewId: tab.browserViewId,
       url: tab.url,
-      zoomLevel
-    })
-  }, [tab.browserViewId, tab.url, zoomLevel])
+      zoomLevel,
+    });
+  }, [tab.browserViewId, tab.url, zoomLevel]);
 
   // Listen for zoom changes from native menu
   useEffect(() => {
     const unsubscribe = api.onBrowserZoomChanged((data) => {
       if (data.viewId === tab.browserViewId) {
-        setZoomLevel(data.zoomLevel)
+        setZoomLevel(data.zoomLevel);
       }
-    })
-    return unsubscribe
-  }, [tab.browserViewId])
+    });
+    return unsubscribe;
+  }, [tab.browserViewId]);
 
   // Check if URL is HTTPS
-  const isSecure = tab.url?.startsWith('https://')
+  const isSecure = tab.url?.startsWith('https://');
 
   // Check if address bar value looks like a search query
-  const isSearchQuery = addressBarValue && !isValidUrl(addressBarValue)
+  const isSearchQuery = addressBarValue && !isValidUrl(addressBarValue);
 
   // ============================================
   // Render
@@ -299,7 +313,9 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
             <Bot size={16} className="text-primary animate-pulse" />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-ping" />
           </div>
-          <span className="text-xs font-medium text-primary">{t('AI is operating this browser')}</span>
+          <span className="text-xs font-medium text-primary">
+            {t('AI is operating this browser')}
+          </span>
           <div className="flex-1" />
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
@@ -311,9 +327,7 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
       {/* PDF Toolbar - simplified */}
       {isPdf ? (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card/50">
-          <span className="text-sm text-muted-foreground truncate flex-1">
-            {tab.title}
-          </span>
+          <span className="text-sm text-muted-foreground truncate flex-1">{tab.title}</span>
           <div className="flex items-center gap-0.5">
             {/* Open external button */}
             <button
@@ -380,9 +394,10 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
               className={`
                 flex items-center gap-2 px-3 py-1.5 rounded-full
                 bg-secondary/50 border transition-colors
-                ${isAddressBarFocused
-                  ? 'border-primary/50 bg-secondary'
-                  : 'border-transparent hover:bg-secondary/80'
+                ${
+                  isAddressBarFocused
+                    ? 'border-primary/50 bg-secondary'
+                    : 'border-transparent hover:bg-secondary/80'
                 }
               `}
             >
@@ -452,11 +467,7 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
       )}
 
       {/* Browser Content Area - BrowserView renders here */}
-      <div
-        ref={containerRef}
-        className="flex-1 relative bg-white"
-        style={{ minHeight: '200px' }}
-      >
+      <div ref={containerRef} className="flex-1 relative bg-white" style={{ minHeight: '200px' }}>
         {/* Loading Overlay (only shown during initial load before BrowserView is ready) */}
         {!tab.browserViewId && (
           <div className="absolute inset-0 flex items-center justify-center bg-background">
@@ -471,7 +482,7 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
         {/* This div serves as the positioning target */}
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -481,16 +492,18 @@ export function BrowserViewer({ tab }: BrowserViewerProps) {
 export function BrowserViewerFallback({ tab }: BrowserViewerProps) {
   const openExternal = () => {
     if (tab.url) {
-      window.open(tab.url, '_blank')
+      window.open(tab.url, '_blank');
     }
-  }
+  };
 
   return (
     <div className="flex flex-col h-full bg-background">
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md px-4">
           <Globe className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
-          <h3 className="text-lg font-medium mb-2">{t('Browser features are only available in the desktop client')}</h3>
+          <h3 className="text-lg font-medium mb-2">
+            {t('Browser features are only available in the desktop client')}
+          </h3>
           <p className="text-sm text-muted-foreground mb-4">
             {t('Please use the built-in browser in the AICO-Bot desktop app')}
           </p>
@@ -506,5 +519,5 @@ export function BrowserViewerFallback({ tab }: BrowserViewerProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }

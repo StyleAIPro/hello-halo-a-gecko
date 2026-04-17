@@ -2,17 +2,17 @@
  * InterruptedBubble - Displays when model response was interrupted
  */
 
-import { AlertTriangle, MessageSquare } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { AlertTriangle, MessageSquare } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface InterruptedBubbleProps {
-  error?: string
-  onContinue?: () => void
-  className?: string
+  error?: string;
+  onContinue?: () => void;
+  className?: string;
 }
 
 export function InterruptedBubble({ error, onContinue, className = '' }: InterruptedBubbleProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   return (
     <div className={`flex justify-start animate-fade-in ${className}`}>
@@ -21,14 +21,13 @@ export function InterruptedBubble({ error, onContinue, className = '' }: Interru
           {/* Header with icon and message */}
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
             <AlertTriangle size={16} className="shrink-0" />
-            <span className="text-sm font-medium">
-              {t('Model response interrupted')}
-            </span>
+            <span className="text-sm font-medium">{t('Model response interrupted')}</span>
           </div>
 
           {/* Description */}
           <p className="mt-2 text-sm text-amber-600/80 dark:text-amber-400/80">
-            {error || t('The response was interrupted unexpectedly. You can continue the conversation.')}
+            {error ||
+              t('The response was interrupted unexpectedly. You can continue the conversation.')}
           </p>
 
           {/* Action button */}
@@ -51,5 +50,5 @@ export function InterruptedBubble({ error, onContinue, className = '' }: Interru
         </div>
       </div>
     </div>
-  )
+  );
 }

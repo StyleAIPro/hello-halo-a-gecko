@@ -7,187 +7,212 @@
  * - Environment credentials for remote workers (auto-filled from server config)
  */
 
-import React, { useState, useEffect } from 'react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import { SPACE_ICONS, DEFAULT_SPACE_ICON } from '../../types'
-import type { SpaceIconId } from '../../types'
-import type { AgentConfig } from '../../../shared/types/hyper-space'
-import { Blocks, Plus, Trash2, Users, Cloud, FolderOpen, Monitor, X } from 'lucide-react'
-import { SpaceIcon } from '../icons/ToolIcons'
-import type { RemoteServer } from '../../../shared/types'
+import React, { useState, useEffect } from 'react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import { SPACE_ICONS, DEFAULT_SPACE_ICON } from '../../types';
+import type { SpaceIconId } from '../../types';
+import type { AgentConfig } from '../../../shared/types/hyper-space';
+import { Blocks, Plus, Trash2, Users, Cloud, FolderOpen, Monitor, X } from 'lucide-react';
+import { SpaceIcon } from '../icons/ToolIcons';
+import type { RemoteServer } from '../../../shared/types';
 
 interface HyperSpaceCreationDialogProps {
-  isOpen: boolean
-  onClose: () => void
-  onSuccess: (spaceId: string) => void
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (spaceId: string) => void;
 }
 
-const DEFAULT_LEADER_CAPABILITIES = ['组织', '管理', '任务规划', '项目管理']
-const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化']
+const DEFAULT_LEADER_CAPABILITIES = ['组织', '管理', '任务规划', '项目管理'];
+const DEFAULT_REMOTE_CAPABILITIES = ['NPU操作', '模型推理', '模型训练', 'AI计算优化'];
 const DEFAULT_REMOTE_SYSTEM_PROMPT = `1. 你是一个华为昇腾NPU服务器操作高手，精通各种NPU相关操作命令和模型迁移调优分析方法。
 2. 当需要下载模型时，优先使用中国国内的模型网站，如modelscope
-3. 当需要下载模型或者下载超大文件时，要先分析一下目标目录的剩余空间，不要直接下载`
+3. 当需要下载模型或者下载超大文件时，要先分析一下目标目录的剩余空间，不要直接下载`;
 
-export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSpaceCreationDialogProps) {
-  const { t } = useTranslation()
+export function HyperSpaceCreationDialog({
+  isOpen,
+  onClose,
+  onSuccess,
+}: HyperSpaceCreationDialogProps) {
+  const { t } = useTranslation();
 
   // Form state
-  const [name, setName] = useState('')
-  const [icon, setIcon] = useState<SpaceIconId>(DEFAULT_SPACE_ICON)
-  const [customPath, setCustomPath] = useState<string>('')
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState<SpaceIconId>(DEFAULT_SPACE_ICON);
+  const [customPath, setCustomPath] = useState<string>('');
 
   // Agents configuration
   const [agents, setAgents] = useState<AgentConfig[]>([
-    { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: [...DEFAULT_LEADER_CAPABILITIES] }
-  ])
+    {
+      id: 'leader-1',
+      name: 'Leader',
+      type: 'local',
+      role: 'leader',
+      capabilities: [...DEFAULT_LEADER_CAPABILITIES],
+    },
+  ]);
 
   // Show inline add-worker form
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [newWorkerName, setNewWorkerName] = useState('')
-  const [newWorkerType, setNewWorkerType] = useState<'local' | 'remote'>('local')
-  const [newWorkerServerId, setNewWorkerServerId] = useState('')
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newWorkerName, setNewWorkerName] = useState('');
+  const [newWorkerType, setNewWorkerType] = useState<'local' | 'remote'>('local');
+  const [newWorkerServerId, setNewWorkerServerId] = useState('');
 
   // Remote servers for agent selection
-  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
+  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([]);
 
   // Load remote servers
   useEffect(() => {
     if (isOpen) {
-      api.remoteServerList().then(result => {
+      api.remoteServerList().then((result) => {
         if (result.success && result.data) {
-          setRemoteServers(result.data)
+          setRemoteServers(result.data);
         }
-      })
+      });
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setName('')
-      setIcon(DEFAULT_SPACE_ICON)
-      setCustomPath('')
+      setName('');
+      setIcon(DEFAULT_SPACE_ICON);
+      setCustomPath('');
       setAgents([
-        { id: 'leader-1', name: 'Leader', type: 'local', role: 'leader', capabilities: [...DEFAULT_LEADER_CAPABILITIES] }
-      ])
-      setShowAddForm(false)
-      setNewWorkerName('')
-      setNewWorkerType('local')
-      setNewWorkerServerId('')
+        {
+          id: 'leader-1',
+          name: 'Leader',
+          type: 'local',
+          role: 'leader',
+          capabilities: [...DEFAULT_LEADER_CAPABILITIES],
+        },
+      ]);
+      setShowAddForm(false);
+      setNewWorkerName('');
+      setNewWorkerType('local');
+      setNewWorkerServerId('');
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   // Add worker handler
   const handleAddWorker = () => {
-    const capabilities = newWorkerType === 'remote' ? [...DEFAULT_REMOTE_CAPABILITIES] : []
+    const capabilities = newWorkerType === 'remote' ? [...DEFAULT_REMOTE_CAPABILITIES] : [];
     const newAgent: AgentConfig = {
       id: `worker-${Date.now()}`,
-      name: newWorkerName.trim() || `Worker ${agents.filter(a => a.role === 'worker').length + 1}`,
+      name:
+        newWorkerName.trim() || `Worker ${agents.filter((a) => a.role === 'worker').length + 1}`,
       type: newWorkerType,
       role: 'worker',
       capabilities,
       ...(newWorkerType === 'remote' ? { systemPromptAddition: DEFAULT_REMOTE_SYSTEM_PROMPT } : {}),
-      ...(newWorkerType === 'remote' && newWorkerServerId ? { remoteServerId: newWorkerServerId } : {})
-    }
+      ...(newWorkerType === 'remote' && newWorkerServerId
+        ? { remoteServerId: newWorkerServerId }
+        : {}),
+    };
 
     // Auto-fill environment from server config for remote workers
     if (newWorkerType === 'remote' && newWorkerServerId) {
-      const server = remoteServers.find(s => s.id === newWorkerServerId)
+      const server = remoteServers.find((s) => s.id === newWorkerServerId);
       if (server) {
         newAgent.environment = {
           ip: server.host,
           username: server.username,
           password: server.password || '',
-          port: server.sshPort || 22
-        }
+          port: server.sshPort || 22,
+        };
       }
     }
 
-    setAgents([...agents, newAgent])
-    setShowAddForm(false)
-    setNewWorkerName('')
-    setNewWorkerType('local')
-    setNewWorkerServerId('')
-  }
+    setAgents([...agents, newAgent]);
+    setShowAddForm(false);
+    setNewWorkerName('');
+    setNewWorkerType('local');
+    setNewWorkerServerId('');
+  };
 
   // Remove agent handler (cannot remove leader)
   const handleRemoveAgent = (agentId: string) => {
-    const agent = agents.find(a => a.id === agentId)
-    if (agent?.role === 'leader') return
-    setAgents(agents.filter(a => a.id !== agentId))
-  }
+    const agent = agents.find((a) => a.id === agentId);
+    if (agent?.role === 'leader') return;
+    setAgents(agents.filter((a) => a.id !== agentId));
+  };
 
   // Update agent type with auto-capability management
   const handleUpdateAgentType = (agentId: string, newType: 'local' | 'remote') => {
-    setAgents(agents.map(a => {
-      if (a.id !== agentId) return a
-      const updated = { ...a, type: newType }
-      if (newType === 'remote') {
-        // Auto-fill remote capabilities if currently empty
-        if (!updated.capabilities || updated.capabilities.length === 0) {
-          updated.capabilities = [...DEFAULT_REMOTE_CAPABILITIES]
-        }
-        // Auto-fill system prompt if currently empty
-        if (!updated.systemPromptAddition) {
-          updated.systemPromptAddition = DEFAULT_REMOTE_SYSTEM_PROMPT
-        }
-        if (!updated.remoteServerId) {
-          // Auto-select first remote server if available
-          if (remoteServers.length > 0) {
-            updated.remoteServerId = remoteServers[0].id
-            const server = remoteServers[0]
-            updated.environment = {
-              ip: server.host,
-              username: server.username,
-              password: server.password || '',
-              port: server.sshPort || 22
+    setAgents(
+      agents.map((a) => {
+        if (a.id !== agentId) return a;
+        const updated = { ...a, type: newType };
+        if (newType === 'remote') {
+          // Auto-fill remote capabilities if currently empty
+          if (!updated.capabilities || updated.capabilities.length === 0) {
+            updated.capabilities = [...DEFAULT_REMOTE_CAPABILITIES];
+          }
+          // Auto-fill system prompt if currently empty
+          if (!updated.systemPromptAddition) {
+            updated.systemPromptAddition = DEFAULT_REMOTE_SYSTEM_PROMPT;
+          }
+          if (!updated.remoteServerId) {
+            // Auto-select first remote server if available
+            if (remoteServers.length > 0) {
+              updated.remoteServerId = remoteServers[0].id;
+              const server = remoteServers[0];
+              updated.environment = {
+                ip: server.host,
+                username: server.username,
+                password: server.password || '',
+                port: server.sshPort || 22,
+              };
             }
           }
+        } else {
+          // Switching to local: clear environment and system prompt
+          updated.remoteServerId = undefined;
+          updated.environment = undefined;
+          updated.systemPromptAddition = undefined;
         }
-      } else {
-        // Switching to local: clear environment and system prompt
-        updated.remoteServerId = undefined
-        updated.environment = undefined
-        updated.systemPromptAddition = undefined
-      }
-      return updated
-    }))
-  }
+        return updated;
+      }),
+    );
+  };
 
   // Update agent remote server (auto-fill environment)
   const handleUpdateAgentServer = (agentId: string, serverId: string) => {
-    setAgents(agents.map(a => {
-      if (a.id !== agentId) return a
-      const server = remoteServers.find(s => s.id === serverId)
-      return {
-        ...a,
-        remoteServerId: serverId,
-        environment: server ? {
-          ip: server.host,
-          username: server.username,
-          password: server.password || '',
-          port: server.sshPort || 22
-        } : undefined
-      }
-    }))
-  }
+    setAgents(
+      agents.map((a) => {
+        if (a.id !== agentId) return a;
+        const server = remoteServers.find((s) => s.id === serverId);
+        return {
+          ...a,
+          remoteServerId: serverId,
+          environment: server
+            ? {
+                ip: server.host,
+                username: server.username,
+                password: server.password || '',
+                port: server.sshPort || 22,
+              }
+            : undefined,
+        };
+      }),
+    );
+  };
 
   // Handle folder selection
   const handleSelectFolder = async () => {
-    const res = await api.selectFolder()
+    const res = await api.selectFolder();
     if (res.success && res.data) {
-      setCustomPath(res.data as string)
-      const dirName = (res.data as string).split(/[/\\]/).pop() || ''
+      setCustomPath(res.data as string);
+      const dirName = (res.data as string).split(/[/\\]/).pop() || '';
       if (dirName && !name.trim()) {
-        setName(dirName)
+        setName(dirName);
       }
     }
-  }
+  };
 
   // Submit handler
   const handleSubmit = async () => {
-    if (!name.trim()) return
+    if (!name.trim()) return;
 
     try {
       const result = await api.createHyperSpace({
@@ -195,33 +220,36 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
         icon,
         customPath: customPath || undefined,
         spaceType: 'hyper',
-        agents
-      })
+        agents,
+      });
 
-      console.log('[HyperSpaceDialog] Create result:', result)
+      console.log('[HyperSpaceDialog] Create result:', result);
 
       if (result.success) {
-        const spaceData = (result as any).space || (result as any).data
-        const spaceId = spaceData?.id
+        const spaceData = (result as any).space || (result as any).data;
+        const spaceId = spaceData?.id;
         if (spaceId) {
-          onSuccess(spaceId)
+          onSuccess(spaceId);
         }
-        onClose()
+        onClose();
       } else {
-        console.error('[HyperSpaceDialog] Failed to create:', result.error)
+        console.error('[HyperSpaceDialog] Failed to create:', result.error);
       }
     } catch (error) {
-      console.error('[HyperSpaceDialog] Error creating Hyper Space:', error)
+      console.error('[HyperSpaceDialog] Error creating Hyper Space:', error);
     }
-  }
+  };
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
       <div
         className="relative w-full max-w-2xl mx-4 bg-card border border-border rounded-xl shadow-xl animate-fade-in max-h-[90vh] overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
@@ -372,9 +400,12 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                       <p className="text-xs text-muted-foreground">
                         {t('No remote servers available. Add a remote server first.')}
                       </p>
-                    ) : remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0 ? (
+                    ) : remoteServers.filter((s) => s.sdkInstalled && s.proxyRunning).length ===
+                      0 ? (
                       <p className="text-xs text-amber-500">
-                        {t('No servers with SDK and Bot Proxy ready. Please deploy the agent first.')}
+                        {t(
+                          'No servers with SDK and Bot Proxy ready. Please deploy the agent first.',
+                        )}
                       </p>
                     ) : (
                       <select
@@ -383,11 +414,13 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                         className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
                       >
                         <option value="">{t('Select server...')}</option>
-                        {remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).map((server) => (
-                          <option key={server.id} value={server.id}>
-                            {server.name} ({server.host})
-                          </option>
-                        ))}
+                        {remoteServers
+                          .filter((s) => s.sdkInstalled && s.proxyRunning)
+                          .map((server) => (
+                            <option key={server.id} value={server.id}>
+                              {server.name} ({server.host})
+                            </option>
+                          ))}
                       </select>
                     )}
                   </div>
@@ -397,10 +430,10 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                 <div className="flex gap-2 justify-end">
                   <button
                     onClick={() => {
-                      setShowAddForm(false)
-                      setNewWorkerName('')
-                      setNewWorkerType('local')
-                      setNewWorkerServerId('')
+                      setShowAddForm(false);
+                      setNewWorkerName('');
+                      setNewWorkerType('local');
+                      setNewWorkerServerId('');
                     }}
                     className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >
@@ -408,7 +441,11 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                   </button>
                   <button
                     onClick={handleAddWorker}
-                    disabled={newWorkerType === 'remote' && (!newWorkerServerId || remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0)}
+                    disabled={
+                      newWorkerType === 'remote' &&
+                      (!newWorkerServerId ||
+                        remoteServers.filter((s) => s.sdkInstalled && s.proxyRunning).length === 0)
+                    }
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
                     {t('Add')}
@@ -420,20 +457,31 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
             {/* Agent Cards */}
             <div className="space-y-3">
               {agents.map((agent) => (
-                <div key={agent.id} className="p-4 bg-secondary/30 rounded-lg border border-border space-y-3">
+                <div
+                  key={agent.id}
+                  className="p-4 bg-secondary/30 rounded-lg border border-border space-y-3"
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        agent.role === 'leader'
-                          ? 'bg-purple-500/20 text-purple-500'
-                          : 'bg-blue-500/20 text-blue-500'
-                      }`}>
+                      <span
+                        className={`px-2 py-0.5 text-xs rounded-full ${
+                          agent.role === 'leader'
+                            ? 'bg-purple-500/20 text-purple-500'
+                            : 'bg-blue-500/20 text-blue-500'
+                        }`}
+                      >
                         {t(agent.role)}
                       </span>
                       <input
                         type="text"
                         value={agent.name}
-                        onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? { ...a, name: e.target.value } : a))}
+                        onChange={(e) =>
+                          setAgents(
+                            agents.map((a) =>
+                              a.id === agent.id ? { ...a, name: e.target.value } : a,
+                            ),
+                          )
+                        }
                         className="text-sm font-medium bg-transparent border-none focus:outline-none"
                         placeholder={t('Agent Name')}
                       />
@@ -488,9 +536,12 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                         <p className="text-xs text-muted-foreground">
                           {t('No remote servers available. Add a remote server first.')}
                         </p>
-                      ) : remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).length === 0 ? (
+                      ) : remoteServers.filter((s) => s.sdkInstalled && s.proxyRunning).length ===
+                        0 ? (
                         <p className="text-xs text-amber-500">
-                          {t('No servers with SDK and Bot Proxy ready. Please deploy the agent first.')}
+                          {t(
+                            'No servers with SDK and Bot Proxy ready. Please deploy the agent first.',
+                          )}
                         </p>
                       ) : (
                         <select
@@ -499,20 +550,32 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                           className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg"
                         >
                           <option value="">{t('Select server...')}</option>
-                          {remoteServers.filter(s => s.sdkInstalled && s.proxyRunning).map((server) => (
-                            <option key={server.id} value={server.id}>
-                              {server.name} ({server.host})
-                            </option>
-                          ))}
+                          {remoteServers
+                            .filter((s) => s.sdkInstalled && s.proxyRunning)
+                            .map((server) => (
+                              <option key={server.id} value={server.id}>
+                                {server.name} ({server.host})
+                              </option>
+                            ))}
                         </select>
                       )}
 
                       {/* Environment Info (read-only) */}
                       {agent.environment && (
                         <div className="px-3 py-2 bg-secondary rounded-md text-xs text-muted-foreground space-y-0.5">
-                          <div>{t('Server')}: {agent.environment.ip}{agent.environment.port && agent.environment.port !== 22 ? `:${agent.environment.port}` : ''}</div>
-                          <div>{t('User')}: {agent.environment.username}</div>
-                          <div>{t('Password')}: {'*'.repeat(Math.min((agent.environment.password || '').length, 8))}</div>
+                          <div>
+                            {t('Server')}: {agent.environment.ip}
+                            {agent.environment.port && agent.environment.port !== 22
+                              ? `:${agent.environment.port}`
+                              : ''}
+                          </div>
+                          <div>
+                            {t('User')}: {agent.environment.username}
+                          </div>
+                          <div>
+                            {t('Password')}:{' '}
+                            {'*'.repeat(Math.min((agent.environment.password || '').length, 8))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -526,13 +589,26 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                     <input
                       type="text"
                       value={agent.capabilities?.join(', ') || ''}
-                      onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? {
-                        ...a,
-                        capabilities: e.target.value.split(',').map(c => c.trim()).filter(Boolean)
-                      } : a))}
-                      placeholder={agent.role === 'leader'
-                        ? '组织, 管理, 任务规划, 项目管理'
-                        : 'code, testing, documentation'}
+                      onChange={(e) =>
+                        setAgents(
+                          agents.map((a) =>
+                            a.id === agent.id
+                              ? {
+                                  ...a,
+                                  capabilities: e.target.value
+                                    .split(',')
+                                    .map((c) => c.trim())
+                                    .filter(Boolean),
+                                }
+                              : a,
+                          ),
+                        )
+                      }
+                      placeholder={
+                        agent.role === 'leader'
+                          ? '组织, 管理, 任务规划, 项目管理'
+                          : 'code, testing, documentation'
+                      }
                       className="w-full px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg"
                     />
                   </div>
@@ -540,15 +616,21 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
                   {/* System Prompt (only for remote workers) */}
                   {agent.type === 'remote' && (
                     <div className="space-y-1.5">
-                      <label className="text-xs text-muted-foreground">
-                        {t('System Prompt')}
-                      </label>
+                      <label className="text-xs text-muted-foreground">{t('System Prompt')}</label>
                       <textarea
                         value={agent.systemPromptAddition || ''}
-                        onChange={(e) => setAgents(agents.map(a => a.id === agent.id ? {
-                          ...a,
-                          systemPromptAddition: e.target.value
-                        } : a))}
+                        onChange={(e) =>
+                          setAgents(
+                            agents.map((a) =>
+                              a.id === agent.id
+                                ? {
+                                    ...a,
+                                    systemPromptAddition: e.target.value,
+                                  }
+                                : a,
+                            ),
+                          )
+                        }
                         placeholder={t('Custom instructions for the remote AI agent...')}
                         rows={3}
                         className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary resize-y"
@@ -579,5 +661,5 @@ export function HyperSpaceCreationDialog({ isOpen, onClose, onSuccess }: HyperSp
         </div>
       </div>
     </div>
-  )
+  );
 }
