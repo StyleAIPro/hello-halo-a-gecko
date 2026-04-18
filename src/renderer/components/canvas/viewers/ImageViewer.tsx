@@ -9,118 +9,121 @@
  * - Window maximize for fullscreen viewing
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { ZoomIn, ZoomOut, Maximize, ExternalLink, Download, RotateCw } from 'lucide-react'
-import { api } from '../../../api'
-import type { CanvasTab } from '../../../stores/canvas.store'
-import { useTranslation } from '../../../i18n'
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { ZoomIn, ZoomOut, Maximize, ExternalLink, Download, RotateCw } from 'lucide-react';
+import { api } from '../../../api';
+import type { CanvasTab } from '../../../stores/canvas.store';
+import { useTranslation } from '../../../i18n';
 
 interface ImageViewerProps {
-  tab: CanvasTab
+  tab: CanvasTab;
 }
 
 export function ImageViewer({ tab }: ImageViewerProps) {
-  const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-  const [imageLoaded, setImageLoaded] = useState(false)
-  const [imageError, setImageError] = useState(false)
-  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 })
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
 
   // Get image URL
   // Priority: aico-bot-file:// (custom protocol, fast) > remote download > base64 fallback
   const imageUrl = tab.path
-    ? (api.isRemoteMode()
-        ? api.getArtifactDownloadUrl(tab.path)
-        : `aico-bot-file://${tab.path}`)
+    ? api.isRemoteMode()
+      ? api.getArtifactDownloadUrl(tab.path)
+      : `aico-bot-file://${tab.path}`
     : tab.content
       ? `data:${tab.mimeType || 'image/png'};base64,${tab.content}`
-      : ''
+      : '';
 
   // Reset view when tab changes
   useEffect(() => {
-    setScale(1)
-    setPosition({ x: 0, y: 0 })
-    setImageLoaded(false)
-    setImageError(false)
-  }, [tab.id])
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    setImageLoaded(false);
+    setImageError(false);
+  }, [tab.id]);
 
   // Zoom functions
-  const zoomIn = () => setScale(s => Math.min(s * 1.25, 5))
-  const zoomOut = () => setScale(s => Math.max(s / 1.25, 0.1))
+  const zoomIn = () => setScale((s) => Math.min(s * 1.25, 5));
+  const zoomOut = () => setScale((s) => Math.max(s / 1.25, 0.1));
   const resetZoom = () => {
-    setScale(1)
-    setPosition({ x: 0, y: 0 })
-  }
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+  };
   const fitToWindow = () => {
-    if (!containerRef.current || !naturalSize.width) return
-    const container = containerRef.current
-    const containerWidth = container.clientWidth - 48
-    const containerHeight = container.clientHeight - 48
-    const scaleX = containerWidth / naturalSize.width
-    const scaleY = containerHeight / naturalSize.height
-    setScale(Math.min(scaleX, scaleY, 1))
-    setPosition({ x: 0, y: 0 })
-  }
+    if (!containerRef.current || !naturalSize.width) return;
+    const container = containerRef.current;
+    const containerWidth = container.clientWidth - 48;
+    const containerHeight = container.clientHeight - 48;
+    const scaleX = containerWidth / naturalSize.width;
+    const scaleY = containerHeight / naturalSize.height;
+    setScale(Math.min(scaleX, scaleY, 1));
+    setPosition({ x: 0, y: 0 });
+  };
 
   // Handle wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setScale(s => Math.max(0.1, Math.min(5, s * delta)))
-  }, [])
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setScale((s) => Math.max(0.1, Math.min(5, s * delta)));
+  }, []);
 
   // Handle drag
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return
-    setIsDragging(true)
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y })
-  }
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+  };
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return
-    setPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    })
-  }, [isDragging, dragStart])
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDragging) return;
+      setPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    },
+    [isDragging, dragStart],
+  );
 
-  const handleMouseUp = () => setIsDragging(false)
+  const handleMouseUp = () => setIsDragging(false);
 
   // Download image
   const handleDownload = () => {
     if (tab.path) {
-      api.downloadArtifact(tab.path)
+      api.downloadArtifact(tab.path);
     }
-  }
+  };
 
   // Open with external application
   const handleOpenExternal = async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
     try {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } catch (err) {
-      console.error('Failed to open with external app:', err)
+      console.error('Failed to open with external app:', err);
     }
-  }
+  };
 
-  const canOpenExternal = !api.isRemoteMode() && tab.path
+  const canOpenExternal = !api.isRemoteMode() && tab.path;
 
   // Image load handlers
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget
-    setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight })
-    setImageLoaded(true)
-    setImageError(false)
-  }
+    const img = e.currentTarget;
+    setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+    setImageLoaded(true);
+    setImageError(false);
+  };
 
   const handleImageError = () => {
-    setImageError(true)
-    setImageLoaded(false)
-  }
+    setImageError(true);
+    setImageLoaded(false);
+  };
 
   return (
     <div className="relative flex flex-col h-full bg-[#1a1a1a]">
@@ -129,7 +132,9 @@ export function ImageViewer({ tab }: ImageViewerProps) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {imageLoaded && (
             <>
-              <span>{naturalSize.width} × {naturalSize.height}</span>
+              <span>
+                {naturalSize.width} × {naturalSize.height}
+              </span>
               <span className="text-muted-foreground/50">·</span>
               <span>{Math.round(scale * 100)}%</span>
             </>
@@ -245,5 +250,5 @@ export function ImageViewer({ tab }: ImageViewerProps) {
         }
       `}</style>
     </div>
-  )
+  );
 }

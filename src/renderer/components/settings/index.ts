@@ -4,27 +4,27 @@
  */
 
 // Types
-export * from './types'
+export * from './types';
 
 // Navigation
-export * from './nav-config'
-export { SettingsNav, scrollToSection } from './SettingsNav'
+export * from './nav-config';
+export { SettingsNav, scrollToSection } from './SettingsNav';
 
 // Section Components (v2)
-export { AISourcesSection } from './AISourcesSection'
-export { ProviderSelector } from './ProviderSelector'
-export { AppearanceSection } from './AppearanceSection'
-export { SystemSection } from './SystemSection'
-export { RemoteAccessSection } from './RemoteAccessSection'
-export { AboutSection } from './AboutSection'
-export { RegistrySection } from './RegistrySection'
+export { AISourcesSection } from './AISourcesSection';
+export { ProviderSelector } from './ProviderSelector';
+export { AppearanceSection } from './AppearanceSection';
+export { SystemSection } from './SystemSection';
+export { RemoteAccessSection } from './RemoteAccessSection';
+export { AboutSection } from './AboutSection';
+export { RegistrySection } from './RegistrySection';
 
 // Existing Components
-export { McpServerList } from './McpServerList'
-export { RemoteServersSection } from './RemoteServersSection'
+export { McpServerList } from './McpServerList';
+export { RemoteServersSection } from './RemoteServersSection';
 
 // GitHub Integration
-export { GitHubSection } from './GitHubSection'
+export { GitHubSection } from './GitHubSection';
 
 // GitCode Integration
-export { GitCodeSection } from './GitCodeSection'
+export { GitCodeSection } from './GitCodeSection';

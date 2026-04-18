@@ -8,33 +8,33 @@
  * Uses the same tool() + createSdkMcpServer() pattern as platform/memory/tools.ts.
  */
 
-import { z } from 'zod'
-import { randomUUID } from 'crypto'
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
-import type { ActivityStore } from './store'
-import type { ActivityEntryType, ActivityEntryContent } from './types'
-import { broadcastToAll } from '../../http/websocket'
-import { sendToRenderer } from '../../services/window.service'
-import { notifyAppEvent } from '../../services/notification.service'
+import { z } from 'zod';
+import { randomUUID } from 'crypto';
+import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
+import type { ActivityStore } from './store';
+import type { ActivityEntryType, ActivityEntryContent } from './types';
+import { broadcastToAll } from '../../http/websocket';
+import { sendToRenderer } from '../../services/window.service';
+import { notifyAppEvent } from '../../services/notification.service';
 
 // ============================================
 // Types
 // ============================================
 
-type SdkMcpServer = ReturnType<typeof createSdkMcpServer>
+type SdkMcpServer = ReturnType<typeof createSdkMcpServer>;
 
 /** Context for a specific run (passed when creating the tool) */
 export interface ReportToolContext {
-  appId: string
-  appName: string
-  runId: string
-  sessionKey: string
+  appId: string;
+  appName: string;
+  runId: string;
+  sessionKey: string;
   /** Notification level: 'all' | 'important' | 'none'. Defaults to 'important'. */
-  notificationLevel?: 'all' | 'important' | 'none'
+  notificationLevel?: 'all' | 'important' | 'none';
 }
 
 /** Callback invoked when an escalation entry is created */
-export type OnEscalation = (entryId: string) => void
+export type OnEscalation = (entryId: string) => void;
 
 // ============================================
 // Tool Text Helper
@@ -44,7 +44,7 @@ function textResult(text: string, isError = false) {
   return {
     content: [{ type: 'text' as const, text }],
     ...(isError ? { isError: true } : {}),
-  }
+  };
 }
 
 // ============================================
@@ -62,87 +62,92 @@ function textResult(text: string, isError = false) {
 export function createReportToolServer(
   store: ActivityStore,
   runContext: ReportToolContext,
-  onEscalation?: OnEscalation
+  onEscalation?: OnEscalation,
 ): SdkMcpServer {
   const reportTool = tool(
     'report_to_user',
     'Write an entry to the Activity Thread so the user knows what happened. ' +
-    'ALWAYS call this at the end of every execution.\n\n' +
-    'Example call: { "type": "run_complete", "summary": "💧 Time to drink water! Stay hydrated." }\n\n' +
-    'type values:\n' +
-    '- "run_complete": Task finished (use this most of the time)\n' +
-    '- "run_skipped": Nothing to do this time\n' +
-    '- "milestone": Important finding mid-task\n' +
-    '- "escalation": Need user decision before continuing\n' +
-    '- "output": Produced a file or report\n\n' +
-    'For escalation: also provide "question" field. After escalation, stop execution.',
+      'ALWAYS call this at the end of every execution.\n\n' +
+      'Example call: { "type": "run_complete", "summary": "💧 Time to drink water! Stay hydrated." }\n\n' +
+      'type values:\n' +
+      '- "run_complete": Task finished (use this most of the time)\n' +
+      '- "run_skipped": Nothing to do this time\n' +
+      '- "milestone": Important finding mid-task\n' +
+      '- "escalation": Need user decision before continuing\n' +
+      '- "output": Produced a file or report\n\n' +
+      'For escalation: also provide "question" field. After escalation, stop execution.',
     {
-      type: z.enum([
+      type: z
+        .enum(['run_complete', 'run_skipped', 'milestone', 'escalation', 'output'])
+        .describe(
+          'Entry type. Use "run_complete" for normal task completion. REQUIRED — must be one of the listed values.',
+        ),
+      summary: z
+        .string()
+        .describe(
+          'REQUIRED. The actual content to show the user. Write what happened, be specific. ' +
+            'Example: "💧 Drink water reminder: Stay hydrated! It\'s been 1 hour since your last reminder." ' +
+            'Do NOT leave this empty or generic.',
+        ),
+      data: z
+        .record(z.unknown())
+        .optional()
+        .describe('Optional structured data (tables, lists) for rich rendering.'),
+      question: z
+        .string()
+        .optional()
+        .describe('Only for escalation: the question to ask the user.'),
+      choices: z
+        .array(z.string())
+        .optional()
+        .describe('Only for escalation: preset answer choices (user can also type freely).'),
+    },
+    async (input) => {
+      const entryId = randomUUID();
+      const now = Date.now();
+      const runTag = runContext.runId.slice(0, 8);
+
+      // DEBUG: dump raw input to diagnose SDK tool input delivery
+      console.log(`[Runtime][${runTag}] report_to_user RAW input: ${JSON.stringify(input)}`);
+
+      // Defensive defaults: SDK tool() does not enforce Zod at runtime,
+      // non-Anthropic models may omit required fields.
+      const VALID_TYPES = [
         'run_complete',
         'run_skipped',
         'milestone',
         'escalation',
         'output',
-      ]).describe(
-        'Entry type. Use "run_complete" for normal task completion. REQUIRED — must be one of the listed values.'
-      ),
-      summary: z.string().describe(
-        'REQUIRED. The actual content to show the user. Write what happened, be specific. ' +
-        'Example: "💧 Drink water reminder: Stay hydrated! It\'s been 1 hour since your last reminder." ' +
-        'Do NOT leave this empty or generic.'
-      ),
-      data: z.record(z.unknown()).optional().describe(
-        'Optional structured data (tables, lists) for rich rendering.'
-      ),
-      question: z.string().optional().describe(
-        'Only for escalation: the question to ask the user.'
-      ),
-      choices: z.array(z.string()).optional().describe(
-        'Only for escalation: preset answer choices (user can also type freely).'
-      ),
-    },
-    async (input) => {
-      const entryId = randomUUID()
-      const now = Date.now()
-      const runTag = runContext.runId.slice(0, 8)
-
-      // DEBUG: dump raw input to diagnose SDK tool input delivery
-      console.log(
-        `[Runtime][${runTag}] report_to_user RAW input: ${JSON.stringify(input)}`
-      )
-
-      // Defensive defaults: SDK tool() does not enforce Zod at runtime,
-      // non-Anthropic models may omit required fields.
-      const VALID_TYPES = ['run_complete', 'run_skipped', 'milestone', 'escalation', 'output'] as const
+      ] as const;
       const safeType = (VALID_TYPES as readonly string[]).includes(input.type)
         ? input.type
-        : 'run_complete'
-      const safeSummary = input.summary ?? 'Task completed.'
+        : 'run_complete';
+      const safeSummary = input.summary ?? 'Task completed.';
 
-      const summaryPreview = safeSummary.slice(0, 80)
+      const summaryPreview = safeSummary.slice(0, 80);
       console.log(
         `[Runtime][${runTag}] report_to_user called: type=${safeType}${input.type !== safeType ? ` (original: ${input.type})` : ''}, ` +
-        `summary="${summaryPreview}"` +
-        (input.question ? `, question="${input.question.slice(0, 60)}"` : '') +
-        (input.choices ? `, choices=${input.choices.length}` : '')
-      )
+          `summary="${summaryPreview}"` +
+          (input.question ? `, question="${input.question.slice(0, 60)}"` : '') +
+          (input.choices ? `, choices=${input.choices.length}` : ''),
+      );
 
       // Build content
       const content: ActivityEntryContent = {
         summary: safeSummary,
-      }
+      };
 
       // Map type to status
       if (safeType === 'run_complete') {
-        content.status = 'ok'
+        content.status = 'ok';
       } else if (safeType === 'run_skipped') {
-        content.status = 'skipped'
+        content.status = 'skipped';
       }
 
       // Optional fields
-      if (input.data) content.data = input.data
-      if (input.question) content.question = input.question
-      if (input.choices) content.choices = input.choices
+      if (input.data) content.data = input.data;
+      if (input.question) content.question = input.question;
+      if (input.choices) content.choices = input.choices;
 
       // Persist the entry
       try {
@@ -154,13 +159,18 @@ export function createReportToolServer(
           ts: now,
           sessionKey: runContext.sessionKey,
           content,
-        })
+        });
       } catch (err) {
-        console.error('[Runtime] Failed to insert activity entry:', err)
-        return textResult(`Failed to save report: ${err instanceof Error ? err.message : String(err)}`, true)
+        console.error('[Runtime] Failed to insert activity entry:', err);
+        return textResult(
+          `Failed to save report: ${err instanceof Error ? err.message : String(err)}`,
+          true,
+        );
       }
 
-      console.log(`[Runtime][${runTag}] Activity entry created: type=${safeType}, app=${runContext.appId}, entry=${entryId}`)
+      console.log(
+        `[Runtime][${runTag}] Activity entry created: type=${safeType}, app=${runContext.appId}, entry=${entryId}`,
+      );
 
       // Broadcast the new activity entry to all connected remote clients
       const entry = {
@@ -171,25 +181,29 @@ export function createReportToolServer(
         ts: now,
         sessionKey: runContext.sessionKey,
         content,
-      }
-      broadcastToAll('app:activity_entry:new', { appId: runContext.appId, entry: entry as Record<string, unknown> })
-      sendToRenderer('app:activity_entry:new', { appId: runContext.appId, entry })
+      };
+      broadcastToAll('app:activity_entry:new', {
+        appId: runContext.appId,
+        entry: entry as Record<string, unknown>,
+      });
+      sendToRenderer('app:activity_entry:new', { appId: runContext.appId, entry });
 
       // Send system desktop notification based on notification level
-      const level = runContext.notificationLevel ?? 'important'
+      const level = runContext.notificationLevel ?? 'important';
       const shouldNotify =
         level === 'all' ||
-        (level === 'important' && (safeType === 'escalation' || safeType === 'milestone' || safeType === 'output'))
+        (level === 'important' &&
+          (safeType === 'escalation' || safeType === 'milestone' || safeType === 'output'));
       if (shouldNotify) {
         notifyAppEvent(runContext.appName, safeSummary, {
           appId: runContext.appId,
-        })
+        });
       }
 
       // Handle escalation
       if (safeType === 'escalation') {
         if (onEscalation) {
-          onEscalation(entryId)
+          onEscalation(entryId);
         }
 
         // Broadcast escalation event for real-time UI update
@@ -198,28 +212,28 @@ export function createReportToolServer(
           entryId,
           question: input.question ?? content.summary,
           choices: input.choices ?? [],
-        })
+        });
         sendToRenderer('app:escalation:new', {
           appId: runContext.appId,
           entryId,
           question: input.question ?? content.summary,
           choices: input.choices ?? [],
-        })
+        });
 
         return textResult(
           `Escalation sent to user (entry: ${entryId}). ` +
-          'The user has been notified. End this run now — you will be ' +
-          'resumed with the user\'s response in a follow-up execution.'
-        )
+            'The user has been notified. End this run now — you will be ' +
+            "resumed with the user's response in a follow-up execution.",
+        );
       }
 
-      return textResult(`Report saved (entry: ${entryId}).`)
-    }
-  )
+      return textResult(`Report saved (entry: ${entryId}).`);
+    },
+  );
 
   return createSdkMcpServer({
     name: 'aico-bot-report',
     version: '1.0.0',
     tools: [reportTool],
-  })
+  });
 }

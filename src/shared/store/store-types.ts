@@ -8,7 +8,7 @@
  * It is included in the renderer (web) tsconfig.
  */
 
-import type { AppType } from '../apps/spec-types'
+import type { AppType } from '../apps/spec-types';
 
 // ============================================
 // Registry Source Configuration
@@ -17,15 +17,15 @@ import type { AppType } from '../apps/spec-types'
 /** A configured registry source */
 export interface RegistrySource {
   /** Unique identifier */
-  id: string
+  id: string;
   /** Display name */
-  name: string
+  name: string;
   /** Base URL for fetching index.json and packages */
-  url: string
+  url: string;
   /** Whether this registry is enabled */
-  enabled: boolean
+  enabled: boolean;
   /** Whether this is the built-in official registry (cannot be deleted) */
-  isDefault?: boolean
+  isDefault?: boolean;
 }
 
 // ============================================
@@ -35,68 +35,68 @@ export interface RegistrySource {
 /** Top-level structure of index.json */
 export interface RegistryIndex {
   /** Index format version */
-  version: number
+  version: number;
   /** ISO timestamp when the index was generated */
-  generated_at: string
+  generated_at: string;
   /** Registry source identifier URL */
-  source: string
+  source: string;
   /** List of available apps */
-  apps: RegistryEntry[]
+  apps: RegistryEntry[];
 }
 
 /** A single app entry in the registry index */
 export interface RegistryEntry {
   // Identity
   /** URL-safe unique identifier */
-  slug: string
+  slug: string;
   /** Display name */
-  name: string
+  name: string;
   /** Current version (semver) */
-  version: string
+  version: string;
   /** Author name */
-  author: string
+  author: string;
   /** Short description */
-  description: string
+  description: string;
   /** App type */
-  type: AppType
+  type: AppType;
 
   // Distribution
   /** Package format (bundle-only; minimum bundle is a folder with spec.yaml) */
-  format: 'bundle'
+  format: 'bundle';
   /** Relative bundle directory path within the registry */
-  path: string
+  path: string;
   /** Absolute download URL (for non-Git sources) */
-  download_url?: string
+  download_url?: string;
   /** Package size in bytes */
-  size_bytes?: number
+  size_bytes?: number;
   /** Integrity checksum (sha256:...) */
-  checksum?: string
+  checksum?: string;
 
   // Discovery
   /** Primary category */
-  category: string
+  category: string;
   /** Free-form tags */
-  tags: string[]
+  tags: string[];
   /** Icon (emoji or URL) */
-  icon?: string
+  icon?: string;
   /** Primary locale (BCP 47) */
-  locale?: string
+  locale?: string;
 
   // Compatibility
   /** Minimum client version required */
-  min_app_version?: string
+  min_app_version?: string;
 
   // Dependency summary (for display without fetching full spec)
   /** Required MCP IDs */
-  requires_mcps?: string[]
+  requires_mcps?: string[];
   /** Required Skill IDs */
-  requires_skills?: string[]
+  requires_skills?: string[];
 
   // Timestamps
   /** ISO timestamp when first published */
-  created_at?: string
+  created_at?: string;
   /** ISO timestamp of last update */
-  updated_at?: string
+  updated_at?: string;
 
   /**
    * Locale-specific name and description overrides.
@@ -109,7 +109,7 @@ export interface RegistryEntry {
    * Full config_schema overrides (labels, placeholders, option labels) are only
    * available after fetching the complete spec.
    */
-  i18n?: Record<string, { name?: string; description?: string }>
+  i18n?: Record<string, { name?: string; description?: string }>;
 
   /**
    * Implementation-defined extension data.
@@ -121,7 +121,7 @@ export interface RegistryEntry {
    * Registry publishers and client implementations may use this field
    * freely for custom metadata without affecting protocol compatibility.
    */
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown>;
 }
 
 // ============================================
@@ -131,15 +131,15 @@ export interface RegistryEntry {
 /** Query parameters for listing store apps */
 export interface StoreQuery {
   /** Free-text search (matches name, description, tags, and locale overrides when locale is provided) */
-  search?: string
+  search?: string;
   /** Preferred UI locale (BCP 47), used for localized search matching */
-  locale?: string
+  locale?: string;
   /** Filter by category */
-  category?: string
+  category?: string;
   /** Filter by app type */
-  type?: AppType
+  type?: AppType;
   /** Filter by tags */
-  tags?: string[]
+  tags?: string[];
 }
 
 // ============================================
@@ -149,11 +149,11 @@ export interface StoreQuery {
 /** Full detail for a single store app (entry + resolved spec) */
 export interface StoreAppDetail {
   /** Registry entry metadata */
-  entry: RegistryEntry
+  entry: RegistryEntry;
   /** Full AppSpec (fetched on demand) */
-  spec: import('../apps/spec-types').AppSpec
+  spec: import('../apps/spec-types').AppSpec;
   /** Which registry source this came from */
-  registryId: string
+  registryId: string;
 }
 
 // ============================================
@@ -163,13 +163,13 @@ export interface StoreAppDetail {
 /** Information about an available update for an installed app */
 export interface UpdateInfo {
   /** Installed app ID */
-  appId: string
+  appId: string;
   /** Currently installed version */
-  currentVersion: string
+  currentVersion: string;
   /** Latest available version */
-  latestVersion: string
+  latestVersion: string;
   /** Registry entry for the latest version */
-  entry: RegistryEntry
+  entry: RegistryEntry;
 }
 
 // ============================================
@@ -186,17 +186,17 @@ export const STORE_CATEGORIES = [
   'data',
   'social',
   'other',
-] as const
+] as const;
 
-export type StoreCategory = typeof STORE_CATEGORIES[number]
+export type StoreCategory = (typeof STORE_CATEGORIES)[number];
 
 /** Category display metadata */
 export interface StoreCategoryMeta {
-  id: StoreCategory
+  id: StoreCategory;
   /** i18n key for the display label */
-  labelKey: string
+  labelKey: string;
   /** Emoji icon for the category */
-  icon: string
+  icon: string;
 }
 
 /** Category metadata for UI rendering */
@@ -209,4 +209,4 @@ export const STORE_CATEGORY_META: StoreCategoryMeta[] = [
   { id: 'data', labelKey: 'Data', icon: '📊' },
   { id: 'social', labelKey: 'Social', icon: '💬' },
   { id: 'other', labelKey: 'Other', icon: '📦' },
-]
+];

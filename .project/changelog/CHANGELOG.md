@@ -3,12 +3,31 @@
 ## [Unreleased]
 
 ### Fixed
+- BUG-003: SDK 安装命令模板字符串未插值导致安装错误版本（3 处 npm install 单引号字符串未插值 `${REQUIRED_SDK_VERSION}`，远程安装了最新版而非指定版本） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-sdk-version-interpolation-v1.md`
+- BUG-004: checkAgentInstalled 未做版本精确匹配导致 UI 状态错误（只检查 SDK 是否安装不检查版本号，安装错误版本后 UI 仍显示绿色正常） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-sdk-version-check-v1.md`
+- BUG-002: 远程 WebSocket 认证 token 不一致导致连接失败（`createWsClient` 中 `authToken` 使用 `server.password` 而非 `server.authToken`） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-ws-auth-token-mismatch-v1.md`
+- BUG-003: Windows 删除空间 EBUSY (resource busy or locked) — `closeSessionsBySpaceId()` 改为 async 等待 SDK 子进程退出，`deleteSpace()` 增加重试次数和退避延迟 — `src/main/services/agent/session-manager.ts`、`src/main/services/space.service.ts` — PRD: `prd/bugfix/space/bugfix-space-delete-ebusy-v1.md`
+- BUG-002: 第二条消息卡死在思考状态（SDK turn injection patch 的 `send()` 守卫条件 `firstResultReceived` → `_continueAfterResult`） — `src/main/services/agent/sdk-turn-injection-patch.ts` — PRD: `prd/bugfix/agent/bugfix-second-message-stuck-v1.md`
+- 远程 Proxy 中途发消息 interrupt + SDK 注入导致 SDK 内部错误，改为纯队列存储等待 streamChat 自然完成 — PRD: `prd/bugfix/remote-agent/bugfix-remote-queue-interrupt-v1`
+- 中途发消息 interrupt + SDK patch 消息注入导致 SDK 内部消息处理错误，回退为排队等待自然完成方案 — PRD: `prd/module/agent/unified-sdk-patch-v1`
+- BUG-001: 停止生成按钮导致无限加载（drain 循环窃取 stream 消息 + 前端缺少安全超时） — `src/main/services/agent/control.ts`、`src/renderer/stores/chat.store.ts` — modules/agent/features/stream-processing/bugfix.md
+- BUG-001: 远程 Proxy 健康状态不实时更新 — `src/main/services/remote-deploy/remote-deploy.service.ts`、`src/renderer/components/settings/RemoteServersSection.tsx` — modules/remote-agent/features/remote-deploy/bugfix.md
 - BUG-001: AskUserQuestion 工具导致 Bot 卡死 — `src/main/services/agent/permission-handler.ts`、`src/renderer/stores/chat.store.ts`
 - BUG-001: MAX_IMAGES 未定义导致 InputArea 崩溃 — `src/renderer/hooks/useImageAttachments.ts`、`src/renderer/components/chat/InputArea.tsx`
 - BUG-001: sessionId 未定义导致 sendMessage 崩溃 — `src/main/services/agent/session-manager.ts`
+- BUG-001: dev/packaged 多实例共享远端 proxy 时 auth token 冲突（401 认证失败） — `packages/remote-agent-proxy/src/server.ts`、`src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: connectServer 重连后不检测代理状态，UI 错误显示"Bot 代理已停止" — `src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: Windows 下 tar 命令因反斜杠路径失败导致远程部署不可用 — `src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: startAgent pgrep 误判代理已运行导致更新后代理未启动 — `src/main/services/remote-deploy/remote-deploy.service.ts`
+- BUG-001: 更新 AI 源配置后主题被重置为浅色 — `src/renderer/hooks/useAISources.ts`、`src/renderer/components/settings/AISourcesSection.tsx` — modules/ai-sources/features/source-manager/bugfix.md
 
 ### Added
+- 统一 SDK 版本常量管理（`src/shared/constants/sdk.ts` → `CLAUDE_AGENT_SDK_VERSION`），清理 0.2.87 遗留 patch/tgz，记录 SDK Patch 机制到 remote-deploy 设计文档 — PRD: `prd/bugfix/remote-agent/unified-sdk-version-config-v1`
+- 统一 SDK Patch 脚本（`scripts/patch-sdk.mjs`），10 个补丁覆盖选项转发 + 轮级消息注入，本地和远端共用 — PRD: `prd/module/agent/unified-sdk-patch-v1`
+- 本地启动时执行 SDK Patch（`src/main/bootstrap/essential.ts`），确保选项转发（cwd/systemPrompt 等）生效
+- 统一中途发消息流程：本地和远端均在 isGenerating 时将消息入队等待自然完成，由 handleAgentComplete 检测队列后发送下一条（补丁 7-11 保留但不再用于此流程）
 - 文档模块：skill（3 功能）、terminal（2 功能）、health（2 功能）、ai-sources（2 功能）、settings（3 功能）、onboarding（2 功能） — `.project/modules/`
+- 文档模块：openai-compat-router（4 功能：protocol-conversion, stream-pipeline, request-routing, interceptors） — `.project/modules/openai-compat-router/`
 - 功能文档：chat/canvas、chat/search、chat/artifact、ai-browser/electron-browser-view — `.project/modules/chat/features/`、`.project/modules/ai-browser/features/`
 - 填充 6 个现有模块的「功能列表」表 — `.project/modules/*/`
 - Remote Agent 独立详解文档（架构全景、通信协议、部署架构、消息流、故障排查） — `docs/remote-agent-guide.md`

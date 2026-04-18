@@ -34,8 +34,8 @@ export {
   onAgentError,
   onProcessExit,
   onRendererCrash,
-  onRendererUnresponsive
-} from './orchestrator'
+  onRendererUnresponsive,
+} from './orchestrator';
 
 // ============================================
 // Process Guardian
@@ -63,8 +63,8 @@ export {
   getRunningAicoBotProcesses,
 
   // Platform operations
-  getPlatformOps
-} from './process-guardian'
+  getPlatformOps,
+} from './process-guardian';
 
 // ============================================
 // Health Checker
@@ -106,8 +106,8 @@ export {
   runProcessProbe,
   checkOpenAIRouter,
   checkHttpServer,
-  findAvailablePort
-} from './health-checker'
+  findAvailablePort,
+} from './health-checker';
 
 // ============================================
 // Recovery Manager
@@ -137,8 +137,8 @@ export {
   showRecoveryFailedDialog,
   resetDialogSuppression,
   isDialogSuppressed,
-  suppressAllDialogs
-} from './recovery-manager'
+  suppressAllDialogs,
+} from './recovery-manager';
 
 // ============================================
 // Diagnostics
@@ -150,8 +150,8 @@ export {
   exportReport,
   formatReportAsText,
   sanitizeString,
-  sanitizeUrl
-} from './diagnostics'
+  sanitizeUrl,
+} from './diagnostics';
 
 // ============================================
 // Types
@@ -200,5 +200,5 @@ export type {
   ImmediateCheckResult,
   ProcessCheckStatus,
   ServiceCheckStatus,
-  ChildProcessInfo
-} from './types'
+  ChildProcessInfo,
+} from './types';

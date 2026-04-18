@@ -28,8 +28,8 @@ import type {
   OpenAIResponsesOutputContentPart,
   OpenAIResponsesOutputText,
   OpenAIResponsesFunctionCall,
-  OpenAIResponsesFunctionCallOutput
-} from '../types'
+  OpenAIResponsesFunctionCallOutput,
+} from '../types';
 
 // ============================================================================
 // Anthropic -> OpenAI Chat Completions
@@ -40,10 +40,10 @@ import type {
  */
 export function anthropicImageSourceToUrl(source: AnthropicImageSource): string {
   if (source.type === 'base64') {
-    const mediaType = source.media_type || 'image/png'
-    return `data:${mediaType};base64,${source.data}`
+    const mediaType = source.media_type || 'image/png';
+    return `data:${mediaType};base64,${source.data}`;
   }
-  return source.url
+  return source.url;
 }
 
 /**
@@ -52,8 +52,8 @@ export function anthropicImageSourceToUrl(source: AnthropicImageSource): string 
 export function anthropicTextToOpenAIChatText(block: AnthropicTextBlock): OpenAIChatTextPart {
   return {
     type: 'text',
-    text: block.text
-  }
+    text: block.text,
+  };
 }
 
 /**
@@ -63,23 +63,25 @@ export function anthropicImageToOpenAIChatImage(block: AnthropicImageBlock): Ope
   return {
     type: 'image_url',
     image_url: {
-      url: anthropicImageSourceToUrl(block.source)
-    }
-  }
+      url: anthropicImageSourceToUrl(block.source),
+    },
+  };
 }
 
 /**
  * Convert Anthropic tool_use block to OpenAI Chat tool call
  */
-export function anthropicToolUseToOpenAIChatToolCall(block: AnthropicToolUseBlock): OpenAIChatToolCall {
+export function anthropicToolUseToOpenAIChatToolCall(
+  block: AnthropicToolUseBlock,
+): OpenAIChatToolCall {
   return {
     id: block.id,
     type: 'function',
     function: {
       name: block.name,
-      arguments: JSON.stringify(block.input || {})
-    }
-  }
+      arguments: JSON.stringify(block.input || {}),
+    },
+  };
 }
 
 /**
@@ -87,15 +89,15 @@ export function anthropicToolUseToOpenAIChatToolCall(block: AnthropicToolUseBloc
  * Returns null for blocks that don't have a direct mapping (tool_use, tool_result)
  */
 export function anthropicBlockToOpenAIChatPart(
-  block: AnthropicContentBlock
+  block: AnthropicContentBlock,
 ): OpenAIChatContentPart | null {
   switch (block.type) {
     case 'text':
-      return anthropicTextToOpenAIChatText(block)
+      return anthropicTextToOpenAIChatText(block);
     case 'image':
-      return anthropicImageToOpenAIChatImage(block)
+      return anthropicImageToOpenAIChatImage(block);
     default:
-      return null
+      return null;
   }
 }
 
@@ -106,59 +108,66 @@ export function anthropicBlockToOpenAIChatPart(
 /**
  * Convert Anthropic text block to OpenAI Responses input_text
  */
-export function anthropicTextToResponsesInputText(block: AnthropicTextBlock): OpenAIResponsesInputText {
+export function anthropicTextToResponsesInputText(
+  block: AnthropicTextBlock,
+): OpenAIResponsesInputText {
   return {
     type: 'input_text',
-    text: block.text
-  }
+    text: block.text,
+  };
 }
 
 /**
  * Convert Anthropic text block to OpenAI Responses output_text
  */
-export function anthropicTextToResponsesOutputText(block: AnthropicTextBlock): OpenAIResponsesOutputText {
+export function anthropicTextToResponsesOutputText(
+  block: AnthropicTextBlock,
+): OpenAIResponsesOutputText {
   return {
     type: 'output_text',
-    text: block.text
-  }
+    text: block.text,
+  };
 }
 
 /**
  * Convert Anthropic image block to OpenAI Responses input_image
  */
-export function anthropicImageToResponsesInputImage(block: AnthropicImageBlock): OpenAIResponsesInputImage {
+export function anthropicImageToResponsesInputImage(
+  block: AnthropicImageBlock,
+): OpenAIResponsesInputImage {
   return {
     type: 'input_image',
-    image_url: anthropicImageSourceToUrl(block.source)
-  }
+    image_url: anthropicImageSourceToUrl(block.source),
+  };
 }
 
 /**
  * Convert Anthropic tool_use block to OpenAI Responses function_call
  */
-export function anthropicToolUseToResponsesFunctionCall(block: AnthropicToolUseBlock): OpenAIResponsesFunctionCall {
+export function anthropicToolUseToResponsesFunctionCall(
+  block: AnthropicToolUseBlock,
+): OpenAIResponsesFunctionCall {
   return {
     type: 'function_call',
     call_id: block.id,
     name: block.name,
-    arguments: JSON.stringify(block.input || {})
-  }
+    arguments: JSON.stringify(block.input || {}),
+  };
 }
 
 /**
  * Convert Anthropic tool_result block to OpenAI Responses function_call_output
  */
 export function anthropicToolResultToResponsesFunctionCallOutput(
-  block: AnthropicToolResultBlock
+  block: AnthropicToolResultBlock,
 ): OpenAIResponsesFunctionCallOutput {
-  const output = typeof block.content === 'string'
-    ? block.content
-    : JSON.stringify(block.content ?? '')
+  const output =
+    typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '');
   return {
     type: 'function_call_output',
     call_id: block.tool_use_id,
-    output
-  }
+    output,
+  };
 }
 
 /**
@@ -167,23 +176,26 @@ export function anthropicToolResultToResponsesFunctionCallOutput(
  */
 export function anthropicBlockToResponsesInputPart(
   block: AnthropicContentBlock,
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant',
 ): OpenAIResponsesInputContentPart | null {
   switch (block.type) {
     case 'text':
       return role === 'user'
         ? anthropicTextToResponsesInputText(block)
-        : anthropicTextToResponsesOutputText(block) as unknown as OpenAIResponsesInputContentPart
+        : (anthropicTextToResponsesOutputText(block) as unknown as OpenAIResponsesInputContentPart);
     case 'image':
-      return anthropicImageToResponsesInputImage(block)
+      return anthropicImageToResponsesInputImage(block);
     case 'thinking':
       // Convert thinking to output_text for assistant role
       if (role === 'assistant' && block.thinking) {
-        return { type: 'output_text', text: block.thinking } as unknown as OpenAIResponsesInputContentPart
+        return {
+          type: 'output_text',
+          text: block.thinking,
+        } as unknown as OpenAIResponsesInputContentPart;
       }
-      return null
+      return null;
     default:
-      return null
+      return null;
   }
 }
 
@@ -194,22 +206,24 @@ export function anthropicBlockToResponsesInputPart(
 /**
  * Convert OpenAI Chat tool call to Anthropic tool_use block
  */
-export function openAIChatToolCallToAnthropicToolUse(toolCall: OpenAIChatToolCall): AnthropicToolUseBlock {
-  let input: Record<string, unknown> = {}
+export function openAIChatToolCallToAnthropicToolUse(
+  toolCall: OpenAIChatToolCall,
+): AnthropicToolUseBlock {
+  let input: Record<string, unknown> = {};
   try {
-    const args = toolCall.function.arguments || '{}'
-    input = typeof args === 'object' ? args : JSON.parse(args)
+    const args = toolCall.function.arguments || '{}';
+    input = typeof args === 'object' ? args : JSON.parse(args);
   } catch {
     // If JSON parsing fails, wrap in text field
-    input = { text: toolCall.function.arguments || '' }
+    input = { text: toolCall.function.arguments || '' };
   }
 
   return {
     type: 'tool_use',
     id: toolCall.id,
     name: toolCall.function.name,
-    input
-  }
+    input,
+  };
 }
 
 /**
@@ -218,8 +232,8 @@ export function openAIChatToolCallToAnthropicToolUse(toolCall: OpenAIChatToolCal
 export function openAIChatTextToAnthropicText(text: string): AnthropicTextBlock {
   return {
     type: 'text',
-    text
-  }
+    text,
+  };
 }
 
 // ============================================================================
@@ -229,33 +243,38 @@ export function openAIChatTextToAnthropicText(text: string): AnthropicTextBlock 
 /**
  * Convert OpenAI Responses output_text to Anthropic text block
  */
-export function responsesOutputTextToAnthropicText(part: OpenAIResponsesOutputText): AnthropicTextBlock {
+export function responsesOutputTextToAnthropicText(
+  part: OpenAIResponsesOutputText,
+): AnthropicTextBlock {
   return {
     type: 'text',
-    text: part.text
-  }
+    text: part.text,
+  };
 }
 
 /**
  * Convert OpenAI Responses function_call to Anthropic tool_use block
  */
-export function responsesFunctionCallToAnthropicToolUse(
-  functionCall: { id?: string; call_id?: string; name: string; arguments: string }
-): AnthropicToolUseBlock {
-  let input: Record<string, unknown> = {}
+export function responsesFunctionCallToAnthropicToolUse(functionCall: {
+  id?: string;
+  call_id?: string;
+  name: string;
+  arguments: string;
+}): AnthropicToolUseBlock {
+  let input: Record<string, unknown> = {};
   try {
-    const args = functionCall.arguments || '{}'
-    input = typeof args === 'object' ? args : JSON.parse(args)
+    const args = functionCall.arguments || '{}';
+    input = typeof args === 'object' ? args : JSON.parse(args);
   } catch {
-    input = { text: functionCall.arguments || '' }
+    input = { text: functionCall.arguments || '' };
   }
 
   return {
     type: 'tool_use',
     id: functionCall.id || functionCall.call_id || `call_${Date.now()}`,
     name: functionCall.name,
-    input
-  }
+    input,
+  };
 }
 
 // ============================================================================
@@ -266,47 +285,51 @@ export function responsesFunctionCallToAnthropicToolUse(
  * Normalize content to array of blocks
  */
 export function normalizeAnthropicContent(
-  content: string | AnthropicContentBlock[]
+  content: string | AnthropicContentBlock[],
 ): AnthropicContentBlock[] {
   if (typeof content === 'string') {
-    return [{ type: 'text', text: content }]
+    return [{ type: 'text', text: content }];
   }
-  return content
+  return content;
 }
 
 /**
  * Extract text content from Anthropic content blocks
  */
 export function extractTextFromAnthropicBlocks(blocks: AnthropicContentBlock[]): string | null {
-  const textBlocks = blocks.filter((b): b is AnthropicTextBlock => b.type === 'text' && !!b.text)
-  if (textBlocks.length === 0) return null
-  return textBlocks.map((b) => b.text).join('\n')
+  const textBlocks = blocks.filter((b): b is AnthropicTextBlock => b.type === 'text' && !!b.text);
+  if (textBlocks.length === 0) return null;
+  return textBlocks.map((b) => b.text).join('\n');
 }
 
 /**
  * Extract tool_use blocks from Anthropic content
  */
 export function extractToolUseBlocks(blocks: AnthropicContentBlock[]): AnthropicToolUseBlock[] {
-  return blocks.filter((b): b is AnthropicToolUseBlock => b.type === 'tool_use' && !!b.id)
+  return blocks.filter((b): b is AnthropicToolUseBlock => b.type === 'tool_use' && !!b.id);
 }
 
 /**
  * Extract tool_result blocks from Anthropic content
  */
-export function extractToolResultBlocks(blocks: AnthropicContentBlock[]): AnthropicToolResultBlock[] {
-  return blocks.filter((b): b is AnthropicToolResultBlock => b.type === 'tool_result' && !!b.tool_use_id)
+export function extractToolResultBlocks(
+  blocks: AnthropicContentBlock[],
+): AnthropicToolResultBlock[] {
+  return blocks.filter(
+    (b): b is AnthropicToolResultBlock => b.type === 'tool_result' && !!b.tool_use_id,
+  );
 }
 
 /**
  * Check if content contains images
  */
 export function contentHasImages(blocks: AnthropicContentBlock[]): boolean {
-  return blocks.some((b) => b.type === 'image')
+  return blocks.some((b) => b.type === 'image');
 }
 
 /**
  * Check if content contains tool usage
  */
 export function contentHasToolUse(blocks: AnthropicContentBlock[]): boolean {
-  return blocks.some((b) => b.type === 'tool_use' || b.type === 'tool_result')
+  return blocks.some((b) => b.type === 'tool_use' || b.type === 'tool_result');
 }

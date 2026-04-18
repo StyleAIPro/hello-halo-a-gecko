@@ -9,236 +9,243 @@
  * - Model selection with search and fetch capability
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { v4 as uuidv4 } from 'uuid'
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import {
-  ChevronDown, Search, Check, Loader2, Eye, EyeOff, ExternalLink, X, Star
-} from 'lucide-react'
+  ChevronDown,
+  Search,
+  Check,
+  Loader2,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  X,
+  Star,
+} from 'lucide-react';
 import type {
   AISource,
   AISourcesConfig,
   ProviderId,
   ModelOption,
-  BuiltinProvider
-} from '../../types'
-import {
-  getBuiltinProvider,
-  getApiKeyProviders,
-  isAnthropicProvider
-} from '../../types'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
+  BuiltinProvider,
+} from '../../types';
+import { getBuiltinProvider, getApiKeyProviders, isAnthropicProvider } from '../../types';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
 
 interface ProviderSelectorProps {
-  aiSources: AISourcesConfig
-  onSave: (source: AISource) => Promise<void>
-  onCancel: () => void
-  editingSourceId?: string | null
+  aiSources: AISourcesConfig;
+  onSave: (source: AISource) => Promise<void>;
+  onCancel: () => void;
+  editingSourceId?: string | null;
 }
 
 export function ProviderSelector({
   aiSources,
   onSave,
   onCancel,
-  editingSourceId
+  editingSourceId,
 }: ProviderSelectorProps) {
-  const { t } = useTranslation()
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const { t } = useTranslation();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Get the source being edited (if any)
   const editingSource = editingSourceId
-    ? aiSources.sources.find(s => s.id === editingSourceId)
-    : null
+    ? aiSources.sources.find((s) => s.id === editingSourceId)
+    : null;
 
   // Get all API key providers
-  const allProviders = useMemo(() => getApiKeyProviders(), [])
-  const recommendedProviders = useMemo(() => allProviders.filter(p => p.recommended), [allProviders])
-  const otherProviders = useMemo(() => allProviders.filter(p => !p.recommended), [allProviders])
+  const allProviders = useMemo(() => getApiKeyProviders(), []);
+  const recommendedProviders = useMemo(
+    () => allProviders.filter((p) => p.recommended),
+    [allProviders],
+  );
+  const otherProviders = useMemo(() => allProviders.filter((p) => !p.recommended), [allProviders]);
 
   // State
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(
-    editingSource?.provider || 'anthropic'
-  )
-  const [showProviderDropdown, setShowProviderDropdown] = useState(false)
-  const [providerSearchQuery, setProviderSearchQuery] = useState('')
+    editingSource?.provider || 'anthropic',
+  );
+  const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+  const [providerSearchQuery, setProviderSearchQuery] = useState('');
 
-  const [apiKey, setApiKey] = useState(editingSource?.apiKey || '')
-  const [apiUrl, setApiUrl] = useState(editingSource?.apiUrl || '')
-  const [selectedModel, setSelectedModel] = useState(editingSource?.model || '')
-  const [customModelInput, setCustomModelInput] = useState('')
-  const [showCustomModel, setShowCustomModel] = useState(false)
-  const [sourceName, setSourceName] = useState(editingSource?.name || '')
+  const [apiKey, setApiKey] = useState(editingSource?.apiKey || '');
+  const [apiUrl, setApiUrl] = useState(editingSource?.apiUrl || '');
+  const [selectedModel, setSelectedModel] = useState(editingSource?.model || '');
+  const [customModelInput, setCustomModelInput] = useState('');
+  const [showCustomModel, setShowCustomModel] = useState(false);
+  const [sourceName, setSourceName] = useState(editingSource?.name || '');
 
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [isValidating, setIsValidating] = useState(false)
-  const [isFetchingModels, setIsFetchingModels] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [validationResult, setValidationResult] = useState<{
-    valid: boolean
-    message?: string
-  } | null>(null)
+    valid: boolean;
+    message?: string;
+  } | null>(null);
 
   const [fetchedModels, setFetchedModels] = useState<ModelOption[]>(
-    editingSource?.availableModels || []
-  )
-  const [modelSearchQuery, setModelSearchQuery] = useState('')
-  const [showModelDropdown, setShowModelDropdown] = useState(false)
+    editingSource?.availableModels || [],
+  );
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [contextWindow, setContextWindow] = useState<number | undefined>(
-    editingSource?.contextWindow
-  )
+    editingSource?.contextWindow,
+  );
 
   // Get current provider config
-  const currentProvider = useMemo(() =>
-    getBuiltinProvider(selectedProvider),
-    [selectedProvider]
-  )
+  const currentProvider = useMemo(() => getBuiltinProvider(selectedProvider), [selectedProvider]);
 
   // Filter providers by search
   const filteredRecommended = useMemo(() => {
-    if (!providerSearchQuery) return recommendedProviders
-    const q = providerSearchQuery.toLowerCase()
-    return recommendedProviders.filter(p =>
-      p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
-    )
-  }, [recommendedProviders, providerSearchQuery])
+    if (!providerSearchQuery) return recommendedProviders;
+    const q = providerSearchQuery.toLowerCase();
+    return recommendedProviders.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+    );
+  }, [recommendedProviders, providerSearchQuery]);
 
   const filteredOthers = useMemo(() => {
-    if (!providerSearchQuery) return otherProviders
-    const q = providerSearchQuery.toLowerCase()
-    return otherProviders.filter(p =>
-      p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
-    )
-  }, [otherProviders, providerSearchQuery])
+    if (!providerSearchQuery) return otherProviders;
+    const q = providerSearchQuery.toLowerCase();
+    return otherProviders.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+    );
+  }, [otherProviders, providerSearchQuery]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    if (!showProviderDropdown) return
+    if (!showProviderDropdown) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowProviderDropdown(false)
-        setProviderSearchQuery('')
+        setShowProviderDropdown(false);
+        setProviderSearchQuery('');
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showProviderDropdown])
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showProviderDropdown]);
 
   // Update form when provider changes
   useEffect(() => {
     if (currentProvider && !editingSource) {
-      setApiUrl(currentProvider.apiUrl)
-      setSelectedModel(currentProvider.models[0]?.id || '')
-      setSourceName(currentProvider.name)
-      setFetchedModels(currentProvider.models)
+      setApiUrl(currentProvider.apiUrl);
+      setSelectedModel(currentProvider.models[0]?.id || '');
+      setSourceName(currentProvider.name);
+      setFetchedModels(currentProvider.models);
     }
-  }, [selectedProvider, currentProvider, editingSource])
+  }, [selectedProvider, currentProvider, editingSource]);
 
   // Filter models by search query
   const filteredModels = useMemo(() => {
-    const models = fetchedModels.length > 0 ? fetchedModels : (currentProvider?.models || [])
-    if (!modelSearchQuery) return models
-    const query = modelSearchQuery.toLowerCase()
-    return models.filter(m =>
-      m.id.toLowerCase().includes(query) ||
-      m.name.toLowerCase().includes(query)
-    )
-  }, [fetchedModels, currentProvider?.models, modelSearchQuery])
+    const models = fetchedModels.length > 0 ? fetchedModels : currentProvider?.models || [];
+    if (!modelSearchQuery) return models;
+    const query = modelSearchQuery.toLowerCase();
+    return models.filter(
+      (m) => m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query),
+    );
+  }, [fetchedModels, currentProvider?.models, modelSearchQuery]);
 
   // Handle provider selection
   const handleSelectProvider = (providerId: ProviderId) => {
-    setSelectedProvider(providerId)
-    setApiKey('')
-    setValidationResult(null)
-    setFetchedModels([])
-    setShowCustomModel(false)
-    setCustomModelInput('')
-    setShowProviderDropdown(false)
-    setProviderSearchQuery('')
-  }
+    setSelectedProvider(providerId);
+    setApiKey('');
+    setValidationResult(null);
+    setFetchedModels([]);
+    setShowCustomModel(false);
+    setCustomModelInput('');
+    setShowProviderDropdown(false);
+    setProviderSearchQuery('');
+  };
 
   // Handle delete model from list
   const handleDeleteModel = (modelId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    const models = fetchedModels.length > 0 ? fetchedModels : (currentProvider?.models || [])
-    const newModels = models.filter(m => m.id !== modelId)
-    setFetchedModels(newModels)
+    e.stopPropagation();
+    const models = fetchedModels.length > 0 ? fetchedModels : currentProvider?.models || [];
+    const newModels = models.filter((m) => m.id !== modelId);
+    setFetchedModels(newModels);
 
     // If deleted model was selected, switch to first available
     if (selectedModel === modelId && newModels.length > 0) {
-      setSelectedModel(newModels[0].id)
+      setSelectedModel(newModels[0].id);
     }
-  }
+  };
 
   // Check if model can be deleted
   // Rules: only allow deletion when there are user-fetched/edited models AND more than 1 model
   const canDeleteModel = (): boolean => {
     // Only allow deletion if we have fetched models (user-added, not provider defaults)
     // and there's more than 1 model (keep at least one)
-    return fetchedModels.length > 1
-  }
+    return fetchedModels.length > 1;
+  };
 
   // Fetch models from API
   const handleFetchModels = async () => {
     if (!apiKey || !apiUrl) {
-      setValidationResult({ valid: false, message: t('Please enter API Key and URL first') })
-      return
+      setValidationResult({ valid: false, message: t('Please enter API Key and URL first') });
+      return;
     }
 
-    setIsFetchingModels(true)
-    setValidationResult(null)
+    setIsFetchingModels(true);
+    setValidationResult(null);
 
     try {
-      const response = await api.fetchModels(apiKey, apiUrl)
+      const response = await api.fetchModels(apiKey, apiUrl);
 
       if (!response.success || !response.data) {
-        throw new Error(response.error || 'Failed to fetch models')
+        throw new Error(response.error || 'Failed to fetch models');
       }
 
-      const { models } = response.data as { models: ModelOption[] }
+      const { models } = response.data as { models: ModelOption[] };
 
-      setFetchedModels(models)
+      setFetchedModels(models);
 
-      if (!selectedModel || !models.some(m => m.id === selectedModel)) {
-        setSelectedModel(models[0].id)
+      if (!selectedModel || !models.some((m) => m.id === selectedModel)) {
+        setSelectedModel(models[0].id);
       }
 
-      setValidationResult({ valid: true, message: t('Found ${count} models').replace('${count}', String(models.length)) })
+      setValidationResult({
+        valid: true,
+        message: t('Found ${count} models').replace('${count}', String(models.length)),
+      });
     } catch (error) {
-      console.error('[ProviderSelector] Failed to fetch models:', error)
-      setValidationResult({ valid: false, message: t('Failed to fetch models') })
+      console.error('[ProviderSelector] Failed to fetch models:', error);
+      setValidationResult({ valid: false, message: t('Failed to fetch models') });
     } finally {
-      setIsFetchingModels(false)
+      setIsFetchingModels(false);
     }
-  }
+  };
 
   // Handle save (direct save without validation)
   const handleSave = async () => {
     if (!apiKey) {
-      setValidationResult({ valid: false, message: t('Please enter API Key') })
-      return
+      setValidationResult({ valid: false, message: t('Please enter API Key') });
+      return;
     }
 
-    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel
+    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel;
 
     if (!finalModel) {
-      setValidationResult({ valid: false, message: t('Please select a model') })
-      return
+      setValidationResult({ valid: false, message: t('Please select a model') });
+      return;
     }
 
-    setIsValidating(true)
-    setValidationResult(null)
+    setIsValidating(true);
+    setValidationResult(null);
 
     try {
-      const availableModels: ModelOption[] = fetchedModels.length > 0
-        ? fetchedModels
-        : (currentProvider?.models || [{ id: finalModel, name: finalModel }])
+      const availableModels: ModelOption[] =
+        fetchedModels.length > 0
+          ? fetchedModels
+          : currentProvider?.models || [{ id: finalModel, name: finalModel }];
 
-      if (!availableModels.some(m => m.id === finalModel)) {
-        availableModels.unshift({ id: finalModel, name: finalModel })
+      if (!availableModels.some((m) => m.id === finalModel)) {
+        availableModels.unshift({ id: finalModel, name: finalModel });
       }
 
-      const now = new Date().toISOString()
+      const now = new Date().toISOString();
 
       const source: AISource = {
         id: editingSource?.id || uuidv4(),
@@ -252,59 +259,60 @@ export function ProviderSelector({
         availableModels,
         contextWindow: contextWindow || undefined,
         createdAt: editingSource?.createdAt || now,
-        updatedAt: now
-      }
+        updatedAt: now,
+      };
 
-      await onSave(source)
+      await onSave(source);
 
-      setValidationResult({ valid: true, message: t('Saved') })
+      setValidationResult({ valid: true, message: t('Saved') });
     } catch (error) {
-      console.error('[ProviderSelector] Save failed:', error)
-      setValidationResult({ valid: false, message: t('Save failed') })
+      console.error('[ProviderSelector] Save failed:', error);
+      setValidationResult({ valid: false, message: t('Save failed') });
     } finally {
-      setIsValidating(false)
+      setIsValidating(false);
     }
-  }
+  };
 
   // Handle test connection (optional validation)
   const handleTestConnection = async () => {
     if (!apiKey) {
-      setValidationResult({ valid: false, message: t('Please enter API Key') })
-      return
+      setValidationResult({ valid: false, message: t('Please enter API Key') });
+      return;
     }
 
-    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel
+    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel;
 
-    setIsValidating(true)
-    setValidationResult(null)
+    setIsValidating(true);
+    setValidationResult(null);
 
     try {
       const validationResponse = await api.validateApi(
         apiKey,
         apiUrl,
         isAnthropicProvider(selectedProvider) ? 'anthropic' : 'openai',
-        finalModel
-      )
+        finalModel,
+      );
 
       if (!validationResponse.success || !validationResponse.data?.valid) {
         setValidationResult({
           valid: false,
-          message: validationResponse.data?.message || validationResponse.error || t('Connection failed')
-        })
+          message:
+            validationResponse.data?.message || validationResponse.error || t('Connection failed'),
+        });
       } else {
-        const normalizedUrl = validationResponse.data.normalizedUrl || apiUrl
+        const normalizedUrl = validationResponse.data.normalizedUrl || apiUrl;
         if (normalizedUrl !== apiUrl) {
-          setApiUrl(normalizedUrl)
+          setApiUrl(normalizedUrl);
         }
-        setValidationResult({ valid: true, message: t('Connection successful') })
+        setValidationResult({ valid: true, message: t('Connection successful') });
       }
     } catch (error) {
-      console.error('[ProviderSelector] Test failed:', error)
-      setValidationResult({ valid: false, message: t('Connection failed') })
+      console.error('[ProviderSelector] Test failed:', error);
+      setValidationResult({ valid: false, message: t('Connection failed') });
     } finally {
-      setIsValidating(false)
+      setIsValidating(false);
     }
-  }
+  };
 
   // Render provider item in dropdown
   const renderProviderItem = (provider: BuiltinProvider, showRecommended = false) => (
@@ -316,9 +324,13 @@ export function ProviderSelector({
       }`}
     >
       {/* Provider Icon/Initial */}
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-        selectedProvider === provider.id ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-      }`}>
+      <div
+        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+          selectedProvider === provider.id
+            ? 'bg-primary/20 text-primary'
+            : 'bg-secondary text-muted-foreground'
+        }`}
+      >
         <span className="text-sm font-bold">{provider.name.charAt(0)}</span>
       </div>
 
@@ -336,11 +348,9 @@ export function ProviderSelector({
       </div>
 
       {/* Check mark */}
-      {selectedProvider === provider.id && (
-        <Check className="w-4 h-4 text-primary shrink-0" />
-      )}
+      {selectedProvider === provider.id && <Check className="w-4 h-4 text-primary shrink-0" />}
     </button>
-  )
+  );
 
   return (
     <div className="space-y-4">
@@ -361,13 +371,17 @@ export function ProviderSelector({
               </span>
             </div>
             <div className="text-left">
-              <div className="text-sm font-medium">{currentProvider?.name || t('Select provider')}</div>
+              <div className="text-sm font-medium">
+                {currentProvider?.name || t('Select provider')}
+              </div>
               {currentProvider?.description && (
                 <div className="text-xs text-muted-foreground">{currentProvider.description}</div>
               )}
             </div>
           </div>
-          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showProviderDropdown ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            className={`w-5 h-5 text-muted-foreground transition-transform ${showProviderDropdown ? 'rotate-180' : ''}`}
+          />
         </button>
 
         {/* Dropdown Menu */}
@@ -398,7 +412,7 @@ export function ProviderSelector({
                     <Star className="w-3 h-3 text-amber-500" />
                     {t('Recommended')}
                   </div>
-                  {filteredRecommended.map(p => renderProviderItem(p, false))}
+                  {filteredRecommended.map((p) => renderProviderItem(p, false))}
                 </>
               )}
 
@@ -408,7 +422,7 @@ export function ProviderSelector({
                   <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-secondary/30">
                     {t('All Providers')}
                   </div>
-                  {filteredOthers.map(p => renderProviderItem(p, true))}
+                  {filteredOthers.map((p) => renderProviderItem(p, true))}
                 </>
               )}
 
@@ -460,9 +474,7 @@ export function ProviderSelector({
 
           {/* API Key */}
           <div>
-            <label className="block text-sm font-medium text-muted-foreground mb-1">
-              API Key
-            </label>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">API Key</label>
             <div className="relative">
               <input
                 type={showApiKey ? 'text' : 'password'}
@@ -553,16 +565,24 @@ export function ProviderSelector({
                            hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 >
                   <span className="truncate">{selectedModel || t('Select model')}</span>
-                  <ChevronDown size={18} className={`transition-transform shrink-0 ${showModelDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDown
+                    size={18}
+                    className={`transition-transform shrink-0 ${showModelDropdown ? 'rotate-180' : ''}`}
+                  />
                 </button>
 
                 {showModelDropdown && (
-                  <div className="absolute z-50 w-full mt-1 bg-card border border-border
-                                rounded-lg shadow-lg max-h-60 overflow-hidden">
+                  <div
+                    className="absolute z-50 w-full mt-1 bg-card border border-border
+                                rounded-lg shadow-lg max-h-60 overflow-hidden"
+                  >
                     {/* Search */}
                     <div className="p-2 border-b border-border">
                       <div className="relative">
-                        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Search
+                          size={14}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        />
                         <input
                           type="text"
                           value={modelSearchQuery}
@@ -576,17 +596,17 @@ export function ProviderSelector({
 
                     {/* Model list */}
                     <div className="max-h-48 overflow-y-auto">
-                      {filteredModels.map(model => {
-                        const isSelected = selectedModel === model.id
-                        const showDelete = canDeleteModel() && !isSelected
+                      {filteredModels.map((model) => {
+                        const isSelected = selectedModel === model.id;
+                        const showDelete = canDeleteModel() && !isSelected;
 
                         return (
                           <div
                             key={model.id}
                             onClick={() => {
-                              setSelectedModel(model.id)
-                              setShowModelDropdown(false)
-                              setModelSearchQuery('')
+                              setSelectedModel(model.id);
+                              setShowModelDropdown(false);
+                              setModelSearchQuery('');
                             }}
                             className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/80 cursor-pointer ${
                               isSelected ? 'bg-primary/10' : ''
@@ -600,7 +620,9 @@ export function ProviderSelector({
                             <div className="flex-1 min-w-0">
                               <div className="text-sm text-foreground truncate">{model.name}</div>
                               {model.name !== model.id && (
-                                <div className="text-xs text-muted-foreground truncate">{model.id}</div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {model.id}
+                                </div>
                               )}
                             </div>
                             {showDelete && (
@@ -613,7 +635,7 @@ export function ProviderSelector({
                               </button>
                             )}
                           </div>
-                        )
+                        );
                       })}
                       {filteredModels.length === 0 && (
                         <div className="px-3 py-4 text-sm text-muted-foreground text-center">
@@ -635,7 +657,9 @@ export function ProviderSelector({
             <input
               type="number"
               value={contextWindow || ''}
-              onChange={(e) => setContextWindow(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+              onChange={(e) =>
+                setContextWindow(e.target.value ? parseInt(e.target.value, 10) : undefined)
+              }
               placeholder={t('e.g. 200000 for Claude, 1000000 for Qwen')}
               min={1024}
               step={1024}
@@ -643,7 +667,9 @@ export function ProviderSelector({
                        text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.')}
+              {t(
+                'Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.',
+              )}
             </p>
           </div>
 
@@ -656,11 +682,13 @@ export function ProviderSelector({
 
           {/* Validation Result */}
           {validationResult && (
-            <div className={`flex items-center gap-2 p-2 rounded-lg ${
-              validationResult.valid
-                ? 'bg-green-500/10 text-green-600'
-                : 'bg-red-500/10 text-red-600'
-            }`}>
+            <div
+              className={`flex items-center gap-2 p-2 rounded-lg ${
+                validationResult.valid
+                  ? 'bg-green-500/10 text-green-600'
+                  : 'bg-red-500/10 text-red-600'
+              }`}
+            >
               {validationResult.valid ? <Check size={16} /> : <X size={16} />}
               <span className="text-sm">{validationResult.message}</span>
             </div>
@@ -697,5 +725,5 @@ export function ProviderSelector({
         </div>
       )}
     </div>
-  )
+  );
 }

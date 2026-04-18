@@ -15,7 +15,7 @@
  * - v2: Unified AISource array structure (current)
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================================
 // Localization Utilities
@@ -24,20 +24,20 @@ import { v4 as uuidv4 } from 'uuid'
 /**
  * Localized text - either a plain string or an object keyed by locale code
  */
-export type LocalizedText = string | Record<string, string>
+export type LocalizedText = string | Record<string, string>;
 
 /**
  * Resolve LocalizedText to a string for the given locale.
  * Falls back: exact match -> prefix match -> 'en' -> first value.
  */
 export function resolveLocalizedText(value: LocalizedText, locale: string): string {
-  if (!value) return ''
-  if (typeof value === 'string') return value
-  if (value[locale]) return value[locale]
-  const prefix = locale.split('-')[0]
-  const match = Object.keys(value).find(k => k.startsWith(prefix))
-  if (match) return value[match]
-  return value['en'] || Object.values(value)[0] || ''
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value[locale]) return value[locale];
+  const prefix = locale.split('-')[0];
+  const match = Object.keys(value).find((k) => k.startsWith(prefix));
+  if (match) return value[match];
+  return value['en'] || Object.values(value)[0] || '';
 }
 
 // ============================================================================
@@ -47,7 +47,7 @@ export function resolveLocalizedText(value: LocalizedText, locale: string): stri
 /**
  * Authentication method type
  */
-export type AuthType = 'api-key' | 'oauth'
+export type AuthType = 'api-key' | 'oauth';
 
 /**
  * Built-in provider IDs
@@ -76,22 +76,22 @@ export type BuiltinProviderId =
   | 'together'
   | 'fireworks'
   | 'xai'
-  | 'github-copilot'
+  | 'github-copilot';
 
 /**
  * Provider ID (built-in + future extensions)
  */
-export type ProviderId = BuiltinProviderId | string
+export type ProviderId = BuiltinProviderId | string;
 
 /**
  * Login status for OAuth-based sources
  */
-export type LoginStatus = 'idle' | 'starting' | 'waiting' | 'completing' | 'success' | 'error'
+export type LoginStatus = 'idle' | 'starting' | 'waiting' | 'completing' | 'success' | 'error';
 
 /**
  * Legacy API Provider type (for backward compatibility)
  */
-export type ApiProvider = 'anthropic' | 'openai'
+export type ApiProvider = 'anthropic' | 'openai';
 
 // ============================================================================
 // Model Definitions
@@ -101,9 +101,9 @@ export type ApiProvider = 'anthropic' | 'openai'
  * Model option for UI display
  */
 export interface ModelOption {
-  id: string
-  name: string
-  description?: string
+  id: string;
+  name: string;
+  description?: string;
 }
 
 /**
@@ -113,31 +113,31 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   {
     id: 'claude-opus-4-6',
     name: 'Claude Opus 4.6',
-    description: 'Most powerful model, great for complex reasoning and architecture decisions'
+    description: 'Most powerful model, great for complex reasoning and architecture decisions',
   },
   {
     id: 'claude-opus-4-5-20251101',
     name: 'Claude Opus 4.5',
-    description: 'great for complex reasoning and architecture decisions'
+    description: 'great for complex reasoning and architecture decisions',
   },
   {
     id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.6',
-    description: 'Balanced performance and cost, suitable for most tasks'
+    description: 'Balanced performance and cost, suitable for most tasks',
   },
   {
     id: 'claude-sonnet-4-5-20250929',
     name: 'Claude Sonnet 4.5',
-    description: 'Balanced performance and cost, suitable for most tasks'
+    description: 'Balanced performance and cost, suitable for most tasks',
   },
   {
     id: 'claude-haiku-4-5-20251001',
     name: 'Claude Haiku 4.5',
-    description: 'Fast and lightweight, ideal for simple tasks'
-  }
-]
+    description: 'Fast and lightweight, ideal for simple tasks',
+  },
+];
 
-export const DEFAULT_MODEL = 'claude-sonnet-4-6'
+export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 // ============================================================================
 // AI Source Configuration Types (v2)
@@ -147,10 +147,10 @@ export const DEFAULT_MODEL = 'claude-sonnet-4-6'
  * User info from OAuth provider
  */
 export interface AISourceUser {
-  name: string
-  avatar?: string
+  name: string;
+  avatar?: string;
   /** User ID (for API headers, should be ASCII-safe) */
-  uid?: string
+  uid?: string;
 }
 
 /**
@@ -160,46 +160,46 @@ export interface AISourceUser {
 export interface AISource {
   // ===== Basic Info (Required) =====
   /** Unique identifier, UUID format */
-  id: string
+  id: string;
   /** Display name, user-defined */
-  name: string
+  name: string;
   /** Provider ID (e.g., 'anthropic', 'deepseek', 'custom') */
-  provider: ProviderId
+  provider: ProviderId;
   /** Authentication method */
-  authType: AuthType
+  authType: AuthType;
 
   // ===== API Configuration (Required) =====
   /** API endpoint URL (base URL, e.g., https://api.openai.com/v1) */
-  apiUrl: string
+  apiUrl: string;
   /** API type for OpenAI compatible providers (default: chat_completions) */
-  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough'
+  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough';
 
   // ===== Authentication Credentials (Based on authType) =====
   /** API Key (for authType = 'api-key') */
-  apiKey?: string
+  apiKey?: string;
 
   /** OAuth Access Token (for authType = 'oauth') */
-  accessToken?: string
+  accessToken?: string;
   /** OAuth Refresh Token */
-  refreshToken?: string
+  refreshToken?: string;
   /** Token expiration timestamp (Unix ms) */
-  tokenExpires?: number
+  tokenExpires?: number;
   /** OAuth user info */
-  user?: AISourceUser
+  user?: AISourceUser;
 
   // ===== Model Configuration (Required) =====
   /** Currently selected model ID */
-  model: string
+  model: string;
   /** Available models list (at least one required) */
-  availableModels: ModelOption[]
+  availableModels: ModelOption[];
   /** Context window size in tokens (for automatic compression threshold calculation) */
-  contextWindow?: number
+  contextWindow?: number;
 
   // ===== Metadata (Required) =====
   /** Creation timestamp (ISO 8601) */
-  createdAt: string
+  createdAt: string;
   /** Last update timestamp (ISO 8601) */
-  updatedAt: string
+  updatedAt: string;
 }
 
 /**
@@ -207,11 +207,11 @@ export interface AISource {
  */
 export interface AISourcesConfig {
   /** Schema version, currently 2 */
-  version: 2
+  version: 2;
   /** Currently active source ID, null if not configured */
-  currentId: string | null
+  currentId: string | null;
   /** All configured sources */
-  sources: AISource[]
+  sources: AISource[];
 }
 
 // ============================================================================
@@ -222,38 +222,38 @@ export interface AISourcesConfig {
  * Legacy OAuth source configuration (v1)
  */
 export interface OAuthSourceConfig {
-  loggedIn: boolean
-  user?: AISourceUser
-  model: string
-  availableModels: string[]
-  modelNames?: Record<string, string>
-  accessToken?: string
-  refreshToken?: string
-  tokenExpires?: number
+  loggedIn: boolean;
+  user?: AISourceUser;
+  model: string;
+  availableModels: string[];
+  modelNames?: Record<string, string>;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpires?: number;
 }
 
 /**
  * Legacy Custom API source configuration (v1)
  */
 export interface CustomSourceConfig {
-  provider: ApiProvider
-  apiKey: string
-  apiUrl: string
-  model: string
-  id?: string
-  name?: string
-  type?: 'custom'
-  availableModels?: string[]
+  provider: ApiProvider;
+  apiKey: string;
+  apiUrl: string;
+  model: string;
+  id?: string;
+  name?: string;
+  type?: 'custom';
+  availableModels?: string[];
 }
 
 /**
  * Legacy AI Sources configuration (v1)
  */
 export interface LegacyAISourcesConfig {
-  current: string
-  oauth?: OAuthSourceConfig
-  custom?: CustomSourceConfig
-  [key: string]: string | OAuthSourceConfig | CustomSourceConfig | undefined
+  current: string;
+  oauth?: OAuthSourceConfig;
+  custom?: CustomSourceConfig;
+  [key: string]: string | OAuthSourceConfig | CustomSourceConfig | undefined;
 }
 
 // ============================================================================
@@ -265,13 +265,13 @@ export interface LegacyAISourcesConfig {
  * Used by OpenAI compat router
  */
 export interface BackendRequestConfig {
-  url: string
-  key: string
-  model?: string
-  headers?: Record<string, string>
-  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough'
-  forceStream?: boolean
-  filterContent?: boolean
+  url: string;
+  key: string;
+  model?: string;
+  headers?: Record<string, string>;
+  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough';
+  forceStream?: boolean;
+  filterContent?: boolean;
 }
 
 // ============================================================================
@@ -282,30 +282,30 @@ export interface BackendRequestConfig {
  * OAuth login state tracking
  */
 export interface OAuthLoginState {
-  status: LoginStatus
-  state?: string
-  error?: string
+  status: LoginStatus;
+  state?: string;
+  error?: string;
 }
 
 /**
  * Result from starting an OAuth login flow
  */
 export interface OAuthStartResult {
-  loginUrl: string
-  state: string
+  loginUrl: string;
+  state: string;
   /** User code for device code flow (e.g., GitHub Copilot) */
-  userCode?: string
+  userCode?: string;
   /** Verification URL for device code flow */
-  verificationUri?: string
+  verificationUri?: string;
 }
 
 /**
  * Result from completing an OAuth login flow
  */
 export interface OAuthCompleteResult {
-  success: boolean
-  user?: AISourceUser
-  error?: string
+  success: boolean;
+  user?: AISourceUser;
+  error?: string;
 }
 
 // ============================================================================
@@ -319,46 +319,49 @@ export function createEmptyAISourcesConfig(): AISourcesConfig {
   return {
     version: 2,
     currentId: null,
-    sources: []
-  }
+    sources: [],
+  };
 }
 
 /**
  * Get current active source
  */
 export function getCurrentSource(config: AISourcesConfig): AISource | null {
-  if (!config.currentId) return null
-  return config.sources.find(s => s.id === config.currentId) || null
+  if (!config.currentId) return null;
+  return config.sources.find((s) => s.id === config.currentId) || null;
 }
 
 /**
  * Get source by ID
  */
 export function getSourceById(config: AISourcesConfig, id: string): AISource | null {
-  return config.sources.find(s => s.id === id) || null
+  return config.sources.find((s) => s.id === id) || null;
 }
 
 /**
  * Get current model display name
  */
 export function getCurrentModelName(config: AISourcesConfig): string {
-  const source = getCurrentSource(config)
-  if (!source) return 'No model'
+  const source = getCurrentSource(config);
+  if (!source) return 'No model';
 
-  const modelOption = source.availableModels.find(m => m.id === source.model)
-  return modelOption?.name || source.model
+  const modelOption = source.availableModels.find((m) => m.id === source.model);
+  return modelOption?.name || source.model;
 }
 
 /**
  * Check if any AI source is configured and ready to use
  */
 export function hasAnyAISource(config: AISourcesConfig): boolean {
-  return config.sources.length > 0 && config.sources.some(s => {
-    if (s.authType === 'api-key') {
-      return !!s.apiKey
-    }
-    return !!s.accessToken
-  })
+  return (
+    config.sources.length > 0 &&
+    config.sources.some((s) => {
+      if (s.authType === 'api-key') {
+        return !!s.apiKey;
+      }
+      return !!s.accessToken;
+    })
+  );
 }
 
 /**
@@ -366,28 +369,28 @@ export function hasAnyAISource(config: AISourcesConfig): boolean {
  */
 export function isSourceConfigured(source: AISource): boolean {
   if (source.authType === 'api-key') {
-    return !!source.apiKey
+    return !!source.apiKey;
   }
-  return !!source.accessToken
+  return !!source.accessToken;
 }
 
 /**
  * Create a new AI Source
  */
 export function createSource(params: {
-  name: string
-  provider: ProviderId
-  authType: AuthType
-  apiUrl: string
-  apiKey?: string
-  accessToken?: string
-  refreshToken?: string
-  tokenExpires?: number
-  user?: AISourceUser
-  model: string
-  availableModels: ModelOption[]
+  name: string;
+  provider: ProviderId;
+  authType: AuthType;
+  apiUrl: string;
+  apiKey?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpires?: number;
+  user?: AISourceUser;
+  model: string;
+  availableModels: ModelOption[];
 }): AISource {
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   return {
     id: uuidv4(),
     name: params.name,
@@ -402,8 +405,8 @@ export function createSource(params: {
     model: params.model,
     availableModels: params.availableModels,
     createdAt: now,
-    updatedAt: now
-  }
+    updatedAt: now,
+  };
 }
 
 /**
@@ -414,8 +417,8 @@ export function addSource(config: AISourcesConfig, source: AISource): AISourcesC
     ...config,
     sources: [...config.sources, source],
     // Auto-select if no current source
-    currentId: config.currentId || source.id
-  }
+    currentId: config.currentId || source.id,
+  };
 }
 
 /**
@@ -424,64 +427,62 @@ export function addSource(config: AISourcesConfig, source: AISource): AISourcesC
 export function updateSource(
   config: AISourcesConfig,
   id: string,
-  updates: Partial<AISource>
+  updates: Partial<AISource>,
 ): AISourcesConfig {
   return {
     ...config,
-    sources: config.sources.map(s =>
-      s.id === id
-        ? { ...s, ...updates, updatedAt: new Date().toISOString() }
-        : s
-    )
-  }
+    sources: config.sources.map((s) =>
+      s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s,
+    ),
+  };
 }
 
 /**
  * Delete a source
  */
 export function deleteSource(config: AISourcesConfig, id: string): AISourcesConfig {
-  const newSources = config.sources.filter(s => s.id !== id)
-  let newCurrentId = config.currentId
+  const newSources = config.sources.filter((s) => s.id !== id);
+  let newCurrentId = config.currentId;
 
   // If deleted was current, switch to first available
   if (config.currentId === id) {
-    newCurrentId = newSources.length > 0 ? newSources[0].id : null
+    newCurrentId = newSources.length > 0 ? newSources[0].id : null;
   }
 
   return {
     ...config,
     sources: newSources,
-    currentId: newCurrentId
-  }
+    currentId: newCurrentId,
+  };
 }
 
 /**
  * Set current source
  */
 export function setCurrentSource(config: AISourcesConfig, id: string): AISourcesConfig {
-  if (!config.sources.some(s => s.id === id)) {
-    return config // ID doesn't exist
+  if (!config.sources.some((s) => s.id === id)) {
+    return config; // ID doesn't exist
   }
-  return { ...config, currentId: id }
+  return { ...config, currentId: id };
 }
 
 /**
  * Set model for current source
  */
 export function setCurrentModel(config: AISourcesConfig, modelId: string): AISourcesConfig {
-  if (!config.currentId) return config
-  return updateSource(config, config.currentId, { model: modelId })
+  if (!config.currentId) return config;
+  return updateSource(config, config.currentId, { model: modelId });
 }
 
 /**
  * Get available models for a source
  */
 export function getAvailableModels(source: AISource): ModelOption[] {
-  return source.availableModels || []
+  return source.availableModels || [];
 }
 
 /**
  * Backward compatibility alias
  */
-export type AISourceType = string
-export type AISourceUserInfo = AISourceUser
+export type AISourceType = string;
+export type AISourceUserInfo = AISourceUser;

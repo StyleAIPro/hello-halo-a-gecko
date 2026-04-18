@@ -11,54 +11,53 @@
  * Auto-expands when there are generating tasks.
  */
 
-import { useState, useCallback } from 'react'
-import { ChevronDown, ChevronRight, Pin } from 'lucide-react'
-import { usePulseCount, usePulseItems } from '../../stores/chat.store'
-import { useTranslation } from '../../i18n'
-import { PulseList } from './PulseList'
+import { useState, useCallback } from 'react';
+import { ChevronDown, ChevronRight, Pin } from 'lucide-react';
+import { usePulseCount, usePulseItems } from '../../stores/chat.store';
+import { useTranslation } from '../../i18n';
+import { PulseList } from './PulseList';
 
 /** Fixed height for the list in sidebar mode */
-const SIDEBAR_MAX_HEIGHT = '320px'
+const SIDEBAR_MAX_HEIGHT = '320px';
 
 export function PulseSidebarSection() {
-  const { t } = useTranslation()
-  const count = usePulseCount()
-  const items = usePulseItems()
-  const [collapsed, setCollapsed] = useState(false)
+  const { t } = useTranslation();
+  const count = usePulseCount();
+  const items = usePulseItems();
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleToggle = useCallback(() => {
-    setCollapsed(prev => !prev)
-  }, [])
+    setCollapsed((prev) => !prev);
+  }, []);
 
   // Auto-expand when there are generating tasks
-  const hasGenerating = items.some(i => i.status === 'generating')
-  const effectivelyCollapsed = collapsed && !hasGenerating
+  const hasGenerating = items.some((i) => i.status === 'generating');
+  const effectivelyCollapsed = collapsed && !hasGenerating;
 
   // Don't render if nothing to show
-  if (count === 0) return null
+  if (count === 0) return null;
 
   return (
     <div className="border-b border-border">
       {/* Header — always visible */}
       <button
         onClick={handleToggle}
-        title={t('Shows active tasks, pending actions, and pinned conversations across all spaces. Completed or errored tasks auto-hide 1 minute after viewing.')}
+        title={t(
+          'Shows active tasks, pending actions, and pinned conversations across all spaces. Completed or errored tasks auto-hide 1 minute after viewing.',
+        )}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-secondary/30 transition-colors"
       >
-        {effectivelyCollapsed
-          ? <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-          : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-        }
+        {effectivelyCollapsed ? (
+          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+        )}
         <Pin className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground/60 tabular-nums">
-          {count}
-        </span>
+        <span className="text-xs text-muted-foreground/60 tabular-nums">{count}</span>
       </button>
 
       {/* List — hidden when collapsed (unless auto-expanded for generating tasks) */}
-      {!effectivelyCollapsed && (
-        <PulseList maxHeight={SIDEBAR_MAX_HEIGHT} compact />
-      )}
+      {!effectivelyCollapsed && <PulseList maxHeight={SIDEBAR_MAX_HEIGHT} compact />}
     </div>
-  )
+  );
 }

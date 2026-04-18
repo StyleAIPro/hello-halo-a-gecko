@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Conversation Controller - Unified business logic for conversation operations
  * Used by both IPC handlers and HTTP routes
  */
@@ -14,13 +14,13 @@ import {
   getMessageThoughts as serviceGetMessageThoughts,
   toggleStarConversation as serviceToggleStarConversation,
   listChildConversations as serviceListChildConversations,
-  listAllWorkerConversations as serviceListAllWorkerConversations
-} from '../services/conversation.service'
+  listAllWorkerConversations as serviceListAllWorkerConversations,
+} from '../services/conversation.service';
 
 export interface ControllerResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: string
+  success: boolean;
+  data?: T;
+  error?: string;
 }
 
 /**
@@ -28,11 +28,11 @@ export interface ControllerResponse<T = unknown> {
  */
 export function listConversations(spaceId: string): ControllerResponse {
   try {
-    const conversations = serviceListConversations(spaceId)
-    return { success: true, data: conversations }
+    const conversations = serviceListConversations(spaceId);
+    return { success: true, data: conversations };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -41,11 +41,11 @@ export function listConversations(spaceId: string): ControllerResponse {
  */
 export function createConversation(spaceId: string, title?: string): ControllerResponse {
   try {
-    const conversation = serviceCreateConversation(spaceId, title)
-    return { success: true, data: conversation }
+    const conversation = serviceCreateConversation(spaceId, title);
+    return { success: true, data: conversation };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -54,14 +54,14 @@ export function createConversation(spaceId: string, title?: string): ControllerR
  */
 export function getConversation(spaceId: string, conversationId: string): ControllerResponse {
   try {
-    const conversation = serviceGetConversation(spaceId, conversationId)
+    const conversation = serviceGetConversation(spaceId, conversationId);
     if (conversation) {
-      return { success: true, data: conversation }
+      return { success: true, data: conversation };
     }
-    return { success: false, error: 'Conversation not found' }
+    return { success: false, error: 'Conversation not found' };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -71,17 +71,17 @@ export function getConversation(spaceId: string, conversationId: string): Contro
 export function updateConversation(
   spaceId: string,
   conversationId: string,
-  updates: Record<string, unknown>
+  updates: Record<string, unknown>,
 ): ControllerResponse {
   try {
-    const conversation = serviceUpdateConversation(spaceId, conversationId, updates)
+    const conversation = serviceUpdateConversation(spaceId, conversationId, updates);
     if (conversation) {
-      return { success: true, data: conversation }
+      return { success: true, data: conversation };
     }
-    return { success: false, error: 'Failed to update conversation' }
+    return { success: false, error: 'Failed to update conversation' };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -90,11 +90,11 @@ export function updateConversation(
  */
 export function deleteConversation(spaceId: string, conversationId: string): ControllerResponse {
   try {
-    const result = serviceDeleteConversation(spaceId, conversationId)
-    return { success: result }
+    const result = serviceDeleteConversation(spaceId, conversationId);
+    return { success: result };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -104,14 +104,14 @@ export function deleteConversation(spaceId: string, conversationId: string): Con
 export function addMessage(
   spaceId: string,
   conversationId: string,
-  message: { role: string; content: string }
+  message: { role: string; content: string },
 ): ControllerResponse {
   try {
-    const newMessage = serviceAddMessage(spaceId, conversationId, message as any)
-    return { success: true, data: newMessage }
+    const newMessage = serviceAddMessage(spaceId, conversationId, message as any);
+    return { success: true, data: newMessage };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -121,17 +121,17 @@ export function addMessage(
 export function updateLastMessage(
   spaceId: string,
   conversationId: string,
-  updates: Record<string, unknown>
+  updates: Record<string, unknown>,
 ): ControllerResponse {
   try {
-    const message = serviceUpdateLastMessage(spaceId, conversationId, updates)
+    const message = serviceUpdateLastMessage(spaceId, conversationId, updates);
     if (message) {
-      return { success: true, data: message }
+      return { success: true, data: message };
     }
-    return { success: false, error: 'Failed to update message' }
+    return { success: false, error: 'Failed to update message' };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -141,14 +141,14 @@ export function updateLastMessage(
 export function getMessageThoughts(
   spaceId: string,
   conversationId: string,
-  messageId: string
+  messageId: string,
 ): ControllerResponse {
   try {
-    const thoughts = serviceGetMessageThoughts(spaceId, conversationId, messageId)
-    return { success: true, data: thoughts }
+    const thoughts = serviceGetMessageThoughts(spaceId, conversationId, messageId);
+    return { success: true, data: thoughts };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -158,17 +158,17 @@ export function getMessageThoughts(
 export function toggleStarConversation(
   spaceId: string,
   conversationId: string,
-  starred: boolean
+  starred: boolean,
 ): ControllerResponse {
   try {
-    const meta = serviceToggleStarConversation(spaceId, conversationId, starred)
+    const meta = serviceToggleStarConversation(spaceId, conversationId, starred);
     if (meta) {
-      return { success: true, data: meta }
+      return { success: true, data: meta };
     }
-    return { success: false, error: 'Conversation not found' }
+    return { success: false, error: 'Conversation not found' };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -177,14 +177,14 @@ export function toggleStarConversation(
  */
 export function listChildConversations(
   spaceId: string,
-  parentConversationId: string
+  parentConversationId: string,
 ): ControllerResponse {
   try {
-    const children = serviceListChildConversations(spaceId, parentConversationId)
-    return { success: true, data: children }
+    const children = serviceListChildConversations(spaceId, parentConversationId);
+    return { success: true, data: children };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -193,22 +193,25 @@ export function listChildConversations(
  */
 export function listAllWorkerConversations(spaceId: string): ControllerResponse {
   try {
-    const workerMap = serviceListAllWorkerConversations(spaceId)
+    const workerMap = serviceListAllWorkerConversations(spaceId);
     // Convert Map to plain object for HTTP serialization
-    const data: Record<string, Array<{
-      id: string
-      title: string
-      agentId: string
-      createdAt: string
-      updatedAt: string
-      messageCount: number
-    }>> = {}
+    const data: Record<
+      string,
+      Array<{
+        id: string;
+        title: string;
+        agentId: string;
+        createdAt: string;
+        updatedAt: string;
+        messageCount: number;
+      }>
+    > = {};
     for (const [parentConvId, workers] of workerMap) {
-      data[parentConvId] = workers
+      data[parentConvId] = workers;
     }
-    return { success: true, data }
+    return { success: true, data };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }

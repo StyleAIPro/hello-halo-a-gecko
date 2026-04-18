@@ -7,21 +7,21 @@
  * - Editor: AI-assisted skill file editor
  */
 
-import { useEffect, useMemo } from 'react'
-import { useSkillStore } from '../../stores/skill/skill.store'
-import { useSpaceStore } from '../../stores/space.store'
-import { useAppStore } from '../../stores/app.store'
-import { Header } from '../../components/layout/Header'
-import { SkillLibrary } from '../../components/skill/SkillLibrary'
-import { SkillMarket } from '../../components/skill/SkillMarket'
-import { SkillEditorPage } from '../../components/skill/SkillEditor'
-import { useTranslation } from '../../i18n'
-import { Book, Store, FileCode, Settings, ArrowLeft } from 'lucide-react'
+import { useEffect, useMemo } from 'react';
+import { useSkillStore } from '../../stores/skill/skill.store';
+import { useSpaceStore } from '../../stores/space.store';
+import { useAppStore } from '../../stores/app.store';
+import { Header } from '../../components/layout/Header';
+import { SkillLibrary } from '../../components/skill/SkillLibrary';
+import { SkillMarket } from '../../components/skill/SkillMarket';
+import { SkillEditorPage } from '../../components/skill/SkillEditor';
+import { useTranslation } from '../../i18n';
+import { Book, Store, FileCode, Settings, ArrowLeft } from 'lucide-react';
 
 export function SkillPage() {
-  const { t } = useTranslation()
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const { setView, goBack } = useAppStore()
+  const { t } = useTranslation();
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const { setView, goBack } = useAppStore();
 
   const {
     currentView,
@@ -31,33 +31,36 @@ export function SkillPage() {
     loadInstalledSkills,
     loadMarketSources,
     loadConfig,
-  } = useSkillStore()
+  } = useSkillStore();
 
   // Load skills on mount
   useEffect(() => {
-    loadInstalledSkills()
-    loadMarketSources()
-    loadConfig()
-  }, [])
+    loadInstalledSkills();
+    loadMarketSources();
+    loadConfig();
+  }, []);
 
   // Tab configuration
-  const tabs = useMemo(() => [
-    {
-      id: 'library' as const,
-      label: t('Skill Library'),
-      icon: Book,
-    },
-    {
-      id: 'market' as const,
-      label: t('Skill Market'),
-      icon: Store,
-    },
-    {
-      id: 'editor' as const,
-      label: t('技能生成器'),
-      icon: FileCode,
-    },
-  ], [t])
+  const tabs = useMemo(
+    () => [
+      {
+        id: 'library' as const,
+        label: t('Skill Library'),
+        icon: Book,
+      },
+      {
+        id: 'market' as const,
+        label: t('Skill Market'),
+        icon: Store,
+      },
+      {
+        id: 'editor' as const,
+        label: t('技能生成器'),
+        icon: FileCode,
+      },
+    ],
+    [t],
+  );
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -78,8 +81,8 @@ export function SkillPage() {
       {/* Tab Bar */}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-border">
         {tabs.map((tab) => {
-          const Icon = tab.icon
-          const isActive = currentView === tab.id
+          const Icon = tab.icon;
+          const isActive = currentView === tab.id;
 
           return (
             <button
@@ -98,7 +101,7 @@ export function SkillPage() {
               <Icon className="w-4 h-4" />
               {tab.label}
             </button>
-          )
+          );
         })}
 
         {/* Settings button (future: skill library config) */}
@@ -129,5 +132,5 @@ export function SkillPage() {
         {currentView === 'editor' && <SkillEditorPage />}
       </div>
     </div>
-  )
+  );
 }

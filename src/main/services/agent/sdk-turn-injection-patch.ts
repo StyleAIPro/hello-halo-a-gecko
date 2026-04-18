@@ -25,6 +25,22 @@ export function patchSdkForTurnInjection() {
     // Track changes
     let changes = 0;
 
+    // 0. MIGRATION: Fix already-patched send() that uses firstResultReceived
+    // The old patch used firstResultReceived as the guard, which persists across
+    // stream cycles. After the first conversation completes, firstResultReceived
+    // stays true forever, causing all subsequent send() calls to silently queue
+    // messages instead of actually sending them to the SDK input stream.
+    // Fix: replace with _continueAfterResult which is properly reset between cycles.
+    const oldSendGuard = 'this.query?.firstResultReceived&&!this.closed';
+    if (content.includes(oldSendGuard)) {
+      content = content.replace(
+        oldSendGuard,
+        'this.query?._continueAfterResult&&!this.closed',
+      );
+      changes++;
+      console.log('[SDK Patch] Migrated send() guard: firstResultReceived → _continueAfterResult');
+    }
+
     // 1. Add injection tracking properties to Query class
     const queryPropsInsertionPoint = 'pendingMcpResponses = new Map;';
     if (content.includes(queryPropsInsertionPoint) && !content.includes('_continueAfterResult')) {
@@ -33,7 +49,7 @@ export function patchSdkForTurnInjection() {
         `pendingMcpResponses = new Map;
   // [PATCHED] Turn-level message injection
   _continueAfterResult = false;
-  _pendingUserMessages = [];`
+  _pendingUserMessages = [];`,
       );
       changes++;
       console.log('[SDK Patch] Added injection tracking properties to Query class');
@@ -51,7 +67,7 @@ export function patchSdkForTurnInjection() {
           console.log('[SDK] Injecting pending user message after result');
           this.inputStream.enqueue(nextMsg);
           this._continueAfterResult = this._pendingUserMessages.length > 0;
-        }`
+        }`,
       );
       changes++;
       console.log('[SDK Patch] Added message injection logic to readMessages');
@@ -62,15 +78,14 @@ export function patchSdkForTurnInjection() {
     if (content.includes(sendPattern) && !content.includes('Turn-level message injection')) {
       const newSend = `async send(message) {
     // [PATCHED] Turn-level message injection
-    if (this.query?.firstResultReceived && !this.closed) {
-      if (!this.query._continueAfterResult && !this.query._pendingUserMessages?.length) {
+    // Only queue when _continueAfterResult is explicitly true (active injection flow).
+    // Using firstResultReceived is wrong because it persists across stream cycles:
+    // after the first conversation completes, firstResultReceived stays true forever,
+    // causing all subsequent send() calls to silently queue instead of actually sending.
+    if (this.query?._continueAfterResult && !this.closed) {
+      if (this.query._pendingUserMessages) {
         this.query._pendingUserMessages.push(message);
-        this.query._continueAfterResult = true;
         console.log('[SDK] Queued message for turn-level injection');
-        return;
-      } else if (this.query._pendingUserMessages) {
-        this.query._pendingUserMessages.push(message);
-        console.log('[SDK] Queued additional message for injection');
         return;
       }
     }
@@ -127,7 +142,6 @@ export function patchSdkForTurnInjection() {
     } else {
       console.log('[SDK Patch] SDK already patched or patch patterns not found');
     }
-
   } catch (error) {
     console.error('[SDK Patch] Failed to patch SDK:', error);
     throw error;

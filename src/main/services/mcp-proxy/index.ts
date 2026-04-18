@@ -5,9 +5,9 @@
  * MCP tools (aico-bot-apps, gh-search) via HTTP for remote Claude sessions.
  */
 
-import { AicoBotMcpProxyServer } from './mcp-proxy-server.js'
+import { AicoBotMcpProxyServer } from './mcp-proxy-server.js';
 
-let instance: AicoBotMcpProxyServer | null = null
+let instance: AicoBotMcpProxyServer | null = null;
 
 /**
  * Get or create the singleton MCP proxy server.
@@ -15,17 +15,17 @@ let instance: AicoBotMcpProxyServer | null = null
  */
 export async function getMcpProxy(authToken: string): Promise<AicoBotMcpProxyServer> {
   if (!instance) {
-    instance = new AicoBotMcpProxyServer(authToken)
-    await instance.start()
+    instance = new AicoBotMcpProxyServer(authToken);
+    await instance.start();
   }
-  return instance
+  return instance;
 }
 
 /**
  * Get the MCP proxy instance if it's running.
  */
 export function getMcpProxyInstance(): AicoBotMcpProxyServer | null {
-  return instance
+  return instance;
 }
 
 /**
@@ -33,9 +33,9 @@ export function getMcpProxyInstance(): AicoBotMcpProxyServer | null {
  */
 export async function stopMcpProxy(): Promise<void> {
   if (instance) {
-    instance.stop()
-    instance = null
+    instance.stop();
+    instance = null;
   }
 }
 
-export { AicoBotMcpProxyServer } from './mcp-proxy-server.js'
+export { AicoBotMcpProxyServer } from './mcp-proxy-server.js';

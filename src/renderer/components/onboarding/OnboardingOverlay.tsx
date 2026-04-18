@@ -5,11 +5,11 @@
  * This component should be rendered at the app root level.
  */
 
-import { useOnboardingStore } from '../../stores/onboarding.store'
-import { Spotlight } from './Spotlight'
-import { Sparkles, Send, FileText, ArrowRight } from 'lucide-react'
-import { api } from '../../api'
-import { useTranslation } from '../../i18n'
+import { useOnboardingStore } from '../../stores/onboarding.store';
+import { Spotlight } from './Spotlight';
+import { Sparkles, Send, FileText, ArrowRight } from 'lucide-react';
+import { api } from '../../api';
+import { useTranslation } from '../../i18n';
 
 // Step configurations with their spotlight targets and messages
 // Note: titles and descriptions are translation keys
@@ -41,20 +41,21 @@ const STEP_CONFIGS = {
     iconColor: 'text-amber-500',
     buttonText: null,
   },
-}
+};
 
 export function OnboardingOverlay() {
-  const { isActive, currentStep, skipOnboarding, nextStep, isMockThinking, isMockAnimating } = useOnboardingStore()
-  const { t } = useTranslation()
+  const { isActive, currentStep, skipOnboarding, nextStep, isMockThinking, isMockAnimating } =
+    useOnboardingStore();
+  const { t } = useTranslation();
 
   // Don't show onboarding in remote mode (user must enable remote access in desktop app first, so not a new user)
   if (api.isRemoteMode()) {
-    return null
+    return null;
   }
 
   // Don't render if not active or completed
   if (!isActive || currentStep === 'completed') {
-    return null
+    return null;
   }
 
   // During AI thinking/animating phase, show a semi-transparent blocking overlay
@@ -70,17 +71,17 @@ export function OnboardingOverlay() {
           </span>
         </div>
       </div>
-    )
+    );
   }
 
-  const config = STEP_CONFIGS[currentStep]
-  if (!config) return null
+  const config = STEP_CONFIGS[currentStep];
+  if (!config) return null;
 
-  const Icon = config.icon
+  const Icon = config.icon;
 
   // For view-artifact step, don't pass onTargetClick
   // The ArtifactRail handles completion after opening the file
-  const handleTargetClick = currentStep === 'view-artifact' ? undefined : nextStep
+  const handleTargetClick = currentStep === 'view-artifact' ? undefined : nextStep;
 
   return (
     <Spotlight
@@ -91,7 +92,9 @@ export function OnboardingOverlay() {
       onTargetClick={handleTargetClick}
     >
       <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl bg-card flex items-center justify-center flex-shrink-0 border border-border ${config.iconColor}`}>
+        <div
+          className={`w-10 h-10 rounded-xl bg-card flex items-center justify-center flex-shrink-0 border border-border ${config.iconColor}`}
+        >
           <Icon className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
@@ -121,8 +124,8 @@ export function OnboardingOverlay() {
               step === currentStep
                 ? 'bg-primary'
                 : index < ['default-space', 'send-message', 'view-artifact'].indexOf(currentStep)
-                ? 'bg-primary/50'
-                : 'bg-muted'
+                  ? 'bg-primary/50'
+                  : 'bg-muted'
             }`}
           />
         ))}
@@ -131,5 +134,5 @@ export function OnboardingOverlay() {
         </span>
       </div>
     </Spotlight>
-  )
+  );
 }

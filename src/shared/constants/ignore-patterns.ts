@@ -24,7 +24,7 @@ export const ALWAYS_IGNORE_DIRS = [
   '.bzr',
   // App metadata
   '.aico-bot',
-]
+];
 
 // ─── Layer 1.5: C++ level safe directories ───────────────────────────────────
 // These directories are universally safe to ignore at C++ level because they
@@ -63,7 +63,7 @@ export const CPP_LEVEL_IGNORE_DIRS = [
 
   // C/C++
   '.ccache',
-]
+];
 
 // ─── Layer 2: JS baseline ────────────────────────────────────────────────────
 // Always applied regardless of whether .gitignore exists.
@@ -77,15 +77,15 @@ export const BASELINE_IGNORE_PATTERNS = [
   'node_modules',
   '.next',
   '.nuxt',
-  '.output',       // Nuxt 3
+  '.output', // Nuxt 3
   '.turbo',
   '.parcel-cache',
   '.cache',
 
   // ── Python ──
   '__pycache__',
-  '.venv',         // Standard Python virtual environment
-  'venv',          // Common virtual environment name
+  '.venv', // Standard Python virtual environment
+  'venv', // Common virtual environment name
   // NOTE: 'env' removed - too generic, could be user config directory
   '.tox',
   '.mypy_cache',
@@ -93,14 +93,14 @@ export const BASELINE_IGNORE_PATTERNS = [
   '.ruff_cache',
 
   // ── Java / Kotlin / Android ──
-  'target',        // Maven
-  '.gradle',       // Gradle cache
-  '.idea',         // IntelliJ IDEA
+  'target', // Maven
+  '.gradle', // Gradle cache
+  '.idea', // IntelliJ IDEA
 
   // ── C# / .NET ──
   // NOTE: 'bin' removed - too generic, could be user scripts directory
   'obj',
-  'packages',      // NuGet (older projects)
+  'packages', // NuGet (older projects)
 
   // ── C / C++ ──
   'cmake-build-*',
@@ -113,9 +113,9 @@ export const BASELINE_IGNORE_PATTERNS = [
   // (uses 'target' — already listed under Java/Maven)
 
   // ── Swift / iOS ──
-  '.build',        // Swift Package Manager
-  'Pods',          // CocoaPods
-  'DerivedData',   // Xcode
+  '.build', // Swift Package Manager
+  'Pods', // CocoaPods
+  'DerivedData', // Xcode
   '.swiftpm',
 
   // ── Cross-language build/output ──
@@ -123,4 +123,4 @@ export const BASELINE_IGNORE_PATTERNS = [
   'build',
   'out',
   'coverage',
-]
+];

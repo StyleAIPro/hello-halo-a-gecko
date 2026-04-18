@@ -10,141 +10,141 @@
  * - Window maximize for fullscreen viewing
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { Copy, Check, ExternalLink, Table, Code2 } from 'lucide-react'
-import { api } from '../../../api'
-import type { CanvasTab } from '../../../stores/canvas.store'
-import { useTranslation } from '../../../i18n'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Copy, Check, ExternalLink, Table, Code2 } from 'lucide-react';
+import { api } from '../../../api';
+import type { CanvasTab } from '../../../stores/canvas.store';
+import { useTranslation } from '../../../i18n';
 
 interface CsvViewerProps {
-  tab: CanvasTab
-  onScrollChange?: (position: number) => void
+  tab: CanvasTab;
+  onScrollChange?: (position: number) => void;
 }
 
 // Simple CSV parser that handles quoted fields
 function parseCSV(text: string): string[][] {
-  const rows: string[][] = []
-  let currentRow: string[] = []
-  let currentField = ''
-  let inQuotes = false
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
 
   for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    const nextChar = text[i + 1]
+    const char = text[i];
+    const nextChar = text[i + 1];
 
     if (inQuotes) {
       if (char === '"') {
         if (nextChar === '"') {
           // Escaped quote
-          currentField += '"'
-          i++
+          currentField += '"';
+          i++;
         } else {
           // End of quoted field
-          inQuotes = false
+          inQuotes = false;
         }
       } else {
-        currentField += char
+        currentField += char;
       }
     } else {
       if (char === '"') {
-        inQuotes = true
+        inQuotes = true;
       } else if (char === ',') {
-        currentRow.push(currentField.trim())
-        currentField = ''
+        currentRow.push(currentField.trim());
+        currentField = '';
       } else if (char === '\n' || (char === '\r' && nextChar === '\n')) {
-        currentRow.push(currentField.trim())
-        if (currentRow.length > 0 && currentRow.some(cell => cell !== '')) {
-          rows.push(currentRow)
+        currentRow.push(currentField.trim());
+        if (currentRow.length > 0 && currentRow.some((cell) => cell !== '')) {
+          rows.push(currentRow);
         }
-        currentRow = []
-        currentField = ''
-        if (char === '\r') i++ // Skip \n in \r\n
+        currentRow = [];
+        currentField = '';
+        if (char === '\r') i++; // Skip \n in \r\n
       } else if (char !== '\r') {
-        currentField += char
+        currentField += char;
       }
     }
   }
 
   // Don't forget the last field/row
   if (currentField || currentRow.length > 0) {
-    currentRow.push(currentField.trim())
-    if (currentRow.some(cell => cell !== '')) {
-      rows.push(currentRow)
+    currentRow.push(currentField.trim());
+    if (currentRow.some((cell) => cell !== '')) {
+      rows.push(currentRow);
     }
   }
 
-  return rows
+  return rows;
 }
 
 export function CsvViewer({ tab, onScrollChange }: CsvViewerProps) {
-  const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [copied, setCopied] = useState(false)
-  const [viewMode, setViewMode] = useState<'table' | 'source'>('table')
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'source'>('table');
 
-  const content = tab.content || ''
+  const content = tab.content || '';
 
   // Parse CSV data
   const { rows, headers, dataRows, columnCount } = useMemo(() => {
-    const parsed = parseCSV(content)
+    const parsed = parseCSV(content);
     if (parsed.length === 0) {
-      return { rows: [], headers: [], dataRows: [], columnCount: 0 }
+      return { rows: [], headers: [], dataRows: [], columnCount: 0 };
     }
 
-    const headers = parsed[0] || []
-    const dataRows = parsed.slice(1)
+    const headers = parsed[0] || [];
+    const dataRows = parsed.slice(1);
 
     // Normalize column count (some rows may have different lengths)
-    const maxCols = Math.max(...parsed.map(row => row.length))
+    const maxCols = Math.max(...parsed.map((row) => row.length));
 
     return {
       rows: parsed,
       headers,
       dataRows,
-      columnCount: maxCols
-    }
-  }, [content])
+      columnCount: maxCols,
+    };
+  }, [content]);
 
   // Restore scroll position
   useEffect(() => {
     if (containerRef.current && tab.scrollPosition !== undefined) {
-      containerRef.current.scrollTop = tab.scrollPosition
+      containerRef.current.scrollTop = tab.scrollPosition;
     }
-  }, [tab.id])
+  }, [tab.id]);
 
   // Save scroll position
   const handleScroll = useCallback(() => {
     if (containerRef.current && onScrollChange) {
-      onScrollChange(containerRef.current.scrollTop)
+      onScrollChange(containerRef.current.scrollTop);
     }
-  }, [onScrollChange])
+  }, [onScrollChange]);
 
   // Copy content
   const handleCopy = async () => {
-    if (!content) return
+    if (!content) return;
     try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }
+  };
 
   // Open with external application
   const handleOpenExternal = async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
     try {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } catch (err) {
-      console.error('Failed to open with external app:', err)
+      console.error('Failed to open with external app:', err);
     }
-  }
+  };
 
   // Count lines for source view
-  const lines = content.split('\n')
-  const lineCount = lines.length
-  const canOpenExternal = !api.isRemoteMode() && tab.path
+  const lines = content.split('\n');
+  const lineCount = lines.length;
+  const canOpenExternal = !api.isRemoteMode() && tab.path;
 
   return (
     <div className="relative flex flex-col h-full bg-background">
@@ -212,11 +212,7 @@ export function CsvViewer({ tab, onScrollChange }: CsvViewerProps) {
       </div>
 
       {/* Content */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-auto"
-      >
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto">
         {viewMode === 'table' ? (
           <TableView headers={headers} dataRows={dataRows} columnCount={columnCount} />
         ) : (
@@ -224,26 +220,26 @@ export function CsvViewer({ tab, onScrollChange }: CsvViewerProps) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 // Table view component
 function TableView({
   headers,
   dataRows,
-  columnCount
+  columnCount,
 }: {
-  headers: string[]
-  dataRows: string[][]
-  columnCount: number
+  headers: string[];
+  dataRows: string[][];
+  columnCount: number;
 }) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   if (headers.length === 0 && dataRows.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <p>{t('Empty file')}</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -267,10 +263,7 @@ function TableView({
       </thead>
       <tbody>
         {dataRows.map((row, rowIndex) => (
-          <tr
-            key={rowIndex}
-            className="hover:bg-secondary/30 transition-colors"
-          >
+          <tr key={rowIndex} className="hover:bg-secondary/30 transition-colors">
             {/* Row number */}
             <td className="w-12 px-3 py-1.5 text-xs text-muted-foreground/60 border-b border-r border-border/50 bg-background/50">
               {rowIndex + 1}
@@ -289,21 +282,19 @@ function TableView({
         ))}
       </tbody>
     </table>
-  )
+  );
 }
 
 // Source view component
 function SourceView({ content, lineCount }: { content: string; lineCount: number }) {
-  const lines = content.split('\n')
+  const lines = content.split('\n');
 
   return (
     <div className="flex min-h-full font-mono text-sm">
       {/* Line numbers */}
       <div className="sticky left-0 flex-shrink-0 select-none bg-background/80 backdrop-blur-sm border-r border-border/50 text-right text-muted-foreground/40 pr-3 pl-4 py-4 leading-6">
         {Array.from({ length: lineCount }, (_, i) => (
-          <div key={i + 1}>
-            {i + 1}
-          </div>
+          <div key={i + 1}>{i + 1}</div>
         ))}
       </div>
 
@@ -311,12 +302,10 @@ function SourceView({ content, lineCount }: { content: string; lineCount: number
       <pre className="flex-1 py-4 pl-4 pr-4 overflow-x-auto m-0">
         <code className="text-foreground leading-6 block">
           {lines.map((line, i) => (
-            <div key={i}>
-              {line || ' '}
-            </div>
+            <div key={i}>{line || ' '}</div>
           ))}
         </code>
       </pre>
     </div>
-  )
+  );
 }

@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import * as http from 'http'
 import * as https from 'https'
+import * as fs from 'fs'
 import type { ServerMessage, ClientMessage, RemoteServerConfig, ToolCallData, TerminalOutputData, ThoughtData, ThoughtDeltaData, HyperSpaceToolsConfig, AicoBotMcpToolDef } from './types.js'
 import { ClaudeManager, type ChatMessage, type ChatOptions, type ToolCall, type TerminalOutput, type ThoughtEvent, type ThoughtDeltaEvent } from './claude-manager.js'
 import { BackgroundTaskManager } from './background-tasks.js'
@@ -29,8 +30,9 @@ export class RemoteAgentServer {
   // BackgroundTaskManager for HTTP/WS API tasks (separate from MCP server's own manager)
   private bgTaskManager: BackgroundTaskManager
 
-  // Single auth token for this per-PC proxy instance
-  private authToken: string | undefined
+  // Auth tokens for multi-instance support (dev + packaged on same PC)
+  private authTokens: Set<string> = new Set()
+  private tokensJsonPath?: string
 
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
   private pendingHyperSpaceTools = new Map<string, {
@@ -60,9 +62,20 @@ export class RemoteAgentServer {
     // Explicitly listen on IPv4 to ensure compatibility
     this.server = new WebSocketServer({ port: config.port, host: '0.0.0.0' })
 
-    // Single auth token for this per-PC proxy instance
-    this.authToken = config.authToken
-    console.log(`[RemoteAgentServer] Auth configured: ${this.authToken ? 'yes' : 'no (open access)'}`)
+    // Auth tokens for multi-instance support (dev + packaged on same PC)
+    if (config.authToken) {
+      this.authTokens.add(config.authToken)
+    }
+    if (config.authTokens) {
+      for (const token of config.authTokens) {
+        this.authTokens.add(token)
+      }
+    }
+    this.tokensJsonPath = config.tokensJsonPath
+    if (this.tokensJsonPath) {
+      this.loadTokensFromFile(this.tokensJsonPath)
+    }
+    console.log(`[RemoteAgentServer] Auth configured: ${this.authTokens.size > 0 ? `yes (${this.authTokens.size} tokens)` : 'no (open access)'}`)
 
     // Use pathToClaudeCodeExecutable from config or environment variable
     // If not set, the SDK will use its default behavior (SDK mode)
@@ -119,10 +132,10 @@ export class RemoteAgentServer {
       // Check for Authorization header authentication
       const authHeader = req.headers['authorization'] || req.headers['Authorization']
 
-      if (this.authToken) {
+      if (this.authTokens.size > 0) {
         if (typeof authHeader === 'string') {
           const token = authHeader.split(' ')[1]
-          if (token === this.authToken) {
+          if (token && this.authTokens.has(token)) {
             console.log('Client authenticated via Authorization header')
             this.clients.set(ws, { authenticated: true, authToken: token })
             this.lastClientActivity = new Date()
@@ -195,6 +208,34 @@ export class RemoteAgentServer {
     this.setupHttpHealthEndpoint()
   }
 
+  private loadTokensFromFile(filePath: string): void {
+    try {
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf-8')
+        const tokens = JSON.parse(content)
+        if (Array.isArray(tokens)) {
+          for (const token of tokens) {
+            if (typeof token === 'string' && token.trim()) {
+              this.authTokens.add(token.trim())
+            }
+          }
+          console.log(`[RemoteAgentServer] Loaded ${tokens.length} tokens from ${filePath}`)
+        }
+      }
+    } catch (error) {
+      console.error(`[RemoteAgentServer] Failed to load tokens file:`, error)
+    }
+  }
+
+  private saveTokensToFile(): void {
+    if (!this.tokensJsonPath) return
+    try {
+      fs.writeFileSync(this.tokensJsonPath, JSON.stringify([...this.authTokens], null, 2))
+    } catch (error) {
+      console.error(`[RemoteAgentServer] Failed to save tokens file:`, error)
+    }
+  }
+
   /**
    * Setup HTTP health endpoint for deployment status checks
    * Listens on WebSocket port + 1
@@ -223,12 +264,39 @@ export class RemoteAgentServer {
       } else if (req.url === '/health/api' && req.method === 'POST') {
         // API reachability check: validates that the proxy can call the configured API
         this.handleHealthApiCheck(req, res)
+      } else if (req.url === '/tokens' && req.method === 'POST') {
+        // Dynamic token registration for multi-instance support
+        let body = ''
+        req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+        req.on('end', () => {
+          try {
+            const { token } = JSON.parse(body)
+            if (!token || typeof token !== 'string') {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'Missing or invalid "token" field' }))
+              return
+            }
+            const added = !this.authTokens.has(token)
+            this.authTokens.add(token)
+            this.saveTokensToFile()
+            console.log(`[RemoteAgentServer] Token registered via HTTP (new: ${added}, total: ${this.authTokens.size})`)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, added, totalTokens: this.authTokens.size }))
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          }
+        })
+      } else if (req.url === '/tokens' && req.method === 'GET') {
+        const maskedTokens = [...this.authTokens].map(t => t.substring(0, 8) + '...')
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ tokens: maskedTokens, count: this.authTokens.size }))
       } else if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
           name: 'remote-agent-proxy',
           version: '1.0.0',
-          endpoints: ['/health', '/healthz', '/health/api', '/tasks']
+          endpoints: ['/health', '/healthz', '/health/api', '/tasks', '/tokens']
         }))
       } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -488,8 +556,8 @@ export class RemoteAgentServer {
   }
 
   private handleAuth(ws: WebSocket, token: string): void {
-    if (this.authToken) {
-      if (token === this.authToken) {
+    if (this.authTokens.size > 0) {
+      if (this.authTokens.has(token)) {
         const client = this.clients.get(ws)
         if (client) {
           client.authenticated = true
@@ -705,13 +773,31 @@ export class RemoteAgentServer {
           let authRetries = 0
           let needsAuthRetry = false
 
+          // Outer loop: process current message, then any pending messages queued during streaming
+          let currentChatMessages = chatMessages
+          let currentOptions = resolvedOptions
+          let isFirstIteration = true
+
+          while (true) {
           do {
             needsAuthRetry = false
 
+          // Check if session has an active stream — if so, queue message and return.
+          // Only check on the first iteration (subsequent iterations are for pending messages
+          // and the previous streamChat has already completed).
+          if (isFirstIteration) {
+          const lastMessage = currentChatMessages[currentChatMessages.length - 1]
+          if (this.claudeManager.isActive(sessionId) && lastMessage?.role === 'user') {
+            this.claudeManager.queueMessage(sessionId, lastMessage.content, currentOptions)
+            return
+          }
+          isFirstIteration = false
+          }
+
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
-            chatMessages,
-            resolvedOptions,
+            currentChatMessages,
+            currentOptions,
             authRetries > 0 ? undefined : sdkSessionIdToUse,  // Don't resume on auth retry
             onToolCall,
             onTerminalOutput,
@@ -799,6 +885,20 @@ export class RemoteAgentServer {
           }
           } while (needsAuthRetry && authRetries < MAX_AUTH_RETRIES)
           console.log(`[RemoteAgentServer] Stream completed for session ${sessionId}`)
+
+          // Check for pending messages queued during streaming
+          const pending = this.claudeManager.consumePendingMessages(sessionId)
+          if (pending.length === 0) break
+
+          // Process first pending message, put the rest back
+          const nextMsg = pending[0]
+          for (const extra of pending.slice(1)) {
+            this.claudeManager.queueMessage(sessionId, extra.content, extra.options)
+          }
+          currentChatMessages = [{ role: 'user' as const, content: nextMsg.content }]
+          currentOptions = nextMsg.options || resolvedOptions
+          console.log(`[RemoteAgentServer] Processing ${pending.length} pending message(s) for session ${sessionId}`)
+          } // end while (pending messages loop)
         } catch (streamError) {
           // Check if this is an expected interrupt
           const errorMessage = streamError instanceof Error ? streamError.message : String(streamError)
@@ -845,6 +945,8 @@ export class RemoteAgentServer {
         })
       }
     } catch (error) {
+      // Clear pending messages on error to prevent stale queue
+      this.claudeManager.clearPendingMessages(sessionId)
       console.error(`[RemoteAgentServer] Chat error for session ${sessionId}:`, error)
       console.error(`[RemoteAgentServer] Error details:`, error instanceof Error ? {
         message: error.message,

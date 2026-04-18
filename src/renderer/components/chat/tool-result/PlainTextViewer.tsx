@@ -8,54 +8,51 @@
  * - Copy to clipboard
  */
 
-import { useState, useCallback, useMemo } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { truncateToLines } from './detection'
+import { useState, useCallback, useMemo } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { truncateToLines } from './detection';
 
-const PREVIEW_LINES = 6
+const PREVIEW_LINES = 6;
 
-export function PlainTextViewer({
-  output,
-  isError,
-  toolInput
-}: ViewerBaseProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
+export function PlainTextViewer({ output, isError, toolInput }: ViewerBaseProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Parse content for preview
-  const { content: previewContent, totalLines, truncated } = useMemo(() => {
-    return truncateToLines(output, PREVIEW_LINES)
-  }, [output])
+  const {
+    content: previewContent,
+    totalLines,
+    truncated,
+  } = useMemo(() => {
+    return truncateToLines(output, PREVIEW_LINES);
+  }, [output]);
 
-  const displayContent = isExpanded ? output : previewContent
+  const displayContent = isExpanded ? output : previewContent;
 
   // Copy handler
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(output)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [output])
+  }, [output]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* Text content */}
@@ -77,9 +74,7 @@ export function PlainTextViewer({
 
         {/* Truncation indicator */}
         {truncated && !isExpanded && (
-          <div className="px-3 pb-2 text-[10px] text-muted-foreground/40">
-            ⋯
-          </div>
+          <div className="px-3 pb-2 text-[10px] text-muted-foreground/40">⋯</div>
         )}
       </div>
 
@@ -89,9 +84,10 @@ export function PlainTextViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -159,5 +155,5 @@ export function PlainTextViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

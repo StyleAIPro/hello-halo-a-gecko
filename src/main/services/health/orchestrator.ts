@@ -9,16 +9,8 @@
  * - Status reporting
  */
 
-import type {
-  HealthSystemState,
-  HealthStatus,
-  HealthEvent,
-  RecoveryResult
-} from './types'
-import {
-  markInstanceStart,
-  markCleanExit
-} from './process-guardian'
+import type { HealthSystemState, HealthStatus, HealthEvent, RecoveryResult } from './types';
+import { markInstanceStart, markCleanExit } from './process-guardian';
 import {
   startFallbackPolling,
   stopFallbackPolling,
@@ -27,8 +19,8 @@ import {
   emitHealthEvent,
   emitRendererCrash,
   emitRendererUnresponsive,
-  emitAgentError
-} from './health-checker'
+  emitAgentError,
+} from './health-checker';
 import {
   executeRecovery,
   executeRecoveryWithUI,
@@ -37,15 +29,15 @@ import {
   canRecover,
   getRecoveryStats,
   updateErrorCount,
-  resetDialogSuppression
-} from './recovery-manager'
-import { sendToRenderer } from '../window.service'
+  resetDialogSuppression,
+} from './recovery-manager';
+import { sendToRenderer } from '../window.service';
 
 // ============================================
 // State
 // ============================================
 
-let systemState: HealthSystemState = {
+const systemState: HealthSystemState = {
   status: 'healthy',
   instanceId: '',
   startedAt: 0,
@@ -53,15 +45,15 @@ let systemState: HealthSystemState = {
   recoveryAttempts: 0,
   isPollingActive: false,
   isEnabled: true,
-  recentEvents: []
-}
+  recentEvents: [],
+};
 
 // Self-failure tracking
-let selfFailures = 0
-const MAX_SELF_FAILURES = 5
+let selfFailures = 0;
+const MAX_SELF_FAILURES = 5;
 
 // Session cleanup function (injected from agent service)
-let closeAllSessionsFn: (() => void) | null = null
+let closeAllSessionsFn: (() => void) | null = null;
 
 // ============================================
 // Initialization
@@ -76,12 +68,12 @@ let closeAllSessionsFn: (() => void) | null = null
  * Performance: <1ms synchronous operation
  */
 export function initInstanceId(): string {
-  const instanceId = markInstanceStart()
-  systemState.instanceId = instanceId
-  systemState.startedAt = Date.now()
+  const instanceId = markInstanceStart();
+  systemState.instanceId = instanceId;
+  systemState.startedAt = Date.now();
 
-  console.log(`[Health][Orchestrator] Instance initialized: ${instanceId.slice(0, 8)}...`)
-  return instanceId
+  console.log(`[Health][Orchestrator] Instance initialized: ${instanceId.slice(0, 8)}...`);
+  return instanceId;
 }
 
 /**
@@ -92,16 +84,16 @@ export function initInstanceId(): string {
  */
 export async function initializeHealthSystem(): Promise<void> {
   if (!systemState.instanceId) {
-    console.warn('[Health][Orchestrator] Instance ID not set - call initInstanceId() first')
-    systemState.instanceId = initInstanceId()
+    console.warn('[Health][Orchestrator] Instance ID not set - call initInstanceId() first');
+    systemState.instanceId = initInstanceId();
   }
 
-  console.log('[Health][Orchestrator] Initializing health system...')
+  console.log('[Health][Orchestrator] Initializing health system...');
 
   try {
     // Inject session cleanup function into recovery manager
     if (closeAllSessionsFn) {
-      injectSessionCleanup(closeAllSessionsFn)
+      injectSessionCleanup(closeAllSessionsFn);
     }
 
     // Startup checks disabled - waste CPU/time for diagnostics that don't trigger recovery.
@@ -114,16 +106,16 @@ export async function initializeHealthSystem(): Promise<void> {
     // Event-driven checks (runtime) are still active for actual error recovery.
 
     // Register health event handler for automatic recovery
-    onHealthEvent(handleHealthEvent)
+    onHealthEvent(handleHealthEvent);
 
     // Start fallback polling (runtime checks only)
-    startFallbackPolling(handleStatusChange)
+    startFallbackPolling(handleStatusChange);
 
-    systemState.isPollingActive = true
+    systemState.isPollingActive = true;
 
-    console.log('[Health][Orchestrator] Health system initialized (event-driven mode)')
+    console.log('[Health][Orchestrator] Health system initialized (event-driven mode)');
   } catch (error) {
-    handleSelfError(error as Error)
+    handleSelfError(error as Error);
   }
 }
 
@@ -132,8 +124,8 @@ export async function initializeHealthSystem(): Promise<void> {
  * Called by agent service during initialization
  */
 export function setSessionCleanupFn(fn: () => void): void {
-  closeAllSessionsFn = fn
-  injectSessionCleanup(fn)
+  closeAllSessionsFn = fn;
+  injectSessionCleanup(fn);
 }
 
 // ============================================
@@ -146,57 +138,54 @@ export function setSessionCleanupFn(fn: () => void): void {
 function handleHealthEvent(event: HealthEvent): void {
   // Skip if health system is disabled (self-protection)
   if (!systemState.isEnabled) {
-    return
+    return;
   }
 
   try {
     // Update recent events
-    systemState.recentEvents.unshift(event)
+    systemState.recentEvents.unshift(event);
     if (systemState.recentEvents.length > 50) {
-      systemState.recentEvents.pop()
+      systemState.recentEvents.pop();
     }
 
     // Handle info events - reset consecutive failures on success
     if (event.category === 'info') {
       // Reset consecutive failures on recovery success or normal operation
       if (event.type === 'recovery_success' || event.type === 'startup_check') {
-        systemState.consecutiveFailures = 0
-        updateErrorCount(0)
-        systemState.status = 'healthy'
+        systemState.consecutiveFailures = 0;
+        updateErrorCount(0);
+        systemState.status = 'healthy';
       }
     }
 
     // Handle critical events
     if (event.category === 'critical') {
-      systemState.consecutiveFailures++
+      systemState.consecutiveFailures++;
 
       // Sync error count to executor for UI display
-      updateErrorCount(systemState.consecutiveFailures)
+      updateErrorCount(systemState.consecutiveFailures);
 
       // Check if recovery is needed
-      const strategyId = selectRecoveryStrategy(
-        systemState.consecutiveFailures,
-        event.source
-      )
+      const strategyId = selectRecoveryStrategy(systemState.consecutiveFailures, event.source);
 
       if (strategyId && canRecover()) {
-        console.log(`[Health][Orchestrator] Triggering recovery strategy: ${strategyId}`)
+        console.log(`[Health][Orchestrator] Triggering recovery strategy: ${strategyId}`);
 
         // S1 and S2: Auto-recover without user consent
         if (strategyId === 'S1' || strategyId === 'S2') {
-          attemptRecovery(strategyId)
+          attemptRecovery(strategyId);
         }
         // S3 and S4: Require user consent via UI dialog
         else if (strategyId === 'S3' || strategyId === 'S4') {
-          attemptRecoveryWithUI(strategyId, event.message)
+          attemptRecoveryWithUI(strategyId, event.message);
         }
       }
     }
 
     // Update status
-    updateStatus(event)
+    updateStatus(event);
   } catch (error) {
-    handleSelfError(error as Error)
+    handleSelfError(error as Error);
   }
 }
 
@@ -204,20 +193,20 @@ function handleHealthEvent(event: HealthEvent): void {
  * Handle status changes from fallback polling
  */
 function handleStatusChange(status: HealthStatus, message: string): void {
-  const previousStatus = systemState.status
+  const previousStatus = systemState.status;
 
   if (status !== previousStatus) {
-    systemState.status = status
+    systemState.status = status;
 
     // Notify renderer
     sendToRenderer('health:status-change', {
       status,
       previousStatus,
       reason: message,
-      timestamp: Date.now()
-    })
+      timestamp: Date.now(),
+    });
 
-    console.log(`[Health][Orchestrator] Status changed: ${previousStatus} -> ${status}`)
+    console.log(`[Health][Orchestrator] Status changed: ${previousStatus} -> ${status}`);
   }
 }
 
@@ -225,16 +214,16 @@ function handleStatusChange(status: HealthStatus, message: string): void {
  * Update health status based on event
  */
 function updateStatus(event: HealthEvent): void {
-  let newStatus: HealthStatus = systemState.status
+  let newStatus: HealthStatus = systemState.status;
 
   if (event.category === 'critical') {
-    newStatus = 'unhealthy'
+    newStatus = 'unhealthy';
   } else if (event.category === 'warning' && systemState.status === 'healthy') {
-    newStatus = 'degraded'
+    newStatus = 'degraded';
   }
 
   if (newStatus !== systemState.status) {
-    handleStatusChange(newStatus, event.message)
+    handleStatusChange(newStatus, event.message);
   }
 }
 
@@ -247,46 +236,51 @@ function updateStatus(event: HealthEvent): void {
  */
 async function attemptRecovery(strategyId: 'S1' | 'S2'): Promise<void> {
   try {
-    systemState.recoveryAttempts++
+    systemState.recoveryAttempts++;
 
-    const result = await executeRecovery(strategyId, false)
+    const result = await executeRecovery(strategyId, false);
 
     if (result.success) {
       // Reset failure counters on successful recovery
-      systemState.consecutiveFailures = 0
-      updateErrorCount(0)
-      systemState.status = 'healthy'
+      systemState.consecutiveFailures = 0;
+      updateErrorCount(0);
+      systemState.status = 'healthy';
 
-      console.log(`[Health][Orchestrator] Recovery ${strategyId} successful`)
+      console.log(`[Health][Orchestrator] Recovery ${strategyId} successful`);
     } else {
-      console.warn(`[Health][Orchestrator] Recovery ${strategyId} failed: ${result.message}`)
+      console.warn(`[Health][Orchestrator] Recovery ${strategyId} failed: ${result.message}`);
     }
   } catch (error) {
-    console.error(`[Health][Orchestrator] Recovery error:`, error)
+    console.error(`[Health][Orchestrator] Recovery error:`, error);
   }
 }
 
 /**
  * Attempt recovery with UI dialog (S3/S4 - requires user consent)
  */
-async function attemptRecoveryWithUI(strategyId: 'S3' | 'S4', errorMessage?: string): Promise<void> {
+async function attemptRecoveryWithUI(
+  strategyId: 'S3' | 'S4',
+  errorMessage?: string,
+): Promise<void> {
   try {
-    systemState.recoveryAttempts++
+    systemState.recoveryAttempts++;
 
-    const result = await executeRecoveryWithUI(strategyId, errorMessage)
+    const result = await executeRecoveryWithUI(strategyId, errorMessage);
 
     if (result.success) {
       // Reset failure counters on successful recovery
-      systemState.consecutiveFailures = 0
-      updateErrorCount(0)
-      systemState.status = 'healthy'
+      systemState.consecutiveFailures = 0;
+      updateErrorCount(0);
+      systemState.status = 'healthy';
 
-      console.log(`[Health][Orchestrator] Recovery ${strategyId} successful (with UI)`)
+      console.log(`[Health][Orchestrator] Recovery ${strategyId} successful (with UI)`);
     } else {
-      console.warn(`[Health][Orchestrator] Recovery ${strategyId} failed or cancelled: ${result.message}`)
+      console.warn(
+        `[Health][Orchestrator] Recovery ${strategyId} failed or cancelled: ${result.message}`,
+      );
     }
   } catch (error) {
-    console.error(`[Health][Orchestrator] Recovery with UI error:`, error)
+    console.error(`[Health][Orchestrator] Recovery with UI error:`, error);
   }
 }
 
@@ -295,10 +289,10 @@ async function attemptRecoveryWithUI(strategyId: 'S3' | 'S4', errorMessage?: str
  */
 export async function triggerRecovery(
   strategyId: 'S1' | 'S2' | 'S3' | 'S4',
-  userConsented: boolean = false
+  userConsented: boolean = false,
 ): Promise<RecoveryResult> {
-  systemState.recoveryAttempts++
-  return executeRecovery(strategyId, userConsented)
+  systemState.recoveryAttempts++;
+  return executeRecovery(strategyId, userConsented);
 }
 
 /**
@@ -306,10 +300,10 @@ export async function triggerRecovery(
  */
 export async function triggerRecoveryWithUI(
   strategyId: 'S1' | 'S2' | 'S3' | 'S4',
-  errorMessage?: string
+  errorMessage?: string,
 ): Promise<RecoveryResult> {
-  systemState.recoveryAttempts++
-  return executeRecoveryWithUI(strategyId, errorMessage)
+  systemState.recoveryAttempts++;
+  return executeRecoveryWithUI(strategyId, errorMessage);
 }
 
 // ============================================
@@ -320,7 +314,7 @@ export async function triggerRecoveryWithUI(
  * Handle agent error (called from agent service)
  */
 export function onAgentError(conversationId: string, error: string): void {
-  emitAgentError(conversationId, error)
+  emitAgentError(conversationId, error);
 }
 
 /**
@@ -332,22 +326,22 @@ export function onProcessExit(processId: string, code: number | null): void {
     category: 'critical',
     source: processId,
     message: `Process exited with code ${code}`,
-    data: { exitCode: code }
-  })
+    data: { exitCode: code },
+  });
 }
 
 /**
  * Handle renderer crash (called from main process)
  */
 export function onRendererCrash(details: { reason: string }): void {
-  emitRendererCrash(details.reason)
+  emitRendererCrash(details.reason);
 }
 
 /**
  * Handle renderer unresponsive (called from main process)
  */
 export function onRendererUnresponsive(): void {
-  emitRendererUnresponsive()
+  emitRendererUnresponsive();
 }
 
 // ============================================
@@ -358,18 +352,18 @@ export function onRendererUnresponsive(): void {
  * Clean shutdown of health system
  */
 export function shutdownHealthSystem(): void {
-  console.log('[Health][Orchestrator] Shutting down health system...')
+  console.log('[Health][Orchestrator] Shutting down health system...');
 
   try {
     // Stop polling
-    stopFallbackPolling()
+    stopFallbackPolling();
 
     // Mark clean exit
-    markCleanExit()
+    markCleanExit();
 
-    console.log('[Health][Orchestrator] Health system shut down')
+    console.log('[Health][Orchestrator] Health system shut down');
   } catch (error) {
-    console.error('[Health][Orchestrator] Shutdown error:', error)
+    console.error('[Health][Orchestrator] Shutdown error:', error);
   }
 }
 
@@ -383,27 +377,27 @@ export function shutdownHealthSystem(): void {
 export function getHealthState(): HealthSystemState {
   return {
     ...systemState,
-    isPollingActive: isPollingActive()
-  }
+    isPollingActive: isPollingActive(),
+  };
 }
 
 /**
  * Get health status summary
  */
 export function getHealthStatus(): {
-  status: HealthStatus
-  instanceId: string
-  uptime: number
-  consecutiveFailures: number
-  recoveryAttempts: number
+  status: HealthStatus;
+  instanceId: string;
+  uptime: number;
+  consecutiveFailures: number;
+  recoveryAttempts: number;
 } {
   return {
     status: systemState.status,
     instanceId: systemState.instanceId,
     uptime: Date.now() - systemState.startedAt,
     consecutiveFailures: systemState.consecutiveFailures,
-    recoveryAttempts: systemState.recoveryAttempts
-  }
+    recoveryAttempts: systemState.recoveryAttempts,
+  };
 }
 
 // ============================================
@@ -414,12 +408,12 @@ export function getHealthStatus(): {
  * Handle errors in the health system itself
  */
 function handleSelfError(error: Error): void {
-  selfFailures++
-  console.error(`[Health][Orchestrator] Self-failure ${selfFailures}:`, error.message)
+  selfFailures++;
+  console.error(`[Health][Orchestrator] Self-failure ${selfFailures}:`, error.message);
 
   if (selfFailures >= MAX_SELF_FAILURES) {
-    console.warn('[Health][Orchestrator] Too many self-failures, disabling health system')
-    disableHealthSystem()
+    console.warn('[Health][Orchestrator] Too many self-failures, disabling health system');
+    disableHealthSystem();
   }
 }
 
@@ -427,7 +421,7 @@ function handleSelfError(error: Error): void {
  * Disable health system (self-protection)
  */
 function disableHealthSystem(): void {
-  systemState.isEnabled = false
-  stopFallbackPolling()
-  console.warn('[Health][Orchestrator] Health system disabled due to repeated failures')
+  systemState.isEnabled = false;
+  stopFallbackPolling();
+  console.warn('[Health][Orchestrator] Health system disabled due to repeated failures');
 }

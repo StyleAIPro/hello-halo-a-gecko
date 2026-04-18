@@ -5,41 +5,41 @@
  * drawing user attention to specific UI elements during onboarding.
  */
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { X } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { X } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface SpotlightProps {
   // CSS selector for the target element to highlight
-  targetSelector: string
+  targetSelector: string;
 
   // Content to display (tooltip/message)
-  children: ReactNode
+  children: ReactNode;
 
   // Position of the tooltip relative to the target
-  tooltipPosition?: 'top' | 'bottom' | 'left' | 'right'
+  tooltipPosition?: 'top' | 'bottom' | 'left' | 'right';
 
   // Padding around the highlighted area
-  padding?: number
+  padding?: number;
 
   // Border radius of the highlight hole
-  borderRadius?: number
+  borderRadius?: number;
 
   // Whether to show skip button
-  showSkip?: boolean
+  showSkip?: boolean;
 
   // Skip button handler
-  onSkip?: () => void
+  onSkip?: () => void;
 
   // Called when user clicks the highlighted target
-  onTargetClick?: () => void
+  onTargetClick?: () => void;
 }
 
 interface HolePosition {
-  x: number
-  y: number
-  width: number
-  height: number
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export function Spotlight({
@@ -52,16 +52,16 @@ export function Spotlight({
   onSkip,
   onTargetClick,
 }: SpotlightProps) {
-  const [hole, setHole] = useState<HolePosition | null>(null)
-  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({})
-  const { t } = useTranslation()
+  const [hole, setHole] = useState<HolePosition | null>(null);
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
+  const { t } = useTranslation();
 
   // Calculate hole position and tooltip position
   const updatePositions = useCallback(() => {
-    const target = document.querySelector(targetSelector)
-    if (!target) return
+    const target = document.querySelector(targetSelector);
+    if (!target) return;
 
-    const rect = target.getBoundingClientRect()
+    const rect = target.getBoundingClientRect();
 
     // Hole position with padding
     const holePos: HolePosition = {
@@ -69,12 +69,12 @@ export function Spotlight({
       y: rect.y - padding,
       width: rect.width + padding * 2,
       height: rect.height + padding * 2,
-    }
-    setHole(holePos)
+    };
+    setHole(holePos);
 
     // Calculate tooltip position
-    const tooltipGap = 16
-    let style: React.CSSProperties = {}
+    const tooltipGap = 16;
+    let style: React.CSSProperties = {};
 
     switch (tooltipPosition) {
       case 'top':
@@ -82,73 +82,75 @@ export function Spotlight({
           left: rect.x + rect.width / 2,
           top: rect.y - padding - tooltipGap,
           transform: 'translate(-50%, -100%)',
-        }
-        break
+        };
+        break;
       case 'bottom':
         style = {
           left: rect.x + rect.width / 2,
           top: rect.y + rect.height + padding + tooltipGap,
           transform: 'translate(-50%, 0)',
-        }
-        break
+        };
+        break;
       case 'left':
         style = {
           left: rect.x - padding - tooltipGap,
           top: rect.y + rect.height / 2,
           transform: 'translate(-100%, -50%)',
-        }
-        break
+        };
+        break;
       case 'right':
         style = {
           left: rect.x + rect.width + padding + tooltipGap,
           top: rect.y + rect.height / 2,
           transform: 'translate(0, -50%)',
-        }
-        break
+        };
+        break;
     }
 
-    setTooltipStyle(style)
-  }, [targetSelector, padding, tooltipPosition])
+    setTooltipStyle(style);
+  }, [targetSelector, padding, tooltipPosition]);
 
   // Update positions on mount and resize
   useEffect(() => {
-    updatePositions()
+    updatePositions();
 
     // Re-calculate on resize
-    window.addEventListener('resize', updatePositions)
+    window.addEventListener('resize', updatePositions);
 
     // Also observe DOM changes (in case target renders later)
     const observer = new MutationObserver(() => {
-      setTimeout(updatePositions, 50)
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
+      setTimeout(updatePositions, 50);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
-      window.removeEventListener('resize', updatePositions)
-      observer.disconnect()
-    }
-  }, [updatePositions])
+      window.removeEventListener('resize', updatePositions);
+      observer.disconnect();
+    };
+  }, [updatePositions]);
 
   // Timeout protection: if target element is not found within 5 seconds, auto-skip
   // This prevents the app from being stuck in a broken onboarding state
   useEffect(() => {
-    if (hole) return // Target found, no need for timeout
+    if (hole) return; // Target found, no need for timeout
 
     const timeoutId = setTimeout(() => {
-      console.warn(`[Spotlight] Target element "${targetSelector}" not found after 5s, auto-skipping`)
+      console.warn(
+        `[Spotlight] Target element "${targetSelector}" not found after 5s, auto-skipping`,
+      );
       if (onSkip) {
-        onSkip()
+        onSkip();
       }
-    }, 5000)
+    }, 5000);
 
-    return () => clearTimeout(timeoutId)
-  }, [hole, targetSelector, onSkip])
+    return () => clearTimeout(timeoutId);
+  }, [hole, targetSelector, onSkip]);
 
   // Handle click on the overlay (outside the hole)
   const handleOverlayClick = (e: React.MouseEvent) => {
     // Prevent clicks on the dark area from doing anything
-    e.stopPropagation()
-  }
+    e.stopPropagation();
+  };
 
   // When target element is not found yet, show a waiting overlay
   // This prevents the spotlight from "disappearing" while waiting for DOM to update
@@ -156,10 +158,7 @@ export function Spotlight({
     return (
       <>
         {/* Full screen overlay while waiting for target */}
-        <div
-          className="fixed inset-0 z-[100] bg-black/75"
-          onClick={(e) => e.stopPropagation()}
-        />
+        <div className="fixed inset-0 z-[100] bg-black/75" onClick={(e) => e.stopPropagation()} />
         {/* Loading indicator with skip option */}
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[103]">
           <div className="bg-card border border-border rounded-xl p-4 shadow-2xl">
@@ -170,8 +169,8 @@ export function Spotlight({
             {showSkip && onSkip && (
               <button
                 onClick={(e) => {
-                  e.stopPropagation()
-                  onSkip()
+                  e.stopPropagation();
+                  onSkip();
                 }}
                 className="mt-3 pt-3 border-t border-border w-full text-center
                   text-sm text-muted-foreground hover:text-foreground
@@ -182,8 +181,8 @@ export function Spotlight({
             )}
           </div>
         </div>
-        </>
-    )
+      </>
+    );
   }
 
   // Generate clip-path polygon for the hole
@@ -199,7 +198,7 @@ export function Spotlight({
     ${hole.x}px 100%,
     100% 100%,
     100% 0%
-  )`
+  )`;
 
   // Handle click on the clickable hole area
   // For view-artifact step, we don't auto-trigger click - let user click the actual element
@@ -207,14 +206,14 @@ export function Spotlight({
     // Only trigger target click if onTargetClick is provided
     // This allows steps like view-artifact to handle clicks differently
     if (onTargetClick) {
-      const target = document.querySelector(targetSelector) as HTMLElement
+      const target = document.querySelector(targetSelector) as HTMLElement;
       if (target) {
-        target.click()
+        target.click();
       }
-      onTargetClick()
+      onTargetClick();
     }
     // If no onTargetClick, do nothing - let the click pass through to the actual element
-  }
+  };
 
   // When onTargetClick is undefined, we need to cut a hole in the overlay
   // so clicks can pass through to the actual element underneath
@@ -232,8 +231,8 @@ export function Spotlight({
           ${hole.x}px 100%,
           100% 100%,
           100% 0%
-        )`
-      }
+        )`,
+      };
 
   return (
     <>
@@ -275,10 +274,7 @@ export function Spotlight({
       />
 
       {/* Tooltip content */}
-      <div
-        className="fixed z-[103] max-w-xs sm:max-w-sm animate-fade-in"
-        style={tooltipStyle}
-      >
+      <div className="fixed z-[103] max-w-xs sm:max-w-sm animate-fade-in" style={tooltipStyle}>
         <div className="bg-card border border-border rounded-xl p-4 shadow-2xl">
           {children}
 
@@ -286,8 +282,8 @@ export function Spotlight({
           {showSkip && onSkip && (
             <button
               onClick={(e) => {
-                e.stopPropagation()
-                onSkip()
+                e.stopPropagation();
+                onSkip();
               }}
               className="mt-3 pt-3 border-t border-border w-full text-center
                 text-sm text-muted-foreground hover:text-foreground
@@ -299,5 +295,5 @@ export function Spotlight({
         </div>
       </div>
     </>
-  )
+  );
 }

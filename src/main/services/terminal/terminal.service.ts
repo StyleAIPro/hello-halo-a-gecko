@@ -7,49 +7,50 @@
  * - Bidirectional I/O streaming
  */
 
-import pty, { IPty } from 'node-pty'
-import { SSHManager } from '../remote-ssh/ssh-manager'
-import { EventEmitter } from 'events'
-import { Readable, Writable } from 'stream'
-import os from 'os'
+import type { IPty } from 'node-pty';
+import pty from 'node-pty';
+import { SSHManager } from '../remote-ssh/ssh-manager';
+import { EventEmitter } from 'events';
+import type { Readable, Writable } from 'stream';
+import os from 'os';
 
 export interface TerminalSessionConfig {
-  type: 'local' | 'remote'
-  spaceId: string
-  conversationId: string
-  workDir?: string
+  type: 'local' | 'remote';
+  spaceId: string;
+  conversationId: string;
+  workDir?: string;
   sshConfig?: {
-    host: string
-    port: number
-    username: string
-    password?: string
-    privateKey?: string
-  }
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    privateKey?: string;
+  };
 }
 
 export interface TerminalData {
-  data: string
-  timestamp: string
+  data: string;
+  timestamp: string;
 }
 
 export interface TerminalError {
-  error: string
-  timestamp: string
+  error: string;
+  timestamp: string;
 }
 
 /**
  * Terminal session with PTY
  */
 export class TerminalSession extends EventEmitter {
-  private ptyProcess: IPty | null = null
-  private sshManager: SSHManager | null = null
-  private sshStreams: { stdout: Readable; stderr: Readable; stdin: Writable } | null = null
-  private config: TerminalSessionConfig
-  private _ready = false
+  private ptyProcess: IPty | null = null;
+  private sshManager: SSHManager | null = null;
+  private sshStreams: { stdout: Readable; stderr: Readable; stdin: Writable } | null = null;
+  private config: TerminalSessionConfig;
+  private _ready = false;
 
   constructor(config: TerminalSessionConfig) {
-    super()
-    this.config = config
+    super();
+    this.config = config;
   }
 
   /**
@@ -57,9 +58,9 @@ export class TerminalSession extends EventEmitter {
    */
   async start(): Promise<void> {
     if (this.config.type === 'remote') {
-      return this.startRemote()
+      return this.startRemote();
     } else {
-      return this.startLocal()
+      return this.startLocal();
     }
   }
 
@@ -69,34 +70,34 @@ export class TerminalSession extends EventEmitter {
   private async startLocal(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash'
-        const args = process.platform === 'win32' ? [] : ['--login']
+        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+        const args = process.platform === 'win32' ? [] : ['--login'];
 
         this.ptyProcess = pty.spawn(shell, args, {
           name: 'xterm-256color',
           cols: 80,
           rows: 24,
           cwd: this.config.workDir || process.env.HOME || os.homedir() || process.cwd(),
-          env: process.env as { [key: string]: string }
-        })
+          env: process.env as { [key: string]: string },
+        });
 
         this.ptyProcess.onData((data: string) => {
-          this.emit('data', { data, timestamp: new Date().toISOString() })
-        })
+          this.emit('data', { data, timestamp: new Date().toISOString() });
+        });
 
         this.ptyProcess.onExit(({ exitCode }) => {
-          this._ready = false
-          this.emit('exit', { exitCode, timestamp: new Date().toISOString() })
-        })
+          this._ready = false;
+          this.emit('exit', { exitCode, timestamp: new Date().toISOString() });
+        });
 
-        this._ready = true
-        console.log('[TerminalSession] Local terminal started')
-        resolve()
+        this._ready = true;
+        console.log('[TerminalSession] Local terminal started');
+        resolve();
       } catch (error) {
-        console.error('[TerminalSession] Failed to start local terminal:', error)
-        reject(error)
+        console.error('[TerminalSession] Failed to start local terminal:', error);
+        reject(error);
       }
-    })
+    });
   }
 
   /**
@@ -104,37 +105,37 @@ export class TerminalSession extends EventEmitter {
    */
   private async startRemote(): Promise<void> {
     if (!this.config.sshConfig) {
-      throw new Error('SSH config is required for remote terminal')
+      throw new Error('SSH config is required for remote terminal');
     }
 
     try {
-      this.sshManager = new SSHManager()
-      await this.sshManager.connect(this.config.sshConfig)
+      this.sshManager = new SSHManager();
+      await this.sshManager.connect(this.config.sshConfig);
 
       // Execute interactive shell
-      const result = await this.sshManager.executeShell()
+      const result = await this.sshManager.executeShell();
 
       if (result instanceof Error) {
-        throw result
+        throw result;
       }
 
-      this.sshStreams = result
+      this.sshStreams = result;
 
       // Handle stdout
       result.stdout.on('data', (data: Buffer) => {
-        this.emit('data', { data: data.toString(), timestamp: new Date().toISOString() })
-      })
+        this.emit('data', { data: data.toString(), timestamp: new Date().toISOString() });
+      });
 
       // Handle stderr
       result.stderr.on('data', (data: Buffer) => {
-        this.emit('data', { data: data.toString(), timestamp: new Date().toISOString() })
-      })
+        this.emit('data', { data: data.toString(), timestamp: new Date().toISOString() });
+      });
 
-      this._ready = true
-      console.log('[TerminalSession] Remote terminal started')
+      this._ready = true;
+      console.log('[TerminalSession] Remote terminal started');
     } catch (error) {
-      console.error('[TerminalSession] Failed to start remote terminal:', error)
-      throw error
+      console.error('[TerminalSession] Failed to start remote terminal:', error);
+      throw error;
     }
   }
 
@@ -143,14 +144,14 @@ export class TerminalSession extends EventEmitter {
    */
   write(data: string): void {
     if (!this._ready) {
-      console.warn('[TerminalSession] Terminal not ready')
-      return
+      console.warn('[TerminalSession] Terminal not ready');
+      return;
     }
 
     if (this.ptyProcess) {
-      this.ptyProcess.write(data)
+      this.ptyProcess.write(data);
     } else if (this.sshStreams) {
-      this.sshStreams.stdin.write(data)
+      this.sshStreams.stdin.write(data);
     }
   }
 
@@ -159,7 +160,7 @@ export class TerminalSession extends EventEmitter {
    */
   resize(cols: number, rows: number): void {
     if (this.ptyProcess) {
-      this.ptyProcess.resize(cols, rows)
+      this.ptyProcess.resize(cols, rows);
     }
   }
 
@@ -167,28 +168,28 @@ export class TerminalSession extends EventEmitter {
    * Kill terminal session
    */
   kill(): void {
-    this._ready = false
+    this._ready = false;
 
     if (this.ptyProcess) {
-      this.ptyProcess.kill()
-      this.ptyProcess = null
+      this.ptyProcess.kill();
+      this.ptyProcess = null;
     }
 
     if (this.sshManager) {
-      this.sshManager.disconnect()
-      this.sshManager = null
-      this.sshStreams = null
+      this.sshManager.disconnect();
+      this.sshManager = null;
+      this.sshStreams = null;
     }
 
-    this.removeAllListeners()
-    console.log('[TerminalSession] Terminal killed')
+    this.removeAllListeners();
+    console.log('[TerminalSession] Terminal killed');
   }
 
   /**
    * Check if terminal is ready
    */
   isReady(): boolean {
-    return this._ready
+    return this._ready;
   }
 }
 
@@ -196,57 +197,57 @@ export class TerminalSession extends EventEmitter {
  * Terminal Service - manages multiple terminal sessions
  */
 export class TerminalService extends EventEmitter {
-  private sessions: Map<string, TerminalSession> = new Map()
+  private sessions: Map<string, TerminalSession> = new Map();
 
   /**
    * Create or get terminal session
    */
   async getOrCreateSession(
     sessionId: string,
-    config: TerminalSessionConfig
+    config: TerminalSessionConfig,
   ): Promise<TerminalSession> {
-    const existing = this.sessions.get(sessionId)
+    const existing = this.sessions.get(sessionId);
     if (existing && existing.isReady()) {
-      return existing
+      return existing;
     }
 
-    const session = new TerminalSession(config)
+    const session = new TerminalSession(config);
 
     session.on('data', (data: TerminalData) => {
-      this.emit('session:data', sessionId, data)
-    })
+      this.emit('session:data', sessionId, data);
+    });
 
     session.on('exit', (data: { exitCode: number; timestamp: string }) => {
-      this.emit('session:exit', sessionId, data)
-      this.sessions.delete(sessionId)
-    })
+      this.emit('session:exit', sessionId, data);
+      this.sessions.delete(sessionId);
+    });
 
     session.on('error', (error: TerminalError) => {
-      this.emit('session:error', sessionId, error)
-    })
+      this.emit('session:error', sessionId, error);
+    });
 
-    await session.start()
-    this.sessions.set(sessionId, session)
+    await session.start();
+    this.sessions.set(sessionId, session);
 
-    return session
+    return session;
   }
 
   /**
    * Get session by ID
    */
   getSession(sessionId: string): TerminalSession | undefined {
-    return this.sessions.get(sessionId)
+    return this.sessions.get(sessionId);
   }
 
   /**
    * Write to session
    */
   writeToSession(sessionId: string, data: string): void {
-    const session = this.sessions.get(sessionId)
+    const session = this.sessions.get(sessionId);
     if (session) {
-      session.write(data)
+      session.write(data);
     } else {
-      console.warn(`[TerminalService] Session ${sessionId} not found`)
+      console.warn(`[TerminalService] Session ${sessionId} not found`);
     }
   }
 
@@ -254,10 +255,10 @@ export class TerminalService extends EventEmitter {
    * Kill session
    */
   killSession(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
+    const session = this.sessions.get(sessionId);
     if (session) {
-      session.kill()
-      this.sessions.delete(sessionId)
+      session.kill();
+      this.sessions.delete(sessionId);
     }
   }
 
@@ -266,11 +267,11 @@ export class TerminalService extends EventEmitter {
    */
   killAllSessions(): void {
     for (const [sessionId, session] of this.sessions.entries()) {
-      session.kill()
+      session.kill();
     }
-    this.sessions.clear()
+    this.sessions.clear();
   }
 }
 
 // Export singleton instance
-export const terminalService = new TerminalService()
+export const terminalService = new TerminalService();

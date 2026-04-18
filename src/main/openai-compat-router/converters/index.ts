@@ -10,62 +10,62 @@
 // Request converters
 export {
   convertAnthropicToOpenAIChat,
-  convertRequestToChat
-} from './request/anthropic-to-openai-chat'
+  convertRequestToChat,
+} from './request/anthropic-to-openai-chat';
 
 export {
   convertAnthropicToOpenAIResponses,
-  convertRequestToResponses
-} from './request/anthropic-to-openai-responses'
+  convertRequestToResponses,
+} from './request/anthropic-to-openai-responses';
 
 // Response converters
 export {
   convertOpenAIChatToAnthropic,
   convertChatResponseToAnthropic,
   createAnthropicErrorResponse,
-  mapFinishReasonToStopReason
-} from './response/openai-chat-to-anthropic'
+  mapFinishReasonToStopReason,
+} from './response/openai-chat-to-anthropic';
 
 export {
   convertOpenAIResponsesToAnthropic,
   convertResponsesResponseToAnthropic,
-  mapStatusToStopReason
-} from './response/openai-responses-to-anthropic'
+  mapStatusToStopReason,
+} from './response/openai-responses-to-anthropic';
 
 // Content block converters
-export * from './content-blocks'
+export * from './content-blocks';
 
 // Message converters
-export * from './messages'
+export * from './messages';
 
 // Tool converters
-export * from './tools'
+export * from './tools';
 
 // ============================================================================
 // Backward Compatibility Aliases
 // ============================================================================
 
-import { convertAnthropicToOpenAIChat } from './request/anthropic-to-openai-chat'
-import { convertAnthropicToOpenAIResponses } from './request/anthropic-to-openai-responses'
-import { convertOpenAIChatToAnthropic } from './response/openai-chat-to-anthropic'
-import { convertOpenAIResponsesToAnthropic } from './response/openai-responses-to-anthropic'
+import { convertAnthropicToOpenAIChat } from './request/anthropic-to-openai-chat';
+import { convertAnthropicToOpenAIResponses } from './request/anthropic-to-openai-responses';
+import { convertOpenAIChatToAnthropic } from './response/openai-chat-to-anthropic';
+import { convertOpenAIResponsesToAnthropic } from './response/openai-responses-to-anthropic';
 
-import type { AnthropicRequest, OpenAIChatRequest, OpenAIResponsesRequest } from '../types'
+import type { AnthropicRequest, OpenAIChatRequest, OpenAIResponsesRequest } from '../types';
 
 /**
  * @deprecated Use convertAnthropicToOpenAIChat instead
  */
 export function convertAnthropicToOpenAI(request: AnthropicRequest): OpenAIChatRequest {
-  return convertAnthropicToOpenAIChat(request).request
+  return convertAnthropicToOpenAIChat(request).request;
 }
 
 /**
  * @deprecated Use convertOpenAIChatToAnthropic instead
  */
 export function convertOpenAIToAnthropic(response: any, requestModel?: string) {
-  return convertOpenAIChatToAnthropic(response, requestModel)
+  return convertOpenAIChatToAnthropic(response, requestModel);
 }
 
 // Re-export with original names for compatibility
-export { convertAnthropicToOpenAIResponses as convertToResponsesRequest }
-export { convertOpenAIResponsesToAnthropic as convertFromResponsesResponse }
+export { convertAnthropicToOpenAIResponses as convertToResponsesRequest };
+export { convertOpenAIResponsesToAnthropic as convertFromResponsesResponse };

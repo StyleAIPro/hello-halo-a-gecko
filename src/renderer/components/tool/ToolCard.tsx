@@ -3,7 +3,7 @@
  * Shows detailed information about tool execution and approval workflow
  */
 
-import { useState } from 'react'
+import { useState } from 'react';
 import {
   Clock,
   Loader2,
@@ -14,22 +14,22 @@ import {
   Copy,
   Check,
   AlertTriangle,
-} from 'lucide-react'
-import { ToolIcon } from '../icons/ToolIcons'
-import { useChatStore } from '../../stores/chat.store'
-import type { ToolCall } from '../../types'
-import { useTranslation } from '../../i18n'
+} from 'lucide-react';
+import { ToolIcon } from '../icons/ToolIcons';
+import { useChatStore } from '../../stores/chat.store';
+import type { ToolCall } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface ToolCardProps {
-  toolCall: ToolCall
-  conversationId?: string
+  toolCall: ToolCall;
+  conversationId?: string;
 }
 
 export function ToolCard({ toolCall, conversationId }: ToolCardProps) {
-  const { t } = useTranslation()
-  const { approveTool, rejectTool } = useChatStore()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [isCopied, setIsCopied] = useState(false)
+  const { t } = useTranslation();
+  const { approveTool, rejectTool } = useChatStore();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
   const statusConfig = {
     pending: {
@@ -63,80 +63,82 @@ export function ToolCard({ toolCall, conversationId }: ToolCardProps) {
       className: 'tool-waiting',
       color: 'text-yellow-500',
     },
-  } as const
+  } as const;
 
-  const status = statusConfig[toolCall.status] || statusConfig.pending
-  const StatusIcon = status.icon
+  const status = statusConfig[toolCall.status] || statusConfig.pending;
+  const StatusIcon = status.icon;
 
   // Get tool display name
   const getToolDisplayName = (name: string) => {
     switch (name) {
       case 'Read':
-        return t('Read file')
+        return t('Read file');
       case 'Write':
-        return t('Create file')
+        return t('Create file');
       case 'Edit':
-        return t('Edit file')
+        return t('Edit file');
       case 'Bash':
-        return t('Execute command')
+        return t('Execute command');
       case 'Grep':
-        return t('Search content')
+        return t('Search content');
       case 'Glob':
-        return t('Find files')
+        return t('Find files');
       case 'WebFetch':
-        return t('Fetch web page')
+        return t('Fetch web page');
       case 'WebSearch':
-        return t('Search the web')
+        return t('Search the web');
       case 'TodoWrite':
-        return t('Task list')
+        return t('Task list');
       case 'Agent':
       case 'Task':
-        return t('Subtask')
+        return t('Subtask');
       case 'NotebookEdit':
-        return t('Edit notebook')
+        return t('Edit notebook');
       case 'AskUserQuestion':
-        return t('Ask user')
+        return t('Ask user');
       default:
-        return name
+        return name;
     }
-  }
+  };
 
   // Get tool description
   const getToolDescription = () => {
-    if (toolCall.description) return toolCall.description
+    if (toolCall.description) return toolCall.description;
 
-    const input = toolCall.input
+    const input = toolCall.input;
     switch (toolCall.name) {
       case 'Read':
-        return input.file_path as string
+        return input.file_path as string;
       case 'Write':
-        return input.file_path as string
+        return input.file_path as string;
       case 'Edit':
-        return input.file_path as string
+        return input.file_path as string;
       case 'Bash':
-        return input.command as string
+        return input.command as string;
       case 'Grep':
-        return t('Search: {{pattern}}', { pattern: input.pattern as string })
+        return t('Search: {{pattern}}', { pattern: input.pattern as string });
       case 'Glob':
-        return t('Pattern: {{pattern}}', { pattern: input.pattern as string })
+        return t('Pattern: {{pattern}}', { pattern: input.pattern as string });
       default:
-        return JSON.stringify(input).slice(0, 50)
+        return JSON.stringify(input).slice(0, 50);
     }
-  }
+  };
 
   // Handle copy
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(toolCall.output || '')
-      setIsCopied(true)
-      setTimeout(() => setIsCopied(false), 2000)
+      await navigator.clipboard.writeText(toolCall.output || '');
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }
+  };
 
   return (
-    <div className={`border rounded-xl overflow-hidden transition-all duration-200 ${status.className}`}>
+    <div
+      className={`border rounded-xl overflow-hidden transition-all duration-200 ${status.className}`}
+    >
       {/* Header */}
       <div
         className="flex items-center justify-between px-3 py-2.5 bg-secondary/30 cursor-pointer hover:bg-secondary/50 transition-colors"
@@ -149,14 +151,9 @@ export function ToolCard({ toolCall, conversationId }: ToolCardProps) {
           </div>
           {/* Tool name and status */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {getToolDisplayName(toolCall.name)}
-            </span>
+            <span className="text-sm font-medium">{getToolDisplayName(toolCall.name)}</span>
             <div className={`flex items-center gap-1 ${status.color}`}>
-              <StatusIcon
-                size={12}
-                className={status.spin ? 'animate-spin' : ''}
-              />
+              <StatusIcon size={12} className={status.spin ? 'animate-spin' : ''} />
               <span className="text-xs">{status.text}</span>
             </div>
           </div>
@@ -272,5 +269,5 @@ export function ToolCard({ toolCall, conversationId }: ToolCardProps) {
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -5,92 +5,92 @@
  * Shows space selector and config_schema form fields.
  */
 
-import { useState, useMemo, useCallback } from 'react'
-import { X, Loader2 } from 'lucide-react'
-import { useSpaceStore } from '../../stores/space.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
-import type { StoreAppDetail } from '../../../shared/store/store-types'
-import type { InputDef } from '../../../shared/apps/spec-types'
+import { useState, useMemo, useCallback } from 'react';
+import { X, Loader2 } from 'lucide-react';
+import { useSpaceStore } from '../../stores/space.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
+import type { StoreAppDetail } from '../../../shared/store/store-types';
+import type { InputDef } from '../../../shared/apps/spec-types';
 
 interface StoreInstallDialogProps {
-  detail: StoreAppDetail
-  onClose: () => void
-  onInstalled: (appId: string) => void
+  detail: StoreAppDetail;
+  onClose: () => void;
+  onInstalled: (appId: string) => void;
 }
 
 export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstallDialogProps) {
-  const { t } = useTranslation()
-  const installFromStore = useAppsPageStore(state => state.installFromStore)
+  const { t } = useTranslation();
+  const installFromStore = useAppsPageStore((state) => state.installFromStore);
 
   // Spaces
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const defaultSpace = useSpaceStore(state => state.defaultSpace)
-  const spaces = useSpaceStore(state => state.spaces)
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const defaultSpace = useSpaceStore((state) => state.defaultSpace);
+  const spaces = useSpaceStore((state) => state.spaces);
 
   const allSpaces = useMemo(() => {
-    const result: Array<{ id: string; name: string; icon: string }> = []
-    if (defaultSpace) result.push(defaultSpace)
-    result.push(...spaces)
-    return result
-  }, [defaultSpace, spaces])
+    const result: Array<{ id: string; name: string; icon: string }> = [];
+    if (defaultSpace) result.push(defaultSpace);
+    result.push(...spaces);
+    return result;
+  }, [defaultSpace, spaces]);
 
   const [selectedSpaceId, setSelectedSpaceId] = useState(
-    currentSpace?.id ?? allSpaces[0]?.id ?? ''
-  )
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+    currentSpace?.id ?? allSpaces[0]?.id ?? '',
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Dynamic config form state — use resolved schema for translated display text;
   // field.key and field.required are preserved unchanged by resolveSpecI18n.
-  const configSchema = resolveSpecI18n(detail.spec, getCurrentLanguage()).config_schema ?? []
+  const configSchema = resolveSpecI18n(detail.spec, getCurrentLanguage()).config_schema ?? [];
   const [configValues, setConfigValues] = useState<Record<string, unknown>>(() => {
-    const initial: Record<string, unknown> = {}
+    const initial: Record<string, unknown> = {};
     for (const field of configSchema) {
       if (field.default !== undefined) {
-        initial[field.key] = field.default
+        initial[field.key] = field.default;
       } else {
-        initial[field.key] = ''
+        initial[field.key] = '';
       }
     }
-    return initial
-  })
+    return initial;
+  });
 
   const updateConfigValue = useCallback((key: string, value: unknown) => {
-    setConfigValues(prev => ({ ...prev, [key]: value }))
-    setError(null)
-  }, [])
+    setConfigValues((prev) => ({ ...prev, [key]: value }));
+    setError(null);
+  }, []);
 
   const handleInstall = useCallback(async () => {
-    setError(null)
-    setLoading(true)
+    setError(null);
+    setLoading(true);
 
     try {
       if (!selectedSpaceId) {
-        setError(t('Please select a space'))
-        setLoading(false)
-        return
+        setError(t('Please select a space'));
+        setLoading(false);
+        return;
       }
 
       // Validate required fields
       for (const field of configSchema) {
         if (field.required) {
-          const val = configValues[field.key]
+          const val = configValues[field.key];
           if (val === undefined || val === null || val === '') {
-            setError(t('{{field}} is required').replace('{{field}}', field.label))
-            setLoading(false)
-            return
+            setError(t('{{field}} is required').replace('{{field}}', field.label));
+            setLoading(false);
+            return;
           }
         }
       }
 
       // Build user config (only include fields that have values)
-      const userConfig: Record<string, unknown> = {}
+      const userConfig: Record<string, unknown> = {};
       for (const field of configSchema) {
-        const val = configValues[field.key]
+        const val = configValues[field.key];
         if (val !== undefined && val !== null && val !== '') {
-          userConfig[field.key] = val
+          userConfig[field.key] = val;
         }
       }
 
@@ -98,32 +98,41 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
         detail.entry.slug,
         selectedSpaceId,
         Object.keys(userConfig).length > 0 ? userConfig : undefined,
-      )
+      );
 
       if (appId) {
-        onInstalled(appId)
+        onInstalled(appId);
       } else {
-        setError(t('Installation failed. Please try again.'))
+        setError(t('Installation failed. Please try again.'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Installation failed'))
+      setError(err instanceof Error ? err.message : t('Installation failed'));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [configSchema, configValues, detail.entry.slug, selectedSpaceId, installFromStore, onInstalled, t])
+  }, [
+    configSchema,
+    configValues,
+    detail.entry.slug,
+    selectedSpaceId,
+    installFromStore,
+    onInstalled,
+    t,
+  ]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
       <div
         className="relative w-full max-w-lg mx-4 bg-background border border-border rounded-xl shadow-xl flex flex-col max-h-[85vh]"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            {detail.entry.icon && (
-              <span className="text-base">{detail.entry.icon}</span>
-            )}
+            {detail.entry.icon && <span className="text-base">{detail.entry.icon}</span>}
             <h2 className="text-sm font-semibold truncate">
               {t('Install')} {resolveSpecI18n(detail.spec, getCurrentLanguage()).name}
             </h2>
@@ -150,11 +159,13 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
             ) : (
               <select
                 value={selectedSpaceId}
-                onChange={e => setSelectedSpaceId(e.target.value)}
+                onChange={(e) => setSelectedSpaceId(e.target.value)}
                 className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
               >
-                {allSpaces.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                {allSpaces.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             )}
@@ -166,20 +177,18 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('Configuration')}
               </h3>
-              {configSchema.map(field => (
+              {configSchema.map((field) => (
                 <ConfigField
                   key={field.key}
                   field={field}
                   value={configValues[field.key]}
-                  onChange={val => updateConfigValue(field.key, val)}
+                  onChange={(val) => updateConfigValue(field.key, val)}
                 />
               ))}
             </div>
           )}
 
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -201,7 +210,7 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ──────────────────────────────────────────────
@@ -209,15 +218,16 @@ export function StoreInstallDialog({ detail, onClose, onInstalled }: StoreInstal
 // ──────────────────────────────────────────────
 
 interface ConfigFieldProps {
-  field: InputDef
-  value: unknown
-  onChange: (value: unknown) => void
+  field: InputDef;
+  value: unknown;
+  onChange: (value: unknown) => void;
 }
 
 function ConfigField({ field, value, onChange }: ConfigFieldProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
-  const inputClasses = 'w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50'
+  const inputClasses =
+    'w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50';
 
   switch (field.type) {
     case 'boolean':
@@ -227,7 +237,7 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
             <input
               type="checkbox"
               checked={!!value}
-              onChange={e => onChange(e.target.checked)}
+              onChange={(e) => onChange(e.target.checked)}
               className="rounded border-border"
             />
             {field.label}
@@ -237,7 +247,7 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
             <p className="text-xs text-muted-foreground ml-6">{field.description}</p>
           )}
         </div>
-      )
+      );
 
     case 'select':
       return (
@@ -251,18 +261,18 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
           )}
           <select
             value={String(value ?? '')}
-            onChange={e => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             className={inputClasses}
           >
             <option value="">{t('Select...')}</option>
-            {field.options?.map(opt => (
+            {field.options?.map((opt) => (
               <option key={String(opt.value)} value={String(opt.value)}>
                 {opt.label}
               </option>
             ))}
           </select>
         </div>
-      )
+      );
 
     case 'number':
       return (
@@ -277,12 +287,12 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
           <input
             type="number"
             value={String(value ?? '')}
-            onChange={e => onChange(e.target.value ? Number(e.target.value) : '')}
+            onChange={(e) => onChange(e.target.value ? Number(e.target.value) : '')}
             placeholder={field.placeholder}
             className={inputClasses}
           />
         </div>
-      )
+      );
 
     case 'text':
       return (
@@ -296,13 +306,13 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
           )}
           <textarea
             value={String(value ?? '')}
-            onChange={e => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
             rows={3}
             className={`${inputClasses} resize-none`}
           />
         </div>
-      )
+      );
 
     default:
       // string, url, email — render as text input
@@ -318,11 +328,11 @@ function ConfigField({ field, value, onChange }: ConfigFieldProps) {
           <input
             type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
             value={String(value ?? '')}
-            onChange={e => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
             className={inputClasses}
           />
         </div>
-      )
+      );
   }
 }

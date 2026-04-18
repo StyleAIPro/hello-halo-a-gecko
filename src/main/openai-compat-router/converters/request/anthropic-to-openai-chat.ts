@@ -2,18 +2,18 @@
  * Request Converter: Anthropic -> OpenAI Chat Completions
  */
 
-import type { AnthropicRequest, OpenAIChatRequest } from '../../types'
-import { convertAnthropicMessagesToOpenAIChat } from '../messages'
+import type { AnthropicRequest, OpenAIChatRequest } from '../../types';
+import { convertAnthropicMessagesToOpenAIChat } from '../messages';
 import {
   convertAnthropicToolsToOpenAIChat,
   convertAnthropicToolChoiceToOpenAIChat,
-  convertAnthropicThinkingToOpenAIReasoning
-} from '../tools'
+  convertAnthropicThinkingToOpenAIReasoning,
+} from '../tools';
 
 export interface ConversionResult {
-  request: OpenAIChatRequest
-  hasImages: boolean
-  hasTools: boolean
+  request: OpenAIChatRequest;
+  hasImages: boolean;
+  hasTools: boolean;
 }
 
 /**
@@ -23,36 +23,38 @@ export function convertAnthropicToOpenAIChat(anthropicRequest: AnthropicRequest)
   // Convert messages
   const { messages, hasImages } = convertAnthropicMessagesToOpenAIChat(
     anthropicRequest.messages,
-    anthropicRequest.system
-  )
+    anthropicRequest.system,
+  );
 
   // Convert tools - just filter invalid ones, don't reject all
-  const tools = convertAnthropicToolsToOpenAIChat(anthropicRequest.tools)
+  const tools = convertAnthropicToolsToOpenAIChat(anthropicRequest.tools);
 
   // Build OpenAI request - only include essential parameters
   // Omit max_tokens/temperature as providers have their own defaults
   const openaiRequest: OpenAIChatRequest = {
     model: anthropicRequest.model,
     messages,
-    stream: anthropicRequest.stream
-  }
+    stream: anthropicRequest.stream,
+  };
 
   // Add tools if present
   if (tools && tools.length > 0) {
-    openaiRequest.tools = tools
-    openaiRequest.tool_choice = convertAnthropicToolChoiceToOpenAIChat(anthropicRequest.tool_choice)
+    openaiRequest.tools = tools;
+    openaiRequest.tool_choice = convertAnthropicToolChoiceToOpenAIChat(
+      anthropicRequest.tool_choice,
+    );
   }
 
   // Convert thinking -> reasoning
   if (anthropicRequest.thinking) {
-    openaiRequest.reasoning = convertAnthropicThinkingToOpenAIReasoning(anthropicRequest.thinking)
+    openaiRequest.reasoning = convertAnthropicThinkingToOpenAIReasoning(anthropicRequest.thinking);
   }
 
   return {
     request: openaiRequest,
     hasImages,
-    hasTools: !!tools && tools.length > 0
-  }
+    hasTools: !!tools && tools.length > 0,
+  };
 }
 
 /**
@@ -60,5 +62,5 @@ export function convertAnthropicToOpenAIChat(anthropicRequest: AnthropicRequest)
  * (for backward compatibility)
  */
 export function convertRequest(anthropicRequest: AnthropicRequest): OpenAIChatRequest {
-  return convertAnthropicToOpenAIChat(anthropicRequest).request
+  return convertAnthropicToOpenAIChat(anthropicRequest).request;
 }

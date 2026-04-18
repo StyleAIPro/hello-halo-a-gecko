@@ -21,7 +21,7 @@
  * the automated translation pipeline can handle other locales.
  */
 
-import type { AppType } from '../../../shared/apps/spec-types'
+import type { AppType } from '../../../shared/apps/spec-types';
 
 /**
  * Returns the English i18n key for the given app type's display label.
@@ -29,10 +29,15 @@ import type { AppType } from '../../../shared/apps/spec-types'
  */
 export function appTypeLabel(type: AppType | string): string {
   switch (type) {
-    case 'automation': return 'Digital Human'
-    case 'mcp':        return 'MCP'
-    case 'skill':      return 'Skill'
-    case 'extension':  return 'Extension'
-    default:           return type
+    case 'automation':
+      return 'Digital Human';
+    case 'mcp':
+      return 'MCP';
+    case 'skill':
+      return 'Skill';
+    case 'extension':
+      return 'Extension';
+    default:
+      return type;
   }
 }

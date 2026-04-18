@@ -15,10 +15,10 @@ import {
   Sparkles,
   Zap,
   type LucideIcon,
-} from 'lucide-react'
-import { getToolIcon } from '../icons/ToolIcons'
-import type { Thought } from '../../types'
-import type { WorkerSessionState } from '../../stores/chat.store'
+} from 'lucide-react';
+import { getToolIcon } from '../icons/ToolIcons';
+import type { Thought } from '../../types';
+import type { WorkerSessionState } from '../../stores/chat.store';
 
 // i18n static keys for extraction (DO NOT REMOVE)
 // prettier-ignore
@@ -34,8 +34,8 @@ void function _i18nThoughtKeys(t: (k: string) => string) {
  * Truncate text with ellipsis if exceeds max length
  */
 export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.substring(0, maxLength - 1) + '…'
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - 1) + '…';
 }
 
 // ============================================
@@ -52,21 +52,21 @@ export function truncateText(text: string, maxLength: number): string {
 export function getThoughtIcon(type: Thought['type'], toolName?: string): LucideIcon {
   switch (type) {
     case 'thinking':
-      return Lightbulb
+      return Lightbulb;
     case 'tool_use':
-      return toolName ? getToolIcon(toolName) : Braces
+      return toolName ? getToolIcon(toolName) : Braces;
     case 'tool_result':
-      return CheckCircle2
+      return CheckCircle2;
     case 'text':
-      return MessageSquare
+      return MessageSquare;
     case 'system':
-      return Info
+      return Info;
     case 'error':
-      return XCircle
+      return XCircle;
     case 'result':
-      return Sparkles
+      return Sparkles;
     default:
-      return Zap
+      return Zap;
   }
 }
 
@@ -80,25 +80,25 @@ export function getThoughtIcon(type: Thought['type'], toolName?: string): Lucide
 export function getThoughtColor(type: Thought['type'], isError?: boolean): string {
   // Tool errors use amber (warning) instead of red (destructive) because
   // they are internal AI feedback, not user-facing errors
-  if (isError) return 'text-amber-500'
+  if (isError) return 'text-amber-500';
 
   switch (type) {
     case 'thinking':
-      return 'text-blue-400'
+      return 'text-blue-400';
     case 'tool_use':
-      return 'text-amber-400'
+      return 'text-amber-400';
     case 'tool_result':
-      return 'text-green-400'
+      return 'text-green-400';
     case 'text':
-      return 'text-foreground'
+      return 'text-foreground';
     case 'system':
-      return 'text-muted-foreground'
+      return 'text-muted-foreground';
     case 'error':
-      return 'text-destructive'
+      return 'text-destructive';
     case 'result':
-      return 'text-primary'
+      return 'text-primary';
     default:
-      return 'text-muted-foreground'
+      return 'text-muted-foreground';
   }
 }
 
@@ -111,21 +111,21 @@ export function getThoughtColor(type: Thought['type'], isError?: boolean): strin
 export function getThoughtLabelKey(type: Thought['type']): string {
   switch (type) {
     case 'thinking':
-      return 'Thinking'
+      return 'Thinking';
     case 'tool_use':
-      return 'Tool call'
+      return 'Tool call';
     case 'tool_result':
-      return 'Tool result'
+      return 'Tool result';
     case 'text':
-      return 'AI'
+      return 'AI';
     case 'system':
-      return 'System'
+      return 'System';
     case 'error':
-      return 'Error'
+      return 'Error';
     case 'result':
-      return 'Complete'
+      return 'Complete';
     default:
-      return 'AI'
+      return 'AI';
   }
 }
 
@@ -148,62 +148,65 @@ export function getThoughtLabelKey(type: Thought['type']): string {
  */
 export function getToolFriendlyFormat(
   toolName: string,
-  toolInput?: Record<string, unknown>
+  toolInput?: Record<string, unknown>,
 ): string {
-  if (!toolInput) return ''
+  if (!toolInput) return '';
 
   switch (toolName) {
     case 'Bash':
-      return typeof toolInput.command === 'string' ? toolInput.command : ''
+      return typeof toolInput.command === 'string' ? toolInput.command : '';
 
     case 'Read':
-      return typeof toolInput.file_path === 'string' ? toolInput.file_path : ''
+      return typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
 
     case 'Write':
-      return typeof toolInput.file_path === 'string' ? `${toolInput.file_path} (new)` : ''
+      return typeof toolInput.file_path === 'string' ? `${toolInput.file_path} (new)` : '';
 
     case 'Edit':
-      return typeof toolInput.file_path === 'string' ? `${toolInput.file_path} (edit)` : ''
+      return typeof toolInput.file_path === 'string' ? `${toolInput.file_path} (edit)` : '';
 
     case 'Grep': {
-      const pattern = typeof toolInput.pattern === 'string' ? `"${toolInput.pattern}"` : ''
-      const path = typeof toolInput.path === 'string' ? ` in ${toolInput.path}` : ''
-      return `Search ${pattern}${path}`
+      const pattern = typeof toolInput.pattern === 'string' ? `"${toolInput.pattern}"` : '';
+      const path = typeof toolInput.path === 'string' ? ` in ${toolInput.path}` : '';
+      return `Search ${pattern}${path}`;
     }
 
     case 'Glob':
-      return typeof toolInput.pattern === 'string' ? `Match ${toolInput.pattern}` : ''
+      return typeof toolInput.pattern === 'string' ? `Match ${toolInput.pattern}` : '';
 
     case 'WebFetch': {
       if (typeof toolInput.url === 'string') {
         try {
-          return new URL(toolInput.url).hostname.replace('www.', '')
+          return new URL(toolInput.url).hostname.replace('www.', '');
         } catch {
-          return toolInput.url
+          return toolInput.url;
         }
       }
-      return ''
+      return '';
     }
 
     case 'WebSearch':
-      return typeof toolInput.query === 'string' ? `Search: ${toolInput.query}` : ''
+      return typeof toolInput.query === 'string' ? `Search: ${toolInput.query}` : '';
 
     case 'Agent':
     case 'Task':
-      return typeof toolInput.description === 'string' ? toolInput.description
-        : typeof toolInput.prompt === 'string' ? toolInput.prompt : ''
+      return typeof toolInput.description === 'string'
+        ? toolInput.description
+        : typeof toolInput.prompt === 'string'
+          ? toolInput.prompt
+          : '';
 
     case 'NotebookEdit':
-      return typeof toolInput.notebook_path === 'string' ? toolInput.notebook_path : ''
+      return typeof toolInput.notebook_path === 'string' ? toolInput.notebook_path : '';
 
     default:
       // Fallback: show first non-empty string value
       for (const value of Object.values(toolInput)) {
         if (typeof value === 'string' && value.length > 0) {
-          return truncateText(value, 80)
+          return truncateText(value, 80);
         }
       }
-      return ''
+      return '';
   }
 }
 
@@ -218,21 +221,21 @@ export function getToolFriendlyFormat(
  */
 export function getActionSummary(thoughts: Thought[]): string {
   for (let i = thoughts.length - 1; i >= 0; i--) {
-    const th = thoughts[i]
+    const th = thoughts[i];
     if (th.type === 'tool_use' && th.toolName) {
       // Tool still streaming params
       if (th.isStreaming || !th.isReady) {
-        return th.toolName
+        return th.toolName;
       }
-      const formatted = getToolFriendlyFormat(th.toolName, th.toolInput)
-      if (formatted) return truncateText(formatted, 40)
-      return th.toolName
+      const formatted = getToolFriendlyFormat(th.toolName, th.toolInput);
+      if (formatted) return truncateText(formatted, 40);
+      return th.toolName;
     }
     if (th.type === 'thinking') {
-      return 'Thinking...'
+      return 'Thinking...';
     }
   }
-  return ''
+  return '';
 }
 
 /**
@@ -240,15 +243,15 @@ export function getActionSummary(thoughts: Thought[]): string {
  * A step is "completed" when a tool_use thought has a toolResult attached.
  */
 export function getStepCounts(thoughts: Thought[]): { completed: number; total: number } {
-  let completed = 0
-  let total = 0
+  let completed = 0;
+  let total = 0;
   for (const th of thoughts) {
     if (th.type === 'tool_use') {
-      total++
-      if (th.toolResult) completed++
+      total++;
+      if (th.toolResult) completed++;
     }
   }
-  return { completed, total }
+  return { completed, total };
 }
 
 // ============================================
@@ -261,9 +264,9 @@ export function getStepCounts(thoughts: Thought[]): { completed: number; total: 
  */
 export interface ThoughtGroup {
   /** The main agent's thought */
-  main: Thought
+  main: Thought;
   /** Subagent thoughts grouped under this main thought (display-only) */
-  subagentThoughts?: Thought[]
+  subagentThoughts?: Thought[];
 }
 
 /**
@@ -285,31 +288,33 @@ export interface ThoughtGroup {
  */
 export function groupSubagentThoughts(
   thoughts: Thought[],
-  workerMatchMap: Map<string, WorkerSessionState>
+  workerMatchMap: Map<string, WorkerSessionState>,
 ): ThoughtGroup[] {
-  return thoughts.map(thought => {
-    const group: ThoughtGroup = { main: thought }
+  return thoughts.map((thought) => {
+    const group: ThoughtGroup = { main: thought };
 
-    const worker = workerMatchMap.get(thought.id)
+    const worker = workerMatchMap.get(thought.id);
     if (worker && worker.thoughts.length > 0) {
-      const workerDisplayThoughts = worker.thoughts.filter(th => {
-        if (th.type === 'result') return false
-        if (th.type === 'tool_result') return false
-        if (th.toolName === 'TodoWrite') return false
-        return true
-      }).map(wThought => ({
-        ...wThought,
-        agentId: worker.agentId,
-        agentName: worker.agentName
-      }))
+      const workerDisplayThoughts = worker.thoughts
+        .filter((th) => {
+          if (th.type === 'result') return false;
+          if (th.type === 'tool_result') return false;
+          if (th.toolName === 'TodoWrite') return false;
+          return true;
+        })
+        .map((wThought) => ({
+          ...wThought,
+          agentId: worker.agentId,
+          agentName: worker.agentName,
+        }));
 
       if (workerDisplayThoughts.length > 0) {
-        group.subagentThoughts = workerDisplayThoughts
+        group.subagentThoughts = workerDisplayThoughts;
       }
     }
 
-    return group
-  })
+    return group;
+  });
 }
 
 /**
@@ -326,94 +331,96 @@ export function groupSubagentThoughts(
  */
 export function groupSubagentThoughtsFromPersisted(thoughts: Thought[]): ThoughtGroup[] {
   // Separate main and subagent thoughts
-  const mainThoughts: Thought[] = []
-  const subagentGroups = new Map<string, Thought[]>()  // agentId -> thoughts
+  const mainThoughts: Thought[] = [];
+  const subagentGroups = new Map<string, Thought[]>(); // agentId -> thoughts
 
   for (const thought of thoughts) {
     if (thought.agentId) {
-      const group = subagentGroups.get(thought.agentId) || []
-      group.push(thought)
-      subagentGroups.set(thought.agentId, group)
+      const group = subagentGroups.get(thought.agentId) || [];
+      group.push(thought);
+      subagentGroups.set(thought.agentId, group);
     } else {
-      mainThoughts.push(thought)
+      mainThoughts.push(thought);
     }
   }
 
   // If no subagent thoughts, return simple groups
   if (subagentGroups.size === 0) {
-    return mainThoughts.map(t => ({ main: t }))
+    return mainThoughts.map((t) => ({ main: t }));
   }
 
   // Match subagent groups to main Agent/Task tool_use thoughts by positional order
-  const assignedAgentIds = new Set<string>()
-  const agentToolThoughts: Thought[] = []  // Track Agent/Task thoughts in order
-  const agentToolIndices: number[] = []    // Their indices in mainThoughts
+  const assignedAgentIds = new Set<string>();
+  const agentToolThoughts: Thought[] = []; // Track Agent/Task thoughts in order
+  const agentToolIndices: number[] = []; // Their indices in mainThoughts
 
   for (let i = 0; i < mainThoughts.length; i++) {
-    const t = mainThoughts[i]
+    const t = mainThoughts[i];
     if (t.type === 'tool_use' && (t.toolName === 'Agent' || t.toolName === 'Task')) {
-      agentToolThoughts.push(t)
-      agentToolIndices.push(i)
+      agentToolThoughts.push(t);
+      agentToolIndices.push(i);
     }
   }
 
   // Get ordered list of subagent groups (by first thought timestamp)
-  const orderedGroups = Array.from(subagentGroups.entries())
-    .sort(([, a], [, b]) => {
-      const timeA = a[0] ? new Date(a[0].timestamp).getTime() : 0
-      const timeB = b[0] ? new Date(b[0].timestamp).getTime() : 0
-      return timeA - timeB
-    })
+  const orderedGroups = Array.from(subagentGroups.entries()).sort(([, a], [, b]) => {
+    const timeA = a[0] ? new Date(a[0].timestamp).getTime() : 0;
+    const timeB = b[0] ? new Date(b[0].timestamp).getTime() : 0;
+    return timeA - timeB;
+  });
 
   // Match by positional order: first Agent tool_use -> first subagent group, etc.
   for (let i = 0; i < Math.min(agentToolThoughts.length, orderedGroups.length); i++) {
-    const [agentId] = orderedGroups[i]
-    assignedAgentIds.add(agentId)
+    const [agentId] = orderedGroups[i];
+    assignedAgentIds.add(agentId);
   }
 
   // Build result groups
   const result: ThoughtGroup[] = mainThoughts.map((thought, index) => {
-    const group: ThoughtGroup = { main: thought }
+    const group: ThoughtGroup = { main: thought };
 
     // If this is an Agent/Task tool_use, find matching subagent group
-    if (thought.type === 'tool_use' && (thought.toolName === 'Agent' || thought.toolName === 'Task')) {
-      const toolIdx = agentToolIndices.indexOf(index)
+    if (
+      thought.type === 'tool_use' &&
+      (thought.toolName === 'Agent' || thought.toolName === 'Task')
+    ) {
+      const toolIdx = agentToolIndices.indexOf(index);
       if (toolIdx !== -1 && toolIdx < orderedGroups.length) {
-        const [agentId, subThoughts] = orderedGroups[toolIdx]
+        const [agentId, subThoughts] = orderedGroups[toolIdx];
         // Filter subagent thoughts for display (same filter as groupSubagentThoughts)
-        const displayThoughts = subThoughts.filter(th => {
-          if (th.type === 'result') return false
-          if (th.type === 'tool_result') return false
-          if (th.toolName === 'TodoWrite') return false
-          return true
-        })
+        const displayThoughts = subThoughts.filter((th) => {
+          if (th.type === 'result') return false;
+          if (th.type === 'tool_result') return false;
+          if (th.toolName === 'TodoWrite') return false;
+          return true;
+        });
         if (displayThoughts.length > 0) {
-          group.subagentThoughts = displayThoughts
+          group.subagentThoughts = displayThoughts;
         }
-        assignedAgentIds.add(agentId)
+        assignedAgentIds.add(agentId);
       }
     }
 
-    return group
-  })
+    return group;
+  });
 
   // Append any unmatched subagent thoughts as standalone groups at the end
   for (const [agentId, subThoughts] of orderedGroups) {
     if (!assignedAgentIds.has(agentId)) {
-      const displayThoughts = subThoughts.filter(th => {
-        if (th.type === 'result') return false
-        if (th.type === 'tool_result') return false
-        if (th.toolName === 'TodoWrite') return false
-        return true
-      })
+      const displayThoughts = subThoughts.filter((th) => {
+        if (th.type === 'result') return false;
+        if (th.type === 'tool_result') return false;
+        if (th.toolName === 'TodoWrite') return false;
+        return true;
+      });
       if (displayThoughts.length > 0) {
         result.push({
           main: displayThoughts[0],
-          subagentThoughts: displayThoughts.length > 1 ? displayThoughts.slice(1) : undefined
-        })
+          subagentThoughts: displayThoughts.length > 1 ? displayThoughts.slice(1) : undefined,
+        });
       }
     }
   }
 
-  return result
+  return result;
 }

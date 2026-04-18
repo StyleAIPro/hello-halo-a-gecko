@@ -5,34 +5,34 @@
  * between the header (search/filter), grid/detail views, and install dialog.
  */
 
-import { useEffect, useRef } from 'react'
-import { Loader2, AlertCircle } from 'lucide-react'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { StoreHeader } from './StoreHeader'
-import { StoreGrid } from './StoreGrid'
-import { StoreDetail } from './StoreDetail'
-import { useTranslation } from '../../i18n'
+import { useEffect, useRef } from 'react';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { StoreHeader } from './StoreHeader';
+import { StoreGrid } from './StoreGrid';
+import { StoreDetail } from './StoreDetail';
+import { useTranslation } from '../../i18n';
 
 export function StoreView() {
-  const { t } = useTranslation()
-  const storeLoading = useAppsPageStore(state => state.storeLoading)
-  const storeError = useAppsPageStore(state => state.storeError)
-  const storeSelectedSlug = useAppsPageStore(state => state.storeSelectedSlug)
-  const storeApps = useAppsPageStore(state => state.storeApps)
-  const loadStoreApps = useAppsPageStore(state => state.loadStoreApps)
-  const checkUpdates = useAppsPageStore(state => state.checkUpdates)
-  const didInitRef = useRef(false)
+  const { t } = useTranslation();
+  const storeLoading = useAppsPageStore((state) => state.storeLoading);
+  const storeError = useAppsPageStore((state) => state.storeError);
+  const storeSelectedSlug = useAppsPageStore((state) => state.storeSelectedSlug);
+  const storeApps = useAppsPageStore((state) => state.storeApps);
+  const loadStoreApps = useAppsPageStore((state) => state.loadStoreApps);
+  const checkUpdates = useAppsPageStore((state) => state.checkUpdates);
+  const didInitRef = useRef(false);
 
   // Load store apps and update badges on mount.
   useEffect(() => {
-    if (didInitRef.current) return
-    didInitRef.current = true
+    if (didInitRef.current) return;
+    didInitRef.current = true;
 
     if (storeApps.length === 0) {
-      void loadStoreApps()
+      void loadStoreApps();
     }
-    void checkUpdates()
-  }, [storeApps.length, loadStoreApps, checkUpdates])
+    void checkUpdates();
+  }, [storeApps.length, loadStoreApps, checkUpdates]);
 
   // Error state
   if (storeError && !storeLoading && storeApps.length === 0) {
@@ -44,12 +44,8 @@ export function StoreView() {
             <AlertCircle className="w-6 h-6 text-red-400" />
           </div>
           <div>
-            <p className="text-sm font-medium text-foreground">
-              {t('Failed to load store')}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {storeError}
-            </p>
+            <p className="text-sm font-medium text-foreground">{t('Failed to load store')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{storeError}</p>
           </div>
           <button
             onClick={() => loadStoreApps()}
@@ -59,7 +55,7 @@ export function StoreView() {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   // Loading state (initial load only)
@@ -71,7 +67,7 @@ export function StoreView() {
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       </div>
-    )
+    );
   }
 
   // Detail view
@@ -80,7 +76,7 @@ export function StoreView() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <StoreDetail />
       </div>
-    )
+    );
   }
 
   // Grid view
@@ -91,5 +87,5 @@ export function StoreView() {
         <StoreGrid />
       </div>
     </div>
-  )
+  );
 }

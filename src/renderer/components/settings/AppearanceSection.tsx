@@ -3,40 +3,51 @@
  * Manages theme and language settings
  */
 
-import { useState, useCallback } from 'react'
-import type { AicoBotConfig, ThemeMode } from '../../types'
-import { useTranslation, setLanguage, getCurrentLanguage, SUPPORTED_LOCALES, type LocaleCode } from '../../i18n'
-import { api } from '../../api'
+import { useState, useCallback } from 'react';
+import type { AicoBotConfig, ThemeMode } from '../../types';
+import {
+  useTranslation,
+  setLanguage,
+  getCurrentLanguage,
+  SUPPORTED_LOCALES,
+  type LocaleCode,
+} from '../../i18n';
+import { api } from '../../api';
 
 interface AppearanceSectionProps {
-  config: AicoBotConfig | null
-  setConfig: (config: AicoBotConfig) => void
+  config: AicoBotConfig | null;
+  setConfig: (config: AicoBotConfig) => void;
 }
 
 export function AppearanceSection({ config, setConfig }: AppearanceSectionProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Theme state
-  const [theme, setTheme] = useState<ThemeMode>(config?.appearance?.theme || 'light')
+  const [theme, setTheme] = useState<ThemeMode>(config?.appearance?.theme || 'light');
 
   // Auto-save helper for appearance settings
-  const autoSave = useCallback(async (partialConfig: Partial<AicoBotConfig>) => {
-    const newConfig = { ...config, ...partialConfig } as AicoBotConfig
-    await api.setConfig(partialConfig)
-    setConfig(newConfig)
-  }, [config, setConfig])
+  const autoSave = useCallback(
+    async (partialConfig: Partial<AicoBotConfig>) => {
+      const newConfig = { ...config, ...partialConfig } as AicoBotConfig;
+      await api.setConfig(partialConfig);
+      setConfig(newConfig);
+    },
+    [config, setConfig],
+  );
 
   // Handle theme change with auto-save
   const handleThemeChange = async (value: ThemeMode) => {
-    setTheme(value)
+    setTheme(value);
     // Sync to localStorage immediately (for anti-flash on reload)
     try {
-      localStorage.setItem('aico-bot-theme', value)
-    } catch (e) { /* ignore */ }
+      localStorage.setItem('aico-bot-theme', value);
+    } catch (e) {
+      /* ignore */
+    }
     await autoSave({
-      appearance: { theme: value }
-    })
-  }
+      appearance: { theme: value },
+    });
+  };
 
   return (
     <section id="appearance" className="bg-card rounded-xl border border-border p-6">
@@ -57,7 +68,11 @@ export function AppearanceSection({ config, setConfig }: AppearanceSectionProps)
                     : 'bg-secondary hover:bg-secondary/80'
                 }`}
               >
-                {themeMode === 'light' ? t('Light') : themeMode === 'dark' ? t('Dark') : t('Follow System')}
+                {themeMode === 'light'
+                  ? t('Light')
+                  : themeMode === 'dark'
+                    ? t('Dark')
+                    : t('Follow System')}
               </button>
             ))}
           </div>
@@ -80,5 +95,5 @@ export function AppearanceSection({ config, setConfig }: AppearanceSectionProps)
         </div>
       </div>
     </section>
-  )
+  );
 }
