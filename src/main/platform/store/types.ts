@@ -5,7 +5,7 @@
  * Consumed by all platform and apps modules.
  */
 
-import type Database from 'better-sqlite3'
+import type Database from 'better-sqlite3';
 
 /**
  * A single schema migration step.
@@ -20,11 +20,11 @@ import type Database from 'better-sqlite3'
  */
 export interface Migration {
   /** Sequential version number (1, 2, 3, ...). Must be unique within a namespace. */
-  version: number
+  version: number;
   /** Human-readable description of what this migration does. */
-  description: string
+  description: string;
   /** Execute the migration. Called with the database instance inside a transaction. */
-  up(db: Database.Database): void
+  up(db: Database.Database): void;
 }
 
 /**
@@ -47,7 +47,7 @@ export interface DatabaseManager {
    *
    * @throws {Error} If the database cannot be opened after recovery attempts.
    */
-  getAppDatabase(): Database.Database
+  getAppDatabase(): Database.Database;
 
   /**
    * Get a space-level database instance.
@@ -59,7 +59,7 @@ export interface DatabaseManager {
    * @param spacePath - Absolute path to the space data directory.
    * @throws {Error} Always throws in V1 ("Space databases not implemented in V1").
    */
-  getSpaceDatabase(spacePath: string): Database.Database
+  getSpaceDatabase(spacePath: string): Database.Database;
 
   /**
    * Run schema migrations for a specific module namespace.
@@ -81,7 +81,7 @@ export interface DatabaseManager {
    * @param namespace - Unique identifier for the module (e.g., "scheduler").
    * @param migrations - Array of migration steps, in any order (sorted internally).
    */
-  runMigrations(db: Database.Database, namespace: string, migrations: Migration[]): void
+  runMigrations(db: Database.Database, namespace: string, migrations: Migration[]): void;
 
   /**
    * Execute a function inside a database transaction.
@@ -94,7 +94,7 @@ export interface DatabaseManager {
    * @param fn - The function to execute within the transaction.
    * @returns The return value of `fn`.
    */
-  transaction<T>(db: Database.Database, fn: () => T): T
+  transaction<T>(db: Database.Database, fn: () => T): T;
 
   /**
    * Close all open database connections.
@@ -102,5 +102,5 @@ export interface DatabaseManager {
    * Should be called during application shutdown (app.on('before-quit')).
    * After calling this, getAppDatabase() will open a fresh connection.
    */
-  closeAll(): void
+  closeAll(): void;
 }

@@ -13,18 +13,18 @@
  * so it does NOT create any native Windows window, avoiding the DWM interaction entirely.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface ConfirmDialogProps {
-  open: boolean
-  title?: string
-  message: string
-  confirmLabel?: string
-  cancelLabel?: string
-  onConfirm: () => void
-  onCancel: () => void
+  open: boolean;
+  title?: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
   /** If true, hide the cancel button (for alert-style usage) */
-  hideCancel?: boolean
+  hideCancel?: boolean;
 }
 
 export function ConfirmDialog({
@@ -37,34 +37,34 @@ export function ConfirmDialog({
   onCancel,
   hideCancel = false,
 }: ConfirmDialogProps) {
-  const confirmRef = useRef<HTMLButtonElement>(null)
+  const confirmRef = useRef<HTMLButtonElement>(null);
 
   // Auto-focus confirm button when opened
   useEffect(() => {
     if (open) {
       const timer = setTimeout(() => {
-        confirmRef.current?.focus()
-      }, 50)
-      return () => clearTimeout(timer)
+        confirmRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [open])
+  }, [open]);
 
   // Handle Escape key
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.preventDefault()
-        onCancel()
+        e.preventDefault();
+        onCancel();
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onCancel])
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onCancel]);
 
-  if (!open) return null
+  if (!open) return null;
 
   return (
     <div
@@ -73,14 +73,10 @@ export function ConfirmDialog({
     >
       <div
         className="relative w-full max-w-md mx-4 bg-background border border-border rounded-xl shadow-xl p-6"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
-        {title && (
-          <h3 className="text-sm font-semibold mb-2">{title}</h3>
-        )}
-        <p className="text-sm text-muted-foreground whitespace-pre-wrap mb-6">
-          {message}
-        </p>
+        {title && <h3 className="text-sm font-semibold mb-2">{title}</h3>}
+        <p className="text-sm text-muted-foreground whitespace-pre-wrap mb-6">{message}</p>
         <div className="flex justify-end gap-2">
           {!hideCancel && (
             <button
@@ -100,16 +96,16 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 interface DialogState {
-  open: boolean
-  title: string
-  message: string
-  confirmLabel: string
-  cancelLabel: string
-  hideCancel: boolean
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  hideCancel: boolean;
 }
 
 /**
@@ -130,7 +126,7 @@ interface DialogState {
  * creating native Windows windows that can trigger DWM/BrowserView HWND issues.
  */
 export function useConfirm() {
-  const resolverRef = useRef<((value: boolean) => void) | null>(null)
+  const resolverRef = useRef<((value: boolean) => void) | null>(null);
   const [state, setState] = useState<DialogState>({
     open: false,
     title: '',
@@ -138,54 +134,66 @@ export function useConfirm() {
     confirmLabel: 'OK',
     cancelLabel: 'Cancel',
     hideCancel: false,
-  })
+  });
 
-  const confirm = useCallback((message: string, options?: {
-    title?: string
-    confirmLabel?: string
-    cancelLabel?: string
-  }): Promise<boolean> => {
-    return new Promise<boolean>((resolve) => {
-      resolverRef.current = resolve
-      setState({
-        open: true,
-        title: options?.title || '',
-        message,
-        confirmLabel: options?.confirmLabel || 'OK',
-        cancelLabel: options?.cancelLabel || 'Cancel',
-        hideCancel: false,
-      })
-    })
-  }, [])
+  const confirm = useCallback(
+    (
+      message: string,
+      options?: {
+        title?: string;
+        confirmLabel?: string;
+        cancelLabel?: string;
+      },
+    ): Promise<boolean> => {
+      return new Promise<boolean>((resolve) => {
+        resolverRef.current = resolve;
+        setState({
+          open: true,
+          title: options?.title || '',
+          message,
+          confirmLabel: options?.confirmLabel || 'OK',
+          cancelLabel: options?.cancelLabel || 'Cancel',
+          hideCancel: false,
+        });
+      });
+    },
+    [],
+  );
 
-  const alert = useCallback((message: string, options?: {
-    title?: string
-    confirmLabel?: string
-  }): Promise<void> => {
-    return new Promise<void>((resolve) => {
-      resolverRef.current = () => resolve()
-      setState({
-        open: true,
-        title: options?.title || '',
-        message,
-        confirmLabel: options?.confirmLabel || 'OK',
-        cancelLabel: 'Cancel',
-        hideCancel: true,
-      })
-    })
-  }, [])
+  const alert = useCallback(
+    (
+      message: string,
+      options?: {
+        title?: string;
+        confirmLabel?: string;
+      },
+    ): Promise<void> => {
+      return new Promise<void>((resolve) => {
+        resolverRef.current = () => resolve();
+        setState({
+          open: true,
+          title: options?.title || '',
+          message,
+          confirmLabel: options?.confirmLabel || 'OK',
+          cancelLabel: 'Cancel',
+          hideCancel: true,
+        });
+      });
+    },
+    [],
+  );
 
   const handleConfirm = useCallback(() => {
-    setState(prev => ({ ...prev, open: false }))
-    resolverRef.current?.(true)
-    resolverRef.current = null
-  }, [])
+    setState((prev) => ({ ...prev, open: false }));
+    resolverRef.current?.(true);
+    resolverRef.current = null;
+  }, []);
 
   const handleCancel = useCallback(() => {
-    setState(prev => ({ ...prev, open: false }))
-    resolverRef.current?.(false)
-    resolverRef.current = null
-  }, [])
+    setState((prev) => ({ ...prev, open: false }));
+    resolverRef.current?.(false);
+    resolverRef.current = null;
+  }, []);
 
   const ConfirmDialogElement = (
     <ConfirmDialog
@@ -198,7 +206,7 @@ export function useConfirm() {
       onConfirm={handleConfirm}
       onCancel={handleCancel}
     />
-  )
+  );
 
-  return { confirm, alert, ConfirmDialogElement }
+  return { confirm, alert, ConfirmDialogElement };
 }

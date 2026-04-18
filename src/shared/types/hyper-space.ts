@@ -12,61 +12,61 @@
 /**
  * Agent role in a Hyper Space
  */
-export type AgentRole = 'leader' | 'worker'
+export type AgentRole = 'leader' | 'worker';
 
 /**
  * Configuration for a single agent in a Hyper Space
  */
 export interface AgentConfig {
   /** Unique identifier for this agent */
-  id: string
+  id: string;
 
   /** Display name */
-  name: string
+  name: string;
 
   /** Agent type: local or remote */
-  type: 'local' | 'remote'
+  type: 'local' | 'remote';
 
   /** Role in the team: leader or worker */
-  role: AgentRole
+  role: AgentRole;
 
   // Remote agent specific fields
   /** Remote server ID (only for remote agents) */
-  remoteServerId?: string
+  remoteServerId?: string;
 
   /** Working directory on remote server */
-  remotePath?: string
+  remotePath?: string;
 
   /** Use SSH tunnel for connection */
-  useSshTunnel?: boolean
+  useSshTunnel?: boolean;
 
   // Capability and configuration
   /** Capability tags for task routing */
-  capabilities?: string[]
+  capabilities?: string[];
 
   /** Local working directory */
-  workingDir?: string
+  workingDir?: string;
 
   /** Model override for this agent */
-  model?: string
+  model?: string;
 
   /** Enable thinking mode */
-  thinkingEnabled?: boolean
+  thinkingEnabled?: boolean;
 
   /** Custom system prompt addition */
-  systemPromptAddition?: string
+  systemPromptAddition?: string;
 
   // Hyper Space v2 fields
   /** Independent conversation ID for this agent's own chat view */
-  conversationId?: string
+  conversationId?: string;
 
   /** Environment credentials for remote agents (included in shared system prompt) */
   environment?: {
-    ip?: string
-    username?: string
-    password?: string
-    port?: number
-  }
+    ip?: string;
+    username?: string;
+    password?: string;
+    port?: number;
+  };
 }
 
 // ============================================
@@ -76,27 +76,27 @@ export interface AgentConfig {
 /**
  * Task routing strategy
  */
-export type RoutingStrategy = 'capability' | 'round-robin' | 'least-loaded' | 'manual'
+export type RoutingStrategy = 'capability' | 'round-robin' | 'least-loaded' | 'manual';
 
 /**
  * Result aggregation strategy
  */
-export type AggregationStrategy = 'concat' | 'summarize' | 'vote'
+export type AggregationStrategy = 'concat' | 'summarize' | 'vote';
 
 /**
  * Execution mode for multi-agent tasks
  */
-export type ExecutionMode = 'parallel' | 'sequential' | 'adaptive'
+export type ExecutionMode = 'parallel' | 'sequential' | 'adaptive';
 
 /**
  * Task routing configuration
  */
 export interface RoutingConfig {
   /** How to route tasks to agents */
-  strategy: RoutingStrategy
+  strategy: RoutingStrategy;
 
   /** Default agent for manual routing */
-  defaultAgentId?: string
+  defaultAgentId?: string;
 }
 
 /**
@@ -104,10 +104,10 @@ export interface RoutingConfig {
  */
 export interface AggregationConfig {
   /** How to combine results from multiple agents */
-  strategy: AggregationStrategy
+  strategy: AggregationStrategy;
 
   /** Agent ID responsible for summarizing (if strategy is 'summarize') */
-  summarizerAgentId?: string
+  summarizerAgentId?: string;
 }
 
 /**
@@ -115,13 +115,13 @@ export interface AggregationConfig {
  */
 export interface AnnounceConfig {
   /** Enable automatic completion announcements */
-  enabled: boolean
+  enabled: boolean;
 
   /** Timeout in milliseconds to wait for agent completion */
-  timeout?: number
+  timeout?: number;
 
   /** Number of retries on failure */
-  retries?: number
+  retries?: number;
 }
 
 /**
@@ -129,16 +129,16 @@ export interface AnnounceConfig {
  */
 export interface OrchestrationConfig {
   /** How to execute tasks across agents */
-  mode: ExecutionMode
+  mode: ExecutionMode;
 
   /** Task routing configuration */
-  routing: RoutingConfig
+  routing: RoutingConfig;
 
   /** Result aggregation configuration */
-  aggregation: AggregationConfig
+  aggregation: AggregationConfig;
 
   /** Completion announcement configuration */
-  announce: AnnounceConfig
+  announce: AnnounceConfig;
 }
 
 // ============================================
@@ -148,37 +148,37 @@ export interface OrchestrationConfig {
 /**
  * Space type: local, remote, or hyper
  */
-export type SpaceType = 'local' | 'remote' | 'hyper'
+export type SpaceType = 'local' | 'remote' | 'hyper';
 
 /**
  * Extended Space interface with Hyper Space support
  */
 export interface HyperSpace {
-  id: string
-  name: string
-  icon: string
-  path: string
-  isTemp: boolean
-  createdAt: string
-  updatedAt: string
-  preferences?: SpacePreferences
-  workingDir?: string
+  id: string;
+  name: string;
+  icon: string;
+  path: string;
+  isTemp: boolean;
+  createdAt: string;
+  updatedAt: string;
+  preferences?: SpacePreferences;
+  workingDir?: string;
 
   // Space type (new field for hyper space)
-  spaceType: SpaceType
+  spaceType: SpaceType;
 
   // Legacy fields (for backward compatibility)
-  claudeSource?: 'local' | 'remote'
-  remoteServerId?: string
-  remotePath?: string
-  useSshTunnel?: boolean
+  claudeSource?: 'local' | 'remote';
+  remoteServerId?: string;
+  remotePath?: string;
+  useSshTunnel?: boolean;
 
   // Hyper Space specific fields
   /** Agents in this Hyper Space */
-  agents?: AgentConfig[]
+  agents?: AgentConfig[];
 
   /** Orchestration configuration */
-  orchestration?: OrchestrationConfig
+  orchestration?: OrchestrationConfig;
 }
 
 /**
@@ -186,9 +186,9 @@ export interface HyperSpace {
  */
 export interface SpacePreferences {
   layout?: {
-    artifactRailExpanded?: boolean
-    chatWidth?: number
-  }
+    artifactRailExpanded?: boolean;
+    chatWidth?: number;
+  };
 }
 
 // ============================================
@@ -198,38 +198,38 @@ export interface SpacePreferences {
 /**
  * Subagent task status
  */
-export type SubagentTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type SubagentTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 /**
  * Represents a task assigned to a subagent
  */
 export interface SubagentTask {
   /** Unique task ID */
-  id: string
+  id: string;
 
   /** Parent conversation ID */
-  parentConversationId: string
+  parentConversationId: string;
 
   /** Target agent ID */
-  agentId: string
+  agentId: string;
 
   /** Task description */
-  task: string
+  task: string;
 
   /** Current status */
-  status: SubagentTaskStatus
+  status: SubagentTaskStatus;
 
   /** Task result (when completed) */
-  result?: string
+  result?: string;
 
   /** Error message (when failed) */
-  error?: string
+  error?: string;
 
   /** When task was started */
-  startedAt?: number
+  startedAt?: number;
 
   /** When task completed */
-  completedAt?: number
+  completedAt?: number;
 }
 
 /**
@@ -237,25 +237,25 @@ export interface SubagentTask {
  */
 export interface SubagentAnnouncement {
   /** Type identifier */
-  type: 'agent:announce'
+  type: 'agent:announce';
 
   /** Task ID */
-  taskId: string
+  taskId: string;
 
   /** Agent ID that completed */
-  agentId: string
+  agentId: string;
 
   /** Completion status */
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed';
 
   /** Result content */
-  result?: string
+  result?: string;
 
   /** Short summary */
-  summary?: string
+  summary?: string;
 
   /** Timestamp */
-  timestamp: number
+  timestamp: number;
 }
 
 // ============================================
@@ -266,20 +266,20 @@ export interface SubagentAnnouncement {
  * Extended input for creating a Hyper Space
  */
 export interface CreateHyperSpaceInput {
-  name: string
-  icon: string
-  customPath?: string
+  name: string;
+  icon: string;
+  customPath?: string;
 
   // Hyper Space specific
-  spaceType?: SpaceType
-  agents?: AgentConfig[]
-  orchestration?: Partial<OrchestrationConfig>
+  spaceType?: SpaceType;
+  agents?: AgentConfig[];
+  orchestration?: Partial<OrchestrationConfig>;
 
   // Legacy fields (for backward compatibility)
-  claudeSource?: 'local' | 'remote'
-  remoteServerId?: string
-  remotePath?: string
-  useSshTunnel?: boolean
+  claudeSource?: 'local' | 'remote';
+  remoteServerId?: string;
+  remotePath?: string;
+  useSshTunnel?: boolean;
 }
 
 // ============================================
@@ -292,39 +292,39 @@ export interface CreateHyperSpaceInput {
 export const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
   mode: 'adaptive',
   routing: {
-    strategy: 'capability'
+    strategy: 'capability',
   },
   aggregation: {
-    strategy: 'summarize'
+    strategy: 'summarize',
   },
   announce: {
     enabled: true,
     timeout: 300000, // 5 minutes
-    retries: 2
-  }
-}
+    retries: 2,
+  },
+};
 
 /**
  * Create default orchestration config with overrides
  */
 export function createOrchestrationConfig(
-  partial?: Partial<OrchestrationConfig>
+  partial?: Partial<OrchestrationConfig>,
 ): OrchestrationConfig {
-  if (!partial) return { ...DEFAULT_ORCHESTRATION_CONFIG }
+  if (!partial) return { ...DEFAULT_ORCHESTRATION_CONFIG };
 
   return {
     mode: partial.mode ?? DEFAULT_ORCHESTRATION_CONFIG.mode,
     routing: {
       ...DEFAULT_ORCHESTRATION_CONFIG.routing,
-      ...partial.routing
+      ...partial.routing,
     },
     aggregation: {
       ...DEFAULT_ORCHESTRATION_CONFIG.aggregation,
-      ...partial.aggregation
+      ...partial.aggregation,
     },
     announce: {
       ...DEFAULT_ORCHESTRATION_CONFIG.announce,
-      ...partial.announce
-    }
-  }
+      ...partial.announce,
+    },
+  };
 }

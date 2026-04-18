@@ -13,154 +13,162 @@
  *   coalesce into a single disk write.
  */
 
-import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, renameSync } from 'fs'
-import { getSpace } from './space.service'
-import { closeV2Session } from './agent/session-manager'
-import { v4 as uuidv4 } from 'uuid'
-import type { FileChangesSummary } from '../../shared/file-changes'
+import { join } from 'path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  rmSync,
+  renameSync,
+} from 'fs';
+import { getSpace } from './space.service';
+import { closeV2Session } from './agent/session-manager';
+import { v4 as uuidv4 } from 'uuid';
+import type { FileChangesSummary } from '../../shared/file-changes';
 
 // Re-export for existing consumers
-export type { FileChangesSummary } from '../../shared/file-changes'
+export type { FileChangesSummary } from '../../shared/file-changes';
 
 // ============================================================================
 // Type Definitions
 // ============================================================================
 
-type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error'
+type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error';
 
 interface Thought {
-  id: string
-  type: ThoughtType
-  content: string
-  timestamp: string
-  toolName?: string
-  toolInput?: Record<string, unknown>
-  toolOutput?: string
-  isError?: boolean
-  duration?: number
-  isStreaming?: boolean
-  isReady?: boolean
+  id: string;
+  type: ThoughtType;
+  content: string;
+  timestamp: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  isError?: boolean;
+  duration?: number;
+  isStreaming?: boolean;
+  isReady?: boolean;
   toolResult?: {
-    output: string
-    isError: boolean
-    timestamp: string
-  }
+    output: string;
+    isError: boolean;
+    timestamp: string;
+  };
   // For subagent thought persistence (inline in main thoughts array)
-  agentId?: string      // Subagent identifier
-  agentName?: string    // Subagent display name
+  agentId?: string; // Subagent identifier
+  agentName?: string; // Subagent display name
 }
 
-type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 interface ImageAttachment {
-  id: string
-  type: 'image'
-  mediaType: ImageMediaType
-  data: string
-  name?: string
-  size?: number
+  id: string;
+  type: 'image';
+  mediaType: ImageMediaType;
+  data: string;
+  name?: string;
+  size?: number;
 }
 
 interface TokenUsage {
-  inputTokens: number
-  outputTokens: number
-  cacheReadTokens: number
-  cacheCreationTokens: number
-  totalCostUsd: number
-  contextWindow: number
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  contextWindow: number;
 }
 
 interface ThoughtsSummary {
-  count: number
-  types: Partial<Record<ThoughtType, number>>
+  count: number;
+  types: Partial<Record<ThoughtType, number>>;
 }
 
 interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: string
-  toolCalls?: ToolCall[]
-  thoughts?: Thought[] | null  // null = stored separately, undefined = none, Array = loaded/inline
-  thoughtsSummary?: ThoughtsSummary
-  images?: ImageAttachment[]
-  tokenUsage?: TokenUsage
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  toolCalls?: ToolCall[];
+  thoughts?: Thought[] | null; // null = stored separately, undefined = none, Array = loaded/inline
+  thoughtsSummary?: ThoughtsSummary;
+  images?: ImageAttachment[];
+  tokenUsage?: TokenUsage;
   metadata?: {
-    fileChanges?: FileChangesSummary
+    fileChanges?: FileChangesSummary;
     /** 技能生成器：选中的会话信息（用于折叠卡片显示） */
     selectedConversations?: Array<{
-      id: string
-      title: string
-      spaceName: string
-      messageCount: number
-      formattedContent?: string
-    }>
+      id: string;
+      title: string;
+      spaceName: string;
+      messageCount: number;
+      formattedContent?: string;
+    }>;
     /** 技能生成器：参考的网页信息（用于折叠卡片显示） */
     sourceWebpages?: Array<{
-      url: string
-      title?: string
-      content?: string
-    }>
-  }
-  error?: string  // Error message when assistant response failed (e.g., 429 rate limit)
+      url: string;
+      title?: string;
+      content?: string;
+    }>;
+  };
+  error?: string; // Error message when assistant response failed (e.g., 429 rate limit)
 }
 
 interface ToolCall {
-  id: string
-  name: string
-  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval'
-  input: Record<string, unknown>
-  output?: string
-  error?: string
-  progress?: number
+  id: string;
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval';
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  progress?: number;
 }
 
 export interface ConversationMeta {
-  id: string
-  spaceId: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-  preview?: string
-  starred?: boolean
+  id: string;
+  spaceId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  preview?: string;
+  starred?: boolean;
   /** 关联的技能 ID（用于 skill 编辑器会话隔离） */
-  relatedSkillId?: string
+  relatedSkillId?: string;
 }
 
 interface Conversation extends ConversationMeta {
-  messages: Message[]
-  sessionId?: string
-  version?: number  // 2 = thoughts stored separately
+  messages: Message[];
+  sessionId?: string;
+  version?: number; // 2 = thoughts stored separately
   /** 关联的技能 ID（用于 skill 编辑器会话隔离） */
-  relatedSkillId?: string
+  relatedSkillId?: string;
 }
 
 // Thoughts file structure
 interface ThoughtsFile {
-  version: 1
-  conversationId: string
-  messages: Record<string, Thought[]>  // messageId -> thoughts[]
+  version: 1;
+  conversationId: string;
+  messages: Record<string, Thought[]>; // messageId -> thoughts[]
 }
 
 interface ConversationIndex {
-  version: number
-  updatedAt: string
-  conversations: ConversationMeta[]
+  version: number;
+  updatedAt: string;
+  conversations: ConversationMeta[];
 }
 
-const INDEX_VERSION = 1
-const PREVIEW_LENGTH = 50
-const CONVERSATION_FORMAT_VERSION = 2
+const INDEX_VERSION = 1;
+const PREVIEW_LENGTH = 50;
+const CONVERSATION_FORMAT_VERSION = 2;
 
 // ============================================================================
 // Active Conversation Cache (write-through, LRU eviction)
 // ============================================================================
 
 // Cache configuration - increased for better performance with long conversations
-const CACHE_MAX_SIZE = 5  // Keep at most 5 conversations in memory (~2-10MB)
-const THOUGHTS_CACHE_MAX_SIZE = 10  // Keep thoughts for 10 conversations (~5-20MB)
+const CACHE_MAX_SIZE = 5; // Keep at most 5 conversations in memory (~2-10MB)
+const THOUGHTS_CACHE_MAX_SIZE = 10; // Keep thoughts for 10 conversations (~5-20MB)
 
 /**
  * LRU cache for active conversations.
@@ -171,12 +179,15 @@ const THOUGHTS_CACHE_MAX_SIZE = 10  // Keep thoughts for 10 conversations (~5-20
  * On write: update cache + write-through to disk.
  * On delete: evict from cache.
  */
-const conversationCache = new Map<string, {
-  conversation: Conversation
-  filePath: string
-  conversationsDir: string
-  spaceId: string
-}>()
+const conversationCache = new Map<
+  string,
+  {
+    conversation: Conversation;
+    filePath: string;
+    conversationsDir: string;
+    spaceId: string;
+  }
+>();
 
 /**
  * LRU cache for thoughts files (separate from main conversation cache).
@@ -186,35 +197,38 @@ const conversationCache = new Map<string, {
  * Thoughts files can be large (3.5MB+), so we cache them separately
  * with a larger limit to avoid repeated disk reads when loading thoughts.
  */
-const thoughtsCache = new Map<string, {
-  thoughtsFile: ThoughtsFile | null  // null if file doesn't exist
-  filePath: string
-  lastAccess: number
-}>()
+const thoughtsCache = new Map<
+  string,
+  {
+    thoughtsFile: ThoughtsFile | null; // null if file doesn't exist
+    filePath: string;
+    lastAccess: number;
+  }
+>();
 
 function cachePut(
   conversationId: string,
   conversation: Conversation,
   filePath: string,
   conversationsDir: string,
-  spaceId: string
+  spaceId: string,
 ): void {
   // Evict oldest if at capacity
   if (conversationCache.size >= CACHE_MAX_SIZE && !conversationCache.has(conversationId)) {
-    const oldestKey = conversationCache.keys().next().value
+    const oldestKey = conversationCache.keys().next().value;
     if (oldestKey) {
-      conversationCache.delete(oldestKey)
+      conversationCache.delete(oldestKey);
     }
   }
   // LRU touch - remove and re-add to mark as recently used
-  conversationCache.delete(conversationId)
-  conversationCache.set(conversationId, { conversation, filePath, conversationsDir, spaceId })
+  conversationCache.delete(conversationId);
+  conversationCache.set(conversationId, { conversation, filePath, conversationsDir, spaceId });
 }
 
 function cacheEvict(conversationId: string): void {
-  conversationCache.delete(conversationId)
+  conversationCache.delete(conversationId);
   // Also evict from thoughts cache
-  thoughtsCache.delete(conversationId)
+  thoughtsCache.delete(conversationId);
 }
 
 /**
@@ -222,13 +236,13 @@ function cacheEvict(conversationId: string): void {
  * Returns cached thoughts file, or null if file doesn't exist.
  */
 function getCachedThoughtsFile(conversationId: string, thoughtsPath: string): ThoughtsFile | null {
-  const cached = thoughtsCache.get(conversationId)
+  const cached = thoughtsCache.get(conversationId);
   if (cached) {
     // Update last access time and move to end (LRU touch)
-    cached.lastAccess = Date.now()
-    thoughtsCache.delete(conversationId)
-    thoughtsCache.set(conversationId, cached)
-    return cached.thoughtsFile
+    cached.lastAccess = Date.now();
+    thoughtsCache.delete(conversationId);
+    thoughtsCache.set(conversationId, cached);
+    return cached.thoughtsFile;
   }
 
   // Cache miss - read from disk
@@ -237,24 +251,24 @@ function getCachedThoughtsFile(conversationId: string, thoughtsPath: string): Th
     thoughtsCache.set(conversationId, {
       thoughtsFile: null,
       filePath: thoughtsPath,
-      lastAccess: Date.now()
-    })
-    return null
+      lastAccess: Date.now(),
+    });
+    return null;
   }
 
-  let thoughtsFile: ThoughtsFile
+  let thoughtsFile: ThoughtsFile;
   try {
-    thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'))
+    thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'));
   } catch (error) {
-    console.error(`[Conversation] Failed to read thoughts file ${conversationId}:`, error)
-    return null
+    console.error(`[Conversation] Failed to read thoughts file ${conversationId}:`, error);
+    return null;
   }
 
   // Evict oldest if at capacity before adding new entry
   if (thoughtsCache.size >= THOUGHTS_CACHE_MAX_SIZE && !thoughtsCache.has(conversationId)) {
-    const oldestKey = thoughtsCache.keys().next().value
+    const oldestKey = thoughtsCache.keys().next().value;
     if (oldestKey) {
-      thoughtsCache.delete(oldestKey)
+      thoughtsCache.delete(oldestKey);
     }
   }
 
@@ -262,17 +276,17 @@ function getCachedThoughtsFile(conversationId: string, thoughtsPath: string): Th
   thoughtsCache.set(conversationId, {
     thoughtsFile,
     filePath: thoughtsPath,
-    lastAccess: Date.now()
-  })
+    lastAccess: Date.now(),
+  });
 
-  return thoughtsFile
+  return thoughtsFile;
 }
 
 /**
  * Invalidate thoughts cache for a conversation (after write).
  */
 function invalidateThoughtsCache(conversationId: string): void {
-  thoughtsCache.delete(conversationId)
+  thoughtsCache.delete(conversationId);
 }
 
 /**
@@ -281,58 +295,67 @@ function invalidateThoughtsCache(conversationId: string): void {
  * which are illegal in Windows filenames.
  */
 function safeFileName(conversationId: string): string {
-  return conversationId.replace(/:/g, '_')
+  return conversationId.replace(/:/g, '_');
 }
 
 /**
  * Get conversation from cache or disk. Returns null if not found.
  * On cache miss, reads from disk and populates cache.
  */
-function cachedRead(spaceId: string, conversationId: string): { conversation: Conversation; filePath: string; conversationsDir: string } | null {
+function cachedRead(
+  spaceId: string,
+  conversationId: string,
+): { conversation: Conversation; filePath: string; conversationsDir: string } | null {
   // Cache hit
-  const cached = conversationCache.get(conversationId)
+  const cached = conversationCache.get(conversationId);
   if (cached) {
     // LRU touch
-    conversationCache.delete(conversationId)
-    conversationCache.set(conversationId, cached)
-    return cached
+    conversationCache.delete(conversationId);
+    conversationCache.set(conversationId, cached);
+    return cached;
   }
 
   // Cache miss — read from disk
-  const conversationsDir = getConversationsDir(spaceId)
-  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
+  const conversationsDir = getConversationsDir(spaceId);
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`);
 
   if (!existsSync(filePath)) {
-    return null
+    return null;
   }
 
-  let conversation: Conversation
+  let conversation: Conversation;
   try {
-    conversation = JSON.parse(readFileSync(filePath, 'utf-8'))
+    conversation = JSON.parse(readFileSync(filePath, 'utf-8'));
   } catch (error) {
-    console.error(`[Conversation] Failed to read conversation ${conversationId}:`, error)
-    return null
+    console.error(`[Conversation] Failed to read conversation ${conversationId}:`, error);
+    return null;
   }
 
   // Lazy migration
   if (conversation.version !== CONVERSATION_FORMAT_VERSION) {
-    console.log(`[Conversation] Detected v1 format for ${conversationId}, migrating...`)
+    console.log(`[Conversation] Detected v1 format for ${conversationId}, migrating...`);
     try {
-      migrateConversationV1toV2(conversationsDir, conversation)
+      migrateConversationV1toV2(conversationsDir, conversation);
     } catch (error) {
-      console.error(`[Conversation] Migration failed for ${conversationId}, falling back to original:`, error)
+      console.error(
+        `[Conversation] Migration failed for ${conversationId}, falling back to original:`,
+        error,
+      );
       try {
-        conversation = JSON.parse(readFileSync(filePath, 'utf-8'))
+        conversation = JSON.parse(readFileSync(filePath, 'utf-8'));
       } catch (readError) {
-        console.error(`[Conversation] Failed to re-read original for ${conversationId}:`, readError)
-        return null
+        console.error(
+          `[Conversation] Failed to re-read original for ${conversationId}:`,
+          readError,
+        );
+        return null;
       }
     }
   }
 
   // Populate cache
-  cachePut(conversationId, conversation, filePath, conversationsDir, spaceId)
-  return { conversation, filePath, conversationsDir }
+  cachePut(conversationId, conversation, filePath, conversationsDir, spaceId);
+  return { conversation, filePath, conversationsDir };
 }
 
 /**
@@ -343,27 +366,30 @@ function cachedWrite(
   conversation: Conversation,
   filePath: string,
   conversationsDir: string,
-  spaceId: string
+  spaceId: string,
 ): void {
-  cachePut(conversationId, conversation, filePath, conversationsDir, spaceId)
-  atomicWriteFileSync(filePath, JSON.stringify(conversation, null, 2))
+  cachePut(conversationId, conversation, filePath, conversationsDir, spaceId);
+  atomicWriteFileSync(filePath, JSON.stringify(conversation, null, 2));
 }
 
 // ============================================================================
 // Index Write Debouncing
 // ============================================================================
 
-const INDEX_DEBOUNCE_MS = 500
+const INDEX_DEBOUNCE_MS = 500;
 
 /**
  * Per-directory pending index writes.
  * Key: conversationsDir, Value: { timer, entries (map of convId → meta|null) }
  */
-const pendingIndexWrites = new Map<string, {
-  timer: ReturnType<typeof setTimeout>
-  spaceId: string
-  entries: Map<string, ConversationMeta | null>
-}>()
+const pendingIndexWrites = new Map<
+  string,
+  {
+    timer: ReturnType<typeof setTimeout>;
+    spaceId: string;
+    entries: Map<string, ConversationMeta | null>;
+  }
+>();
 
 /**
  * Schedule a debounced index update. Multiple calls within INDEX_DEBOUNCE_MS
@@ -373,62 +399,64 @@ function debouncedUpdateIndexEntry(
   conversationsDir: string,
   spaceId: string,
   conversationId: string,
-  meta: ConversationMeta | null
+  meta: ConversationMeta | null,
 ): void {
-  let pending = pendingIndexWrites.get(conversationsDir)
+  let pending = pendingIndexWrites.get(conversationsDir);
   if (pending) {
     // Merge into existing batch
-    pending.entries.set(conversationId, meta)
+    pending.entries.set(conversationId, meta);
     // Reset timer
-    clearTimeout(pending.timer)
+    clearTimeout(pending.timer);
   } else {
     pending = {
       timer: null as unknown as ReturnType<typeof setTimeout>,
       spaceId,
-      entries: new Map([[conversationId, meta]])
-    }
-    pendingIndexWrites.set(conversationsDir, pending)
+      entries: new Map([[conversationId, meta]]),
+    };
+    pendingIndexWrites.set(conversationsDir, pending);
   }
 
   pending.timer = setTimeout(() => {
-    flushIndexWrites(conversationsDir)
-  }, INDEX_DEBOUNCE_MS)
+    flushIndexWrites(conversationsDir);
+  }, INDEX_DEBOUNCE_MS);
 }
 
 /**
  * Flush pending index writes for a directory immediately.
  */
 function flushIndexWrites(conversationsDir: string): void {
-  const pending = pendingIndexWrites.get(conversationsDir)
-  if (!pending) return
+  const pending = pendingIndexWrites.get(conversationsDir);
+  if (!pending) return;
 
-  clearTimeout(pending.timer)
-  pendingIndexWrites.delete(conversationsDir)
+  clearTimeout(pending.timer);
+  pendingIndexWrites.delete(conversationsDir);
 
   // Read current index once
-  const index = readIndex(conversationsDir)
+  const index = readIndex(conversationsDir);
   if (!index) {
-    rebuildIndexAsync(conversationsDir, pending.spaceId)
-    return
+    rebuildIndexAsync(conversationsDir, pending.spaceId);
+    return;
   }
 
   // Apply all pending entries
   for (const [conversationId, meta] of pending.entries) {
-    const existingIndex = index.conversations.findIndex(c => c.id === conversationId)
+    const existingIndex = index.conversations.findIndex((c) => c.id === conversationId);
 
     if (meta === null) {
       if (existingIndex !== -1) {
-        index.conversations.splice(existingIndex, 1)
+        index.conversations.splice(existingIndex, 1);
       }
     } else if (existingIndex !== -1) {
-      index.conversations[existingIndex] = meta
+      index.conversations[existingIndex] = meta;
     } else {
-      index.conversations.unshift(meta)
+      index.conversations.unshift(meta);
     }
   }
 
-  index.conversations.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  writeIndex(conversationsDir, index.conversations)
+  index.conversations.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+  writeIndex(conversationsDir, index.conversations);
 }
 
 /**
@@ -436,7 +464,7 @@ function flushIndexWrites(conversationsDir: string): void {
  */
 export function flushAllPendingIndexWrites(): void {
   for (const conversationsDir of pendingIndexWrites.keys()) {
-    flushIndexWrites(conversationsDir)
+    flushIndexWrites(conversationsDir);
   }
 }
 
@@ -448,9 +476,9 @@ export function flushAllPendingIndexWrites(): void {
 export function discardPendingWritesForSpace(spaceId: string): void {
   for (const [conversationsDir, pending] of pendingIndexWrites) {
     if (pending.spaceId === spaceId) {
-      clearTimeout(pending.timer)
-      pendingIndexWrites.delete(conversationsDir)
-      console.log(`[Conversation] Discarded pending index writes for space ${spaceId}`)
+      clearTimeout(pending.timer);
+      pendingIndexWrites.delete(conversationsDir);
+      console.log(`[Conversation] Discarded pending index writes for space ${spaceId}`);
     }
   }
 }
@@ -464,9 +492,9 @@ export function discardPendingWritesForSpace(spaceId: string): void {
  * rename() on the same filesystem is atomic on POSIX and near-atomic on Windows.
  */
 function atomicWriteFileSync(filePath: string, data: string): void {
-  const tmpPath = filePath + '.tmp'
-  writeFileSync(tmpPath, data)
-  renameSync(tmpPath, filePath)
+  const tmpPath = filePath + '.tmp';
+  writeFileSync(tmpPath, data);
+  renameSync(tmpPath, filePath);
 }
 
 // ============================================================================
@@ -474,17 +502,17 @@ function atomicWriteFileSync(filePath: string, data: string): void {
 // ============================================================================
 
 function computeThoughtsSummary(thoughts: Thought[]): ThoughtsSummary {
-  const types: Partial<Record<ThoughtType, number>> = {}
+  const types: Partial<Record<ThoughtType, number>> = {};
   for (const t of thoughts) {
-    types[t.type] = (types[t.type] || 0) + 1
+    types[t.type] = (types[t.type] || 0) + 1;
   }
-  let duration: number | undefined
+  let duration: number | undefined;
   if (thoughts.length >= 2) {
-    const first = new Date(thoughts[0].timestamp).getTime()
-    const last = new Date(thoughts[thoughts.length - 1].timestamp).getTime()
-    duration = (last - first) / 1000
+    const first = new Date(thoughts[0].timestamp).getTime();
+    const last = new Date(thoughts[thoughts.length - 1].timestamp).getTime();
+    duration = (last - first) / 1000;
   }
-  return { count: thoughts.length, types, duration }
+  return { count: thoughts.length, types, duration };
 }
 
 // ============================================================================
@@ -503,19 +531,19 @@ function computeThoughtsSummary(thoughts: Thought[]): ThoughtsSummary {
  * - If crash between the two writes, next read detects v1 and re-migrates
  */
 function migrateConversationV1toV2(conversationsDir: string, conversation: Conversation): void {
-  const mainPath = join(conversationsDir, `${safeFileName(conversation.id)}.json`)
-  const thoughtsPath = join(conversationsDir, `${safeFileName(conversation.id)}.thoughts.json`)
+  const mainPath = join(conversationsDir, `${safeFileName(conversation.id)}.json`);
+  const thoughtsPath = join(conversationsDir, `${safeFileName(conversation.id)}.thoughts.json`);
 
   // Step 1: Extract thoughts from all messages
-  const thoughtsData: Record<string, Thought[]> = {}
-  let hasAnyThoughts = false
+  const thoughtsData: Record<string, Thought[]> = {};
+  let hasAnyThoughts = false;
 
   for (const message of conversation.messages) {
     if (Array.isArray(message.thoughts) && message.thoughts.length > 0) {
-      thoughtsData[message.id] = message.thoughts
-      message.thoughtsSummary = computeThoughtsSummary(message.thoughts)
-      message.thoughts = null
-      hasAnyThoughts = true
+      thoughtsData[message.id] = message.thoughts;
+      message.thoughtsSummary = computeThoughtsSummary(message.thoughts);
+      message.thoughts = null;
+      hasAnyThoughts = true;
     }
   }
 
@@ -524,16 +552,18 @@ function migrateConversationV1toV2(conversationsDir: string, conversation: Conve
     const thoughtsFile: ThoughtsFile = {
       version: 1,
       conversationId: conversation.id,
-      messages: thoughtsData
-    }
-    atomicWriteFileSync(thoughtsPath, JSON.stringify(thoughtsFile))
-    console.log(`[Conversation] Migration: wrote thoughts file for ${conversation.id} (${Object.keys(thoughtsData).length} messages)`)
+      messages: thoughtsData,
+    };
+    atomicWriteFileSync(thoughtsPath, JSON.stringify(thoughtsFile));
+    console.log(
+      `[Conversation] Migration: wrote thoughts file for ${conversation.id} (${Object.keys(thoughtsData).length} messages)`,
+    );
   }
 
   // Step 3: Update main file with version marker
-  conversation.version = CONVERSATION_FORMAT_VERSION
-  atomicWriteFileSync(mainPath, JSON.stringify(conversation, null, 2))
-  console.log(`[Conversation] Migration: updated main file for ${conversation.id} to v2`)
+  conversation.version = CONVERSATION_FORMAT_VERSION;
+  atomicWriteFileSync(mainPath, JSON.stringify(conversation, null, 2));
+  console.log(`[Conversation] Migration: updated main file for ${conversation.id} to v2`);
 }
 
 // ============================================================================
@@ -541,57 +571,59 @@ function migrateConversationV1toV2(conversationsDir: string, conversation: Conve
 // ============================================================================
 
 function getIndexPath(conversationsDir: string): string {
-  return join(conversationsDir, 'index.json')
+  return join(conversationsDir, 'index.json');
 }
 
 function readIndex(conversationsDir: string): ConversationIndex | null {
-  const indexPath = getIndexPath(conversationsDir)
+  const indexPath = getIndexPath(conversationsDir);
 
   if (!existsSync(indexPath)) {
-    return null
+    return null;
   }
 
   try {
-    const content = readFileSync(indexPath, 'utf-8')
-    const index: ConversationIndex = JSON.parse(content)
+    const content = readFileSync(indexPath, 'utf-8');
+    const index: ConversationIndex = JSON.parse(content);
 
     if (index.version !== INDEX_VERSION) {
-      console.log(`[Conversation] Index version mismatch (${index.version} vs ${INDEX_VERSION}), will rebuild`)
-      return null
+      console.log(
+        `[Conversation] Index version mismatch (${index.version} vs ${INDEX_VERSION}), will rebuild`,
+      );
+      return null;
     }
 
-    return index
+    return index;
   } catch (error) {
-    console.error('[Conversation] Failed to read index:', error)
-    return null
+    console.error('[Conversation] Failed to read index:', error);
+    return null;
   }
 }
 
 function writeIndex(conversationsDir: string, conversations: ConversationMeta[]): void {
-  const indexPath = getIndexPath(conversationsDir)
+  const indexPath = getIndexPath(conversationsDir);
 
   const index: ConversationIndex = {
     version: INDEX_VERSION,
     updatedAt: new Date().toISOString(),
-    conversations
-  }
+    conversations,
+  };
 
   try {
-    atomicWriteFileSync(indexPath, JSON.stringify(index, null, 2))
-    console.log(`[Conversation] Index written with ${conversations.length} conversations`)
+    atomicWriteFileSync(indexPath, JSON.stringify(index, null, 2));
+    console.log(`[Conversation] Index written with ${conversations.length} conversations`);
   } catch (error) {
-    console.error('[Conversation] Failed to write index:', error)
+    console.error('[Conversation] Failed to write index:', error);
   }
 }
 
 function toMeta(conversation: Conversation): ConversationMeta {
-  const lastMessage = conversation.messages[conversation.messages.length - 1]
-  let preview: string | undefined
+  const lastMessage = conversation.messages[conversation.messages.length - 1];
+  let preview: string | undefined;
 
   if (lastMessage) {
-    preview = lastMessage.content.slice(0, PREVIEW_LENGTH)
+    preview = lastMessage.content.slice(0, PREVIEW_LENGTH);
     if (lastMessage.content.length > PREVIEW_LENGTH) {
-      preview += '...'
+      preview += '...';
     }
   }
 
@@ -602,18 +634,18 @@ function toMeta(conversation: Conversation): ConversationMeta {
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     messageCount: conversation.messages.length,
-    preview
-  }
+    preview,
+  };
 
   if (conversation.starred) {
-    meta.starred = true
+    meta.starred = true;
   }
 
   if (conversation.relatedSkillId) {
-    meta.relatedSkillId = conversation.relatedSkillId
+    meta.relatedSkillId = conversation.relatedSkillId;
   }
 
-  return meta
+  return meta;
 }
 
 /**
@@ -623,107 +655,111 @@ function toMeta(conversation: Conversation): ConversationMeta {
 export function toggleStarConversation(
   spaceId: string,
   conversationId: string,
-  starred: boolean
+  starred: boolean,
 ): ConversationMeta | null {
-  const result = cachedRead(spaceId, conversationId)
-  if (!result) return null
+  const result = cachedRead(spaceId, conversationId);
+  if (!result) return null;
 
-  const { conversation, filePath, conversationsDir } = result
+  const { conversation, filePath, conversationsDir } = result;
 
-  conversation.starred = starred || undefined  // Don't persist false, just remove the key
-  conversation.updatedAt = new Date().toISOString()
+  conversation.starred = starred || undefined; // Don't persist false, just remove the key
+  conversation.updatedAt = new Date().toISOString();
 
-  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
 
-  const meta = toMeta(conversation)
+  const meta = toMeta(conversation);
   // Star toggle should be reflected immediately in the list.
   // Clear any pending debounced entry for this conversation to prevent stale meta
   // from overwriting the star state when the debounce timer fires.
-  const pending = pendingIndexWrites.get(conversationsDir)
-  if (pending) pending.entries.delete(conversationId)
-  updateIndexEntry(conversationsDir, spaceId, conversationId, meta)
+  const pending = pendingIndexWrites.get(conversationsDir);
+  if (pending) pending.entries.delete(conversationId);
+  updateIndexEntry(conversationsDir, spaceId, conversationId, meta);
 
-  return meta
+  return meta;
 }
 
 /**
  * Check if a filename is a conversation main file (not thoughts, not index, not tmp).
  */
 function isConversationFile(filename: string): boolean {
-  return filename.endsWith('.json')
-    && filename !== 'index.json'
-    && !filename.endsWith('.thoughts.json')
-    && !filename.endsWith('.tmp')
+  return (
+    filename.endsWith('.json') &&
+    filename !== 'index.json' &&
+    !filename.endsWith('.thoughts.json') &&
+    !filename.endsWith('.tmp')
+  );
 }
 
 function fullScanConversations(conversationsDir: string, spaceId: string): ConversationMeta[] {
-  console.log(`[Conversation] Full scan started for ${conversationsDir}`)
-  const metas: ConversationMeta[] = []
+  console.log(`[Conversation] Full scan started for ${conversationsDir}`);
+  const metas: ConversationMeta[] = [];
 
   if (!existsSync(conversationsDir)) {
-    return metas
+    return metas;
   }
 
-  const files = readdirSync(conversationsDir).filter(isConversationFile)
+  const files = readdirSync(conversationsDir).filter(isConversationFile);
 
   for (const file of files) {
     try {
-      const content = readFileSync(join(conversationsDir, file), 'utf-8')
-      const conversation: Conversation = JSON.parse(content)
+      const content = readFileSync(join(conversationsDir, file), 'utf-8');
+      const conversation: Conversation = JSON.parse(content);
       // Skip child/worker conversations (format: {uuid}:agent-{id})
-      if (conversation.id.includes(':agent-')) continue
-      metas.push(toMeta(conversation))
+      if (conversation.id.includes(':agent-')) continue;
+      metas.push(toMeta(conversation));
     } catch (error) {
-      console.error(`[Conversation] Failed to read conversation ${file}:`, error)
+      console.error(`[Conversation] Failed to read conversation ${file}:`, error);
     }
   }
 
-  metas.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  metas.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
-  console.log(`[Conversation] Full scan completed: ${metas.length} conversations`)
-  return metas
+  console.log(`[Conversation] Full scan completed: ${metas.length} conversations`);
+  return metas;
 }
 
 function rebuildIndexAsync(conversationsDir: string, spaceId: string): void {
   setImmediate(() => {
     try {
-      const metas = fullScanConversations(conversationsDir, spaceId)
-      writeIndex(conversationsDir, metas)
-      console.log(`[Conversation] Index rebuilt asynchronously`)
+      const metas = fullScanConversations(conversationsDir, spaceId);
+      writeIndex(conversationsDir, metas);
+      console.log(`[Conversation] Index rebuilt asynchronously`);
     } catch (error) {
-      console.error('[Conversation] Failed to rebuild index:', error)
+      console.error('[Conversation] Failed to rebuild index:', error);
     }
-  })
+  });
 }
 
 function updateIndexEntry(
   conversationsDir: string,
   spaceId: string,
   conversationId: string,
-  meta: ConversationMeta | null
+  meta: ConversationMeta | null,
 ): void {
-  const index = readIndex(conversationsDir)
+  const index = readIndex(conversationsDir);
 
   if (!index) {
-    rebuildIndexAsync(conversationsDir, spaceId)
-    return
+    rebuildIndexAsync(conversationsDir, spaceId);
+    return;
   }
 
-  const existingIndex = index.conversations.findIndex(c => c.id === conversationId)
+  const existingIndex = index.conversations.findIndex((c) => c.id === conversationId);
 
   if (meta === null) {
     if (existingIndex !== -1) {
-      index.conversations.splice(existingIndex, 1)
+      index.conversations.splice(existingIndex, 1);
     }
   } else if (existingIndex !== -1) {
-    index.conversations[existingIndex] = meta
+    index.conversations[existingIndex] = meta;
   } else {
-    index.conversations.unshift(meta)
+    index.conversations.unshift(meta);
   }
 
-  index.conversations.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  index.conversations.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
 
-  writeIndex(conversationsDir, index.conversations)
+  writeIndex(conversationsDir, index.conversations);
 }
 
 // ============================================================================
@@ -731,58 +767,65 @@ function updateIndexEntry(
 // ============================================================================
 
 function getConversationsDir(spaceId: string): string {
-  const space = getSpace(spaceId)
+  const space = getSpace(spaceId);
 
   if (!space) {
-    const error = `Space not found: ${spaceId}`
-    console.error(`[Conversation] ERROR: ${error}`)
-    throw new Error(error)
+    const error = `Space not found: ${spaceId}`;
+    console.error(`[Conversation] ERROR: ${error}`);
+    throw new Error(error);
   }
 
   const convDir = space.isTemp
     ? join(space.path, 'conversations')
-    : join(space.path, '.aico-bot', 'conversations')
-  return convDir
+    : join(space.path, '.aico-bot', 'conversations');
+  return convDir;
 }
 
 // List all conversations for a space (returns lightweight metadata)
-export function listConversations(spaceId: string, filter?: { relatedSkillId?: string }): ConversationMeta[] {
-  const conversationsDir = getConversationsDir(spaceId)
+export function listConversations(
+  spaceId: string,
+  filter?: { relatedSkillId?: string },
+): ConversationMeta[] {
+  const conversationsDir = getConversationsDir(spaceId);
 
-  const index = readIndex(conversationsDir)
-  let conversations: ConversationMeta[]
+  const index = readIndex(conversationsDir);
+  let conversations: ConversationMeta[];
 
   if (index) {
-    conversations = index.conversations
+    conversations = index.conversations;
   } else {
-    conversations = fullScanConversations(conversationsDir, spaceId)
+    conversations = fullScanConversations(conversationsDir, spaceId);
     if (conversations.length > 0) {
-      writeIndex(conversationsDir, conversations)
+      writeIndex(conversationsDir, conversations);
     }
   }
 
   // Apply filter if provided
   if (filter?.relatedSkillId !== undefined) {
-    conversations = conversations.filter(conv => {
+    conversations = conversations.filter((conv) => {
       // If filter.relatedSkillId is null/undefined, return conversations without relatedSkillId
       if (!filter.relatedSkillId) {
-        return !conv.relatedSkillId
+        return !conv.relatedSkillId;
       }
       // Otherwise, return conversations that match the skillId
-      return conv.relatedSkillId === filter.relatedSkillId
-    })
+      return conv.relatedSkillId === filter.relatedSkillId;
+    });
   }
 
   // Filter out child/worker conversations (format: {uuid}:agent-{id})
-  conversations = conversations.filter(conv => !conv.id.includes(':agent-'))
+  conversations = conversations.filter((conv) => !conv.id.includes(':agent-'));
 
-  return conversations
+  return conversations;
 }
 
 // Create a new conversation (always v2 format)
-export function createConversation(spaceId: string, title?: string, options?: { relatedSkillId?: string }): Conversation {
-  const id = uuidv4()
-  const now = new Date().toISOString()
+export function createConversation(
+  spaceId: string,
+  title?: string,
+  options?: { relatedSkillId?: string },
+): Conversation {
+  const id = uuidv4();
+  const now = new Date().toISOString();
 
   const conversation: Conversation = {
     id,
@@ -793,21 +836,21 @@ export function createConversation(spaceId: string, title?: string, options?: { 
     messageCount: 0,
     messages: [],
     version: CONVERSATION_FORMAT_VERSION,
-    relatedSkillId: options?.relatedSkillId
-  }
+    relatedSkillId: options?.relatedSkillId,
+  };
 
-  const conversationsDir = getConversationsDir(spaceId)
+  const conversationsDir = getConversationsDir(spaceId);
 
   if (!existsSync(conversationsDir)) {
-    mkdirSync(conversationsDir, { recursive: true })
+    mkdirSync(conversationsDir, { recursive: true });
   }
 
-  const filePath = join(conversationsDir, `${id}.json`)
-  cachedWrite(id, conversation, filePath, conversationsDir, spaceId)
+  const filePath = join(conversationsDir, `${id}.json`);
+  cachedWrite(id, conversation, filePath, conversationsDir, spaceId);
 
-  updateIndexEntry(conversationsDir, spaceId, id, toMeta(conversation))
+  updateIndexEntry(conversationsDir, spaceId, id, toMeta(conversation));
 
-  return conversation
+  return conversation;
 }
 
 /**
@@ -818,31 +861,31 @@ export function createConversation(spaceId: string, title?: string, options?: { 
  *   Messages with thoughts have thoughts=null and thoughtsSummary set.
  */
 export function getConversation(spaceId: string, conversationId: string): Conversation | null {
-  const result = cachedRead(spaceId, conversationId)
-  return result ? result.conversation : null
+  const result = cachedRead(spaceId, conversationId);
+  return result ? result.conversation : null;
 }
 
 // Update a conversation
 export function updateConversation(
   spaceId: string,
   conversationId: string,
-  updates: Partial<Conversation>
+  updates: Partial<Conversation>,
 ): Conversation | null {
-  const result = cachedRead(spaceId, conversationId)
-  if (!result) return null
+  const result = cachedRead(spaceId, conversationId);
+  if (!result) return null;
 
-  const { conversation, filePath, conversationsDir } = result
+  const { conversation, filePath, conversationsDir } = result;
 
   const updated: Conversation = {
     ...conversation,
     ...updates,
-    updatedAt: new Date().toISOString()
-  }
+    updatedAt: new Date().toISOString(),
+  };
 
-  cachedWrite(conversationId, updated, filePath, conversationsDir, spaceId)
-  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(updated))
+  cachedWrite(conversationId, updated, filePath, conversationsDir, spaceId);
+  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(updated));
 
-  return updated
+  return updated;
 }
 
 /**
@@ -853,14 +896,14 @@ export function updateConversation(
 export function createConversationWithId(
   spaceId: string,
   conversationId: string,
-  title?: string
+  title?: string,
 ): Conversation {
-  const existing = cachedRead(spaceId, conversationId)
+  const existing = cachedRead(spaceId, conversationId);
   if (existing) {
-    return existing.conversation
+    return existing.conversation;
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const conversation: Conversation = {
     id: conversationId,
     spaceId,
@@ -869,57 +912,61 @@ export function createConversationWithId(
     updatedAt: now,
     messageCount: 0,
     messages: [],
-    version: CONVERSATION_FORMAT_VERSION
-  }
+    version: CONVERSATION_FORMAT_VERSION,
+  };
 
-  const conversationsDir = getConversationsDir(spaceId)
+  const conversationsDir = getConversationsDir(spaceId);
   if (!existsSync(conversationsDir)) {
-    mkdirSync(conversationsDir, { recursive: true })
+    mkdirSync(conversationsDir, { recursive: true });
   }
 
-  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
-  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`);
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
 
   // No index entry — child conversations are hidden from listConversations
-  return conversation
+  return conversation;
 }
 
 /**
  * Add a message to a conversation.
  * User messages never have thoughts, so only the main file is written.
  */
-export function addMessage(spaceId: string, conversationId: string, message: Omit<Message, 'id' | 'timestamp'>): Message {
-  const result = cachedRead(spaceId, conversationId)
+export function addMessage(
+  spaceId: string,
+  conversationId: string,
+  message: Omit<Message, 'id' | 'timestamp'>,
+): Message {
+  const result = cachedRead(spaceId, conversationId);
   if (!result) {
-    throw new Error('Conversation not found')
+    throw new Error('Conversation not found');
   }
 
-  const { conversation, filePath, conversationsDir } = result
+  const { conversation, filePath, conversationsDir } = result;
 
   const newMessage: Message = {
     ...message,
     id: uuidv4(),
-    timestamp: new Date().toISOString()
-  }
+    timestamp: new Date().toISOString(),
+  };
 
-  conversation.messages.push(newMessage)
-  conversation.updatedAt = new Date().toISOString()
-  conversation.messageCount = conversation.messages.length
+  conversation.messages.push(newMessage);
+  conversation.updatedAt = new Date().toISOString();
+  conversation.messageCount = conversation.messages.length;
 
   // Auto-update title from first user message
   if (conversation.messages.length === 1 && message.role === 'user') {
-    conversation.title = message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '')
+    conversation.title = message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '');
   }
 
   // Ensure version is set for new writes
   if (!conversation.version) {
-    conversation.version = CONVERSATION_FORMAT_VERSION
+    conversation.version = CONVERSATION_FORMAT_VERSION;
   }
 
-  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
-  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(conversation))
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
+  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(conversation));
 
-  return newMessage
+  return newMessage;
 }
 
 /**
@@ -935,78 +982,77 @@ export function addMessage(spaceId: string, conversationId: string, message: Omi
 export function updateLastMessage(
   spaceId: string,
   conversationId: string,
-  updates: Partial<Message>
+  updates: Partial<Message>,
 ): Message | null {
-  const result = cachedRead(spaceId, conversationId)
-  if (!result) return null
+  const result = cachedRead(spaceId, conversationId);
+  if (!result) return null;
 
-  const { conversation, filePath, conversationsDir } = result
+  const { conversation, filePath, conversationsDir } = result;
 
   if (conversation.messages.length === 0) {
-    return null
+    return null;
   }
 
-  const lastMessage = conversation.messages[conversation.messages.length - 1]
+  const lastMessage = conversation.messages[conversation.messages.length - 1];
 
   // Only update assistant messages
   if (lastMessage.role !== 'assistant') {
-    return lastMessage
+    return lastMessage;
   }
 
   // Extract thoughts from updates for separate storage
-  const thoughtsToStore = Array.isArray(updates.thoughts) && updates.thoughts.length > 0
-    ? updates.thoughts
-    : null
+  const thoughtsToStore =
+    Array.isArray(updates.thoughts) && updates.thoughts.length > 0 ? updates.thoughts : null;
 
   // Apply updates to the message (except thoughts, handled separately)
-  const { thoughts: _thoughts, ...otherUpdates } = updates
-  Object.assign(lastMessage, otherUpdates)
+  const { thoughts: _thoughts, ...otherUpdates } = updates;
+  Object.assign(lastMessage, otherUpdates);
 
   // Handle thoughts separation
   if (thoughtsToStore) {
     // Compute summary for the main file
-    lastMessage.thoughtsSummary = computeThoughtsSummary(thoughtsToStore)
-    lastMessage.thoughts = null  // Marker: thoughts exist but stored separately
+    lastMessage.thoughtsSummary = computeThoughtsSummary(thoughtsToStore);
+    lastMessage.thoughts = null; // Marker: thoughts exist but stored separately
 
     // Write thoughts file first (crash safety: if this succeeds but main fails,
     // next migration will re-extract from the still-inline thoughts)
-    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
+    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`);
 
     // Read existing thoughts file to merge (may have thoughts from previous messages)
     // Use cached file if available
-    let thoughtsFile: ThoughtsFile
-    const cachedThoughts = getCachedThoughtsFile(conversationId, thoughtsPath)
+    let thoughtsFile: ThoughtsFile;
+    const cachedThoughts = getCachedThoughtsFile(conversationId, thoughtsPath);
 
     if (cachedThoughts) {
-      thoughtsFile = cachedThoughts
+      thoughtsFile = cachedThoughts;
     } else if (existsSync(thoughtsPath)) {
       try {
-        thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'))
+        thoughtsFile = JSON.parse(readFileSync(thoughtsPath, 'utf-8'));
       } catch {
-        thoughtsFile = { version: 1, conversationId, messages: {} }
+        thoughtsFile = { version: 1, conversationId, messages: {} };
       }
     } else {
-      thoughtsFile = { version: 1, conversationId, messages: {} }
+      thoughtsFile = { version: 1, conversationId, messages: {} };
     }
 
-    thoughtsFile.messages[lastMessage.id] = thoughtsToStore
-    atomicWriteFileSync(thoughtsPath, JSON.stringify(thoughtsFile))
+    thoughtsFile.messages[lastMessage.id] = thoughtsToStore;
+    atomicWriteFileSync(thoughtsPath, JSON.stringify(thoughtsFile));
 
     // Invalidate thoughts cache after write (next read will get fresh data)
-    invalidateThoughtsCache(conversationId)
+    invalidateThoughtsCache(conversationId);
   }
 
   // Ensure version is set
   if (!conversation.version) {
-    conversation.version = CONVERSATION_FORMAT_VERSION
+    conversation.version = CONVERSATION_FORMAT_VERSION;
   }
 
-  conversation.updatedAt = new Date().toISOString()
+  conversation.updatedAt = new Date().toISOString();
 
-  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
-  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(conversation))
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
+  debouncedUpdateIndexEntry(conversationsDir, spaceId, conversationId, toMeta(conversation));
 
-  return lastMessage
+  return lastMessage;
 }
 
 /**
@@ -1018,22 +1064,24 @@ export function updateLastMessage(
 export function getMessageThoughts(
   spaceId: string,
   conversationId: string,
-  messageId: string
+  messageId: string,
 ): Thought[] {
-  const conversationsDir = getConversationsDir(spaceId)
-  const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
+  const conversationsDir = getConversationsDir(spaceId);
+  const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`);
 
   // Use cached thoughts file
-  const thoughtsFile = getCachedThoughtsFile(conversationId, thoughtsPath)
+  const thoughtsFile = getCachedThoughtsFile(conversationId, thoughtsPath);
 
   if (!thoughtsFile) {
-    console.log(`[Conversation] No thoughts file for ${conversationId}, returning empty`)
-    return []
+    console.log(`[Conversation] No thoughts file for ${conversationId}, returning empty`);
+    return [];
   }
 
-  const thoughts = thoughtsFile.messages[messageId] || []
-  console.log(`[Conversation] Loaded ${thoughts.length} thoughts for ${conversationId}/${messageId}`)
-  return thoughts
+  const thoughts = thoughtsFile.messages[messageId] || [];
+  console.log(
+    `[Conversation] Loaded ${thoughts.length} thoughts for ${conversationId}/${messageId}`,
+  );
+  return thoughts;
 }
 
 /**
@@ -1042,47 +1090,60 @@ export function getMessageThoughts(
 export function deleteConversation(spaceId: string, conversationId: string): boolean {
   // Close the active V2 session for this conversation before deleting files.
   // This releases any held file descriptors and stops in-flight SDK processes.
-  closeV2Session(conversationId)
+  closeV2Session(conversationId);
 
-  const conversationsDir = getConversationsDir(spaceId)
-  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`)
+  const conversationsDir = getConversationsDir(spaceId);
+  const filePath = join(conversationsDir, `${safeFileName(conversationId)}.json`);
 
   if (existsSync(filePath)) {
     // Evict from cache before deleting
-    cacheEvict(conversationId)
+    cacheEvict(conversationId);
 
-    rmSync(filePath)
+    rmSync(filePath);
 
     // Also delete thoughts file if it exists
-    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`)
+    const thoughtsPath = join(conversationsDir, `${safeFileName(conversationId)}.thoughts.json`);
     if (existsSync(thoughtsPath)) {
       try {
-        rmSync(thoughtsPath)
+        rmSync(thoughtsPath);
       } catch (error) {
-        console.error(`[Conversation] Failed to delete thoughts file for ${conversationId}:`, error)
+        console.error(
+          `[Conversation] Failed to delete thoughts file for ${conversationId}:`,
+          error,
+        );
       }
     }
 
     // Clean up any leftover tmp files
-    const tmpMain = filePath + '.tmp'
-    const tmpThoughts = thoughtsPath + '.tmp'
-    if (existsSync(tmpMain)) try { rmSync(tmpMain) } catch { /* ignore */ }
-    if (existsSync(tmpThoughts)) try { rmSync(tmpThoughts) } catch { /* ignore */ }
+    const tmpMain = filePath + '.tmp';
+    const tmpThoughts = thoughtsPath + '.tmp';
+    if (existsSync(tmpMain))
+      try {
+        rmSync(tmpMain);
+      } catch {
+        /* ignore */
+      }
+    if (existsSync(tmpThoughts))
+      try {
+        rmSync(tmpThoughts);
+      } catch {
+        /* ignore */
+      }
 
     // Use immediate index update for deletes (user expects instant feedback).
     // Clear any pending debounced entry to prevent the deleted conversation
     // from being written back into the index when the debounce timer fires.
-    const pending = pendingIndexWrites.get(conversationsDir)
-    if (pending) pending.entries.delete(conversationId)
-    updateIndexEntry(conversationsDir, spaceId, conversationId, null)
+    const pending = pendingIndexWrites.get(conversationsDir);
+    if (pending) pending.entries.delete(conversationId);
+    updateIndexEntry(conversationsDir, spaceId, conversationId, null);
 
     // Also delete any child/worker conversations for this parent
-    deleteChildConversations(spaceId, conversationId)
+    deleteChildConversations(spaceId, conversationId);
 
-    return true
+    return true;
   }
 
-  return false
+  return false;
 }
 
 /**
@@ -1095,50 +1156,50 @@ export function deleteConversation(spaceId: string, conversationId: string): boo
  */
 export function listChildConversations(
   spaceId: string,
-  parentConversationId: string
+  parentConversationId: string,
 ): Array<{
-  id: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
 }> {
-  const conversationsDir = getConversationsDir(spaceId)
-  if (!existsSync(conversationsDir)) return []
+  const conversationsDir = getConversationsDir(spaceId);
+  if (!existsSync(conversationsDir)) return [];
 
-  const childPrefix = safeFileName(`${parentConversationId}:agent-`)
+  const childPrefix = safeFileName(`${parentConversationId}:agent-`);
   const results: Array<{
-    id: string
-    title: string
-    createdAt: string
-    updatedAt: string
-    messageCount: number
-  }> = []
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+    messageCount: number;
+  }> = [];
 
   try {
-    const files = readdirSync(conversationsDir)
+    const files = readdirSync(conversationsDir);
     for (const file of files) {
       if (file.startsWith(childPrefix) && isConversationFile(file)) {
         try {
-          const content = readFileSync(join(conversationsDir, file), 'utf-8')
-          const conversation: Conversation = JSON.parse(content)
+          const content = readFileSync(join(conversationsDir, file), 'utf-8');
+          const conversation: Conversation = JSON.parse(content);
           results.push({
             id: conversation.id,
             title: conversation.title,
             createdAt: conversation.createdAt,
             updatedAt: conversation.updatedAt,
-            messageCount: conversation.messageCount
-          })
+            messageCount: conversation.messageCount,
+          });
         } catch (error) {
-          console.error(`[Conversation] Failed to read child conversation ${file}:`, error)
+          console.error(`[Conversation] Failed to read child conversation ${file}:`, error);
         }
       }
     }
   } catch (error) {
-    console.error(`[Conversation] Failed to scan for child conversations:`, error)
+    console.error(`[Conversation] Failed to scan for child conversations:`, error);
   }
 
-  return results
+  return results;
 }
 
 /**
@@ -1146,45 +1207,49 @@ export function listChildConversations(
  * Returns a map of parentConversationId -> worker metadata array.
  * Used for HyperSpace worker visibility in the sidebar.
  */
-export function listAllWorkerConversations(
-  spaceId: string
-): Map<string, Array<{
-  id: string
-  title: string
-  agentId: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-}>> {
-  const conversationsDir = getConversationsDir(spaceId)
-  const result = new Map<string, Array<{
-    id: string
-    title: string
-    agentId: string
-    createdAt: string
-    updatedAt: string
-    messageCount: number
-  }>>()
+export function listAllWorkerConversations(spaceId: string): Map<
+  string,
+  Array<{
+    id: string;
+    title: string;
+    agentId: string;
+    createdAt: string;
+    updatedAt: string;
+    messageCount: number;
+  }>
+> {
+  const conversationsDir = getConversationsDir(spaceId);
+  const result = new Map<
+    string,
+    Array<{
+      id: string;
+      title: string;
+      agentId: string;
+      createdAt: string;
+      updatedAt: string;
+      messageCount: number;
+    }>
+  >();
 
-  if (!existsSync(conversationsDir)) return result
+  if (!existsSync(conversationsDir)) return result;
 
   try {
-    const files = readdirSync(conversationsDir)
+    const files = readdirSync(conversationsDir);
     for (const file of files) {
-      if (!isConversationFile(file)) continue
+      if (!isConversationFile(file)) continue;
       // Child conversations have format: {uuid}_agent-{agentId}.json
-      if (!file.includes('_agent-')) continue
+      if (!file.includes('_agent-')) continue;
 
       try {
-        const content = readFileSync(join(conversationsDir, file), 'utf-8')
-        const conversation: Conversation = JSON.parse(content)
-        if (!conversation.id.includes(':agent-')) continue
+        const content = readFileSync(join(conversationsDir, file), 'utf-8');
+        const conversation: Conversation = JSON.parse(content);
+        if (!conversation.id.includes(':agent-')) continue;
 
         // Extract parent conversation ID and agent ID
-        const agentMatch = conversation.id.match(/:agent-(.+)$/)
-        if (!agentMatch) continue
-        const agentId = agentMatch[1]
-        const parentConvId = conversation.id.replace(/:agent-.+$/, '')
+        const agentMatch = conversation.id.match(/:agent-(.+)$/);
+        if (!agentMatch) continue;
+        const agentId = agentMatch[1];
+        const parentConvId = conversation.id.replace(/:agent-.+$/, '');
 
         const entry = {
           id: conversation.id,
@@ -1192,24 +1257,24 @@ export function listAllWorkerConversations(
           agentId,
           createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
-          messageCount: conversation.messageCount
-        }
+          messageCount: conversation.messageCount,
+        };
 
-        const existing = result.get(parentConvId)
+        const existing = result.get(parentConvId);
         if (existing) {
-          existing.push(entry)
+          existing.push(entry);
         } else {
-          result.set(parentConvId, [entry])
+          result.set(parentConvId, [entry]);
         }
       } catch (error) {
         // Skip unreadable files
       }
     }
   } catch (error) {
-    console.error(`[Conversation] Failed to scan for all worker conversations:`, error)
+    console.error(`[Conversation] Failed to scan for all worker conversations:`, error);
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -1217,53 +1282,57 @@ export function listAllWorkerConversations(
  * Called when a parent conversation is deleted to clean up worker history files.
  */
 function deleteChildConversations(spaceId: string, parentConversationId: string): void {
-  const conversationsDir = getConversationsDir(spaceId)
-  if (!existsSync(conversationsDir)) return
+  const conversationsDir = getConversationsDir(spaceId);
+  if (!existsSync(conversationsDir)) return;
 
   try {
-    const files = readdirSync(conversationsDir)
-    const childPrefix = safeFileName(`${parentConversationId}:agent-`)
+    const files = readdirSync(conversationsDir);
+    const childPrefix = safeFileName(`${parentConversationId}:agent-`);
 
     for (const file of files) {
-      if (file.startsWith(childPrefix) && file.endsWith('.json') && !file.endsWith('.thoughts.json')) {
+      if (
+        file.startsWith(childPrefix) &&
+        file.endsWith('.json') &&
+        !file.endsWith('.thoughts.json')
+      ) {
         try {
-          const filePath = join(conversationsDir, file)
-          rmSync(filePath)
+          const filePath = join(conversationsDir, file);
+          rmSync(filePath);
           // Also remove thoughts file
-          const thoughtsFile = file.replace('.json', '.thoughts.json')
-          const thoughtsPath = join(conversationsDir, thoughtsFile)
+          const thoughtsFile = file.replace('.json', '.thoughts.json');
+          const thoughtsPath = join(conversationsDir, thoughtsFile);
           if (existsSync(thoughtsPath)) {
-            rmSync(thoughtsPath)
+            rmSync(thoughtsPath);
           }
         } catch (e) {
-          console.error(`[Conversation] Failed to delete child conversation file ${file}:`, e)
+          console.error(`[Conversation] Failed to delete child conversation file ${file}:`, e);
         }
       }
     }
   } catch (e) {
-    console.error(`[Conversation] Failed to scan for child conversations:`, e)
+    console.error(`[Conversation] Failed to scan for child conversations:`, e);
   }
 }
 
 // Save session ID for a conversation
 export function saveSessionId(spaceId: string, conversationId: string, sessionId: string): void {
-  const result = cachedRead(spaceId, conversationId)
-  if (!result) return
+  const result = cachedRead(spaceId, conversationId);
+  if (!result) return;
 
-  const { conversation, filePath, conversationsDir } = result
-  conversation.sessionId = sessionId
-  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId)
+  const { conversation, filePath, conversationsDir } = result;
+  conversation.sessionId = sessionId;
+  cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
 }
 
 // Generate a default title
 function generateTitle(): string {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const day = now.getDate()
-  const hour = now.getHours()
-  const minute = now.getMinutes()
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
 
-  return `Chat ${month}-${day} ${hour}:${minute.toString().padStart(2, '0')}`
+  return `Chat ${month}-${day} ${hour}:${minute.toString().padStart(2, '0')}`;
 }
 
 // ============================================================================
@@ -1274,8 +1343,8 @@ function generateTitle(): string {
  * ConversationService adapter interface for skill generator
  */
 export interface ConversationService {
-  getConversation(conversationId: string, spaceId?: string): Promise<Conversation | null>
-  getSpaceConversations(spaceId: string): Promise<Conversation[]>
+  getConversation(conversationId: string, spaceId?: string): Promise<Conversation | null>;
+  getSpaceConversations(spaceId: string): Promise<Conversation[]>;
 }
 
 /**
@@ -1286,29 +1355,29 @@ export function getConversationService(): ConversationService {
     async getConversation(conversationId: string, spaceId?: string): Promise<Conversation | null> {
       // If spaceId provided, use it directly
       if (spaceId) {
-        return getConversation(spaceId, conversationId)
+        return getConversation(spaceId, conversationId);
       }
       // Check the existing cache first
-      const cached = conversationCache.get(conversationId)
+      const cached = conversationCache.get(conversationId);
       if (cached) {
-        return cached.conversation
+        return cached.conversation;
       }
       // Cannot look up without spaceId
-      return null
+      return null;
     },
 
     async getSpaceConversations(spaceId: string): Promise<Conversation[]> {
-      const metas = listConversations(spaceId)
-      const conversations: Conversation[] = []
+      const metas = listConversations(spaceId);
+      const conversations: Conversation[] = [];
       for (const meta of metas) {
-        const conv = getConversation(spaceId, meta.id)
+        const conv = getConversation(spaceId, meta.id);
         if (conv) {
-          conversations.push(conv)
+          conversations.push(conv);
         }
       }
-      return conversations
-    }
-  }
+      return conversations;
+    },
+  };
 }
 
 // ============================================================================
@@ -1319,33 +1388,33 @@ export function getConversationService(): ConversationService {
  * Agent command record for terminal display
  */
 export interface AgentCommandRecord {
-  id: string
-  command: string
-  output: string
-  exitCode: number | null
-  status: 'running' | 'completed' | 'error'
-  timestamp: string
-  conversationId: string
-  cwd?: string  // Current working directory
-  cwdLabel?: string  // Display label for cwd (e.g., "~/hello-halo")
+  id: string;
+  command: string;
+  output: string;
+  exitCode: number | null;
+  status: 'running' | 'completed' | 'error';
+  timestamp: string;
+  conversationId: string;
+  cwd?: string; // Current working directory
+  cwdLabel?: string; // Display label for cwd (e.g., "~/hello-halo")
 }
 
 /**
  * Agent commands file structure (similar to thoughts file)
  */
 interface AgentCommandsFile {
-  version: number
-  conversationId: string
-  commands: AgentCommandRecord[]
+  version: number;
+  conversationId: string;
+  commands: AgentCommandRecord[];
 }
 
-const AGENT_COMMANDS_VERSION = 1
+const AGENT_COMMANDS_VERSION = 1;
 
 /**
  * Get the file path for agent commands
  */
 function getAgentCommandsFilePath(conversationsDir: string, conversationId: string): string {
-  return join(conversationsDir, `${conversationId}.agent-commands.json`)
+  return join(conversationsDir, `${conversationId}.agent-commands.json`);
 }
 
 /**
@@ -1354,83 +1423,77 @@ function getAgentCommandsFilePath(conversationsDir: string, conversationId: stri
 export function saveAgentCommand(
   spaceId: string,
   conversationId: string,
-  command: AgentCommandRecord
+  command: AgentCommandRecord,
 ): void {
-  const conversationsDir = getConversationsDir(spaceId)
+  const conversationsDir = getConversationsDir(spaceId);
 
   // Ensure conversations directory exists
   if (!existsSync(conversationsDir)) {
-    mkdirSync(conversationsDir, { recursive: true })
+    mkdirSync(conversationsDir, { recursive: true });
   }
 
-  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId);
 
   // Read existing commands file or create new one
-  let commandsFile: AgentCommandsFile
+  let commandsFile: AgentCommandsFile;
   if (existsSync(filePath)) {
     try {
-      commandsFile = JSON.parse(readFileSync(filePath, 'utf-8'))
+      commandsFile = JSON.parse(readFileSync(filePath, 'utf-8'));
     } catch {
-      commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] }
+      commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] };
     }
   } else {
-    commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] }
+    commandsFile = { version: AGENT_COMMANDS_VERSION, conversationId, commands: [] };
   }
 
   // Find existing command by ID and update, or add new command
-  const existingIndex = commandsFile.commands.findIndex(c => c.id === command.id)
+  const existingIndex = commandsFile.commands.findIndex((c) => c.id === command.id);
   if (existingIndex >= 0) {
-    commandsFile.commands[existingIndex] = command
+    commandsFile.commands[existingIndex] = command;
   } else {
-    commandsFile.commands.push(command)
+    commandsFile.commands.push(command);
   }
 
   // Limit to last 500 commands to prevent file from growing too large
   if (commandsFile.commands.length > 500) {
-    commandsFile.commands = commandsFile.commands.slice(-500)
+    commandsFile.commands = commandsFile.commands.slice(-500);
   }
 
-  atomicWriteFileSync(filePath, JSON.stringify(commandsFile))
+  atomicWriteFileSync(filePath, JSON.stringify(commandsFile));
 }
 
 /**
  * Load agent commands for a conversation
  */
-export function loadAgentCommands(
-  spaceId: string,
-  conversationId: string
-): AgentCommandRecord[] {
-  const conversationsDir = getConversationsDir(spaceId)
-  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+export function loadAgentCommands(spaceId: string, conversationId: string): AgentCommandRecord[] {
+  const conversationsDir = getConversationsDir(spaceId);
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId);
 
   if (!existsSync(filePath)) {
-    return []
+    return [];
   }
 
   try {
-    const commandsFile: AgentCommandsFile = JSON.parse(readFileSync(filePath, 'utf-8'))
-    return commandsFile.commands || []
+    const commandsFile: AgentCommandsFile = JSON.parse(readFileSync(filePath, 'utf-8'));
+    return commandsFile.commands || [];
   } catch (error) {
-    console.error(`[Conversation] Failed to load agent commands for ${conversationId}:`, error)
-    return []
+    console.error(`[Conversation] Failed to load agent commands for ${conversationId}:`, error);
+    return [];
   }
 }
 
 /**
  * Clear agent commands for a conversation
  */
-export function clearAgentCommands(
-  spaceId: string,
-  conversationId: string
-): void {
-  const conversationsDir = getConversationsDir(spaceId)
-  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId)
+export function clearAgentCommands(spaceId: string, conversationId: string): void {
+  const conversationsDir = getConversationsDir(spaceId);
+  const filePath = getAgentCommandsFilePath(conversationsDir, conversationId);
 
   if (existsSync(filePath)) {
     try {
-      rmSync(filePath)
+      rmSync(filePath);
     } catch (error) {
-      console.error(`[Conversation] Failed to clear agent commands for ${conversationId}:`, error)
+      console.error(`[Conversation] Failed to clear agent commands for ${conversationId}:`, error);
     }
   }
 }

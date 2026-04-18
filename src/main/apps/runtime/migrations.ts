@@ -5,9 +5,9 @@
  * Uses the same migration pattern as platform/store and apps/manager.
  */
 
-import type { Migration } from '../../platform/store'
+import type { Migration } from '../../platform/store';
 
-export const MIGRATION_NAMESPACE = 'app_runtime'
+export const MIGRATION_NAMESPACE = 'app_runtime';
 
 export const migrations: Migration[] = [
   {
@@ -44,7 +44,7 @@ export const migrations: Migration[] = [
           FOREIGN KEY (run_id) REFERENCES automation_runs(run_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_entries_app ON activity_entries(app_id, ts DESC);
-      `)
+      `);
     },
   },
   {
@@ -54,7 +54,7 @@ export const migrations: Migration[] = [
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_entries_run ON activity_entries(run_id);
         CREATE INDEX IF NOT EXISTS idx_runs_status ON automation_runs(status);
-      `)
+      `);
     },
   },
-]
+];

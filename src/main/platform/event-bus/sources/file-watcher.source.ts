@@ -20,9 +20,9 @@
  * - stop(): unregisters this specific callback via the returned unsubscribe fn
  */
 
-import { extname } from 'path'
-import type { EventSourceAdapter, EventEmitFn } from '../types'
-import type { ProcessedFsEvent } from '../../../../shared/protocol/file-watcher.protocol'
+import { extname } from 'path';
+import type { EventSourceAdapter, EventEmitFn } from '../types';
+import type { ProcessedFsEvent } from '../../../../shared/protocol/file-watcher.protocol';
 
 // ---------------------------------------------------------------------------
 // Change type mapping
@@ -38,13 +38,13 @@ function mapChangeType(changeType: string): string {
   switch (changeType) {
     case 'add':
     case 'addDir':
-      return 'file.created'
+      return 'file.created';
     case 'change':
-      return 'file.changed'
+      return 'file.changed';
     case 'unlink':
-      return 'file.deleted'
+      return 'file.deleted';
     default:
-      return 'file.changed'
+      return 'file.changed';
   }
 }
 
@@ -60,9 +60,7 @@ function mapChangeType(changeType: string): string {
  * Returns an unsubscribe function so each subscriber can cleanly deregister.
  */
 export interface WatcherHostLike {
-  addFsEventsHandler(
-    cb: (spaceId: string, events: ProcessedFsEvent[]) => void
-  ): () => void
+  addFsEventsHandler(cb: (spaceId: string, events: ProcessedFsEvent[]) => void): () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,27 +68,25 @@ export interface WatcherHostLike {
 // ---------------------------------------------------------------------------
 
 export class FileWatcherSource implements EventSourceAdapter {
-  readonly id = 'file-watcher'
-  readonly type = 'file-watcher' as const
+  readonly id = 'file-watcher';
+  readonly type = 'file-watcher' as const;
 
-  private emitFn: EventEmitFn | null = null
-  private watcherHost: WatcherHostLike
-  private unsubscribe: (() => void) | null = null
+  private emitFn: EventEmitFn | null = null;
+  private watcherHost: WatcherHostLike;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(watcherHost: WatcherHostLike) {
-    this.watcherHost = watcherHost
+    this.watcherHost = watcherHost;
   }
 
   start(emit: EventEmitFn): void {
-    this.emitFn = emit
+    this.emitFn = emit;
 
     this.unsubscribe = this.watcherHost.addFsEventsHandler((spaceId, events) => {
-      if (!this.emitFn) return
+      if (!this.emitFn) return;
 
       for (const fsEvent of events) {
-        const ext = fsEvent.relativePath
-          ? extname(fsEvent.relativePath).toLowerCase()
-          : ''
+        const ext = fsEvent.relativePath ? extname(fsEvent.relativePath).toLowerCase() : '';
 
         this.emitFn({
           type: mapChangeType(fsEvent.changeType),
@@ -105,29 +101,29 @@ export class FileWatcherSource implements EventSourceAdapter {
             isDirectory: fsEvent.changeType === 'addDir',
             // Include artifact data if available (for tree updates)
             ...(fsEvent.artifact ? { artifact: fsEvent.artifact } : {}),
-            ...(fsEvent.treeNode ? { treeNode: fsEvent.treeNode } : {})
+            ...(fsEvent.treeNode ? { treeNode: fsEvent.treeNode } : {}),
           },
-          dedupKey: `fw:${fsEvent.changeType}:${fsEvent.filePath}`
-        })
+          dedupKey: `fw:${fsEvent.changeType}:${fsEvent.filePath}`,
+        });
       }
-    })
+    });
 
-    console.log('[FileWatcherSource] Started -- listening to watcher-host events')
+    console.log('[FileWatcherSource] Started -- listening to watcher-host events');
   }
 
   stop(): void {
-    this.emitFn = null
+    this.emitFn = null;
 
     // Deregister only this handler, leaving artifact-cache's handler intact
     if (this.unsubscribe) {
       try {
-        this.unsubscribe()
+        this.unsubscribe();
       } catch {
         // Ignore -- watcher-host may already be shut down
       }
-      this.unsubscribe = null
+      this.unsubscribe = null;
     }
 
-    console.log('[FileWatcherSource] Stopped')
+    console.log('[FileWatcherSource] Stopped');
   }
 }

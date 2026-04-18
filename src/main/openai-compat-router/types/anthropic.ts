@@ -8,73 +8,73 @@
 // ============================================================================
 
 export interface AnthropicCacheControl {
-  type: 'ephemeral'
+  type: 'ephemeral';
 }
 
 export interface AnthropicTextBlock {
-  type: 'text'
-  text: string
-  cache_control?: AnthropicCacheControl
+  type: 'text';
+  text: string;
+  cache_control?: AnthropicCacheControl;
 }
 
 export interface AnthropicBase64ImageSource {
-  type: 'base64'
-  media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-  data: string
+  type: 'base64';
+  media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  data: string;
 }
 
 export interface AnthropicURLImageSource {
-  type: 'url'
-  url: string
+  type: 'url';
+  url: string;
 }
 
-export type AnthropicImageSource = AnthropicBase64ImageSource | AnthropicURLImageSource
+export type AnthropicImageSource = AnthropicBase64ImageSource | AnthropicURLImageSource;
 
 export interface AnthropicImageBlock {
-  type: 'image'
-  source: AnthropicImageSource
-  cache_control?: AnthropicCacheControl
+  type: 'image';
+  source: AnthropicImageSource;
+  cache_control?: AnthropicCacheControl;
 }
 
 export interface AnthropicToolUseBlock {
-  type: 'tool_use'
-  id: string
-  name: string
-  input: Record<string, unknown>
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
 }
 
 export interface AnthropicToolResultBlock {
-  type: 'tool_result'
-  tool_use_id: string
-  content: string | AnthropicContentBlock[]
-  is_error?: boolean
-  cache_control?: AnthropicCacheControl
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string | AnthropicContentBlock[];
+  is_error?: boolean;
+  cache_control?: AnthropicCacheControl;
 }
 
 export interface AnthropicThinkingBlock {
-  type: 'thinking'
-  thinking: string
-  signature?: string
+  type: 'thinking';
+  thinking: string;
+  signature?: string;
 }
 
 // Server-side tool blocks (for web search, etc.)
 export interface AnthropicServerToolUseBlock {
-  type: 'server_tool_use'
-  id: string
-  name: string
-  input: Record<string, unknown>
+  type: 'server_tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
 }
 
 export interface AnthropicWebSearchResult {
-  type: 'web_search_result'
-  url?: string
-  title?: string
+  type: 'web_search_result';
+  url?: string;
+  title?: string;
 }
 
 export interface AnthropicWebSearchToolResultBlock {
-  type: 'web_search_tool_result'
-  tool_use_id: string
-  content: AnthropicWebSearchResult[]
+  type: 'web_search_tool_result';
+  tool_use_id: string;
+  content: AnthropicWebSearchResult[];
 }
 
 export type AnthropicContentBlock =
@@ -84,23 +84,23 @@ export type AnthropicContentBlock =
   | AnthropicToolResultBlock
   | AnthropicThinkingBlock
   | AnthropicServerToolUseBlock
-  | AnthropicWebSearchToolResultBlock
+  | AnthropicWebSearchToolResultBlock;
 
 // ============================================================================
 // Message Types
 // ============================================================================
 
-export type AnthropicRole = 'user' | 'assistant'
+export type AnthropicRole = 'user' | 'assistant';
 
 export interface AnthropicMessage {
-  role: AnthropicRole
-  content: string | AnthropicContentBlock[]
+  role: AnthropicRole;
+  content: string | AnthropicContentBlock[];
 }
 
 export interface AnthropicSystemBlock {
-  type: 'text'
-  text: string
-  cache_control?: AnthropicCacheControl
+  type: 'text';
+  text: string;
+  cache_control?: AnthropicCacheControl;
 }
 
 // ============================================================================
@@ -108,38 +108,38 @@ export interface AnthropicSystemBlock {
 // ============================================================================
 
 export interface AnthropicToolInputSchema {
-  type: 'object'
-  properties: Record<string, AnthropicJSONSchemaProperty>
-  required?: string[]
+  type: 'object';
+  properties: Record<string, AnthropicJSONSchemaProperty>;
+  required?: string[];
 }
 
 export interface AnthropicJSONSchemaProperty {
-  type: string
-  description?: string
-  enum?: unknown[]
-  items?: AnthropicJSONSchemaProperty
-  properties?: Record<string, AnthropicJSONSchemaProperty>
-  required?: string[]
-  [key: string]: unknown
+  type: string;
+  description?: string;
+  enum?: unknown[];
+  items?: AnthropicJSONSchemaProperty;
+  properties?: Record<string, AnthropicJSONSchemaProperty>;
+  required?: string[];
+  [key: string]: unknown;
 }
 
 export interface AnthropicTool {
-  name: string
-  description?: string
-  input_schema: AnthropicToolInputSchema
-  strict?: boolean
-  cache_control?: AnthropicCacheControl
+  name: string;
+  description?: string;
+  input_schema: AnthropicToolInputSchema;
+  strict?: boolean;
+  cache_control?: AnthropicCacheControl;
 }
 
-export type AnthropicToolChoiceAuto = { type: 'auto' }
-export type AnthropicToolChoiceAny = { type: 'any' }
-export type AnthropicToolChoiceTool = { type: 'tool'; name: string }
-export type AnthropicToolChoiceNone = { type: 'none' }
+export type AnthropicToolChoiceAuto = { type: 'auto' };
+export type AnthropicToolChoiceAny = { type: 'any' };
+export type AnthropicToolChoiceTool = { type: 'tool'; name: string };
+export type AnthropicToolChoiceNone = { type: 'none' };
 
 export interface AnthropicToolChoiceWithOptions {
-  type: 'auto' | 'any' | 'tool'
-  name?: string
-  disable_parallel_tool_use?: boolean
+  type: 'auto' | 'any' | 'tool';
+  name?: string;
+  disable_parallel_tool_use?: boolean;
 }
 
 export type AnthropicToolChoice =
@@ -147,39 +147,39 @@ export type AnthropicToolChoice =
   | AnthropicToolChoiceAny
   | AnthropicToolChoiceTool
   | AnthropicToolChoiceNone
-  | AnthropicToolChoiceWithOptions
+  | AnthropicToolChoiceWithOptions;
 
 // ============================================================================
 // Request Types
 // ============================================================================
 
 export interface AnthropicThinkingConfig {
-  type: 'enabled' | 'disabled'
-  budget_tokens?: number
+  type: 'enabled' | 'disabled';
+  budget_tokens?: number;
 }
 
 export interface AnthropicRequestMetadata {
-  user_id?: string
-  [key: string]: unknown
+  user_id?: string;
+  [key: string]: unknown;
 }
 
 export interface AnthropicRequest {
   // Required
-  model: string
-  max_tokens: number
-  messages: AnthropicMessage[]
+  model: string;
+  max_tokens: number;
+  messages: AnthropicMessage[];
 
   // Optional
-  system?: string | AnthropicSystemBlock[]
-  temperature?: number
-  top_p?: number
-  top_k?: number
-  stop_sequences?: string[]
-  stream?: boolean
-  tools?: AnthropicTool[]
-  tool_choice?: AnthropicToolChoice
-  metadata?: AnthropicRequestMetadata
-  thinking?: AnthropicThinkingConfig
+  system?: string | AnthropicSystemBlock[];
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  stop_sequences?: string[];
+  stream?: boolean;
+  tools?: AnthropicTool[];
+  tool_choice?: AnthropicToolChoice;
+  metadata?: AnthropicRequestMetadata;
+  thinking?: AnthropicThinkingConfig;
 }
 
 // ============================================================================
@@ -192,24 +192,24 @@ export type AnthropicStopReason =
   | 'stop_sequence'
   | 'tool_use'
   | 'pause_turn'
-  | 'refusal'
+  | 'refusal';
 
 export interface AnthropicUsage {
-  input_tokens: number
-  output_tokens: number
-  cache_creation_input_tokens?: number
-  cache_read_input_tokens?: number
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 export interface AnthropicMessageResponse {
-  id: string
-  type: 'message'
-  role: 'assistant'
-  content: AnthropicContentBlock[]
-  model: string
-  stop_reason: AnthropicStopReason
-  stop_sequence: string | null
-  usage: AnthropicUsage
+  id: string;
+  type: 'message';
+  role: 'assistant';
+  content: AnthropicContentBlock[];
+  model: string;
+  stop_reason: AnthropicStopReason;
+  stop_sequence: string | null;
+  usage: AnthropicUsage;
 }
 
 // ============================================================================
@@ -217,94 +217,94 @@ export interface AnthropicMessageResponse {
 // ============================================================================
 
 export interface AnthropicMessageStartEvent {
-  type: 'message_start'
+  type: 'message_start';
   message: {
-    id: string
-    type: 'message'
-    role: 'assistant'
-    content: []
-    model: string
-    stop_reason: null
-    stop_sequence: null
+    id: string;
+    type: 'message';
+    role: 'assistant';
+    content: [];
+    model: string;
+    stop_reason: null;
+    stop_sequence: null;
     usage: {
-      input_tokens: number
-      output_tokens: number
-    }
-  }
+      input_tokens: number;
+      output_tokens: number;
+    };
+  };
 }
 
 export interface AnthropicContentBlockStartEvent {
-  type: 'content_block_start'
-  index: number
+  type: 'content_block_start';
+  index: number;
   content_block:
     | { type: 'text'; text: string }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, never> }
     | { type: 'thinking'; thinking: string }
-    | { type: 'web_search_tool_result'; tool_use_id: string; content: AnthropicWebSearchResult[] }
+    | { type: 'web_search_tool_result'; tool_use_id: string; content: AnthropicWebSearchResult[] };
 }
 
 export interface AnthropicTextDelta {
-  type: 'text_delta'
-  text: string
+  type: 'text_delta';
+  text: string;
 }
 
 export interface AnthropicInputJsonDelta {
-  type: 'input_json_delta'
-  partial_json: string
+  type: 'input_json_delta';
+  partial_json: string;
 }
 
 export interface AnthropicThinkingDelta {
-  type: 'thinking_delta'
-  thinking: string
+  type: 'thinking_delta';
+  thinking: string;
 }
 
 export interface AnthropicSignatureDelta {
-  type: 'signature_delta'
-  signature: string
+  type: 'signature_delta';
+  signature: string;
 }
 
 export type AnthropicContentBlockDelta =
   | AnthropicTextDelta
   | AnthropicInputJsonDelta
   | AnthropicThinkingDelta
-  | AnthropicSignatureDelta
+  | AnthropicSignatureDelta;
 
 export interface AnthropicContentBlockDeltaEvent {
-  type: 'content_block_delta'
-  index: number
-  delta: AnthropicContentBlockDelta
+  type: 'content_block_delta';
+  index: number;
+  delta: AnthropicContentBlockDelta;
 }
 
 export interface AnthropicContentBlockStopEvent {
-  type: 'content_block_stop'
-  index: number
+  type: 'content_block_stop';
+  index: number;
 }
 
 export interface AnthropicMessageDeltaEvent {
-  type: 'message_delta'
+  type: 'message_delta';
   delta: {
-    stop_reason: AnthropicStopReason
-    stop_sequence?: string | null
-  }
+    stop_reason: AnthropicStopReason;
+    stop_sequence?: string | null;
+  };
   usage: {
-    output_tokens: number
-  }
+    output_tokens: number;
+  };
 }
 
 export interface AnthropicMessageStopEvent {
-  type: 'message_stop'
+  type: 'message_stop';
 }
 
 export interface AnthropicPingEvent {
-  type: 'ping'
+  type: 'ping';
 }
 
 export interface AnthropicErrorEvent {
-  type: 'error'
+  type: 'error';
   error: {
-    type: string
-    message: string
-  }
+    type: string;
+    message: string;
+  };
 }
 
 export type AnthropicStreamEvent =
@@ -315,7 +315,7 @@ export type AnthropicStreamEvent =
   | AnthropicMessageDeltaEvent
   | AnthropicMessageStopEvent
   | AnthropicPingEvent
-  | AnthropicErrorEvent
+  | AnthropicErrorEvent;
 
 // ============================================================================
 // Error Types
@@ -331,14 +331,14 @@ export type AnthropicErrorType =
   | 'api_error'
   | 'overloaded_error'
   | 'timeout_error'
-  | 'internal_error'
+  | 'internal_error';
 
 export interface AnthropicErrorResponse {
-  type: 'error'
+  type: 'error';
   error: {
-    type: AnthropicErrorType
-    message: string
-  }
+    type: AnthropicErrorType;
+    message: string;
+  };
 }
 
 // ============================================================================
@@ -346,29 +346,31 @@ export interface AnthropicErrorResponse {
 // ============================================================================
 
 export function isTextBlock(block: AnthropicContentBlock): block is AnthropicTextBlock {
-  return block.type === 'text'
+  return block.type === 'text';
 }
 
 export function isImageBlock(block: AnthropicContentBlock): block is AnthropicImageBlock {
-  return block.type === 'image'
+  return block.type === 'image';
 }
 
 export function isToolUseBlock(block: AnthropicContentBlock): block is AnthropicToolUseBlock {
-  return block.type === 'tool_use'
+  return block.type === 'tool_use';
 }
 
 export function isToolResultBlock(block: AnthropicContentBlock): block is AnthropicToolResultBlock {
-  return block.type === 'tool_result'
+  return block.type === 'tool_result';
 }
 
 export function isThinkingBlock(block: AnthropicContentBlock): block is AnthropicThinkingBlock {
-  return block.type === 'thinking'
+  return block.type === 'thinking';
 }
 
-export function isBase64ImageSource(source: AnthropicImageSource): source is AnthropicBase64ImageSource {
-  return source.type === 'base64'
+export function isBase64ImageSource(
+  source: AnthropicImageSource,
+): source is AnthropicBase64ImageSource {
+  return source.type === 'base64';
 }
 
 export function isURLImageSource(source: AnthropicImageSource): source is AnthropicURLImageSource {
-  return source.type === 'url'
+  return source.type === 'url';
 }

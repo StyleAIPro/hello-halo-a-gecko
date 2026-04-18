@@ -11,8 +11,8 @@
  * 3. Swap in highlighted HTML when ready
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { highlightCode } from '../lib/highlight-loader'
+import { useState, useEffect, useRef } from 'react';
+import { highlightCode } from '../lib/highlight-loader';
 
 // Simple HTML escape for plain text fallback
 function escapeHtml(text: string): string {
@@ -21,7 +21,7 @@ function escapeHtml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+    .replace(/'/g, '&#039;');
 }
 
 /**
@@ -30,49 +30,49 @@ function escapeHtml(text: string): string {
  * syntax-highlighted HTML once highlight.js finishes.
  */
 export function useAsyncHighlight(code: string, language?: string): string {
-  const [html, setHtml] = useState(() => escapeHtml(code))
-  const rafRef = useRef<number>(0)
-  const currentKeyRef = useRef('')
+  const [html, setHtml] = useState(() => escapeHtml(code));
+  const rafRef = useRef<number>(0);
+  const currentKeyRef = useRef('');
 
   useEffect(() => {
     if (!code) {
-      setHtml('')
-      return
+      setHtml('');
+      return;
     }
 
     // Dedupe: skip if inputs haven't actually changed
-    const key = `${language}:${code}`
-    if (key === currentKeyRef.current) return
-    currentKeyRef.current = key
+    const key = `${language}:${code}`;
+    if (key === currentKeyRef.current) return;
+    currentKeyRef.current = key;
 
     // Immediately show plain text (no jank)
-    setHtml(escapeHtml(code))
+    setHtml(escapeHtml(code));
 
     // Cancel any pending highlight from previous render
     if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
+      cancelAnimationFrame(rafRef.current);
     }
 
     // Guard against setState after unmount (RAF fires but Promise resolves post-cleanup)
-    let cancelled = false
+    let cancelled = false;
 
     // Schedule async highlight — yields to browser for paint first
     rafRef.current = requestAnimationFrame(() => {
       highlightCode(code, language).then((highlighted) => {
         // Only apply if this is still the current request and not cancelled
         if (!cancelled && currentKeyRef.current === key) {
-          setHtml(highlighted)
+          setHtml(highlighted);
         }
-      })
-    })
+      });
+    });
 
     return () => {
-      cancelled = true
+      cancelled = true;
       if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
+        cancelAnimationFrame(rafRef.current);
       }
-    }
-  }, [code, language])
+    };
+  }, [code, language]);
 
-  return html
+  return html;
 }

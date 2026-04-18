@@ -26,3 +26,4 @@
 | 日期 | 内容 | 指令人 |
 |------|------|--------|
 | 2026-04-16 | 初始 Bug 修复 PRD | @moonseeker1 |
+| 2026-04-16 | 修复被 linter CRLF 重写回退的问题，同时修复 onToggle 中 `!` 断言改为直接复用 selectedSkill 对象；补充 `Selected skill not found` i18n key（中/英） | @claude |

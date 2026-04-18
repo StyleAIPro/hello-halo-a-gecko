@@ -11,37 +11,37 @@
  * to ensure consistency across different clients (app, web remote).
  */
 
-import { create } from 'zustand'
-import { api } from '../api'
+import { create } from 'zustand';
+import { api } from '../api';
 
-export type OnboardingStep = 'default-space' | 'send-message' | 'view-artifact' | 'completed'
+export type OnboardingStep = 'default-space' | 'send-message' | 'view-artifact' | 'completed';
 
 interface OnboardingState {
   // Whether onboarding is currently active
-  isActive: boolean
+  isActive: boolean;
 
   // Current step in the onboarding flow
-  currentStep: OnboardingStep
+  currentStep: OnboardingStep;
 
   // Whether user has ever completed onboarding (persisted to backend config)
-  hasCompleted: boolean
+  hasCompleted: boolean;
 
   // Whether mock AI response animation is playing
-  isMockAnimating: boolean
+  isMockAnimating: boolean;
 
   // Whether AI is "thinking" (shows thinking animation, hides spotlight)
-  isMockThinking: boolean
+  isMockThinking: boolean;
 
   // Actions
-  startOnboarding: () => void
-  nextStep: () => void
-  skipOnboarding: () => void
-  completeOnboarding: () => void
-  setMockAnimating: (animating: boolean) => void
-  setMockThinking: (thinking: boolean) => void
+  startOnboarding: () => void;
+  nextStep: () => void;
+  skipOnboarding: () => void;
+  completeOnboarding: () => void;
+  setMockAnimating: (animating: boolean) => void;
+  setMockThinking: (thinking: boolean) => void;
 
   // Initialize from backend config
-  initialize: () => Promise<void>
+  initialize: () => Promise<void>;
 }
 
 export const useOnboardingStore = create<OnboardingState>((set, get) => ({
@@ -54,58 +54,63 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
   initialize: async () => {
     try {
       // Load onboarding state from backend config
-      const response = await api.getConfig()
+      const response = await api.getConfig();
       if (response.success && response.data) {
-        const config = response.data as { onboarding?: { completed?: boolean } }
-        const completed = config.onboarding?.completed === true
-        set({ hasCompleted: completed })
+        const config = response.data as { onboarding?: { completed?: boolean } };
+        const completed = config.onboarding?.completed === true;
+        set({ hasCompleted: completed });
         // Note: Don't auto-start onboarding here. HomePage will call startOnboarding
         // when user navigates there, so the spotlight targets the correct elements.
       }
     } catch (error) {
-      console.error('[Onboarding] Failed to load state from config:', error)
+      console.error('[Onboarding] Failed to load state from config:', error);
       // Don't auto-start on error either
     }
   },
 
   startOnboarding: () => {
-    set({ isActive: true, currentStep: 'default-space' })
+    set({ isActive: true, currentStep: 'default-space' });
   },
 
   nextStep: () => {
-    const { currentStep } = get()
+    const { currentStep } = get();
 
-    const stepOrder: OnboardingStep[] = ['default-space', 'send-message', 'view-artifact', 'completed']
-    const currentIndex = stepOrder.indexOf(currentStep)
+    const stepOrder: OnboardingStep[] = [
+      'default-space',
+      'send-message',
+      'view-artifact',
+      'completed',
+    ];
+    const currentIndex = stepOrder.indexOf(currentStep);
 
     if (currentIndex < stepOrder.length - 1) {
-      const nextStep = stepOrder[currentIndex + 1]
-      set({ currentStep: nextStep })
+      const nextStep = stepOrder[currentIndex + 1];
+      set({ currentStep: nextStep });
 
       // If reached completed, finish onboarding
       if (nextStep === 'completed') {
-        get().completeOnboarding()
+        get().completeOnboarding();
       }
     }
   },
 
   skipOnboarding: () => {
-    set({ isActive: false, currentStep: 'completed', hasCompleted: true })
+    set({ isActive: false, currentStep: 'completed', hasCompleted: true });
     // Persist to backend config
-    api.setConfig({ onboarding: { completed: true } }).catch(console.error)
+    api.setConfig({ onboarding: { completed: true } }).catch(console.error);
   },
 
   completeOnboarding: () => {
-    set({ isActive: false, currentStep: 'completed', hasCompleted: true })
+    set({ isActive: false, currentStep: 'completed', hasCompleted: true });
     // Persist to backend config
-    api.setConfig({ onboarding: { completed: true } }).catch(console.error)
+    api.setConfig({ onboarding: { completed: true } }).catch(console.error);
   },
 
   setMockAnimating: (animating: boolean) => {
-    set({ isMockAnimating: animating })
+    set({ isMockAnimating: animating });
   },
 
   setMockThinking: (thinking: boolean) => {
-    set({ isMockThinking: thinking })
+    set({ isMockThinking: thinking });
   },
-}))
+}));

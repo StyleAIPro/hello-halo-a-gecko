@@ -5,23 +5,23 @@
  * This is the primary monitoring mechanism - polling is just a fallback.
  */
 
-import type { HealthEvent, HealthEventType, HealthEventCategory } from '../types'
+import type { HealthEvent, HealthEventType, HealthEventCategory } from '../types';
 
 // Callback type for health events
-type HealthEventHandler = (event: HealthEvent) => void
+type HealthEventHandler = (event: HealthEvent) => void;
 
 // Registered event handlers
-const eventHandlers: HealthEventHandler[] = []
+const eventHandlers: HealthEventHandler[] = [];
 
 // Recent events buffer (for diagnostics)
-const MAX_RECENT_EVENTS = 50
-const recentEvents: HealthEvent[] = []
+const MAX_RECENT_EVENTS = 50;
+const recentEvents: HealthEvent[] = [];
 
 // Error counters for escalation
-const errorCounters = new Map<string, { count: number; lastTime: number }>()
+const errorCounters = new Map<string, { count: number; lastTime: number }>();
 
 // Counter reset interval (1 minute)
-const COUNTER_RESET_MS = 60_000
+const COUNTER_RESET_MS = 60_000;
 
 /**
  * Register a health event handler
@@ -30,22 +30,22 @@ const COUNTER_RESET_MS = 60_000
  * @returns Unsubscribe function
  */
 export function onHealthEvent(handler: HealthEventHandler): () => void {
-  eventHandlers.push(handler)
+  eventHandlers.push(handler);
 
   return () => {
-    const index = eventHandlers.indexOf(handler)
+    const index = eventHandlers.indexOf(handler);
     if (index > -1) {
-      eventHandlers.splice(index, 1)
+      eventHandlers.splice(index, 1);
     }
-  }
+  };
 }
 
 export interface EmitHealthEventOptions {
-  type: HealthEventType
-  category: HealthEventCategory
-  source: string
-  message: string
-  data?: Record<string, unknown>
+  type: HealthEventType;
+  category: HealthEventCategory;
+  source: string;
+  message: string;
+  data?: Record<string, unknown>;
 }
 
 /**
@@ -58,25 +58,28 @@ export function emitHealthEvent(options: EmitHealthEventOptions): void {
     timestamp: Date.now(),
     source: options.source,
     message: options.message,
-    data: options.data
-  }
+    data: options.data,
+  };
 
   // Add to recent events buffer
-  recentEvents.unshift(event)
+  recentEvents.unshift(event);
   if (recentEvents.length > MAX_RECENT_EVENTS) {
-    recentEvents.pop()
+    recentEvents.pop();
   }
 
   // Log the event
-  const icon = options.category === 'critical' ? '🔴' : options.category === 'warning' ? '🟡' : '🔵'
-  console.log(`[Health][Event] ${icon} ${options.type}: ${options.message} (source: ${options.source})`)
+  const icon =
+    options.category === 'critical' ? '🔴' : options.category === 'warning' ? '🟡' : '🔵';
+  console.log(
+    `[Health][Event] ${icon} ${options.type}: ${options.message} (source: ${options.source})`,
+  );
 
   // Notify all handlers
   for (const handler of eventHandlers) {
     try {
-      handler(event)
+      handler(event);
     } catch (error) {
-      console.error('[Health][Event] Handler error:', error)
+      console.error('[Health][Event] Handler error:', error);
     }
   }
 }
@@ -88,22 +91,22 @@ export function emitHealthEvent(options: EmitHealthEventOptions): void {
  * @returns Current consecutive error count
  */
 export function trackError(source: string): number {
-  const now = Date.now()
-  const counter = errorCounters.get(source)
+  const now = Date.now();
+  const counter = errorCounters.get(source);
 
   if (counter) {
     // Reset counter if too much time has passed
     if (now - counter.lastTime > COUNTER_RESET_MS) {
-      counter.count = 1
-      counter.lastTime = now
+      counter.count = 1;
+      counter.lastTime = now;
     } else {
-      counter.count++
-      counter.lastTime = now
+      counter.count++;
+      counter.lastTime = now;
     }
-    return counter.count
+    return counter.count;
   } else {
-    errorCounters.set(source, { count: 1, lastTime: now })
-    return 1
+    errorCounters.set(source, { count: 1, lastTime: now });
+    return 1;
   }
 }
 
@@ -111,15 +114,15 @@ export function trackError(source: string): number {
  * Reset error counter for a source
  */
 export function resetErrorCounter(source: string): void {
-  errorCounters.delete(source)
+  errorCounters.delete(source);
 }
 
 /**
  * Get error count for a source
  */
 export function getErrorCount(source: string): number {
-  const counter = errorCounters.get(source)
-  return counter?.count ?? 0
+  const counter = errorCounters.get(source);
+  return counter?.count ?? 0;
 }
 
 /**
@@ -127,25 +130,25 @@ export function getErrorCount(source: string): number {
  * Used by passive polling to check overall health
  */
 export function getTotalErrorCount(): number {
-  let total = 0
+  let total = 0;
   for (const counter of errorCounters.values()) {
-    total += counter.count
+    total += counter.count;
   }
-  return total
+  return total;
 }
 
 /**
  * Get recent health events
  */
 export function getRecentEvents(): HealthEvent[] {
-  return [...recentEvents]
+  return [...recentEvents];
 }
 
 /**
  * Clear recent events
  */
 export function clearRecentEvents(): void {
-  recentEvents.length = 0
+  recentEvents.length = 0;
 }
 
 // ============================================
@@ -161,16 +164,16 @@ export function clearRecentEvents(): void {
 export function emitAgentError(
   conversationId: string,
   error: string,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
 ): void {
-  const count = trackError(`agent:${conversationId}`)
+  const count = trackError(`agent:${conversationId}`);
   emitHealthEvent({
     type: 'agent_error',
     category: count >= 3 ? 'critical' : 'warning',
-    source: `agent:${conversationId}`,  // Include 'agent' prefix for S2 strategy matching
+    source: `agent:${conversationId}`, // Include 'agent' prefix for S2 strategy matching
     message: error,
-    data: { ...data, consecutiveErrors: count, conversationId }
-  })
+    data: { ...data, consecutiveErrors: count, conversationId },
+  });
 }
 
 /**
@@ -179,15 +182,15 @@ export function emitAgentError(
 export function emitProcessExit(
   processId: string,
   exitCode: number | null,
-  signal: string | null
+  signal: string | null,
 ): void {
   emitHealthEvent({
     type: 'process_exit',
     category: 'critical',
     source: processId,
     message: `Process exited with code ${exitCode}, signal ${signal}`,
-    data: { exitCode, signal }
-  })
+    data: { exitCode, signal },
+  });
 }
 
 /**
@@ -199,8 +202,8 @@ export function emitRendererCrash(reason: string): void {
     category: 'critical',
     source: 'renderer',
     message: `Renderer crashed: ${reason}`,
-    data: { reason }
-  })
+    data: { reason },
+  });
 }
 
 /**
@@ -211,28 +214,24 @@ export function emitRendererUnresponsive(): void {
     type: 'renderer_unresponsive',
     category: 'warning',
     source: 'renderer',
-    message: 'Renderer became unresponsive'
-  })
+    message: 'Renderer became unresponsive',
+  });
 }
 
 /**
  * Emit network error event
  */
-export function emitNetworkError(
-  source: string,
-  status: number,
-  message: string
-): void {
-  const count = trackError(`network:${source}`)
-  const isCritical = status >= 500 || message.includes('ECONNREFUSED')
+export function emitNetworkError(source: string, status: number, message: string): void {
+  const count = trackError(`network:${source}`);
+  const isCritical = status >= 500 || message.includes('ECONNREFUSED');
 
   emitHealthEvent({
     type: 'network_error',
     category: isCritical ? 'critical' : 'warning',
     source: source,
     message: `Network error: ${status} - ${message}`,
-    data: { status, consecutiveErrors: count }
-  })
+    data: { status, consecutiveErrors: count },
+  });
 }
 
 /**
@@ -244,40 +243,34 @@ export function emitConfigChange(changedFields: string[]): void {
     category: 'info',
     source: 'config',
     message: `Config changed: ${changedFields.join(', ')}`,
-    data: { changedFields }
-  })
+    data: { changedFields },
+  });
 }
 
 /**
  * Emit recovery success event
  */
-export function emitRecoverySuccess(
-  strategyId: string,
-  message: string
-): void {
+export function emitRecoverySuccess(strategyId: string, message: string): void {
   emitHealthEvent({
     type: 'recovery_success',
     category: 'info',
     source: strategyId,
-    message: message
-  })
+    message: message,
+  });
 
   // Reset error counters on successful recovery
-  errorCounters.clear()
+  errorCounters.clear();
 }
 
 /**
  * Emit startup check event
  */
-export function emitStartupCheck(
-  status: string,
-  duration: number
-): void {
+export function emitStartupCheck(status: string, duration: number): void {
   emitHealthEvent({
     type: 'startup_check',
     category: status === 'healthy' ? 'info' : 'warning',
     source: 'startup',
     message: `Startup checks completed: ${status} (${duration}ms)`,
-    data: { duration }
-  })
+    data: { duration },
+  });
 }

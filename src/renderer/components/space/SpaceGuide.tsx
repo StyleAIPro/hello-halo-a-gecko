@@ -9,41 +9,35 @@
  * - Cross-platform & theme-aware
  */
 
-import { useState, useEffect } from 'react'
-import {
-  ChevronDown,
-  Zap,
-  Folder,
-  HelpCircle,
-  AlertTriangle
-} from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { useState, useEffect } from 'react';
+import { ChevronDown, Zap, Folder, HelpCircle, AlertTriangle } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 // localStorage key for guide state
-const GUIDE_STATE_KEY = 'aico-bot-space-guide-expanded'
+const GUIDE_STATE_KEY = 'aico-bot-space-guide-expanded';
 
 export function SpaceGuide() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Read initial state from localStorage, default to collapsed
   const [isExpanded, setIsExpanded] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(GUIDE_STATE_KEY)
+      const saved = localStorage.getItem(GUIDE_STATE_KEY);
       // Default to collapsed (false) for returning users
       // First time users will see collapsed, can expand if curious
-      return saved === 'true'
+      return saved === 'true';
     }
-    return false
-  })
+    return false;
+  });
 
   // Persist state to localStorage
   useEffect(() => {
-    localStorage.setItem(GUIDE_STATE_KEY, String(isExpanded))
-  }, [isExpanded])
+    localStorage.setItem(GUIDE_STATE_KEY, String(isExpanded));
+  }, [isExpanded]);
 
   const toggleExpand = () => {
-    setIsExpanded(!isExpanded)
-  }
+    setIsExpanded(!isExpanded);
+  };
 
   return (
     <div className="mb-6 animate-fade-in">
@@ -80,7 +74,11 @@ export function SpaceGuide() {
                 <h4 className="text-sm font-medium mb-1 sm:mb-1.5">{t('What can AI do?')}</h4>
                 <div className="text-xs sm:text-sm text-muted-foreground leading-relaxed space-y-0.5 sm:space-y-1">
                   <p>{t('AICO-Bot is not just chat, it can help you do things')}</p>
-                  <p>{t('Use natural language to have it write documents, create spreadsheets, search the web, write code...')}</p>
+                  <p>
+                    {t(
+                      'Use natural language to have it write documents, create spreadsheets, search the web, write code...',
+                    )}
+                  </p>
                   <p>{t('It can create, modify, and delete files')}</p>
                 </div>
               </div>
@@ -94,7 +92,9 @@ export function SpaceGuide() {
               <div className="flex-1 min-w-0">
                 <h4 className="text-sm font-medium mb-1 sm:mb-1.5">{t('What is a space?')}</h4>
                 <div className="text-xs sm:text-sm text-muted-foreground leading-relaxed space-y-0.5 sm:space-y-1">
-                  <p>{t('AI-generated files (we call them "artifacts") need a place to be stored')}</p>
+                  <p>
+                    {t('AI-generated files (we call them "artifacts") need a place to be stored')}
+                  </p>
                   <p>{t('A space is their home, an independent folder')}</p>
                 </div>
               </div>
@@ -106,7 +106,9 @@ export function SpaceGuide() {
                 <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium mb-1 sm:mb-1.5">{t('When do you need to create one?')}</h4>
+                <h4 className="text-sm font-medium mb-1 sm:mb-1.5">
+                  {t('When do you need to create one?')}
+                </h4>
                 <div className="text-xs sm:text-sm text-muted-foreground leading-relaxed space-y-0.5 sm:space-y-1">
                   <p>
                     <span className="text-foreground/80">{t('Casual chat, asking questions')}</span>
@@ -129,7 +131,9 @@ export function SpaceGuide() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-aico-bot-warning flex-shrink-0" />
               <p className="text-xs text-muted-foreground">
-                <span className="text-aico-bot-warning font-medium">{t('AI has delete permissions')}</span>
+                <span className="text-aico-bot-warning font-medium">
+                  {t('AI has delete permissions')}
+                </span>
                 {t(', be mindful of backing up important files')}
               </p>
             </div>
@@ -137,5 +141,5 @@ export function SpaceGuide() {
         </div>
       )}
     </div>
-  )
+  );
 }

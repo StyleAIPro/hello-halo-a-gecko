@@ -2,62 +2,62 @@
  * App Store - Global application state
  */
 
-import { create } from 'zustand'
-import { api } from '../api'
-import type { AicoBotConfig, AppView, McpServerStatus } from '../types'
-import { hasAnyAISource } from '../types'
+import { create } from 'zustand';
+import { api } from '../api';
+import type { AicoBotConfig, AppView, McpServerStatus } from '../types';
+import { hasAnyAISource } from '../types';
 
 // Git Bash installation progress
 interface GitBashInstallProgress {
-  phase: 'idle' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error'
-  progress: number
-  message: string
-  error?: string
+  phase: 'idle' | 'downloading' | 'extracting' | 'configuring' | 'done' | 'error';
+  progress: number;
+  message: string;
+  error?: string;
 }
 
 interface AppState {
   // View state
-  view: AppView
-  previousView: AppView | null  // Track previous view for back navigation
-  isLoading: boolean
-  error: string | null
+  view: AppView;
+  previousView: AppView | null; // Track previous view for back navigation
+  isLoading: boolean;
+  error: string | null;
 
   // Config
-  config: AicoBotConfig | null
+  config: AicoBotConfig | null;
 
   // MCP Status (cached from last conversation)
-  mcpStatus: McpServerStatus[]
-  mcpStatusTimestamp: number | null  // When status was last updated
+  mcpStatus: McpServerStatus[];
+  mcpStatusTimestamp: number | null; // When status was last updated
 
   // Remote server state
-  remoteServerId: string | null  // Current remote server ID for chat view
+  remoteServerId: string | null; // Current remote server ID for chat view
 
   // Git Bash mock mode (Windows only)
-  mockBashMode: boolean
-  gitBashInstallProgress: GitBashInstallProgress
-  gitBashCheckPending: boolean  // True when git-bash check was deferred due to IPC not ready
+  mockBashMode: boolean;
+  gitBashInstallProgress: GitBashInstallProgress;
+  gitBashCheckPending: boolean; // True when git-bash check was deferred due to IPC not ready
 
   // Actions
-  setView: (view: AppView) => void
-  setViewWithServer: (view: AppView, serverId: string) => void  // Set view and remote server ID
-  goBack: () => void  // Navigate back to previous view
-  setLoading: (loading: boolean) => void
-  setError: (error: string | null) => void
-  setConfig: (config: AicoBotConfig) => void
-  updateConfig: (updates: Partial<AicoBotConfig>) => void
-  setMcpStatus: (status: McpServerStatus[], timestamp: number) => void
+  setView: (view: AppView) => void;
+  setViewWithServer: (view: AppView, serverId: string) => void; // Set view and remote server ID
+  goBack: () => void; // Navigate back to previous view
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+  setConfig: (config: AicoBotConfig) => void;
+  updateConfig: (updates: Partial<AicoBotConfig>) => void;
+  setMcpStatus: (status: McpServerStatus[], timestamp: number) => void;
 
   // Remote server actions
-  setRemoteServerId: (serverId: string | null) => void
+  setRemoteServerId: (serverId: string | null) => void;
 
   // Git Bash actions
-  setMockBashMode: (mode: boolean) => void
-  startGitBashInstall: () => Promise<void>
-  refreshGitBashStatus: () => Promise<void>
-  completeDeferredGitBashCheck: () => Promise<void>
+  setMockBashMode: (mode: boolean) => void;
+  startGitBashInstall: () => Promise<void>;
+  refreshGitBashStatus: () => Promise<void>;
+  completeDeferredGitBashCheck: () => Promise<void>;
 
   // Initialization
-  initialize: () => Promise<void>
+  initialize: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -76,29 +76,29 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Actions
   setView: (view) => {
-    const currentView = get().view
+    const currentView = get().view;
     // Save current view as previous (except for splash and setup screens)
     if (currentView !== 'splash' && currentView !== 'setup') {
-      set({ previousView: currentView, view })
+      set({ previousView: currentView, view });
     } else {
-      set({ view })
+      set({ view });
     }
   },
 
   setViewWithServer: (view, serverId) => {
-    const currentView = get().view
+    const currentView = get().view;
     // Save current view as previous (except for splash and setup screens)
     if (currentView !== 'splash' && currentView !== 'setup') {
-      set({ previousView: currentView, view, remoteServerId: serverId })
+      set({ previousView: currentView, view, remoteServerId: serverId });
     } else {
-      set({ view, remoteServerId: serverId })
+      set({ view, remoteServerId: serverId });
     }
   },
 
   goBack: () => {
-    const previousView = get().previousView
+    const previousView = get().previousView;
     // Go back to previous view, or default to home
-    set({ view: previousView || 'home', previousView: null, remoteServerId: null })
+    set({ view: previousView || 'home', previousView: null, remoteServerId: null });
   },
 
   setLoading: (isLoading) => set({ isLoading }),
@@ -106,18 +106,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   setConfig: (config) => set({ config }),
 
   updateConfig: (updates) => {
-    const currentConfig = get().config
+    const currentConfig = get().config;
     if (currentConfig) {
-      set({ config: { ...currentConfig, ...updates } })
+      set({ config: { ...currentConfig, ...updates } });
     }
   },
 
   setMcpStatus: (status, timestamp) => {
-    set({ mcpStatus: status, mcpStatusTimestamp: timestamp })
+    set({ mcpStatus: status, mcpStatusTimestamp: timestamp });
   },
 
   setRemoteServerId: (serverId) => {
-    set({ remoteServerId: serverId })
+    set({ remoteServerId: serverId });
   },
 
   // Git Bash actions
@@ -125,8 +125,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   startGitBashInstall: async () => {
     set({
-      gitBashInstallProgress: { phase: 'downloading', progress: 0, message: 'Preparing download...' }
-    })
+      gitBashInstallProgress: {
+        phase: 'downloading',
+        progress: 0,
+        message: 'Preparing download...',
+      },
+    });
 
     try {
       const result = await api.installGitBash((progressData) => {
@@ -135,26 +139,30 @@ export const useAppStore = create<AppState>((set, get) => ({
             phase: progressData.phase as GitBashInstallProgress['phase'],
             progress: progressData.progress,
             message: progressData.message,
-            error: progressData.error
-          }
-        })
-      })
+            error: progressData.error,
+          },
+        });
+      });
 
       if (result.success) {
         set({
-          gitBashInstallProgress: { phase: 'done', progress: 100, message: 'Installation complete' }
-        })
+          gitBashInstallProgress: {
+            phase: 'done',
+            progress: 100,
+            message: 'Installation complete',
+          },
+        });
         // Refresh status after successful install
-        await get().refreshGitBashStatus()
+        await get().refreshGitBashStatus();
       } else {
         set({
           gitBashInstallProgress: {
             phase: 'error',
             progress: 0,
             message: 'Installation failed',
-            error: result.error || 'Unknown error'
-          }
-        })
+            error: result.error || 'Unknown error',
+          },
+        });
       }
     } catch (e) {
       set({
@@ -162,30 +170,30 @@ export const useAppStore = create<AppState>((set, get) => ({
           phase: 'error',
           progress: 0,
           message: 'Installation failed',
-          error: e instanceof Error ? e.message : String(e)
-        }
-      })
+          error: e instanceof Error ? e.message : String(e),
+        },
+      });
     }
   },
 
   refreshGitBashStatus: async () => {
-    if (!window.platform?.isWindows) return
+    if (!window.platform?.isWindows) return;
 
     try {
-      const status = await api.getGitBashStatus()
+      const status = await api.getGitBashStatus();
       if (status.success && status.data) {
-        const { mockMode } = status.data
-        set({ mockBashMode: !!mockMode })
+        const { mockMode } = status.data;
+        set({ mockBashMode: !!mockMode });
 
         // Reset install progress if no longer in mock mode
         if (!mockMode) {
           set({
-            gitBashInstallProgress: { phase: 'idle', progress: 0, message: '' }
-          })
+            gitBashInstallProgress: { phase: 'idle', progress: 0, message: '' },
+          });
         }
       }
     } catch (e) {
-      console.error('[App] Failed to refresh Git Bash status:', e)
+      console.error('[App] Failed to refresh Git Bash status:', e);
     }
   },
 
@@ -194,41 +202,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   // causing the initial git-bash check to fail. Once extended-ready arrives, this
   // re-runs the check so Windows users without Git Bash still see the setup flow.
   completeDeferredGitBashCheck: async () => {
-    if (!get().gitBashCheckPending) return
+    if (!get().gitBashCheckPending) return;
     if (!window.platform?.isWindows) {
-      set({ gitBashCheckPending: false })
-      return
+      set({ gitBashCheckPending: false });
+      return;
     }
 
-    console.log('[Store] Completing deferred Git Bash check...')
+    console.log('[Store] Completing deferred Git Bash check...');
     try {
-      const gitBashStatus = await api.getGitBashStatus()
-      console.log('[Store] Deferred Git Bash status response:', gitBashStatus)
+      const gitBashStatus = await api.getGitBashStatus();
+      console.log('[Store] Deferred Git Bash status response:', gitBashStatus);
       if (gitBashStatus.success && gitBashStatus.data) {
-        const { found, mockMode } = gitBashStatus.data
+        const { found, mockMode } = gitBashStatus.data;
 
         if (mockMode) {
-          set({ mockBashMode: true })
+          set({ mockBashMode: true });
         }
 
         // Git Bash genuinely not available — redirect to setup
         if (!found && !mockMode) {
-          console.log('[Store] Deferred check: Git Bash not found, showing gitBashSetup')
-          set({ view: 'gitBashSetup' })
+          console.log('[Store] Deferred check: Git Bash not found, showing gitBashSetup');
+          set({ view: 'gitBashSetup' });
         }
       }
     } catch (e) {
-      console.warn('[Store] Deferred Git Bash check failed:', e)
+      console.warn('[Store] Deferred Git Bash check failed:', e);
     } finally {
-      set({ gitBashCheckPending: false })
+      set({ gitBashCheckPending: false });
     }
   },
 
   // Initialize app
   initialize: async () => {
-    console.log('[Store] initialize() called')
+    console.log('[Store] initialize() called');
     try {
-      set({ isLoading: true, error: null })
+      set({ isLoading: true, error: null });
 
       // Windows: Check Git Bash availability first
       // Wrapped in its own try-catch because this IPC handler lives in extended services.
@@ -237,69 +245,69 @@ export const useAppStore = create<AppState>((set, get) => ({
       // page — the user's config/API key is unrelated to git-bash availability.
       // The check will be retried when extended-ready arrives (see completeDeferredGitBashCheck).
       if (window.platform?.isWindows) {
-        console.log('[Store] Windows detected, checking Git Bash status...')
+        console.log('[Store] Windows detected, checking Git Bash status...');
         try {
-          const gitBashStatus = await api.getGitBashStatus()
-          console.log('[Store] Git Bash status response:', gitBashStatus)
+          const gitBashStatus = await api.getGitBashStatus();
+          console.log('[Store] Git Bash status response:', gitBashStatus);
           if (gitBashStatus.success && gitBashStatus.data) {
-            const { found, source, mockMode } = gitBashStatus.data
+            const { found, source, mockMode } = gitBashStatus.data;
 
             // Track mock mode for showing warning banner later
             if (mockMode) {
-              console.log('[Store] Git Bash in mock mode, will show warning banner')
-              set({ mockBashMode: true })
+              console.log('[Store] Git Bash in mock mode, will show warning banner');
+              set({ mockBashMode: true });
             }
 
             // If Git Bash not found and not previously configured, show setup
             if (!found && !mockMode) {
-              console.log('[Store] Git Bash not found, showing setup')
-              set({ view: 'gitBashSetup', isLoading: false })
-              return
+              console.log('[Store] Git Bash not found, showing setup');
+              set({ view: 'gitBashSetup', isLoading: false });
+              return;
             }
 
-            console.log('[Store] Git Bash found:', source, mockMode ? '(mock mode)' : '')
+            console.log('[Store] Git Bash found:', source, mockMode ? '(mock mode)' : '');
           }
         } catch (gitBashError) {
           // IPC handler not registered yet (extended services not ready).
           // Mark as pending so the check runs once extended-ready arrives.
-          console.warn('[Store] Git Bash check deferred (IPC not ready):', gitBashError)
-          set({ gitBashCheckPending: true })
+          console.warn('[Store] Git Bash check deferred (IPC not ready):', gitBashError);
+          set({ gitBashCheckPending: true });
         }
       }
 
       // Load config from main process
       // config:get handler is registered in Essential services, so this always works.
-      console.log('[Store] Loading config...')
-      const response = await api.getConfig()
-      console.log('[Store] Config response:', response.success ? 'success' : 'failed')
+      console.log('[Store] Loading config...');
+      const response = await api.getConfig();
+      console.log('[Store] Config response:', response.success ? 'success' : 'failed');
 
       if (response.success && response.data) {
-        const config = response.data as AicoBotConfig
+        const config = response.data as AicoBotConfig;
 
-        set({ config })
+        set({ config });
 
         // Determine initial view based on config
         // Show setup if first launch or no AI source configured (OAuth or Custom API)
         if (config.isFirstLaunch || !hasAnyAISource(config.aiSources)) {
-          console.log('[Store] First launch or no AI source, showing setup')
-          set({ view: 'setup' })
+          console.log('[Store] First launch or no AI source, showing setup');
+          set({ view: 'setup' });
         } else {
           // Go to home
-          console.log('[Store] Config loaded, showing home')
-          set({ view: 'home' })
+          console.log('[Store] Config loaded, showing home');
+          set({ view: 'home' });
         }
       } else {
-        console.error('[Store] Failed to load config:', response.error)
-        set({ error: response.error || 'Failed to load configuration' })
-        set({ view: 'setup' })
+        console.error('[Store] Failed to load config:', response.error);
+        set({ error: response.error || 'Failed to load configuration' });
+        set({ view: 'setup' });
       }
     } catch (error) {
-      console.error('[Store] Failed to initialize:', error)
-      set({ error: 'Failed to initialize application' })
-      set({ view: 'setup' })
+      console.error('[Store] Failed to initialize:', error);
+      set({ error: 'Failed to initialize application' });
+      set({ view: 'setup' });
     } finally {
-      set({ isLoading: false })
-      console.log('[Store] initialize() completed')
+      set({ isLoading: false });
+      console.log('[Store] initialize() completed');
     }
-  }
-}))
+  },
+}));

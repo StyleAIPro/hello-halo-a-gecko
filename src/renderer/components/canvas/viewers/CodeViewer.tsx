@@ -11,50 +11,47 @@
  * - Copy to clipboard, open external
  */
 
-import { useRef, useState, useCallback, useMemo } from 'react'
-import {
-  Copy,
-  Check,
-  ExternalLink,
-  Pencil,
-  Save,
-  X,
-  FileCode,
-} from 'lucide-react'
-import { api } from '../../../api'
-import type { CanvasTab } from '../../../stores/canvas.store'
-import { useTranslation } from '../../../i18n'
-import { CodeMirrorEditor, type CodeMirrorEditorRef } from './CodeMirrorEditor'
+import { useRef, useState, useCallback, useMemo } from 'react';
+import { Copy, Check, ExternalLink, Pencil, Save, X, FileCode } from 'lucide-react';
+import { api } from '../../../api';
+import type { CanvasTab } from '../../../stores/canvas.store';
+import { useTranslation } from '../../../i18n';
+import { CodeMirrorEditor, type CodeMirrorEditorRef } from './CodeMirrorEditor';
 
 // ============================================
 // Types
 // ============================================
 
 interface CodeViewerProps {
-  tab: CanvasTab
-  onScrollChange?: (position: number) => void
-  onContentChange?: (content: string) => void
-  onSaveComplete?: (content: string) => void
+  tab: CanvasTab;
+  onScrollChange?: (position: number) => void;
+  onContentChange?: (content: string) => void;
+  onSaveComplete?: (content: string) => void;
 }
 
 // ============================================
 // Component
 // ============================================
 
-export function CodeViewer({ tab, onScrollChange, onContentChange, onSaveComplete }: CodeViewerProps) {
-  const { t } = useTranslation()
-  const editorRef = useRef<CodeMirrorEditorRef>(null)
+export function CodeViewer({
+  tab,
+  onScrollChange,
+  onContentChange,
+  onSaveComplete,
+}: CodeViewerProps) {
+  const { t } = useTranslation();
+  const editorRef = useRef<CodeMirrorEditorRef>(null);
 
   // State
-  const [copied, setCopied] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Computed values
-  const canOpenExternal = !api.isRemoteMode() && tab.path
-  const canEdit = !!tab.path // Can only edit files with a path
-  const lineCount = useMemo(() => (tab.content || '').split('\n').length, [tab.content])
+  const canOpenExternal = !api.isRemoteMode() && tab.path;
+  const canEdit = !!tab.path; // Can only edit files with a path
+  const lineCount = useMemo(() => (tab.content || '').split('\n').length, [tab.content]);
 
   // ============================================
   // Handlers
@@ -62,119 +59,116 @@ export function CodeViewer({ tab, onScrollChange, onContentChange, onSaveComplet
 
   // Copy content to clipboard
   const handleCopy = useCallback(async () => {
-    const content = editorRef.current?.getContent() || tab.content
-    if (!content) return
+    const content = editorRef.current?.getContent() || tab.content;
+    if (!content) return;
 
     try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [tab.content])
+  }, [tab.content]);
 
   // Open with external application
   const handleOpenExternal = useCallback(async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
     try {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } catch (err) {
-      console.error('Failed to open with external app:', err)
+      console.error('Failed to open with external app:', err);
     }
-  }, [tab.path])
+  }, [tab.path]);
 
   // Enter edit mode
   const handleEnterEdit = useCallback(() => {
-    setIsEditing(true)
-    setSaveError(null)
+    setIsEditing(true);
+    setSaveError(null);
     // Focus editor after mode switch
     setTimeout(() => {
-      editorRef.current?.focus()
-    }, 100)
-  }, [])
+      editorRef.current?.focus();
+    }, 100);
+  }, []);
 
   // Cancel edit mode
   const handleCancelEdit = useCallback(() => {
     // Restore original content
     if (editorRef.current) {
-      editorRef.current.setContent(tab.content || '')
+      editorRef.current.setContent(tab.content || '');
     }
-    setIsEditing(false)
-    setSaveError(null)
-  }, [tab.content])
+    setIsEditing(false);
+    setSaveError(null);
+  }, [tab.content]);
 
   // Save changes
   const handleSave = useCallback(async () => {
-    if (!tab.path || !editorRef.current) return
+    if (!tab.path || !editorRef.current) return;
 
-    const newContent = editorRef.current.getContent()
+    const newContent = editorRef.current.getContent();
 
     // Check if content actually changed
     if (!editorRef.current.hasChanges()) {
-      setIsEditing(false)
-      return
+      setIsEditing(false);
+      return;
     }
 
-    setIsSaving(true)
-    setSaveError(null)
+    setIsSaving(true);
+    setSaveError(null);
 
     try {
-      const result = await api.saveArtifactContent(tab.path, newContent)
+      const result = await api.saveArtifactContent(tab.path, newContent);
 
       if (result.success) {
         // Mark tab as saved (clears dirty flag) via callback
         if (onSaveComplete) {
-          onSaveComplete(newContent)
+          onSaveComplete(newContent);
         }
-        setIsEditing(false)
+        setIsEditing(false);
       } else {
-        setSaveError(result.error || t('Failed to save file'))
+        setSaveError(result.error || t('Failed to save file'));
       }
     } catch (err) {
-      console.error('Failed to save:', err)
-      setSaveError((err as Error).message || t('Failed to save file'))
+      console.error('Failed to save:', err);
+      setSaveError((err as Error).message || t('Failed to save file'));
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }, [tab.path, onSaveComplete, t])
+  }, [tab.path, onSaveComplete, t]);
 
   // Handle scroll
   const handleScroll = useCallback(
     (position: number) => {
       if (onScrollChange) {
-        onScrollChange(position)
+        onScrollChange(position);
       }
     },
-    [onScrollChange]
-  )
+    [onScrollChange],
+  );
 
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Cmd/Ctrl + S to save in edit mode
       if (isEditing && (e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault()
-        handleSave()
+        e.preventDefault();
+        handleSave();
       }
       // Escape to cancel edit
       if (isEditing && e.key === 'Escape') {
-        e.preventDefault()
-        handleCancelEdit()
+        e.preventDefault();
+        handleCancelEdit();
       }
     },
-    [isEditing, handleSave, handleCancelEdit]
-  )
+    [isEditing, handleSave, handleCancelEdit],
+  );
 
   // ============================================
   // Render
   // ============================================
 
   return (
-    <div
-      className="relative flex flex-col h-full bg-background"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="relative flex flex-col h-full bg-background" onKeyDown={handleKeyDown}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-card/50">
         {/* Left: File info */}
@@ -204,9 +198,7 @@ export function CodeViewer({ tab, onScrollChange, onContentChange, onSaveComplet
             // Edit mode actions
             <>
               {/* Save error message */}
-              {saveError && (
-                <span className="text-xs text-destructive mr-2">{saveError}</span>
-              )}
+              {saveError && <span className="text-xs text-destructive mr-2">{saveError}</span>}
 
               {/* Cancel button */}
               <button
@@ -289,5 +281,5 @@ export function CodeViewer({ tab, onScrollChange, onContentChange, onSaveComplet
         />
       </div>
     </div>
-  )
+  );
 }

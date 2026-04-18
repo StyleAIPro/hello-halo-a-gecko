@@ -8,69 +8,66 @@
  * - Copy to clipboard
  */
 
-import { useState, useCallback, useMemo } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, Braces } from 'lucide-react'
-import { useAsyncHighlight } from '../../../hooks/useAsyncHighlight'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { truncateToLines } from './detection'
+import { useState, useCallback, useMemo } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, Braces } from 'lucide-react';
+import { useAsyncHighlight } from '../../../hooks/useAsyncHighlight';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { truncateToLines } from './detection';
 
-const PREVIEW_LINES = 6
+const PREVIEW_LINES = 6;
 
-export function JsonResultViewer({
-  output,
-  isError,
-  toolInput
-}: ViewerBaseProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
+export function JsonResultViewer({ output, isError, toolInput }: ViewerBaseProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Parse and format JSON
   const formattedJson = useMemo(() => {
     try {
-      const parsed = JSON.parse(output)
-      return JSON.stringify(parsed, null, 2)
+      const parsed = JSON.parse(output);
+      return JSON.stringify(parsed, null, 2);
     } catch {
       // If not valid JSON, return as-is
-      return output
+      return output;
     }
-  }, [output])
+  }, [output]);
 
   // Parse content for preview
-  const { content: previewContent, totalLines, truncated } = useMemo(() => {
-    return truncateToLines(formattedJson, PREVIEW_LINES)
-  }, [formattedJson])
+  const {
+    content: previewContent,
+    totalLines,
+    truncated,
+  } = useMemo(() => {
+    return truncateToLines(formattedJson, PREVIEW_LINES);
+  }, [formattedJson]);
 
-  const displayContent = isExpanded ? formattedJson : previewContent
+  const displayContent = isExpanded ? formattedJson : previewContent;
 
   // Async highlight: shows plain text instantly, then swaps in highlighted HTML
-  const highlightedJson = useAsyncHighlight(displayContent, 'json')
+  const highlightedJson = useAsyncHighlight(displayContent, 'json');
 
   // Copy handler
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(formattedJson)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(formattedJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [formattedJson])
+  }, [formattedJson]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* JSON content */}
@@ -94,9 +91,7 @@ export function JsonResultViewer({
 
         {/* Truncation indicator */}
         {truncated && !isExpanded && (
-          <div className="px-3 pb-2 text-[10px] text-muted-foreground/40">
-            ⋯
-          </div>
+          <div className="px-3 pb-2 text-[10px] text-muted-foreground/40">⋯</div>
         )}
       </div>
 
@@ -106,9 +101,10 @@ export function JsonResultViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -176,5 +172,5 @@ export function JsonResultViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

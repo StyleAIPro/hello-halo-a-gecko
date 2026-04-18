@@ -9,14 +9,14 @@
  * - Stats inline for quick scanning
  */
 
-import { FileText, FilePlus, ChevronRight } from 'lucide-react'
-import { formatStats } from './utils'
-import type { FileChange, FileChanges } from './types'
-import { useTranslation } from '../../i18n'
+import { FileText, FilePlus, ChevronRight } from 'lucide-react';
+import { formatStats } from './utils';
+import type { FileChange, FileChanges } from './types';
+import { useTranslation } from '../../i18n';
 
 interface FileChangesListProps {
-  changes: FileChanges
-  onFileClick: (file: FileChange) => void
+  changes: FileChanges;
+  onFileClick: (file: FileChange) => void;
 }
 
 // Single file item
@@ -24,15 +24,15 @@ function FileItem({
   file,
   isLast,
   onClick,
-  t
+  t,
 }: {
-  file: FileChange
-  isLast: boolean
-  onClick: () => void
-  t: (key: string) => string
+  file: FileChange;
+  isLast: boolean;
+  onClick: () => void;
+  t: (key: string) => string;
 }) {
-  const isWrite = file.type === 'write'
-  const Icon = isWrite ? FilePlus : FileText
+  const isWrite = file.type === 'write';
+  const Icon = isWrite ? FilePlus : FileText;
 
   return (
     <button
@@ -45,15 +45,10 @@ function FileItem({
       `}
     >
       {/* Tree connector */}
-      <span className="text-muted-foreground/30 font-mono">
-        {isLast ? '└─' : '├─'}
-      </span>
+      <span className="text-muted-foreground/30 font-mono">{isLast ? '└─' : '├─'}</span>
 
       {/* File icon */}
-      <Icon
-        size={14}
-        className={isWrite ? 'text-green-400/70' : 'text-amber-400/70'}
-      />
+      <Icon size={14} className={isWrite ? 'text-green-400/70' : 'text-amber-400/70'} />
 
       {/* File name */}
       <span className="flex-1 text-left truncate text-foreground/80 group-hover:text-foreground">
@@ -61,19 +56,19 @@ function FileItem({
       </span>
 
       {/* Stats */}
-      <span className={`
+      <span
+        className={`
         font-mono text-[11px] shrink-0
         ${file.stats.removed > 0 ? 'text-red-400/70' : ''}
         ${file.stats.added > 0 && file.stats.removed === 0 ? 'text-green-400/70' : ''}
         ${file.stats.added > 0 && file.stats.removed > 0 ? 'text-muted-foreground' : ''}
-      `}>
+      `}
+      >
         {isWrite ? (
           <span className="text-green-400/70">{t('New')}</span>
         ) : (
           <>
-            {file.stats.added > 0 && (
-              <span className="text-green-400/70">+{file.stats.added}</span>
-            )}
+            {file.stats.added > 0 && <span className="text-green-400/70">+{file.stats.added}</span>}
             {file.stats.added > 0 && file.stats.removed > 0 && (
               <span className="text-muted-foreground/50 mx-0.5">/</span>
             )}
@@ -90,13 +85,13 @@ function FileItem({
         className="text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors"
       />
     </button>
-  )
+  );
 }
 
 export function FileChangesList({ changes, onFileClick }: FileChangesListProps) {
-  const { edits, writes } = changes
-  const allFiles = [...edits, ...writes]
-  const { t } = useTranslation()
+  const { edits, writes } = changes;
+  const allFiles = [...edits, ...writes];
+  const { t } = useTranslation();
 
   return (
     <div className="max-h-[200px] overflow-y-auto px-2 -mx-2">
@@ -140,5 +135,5 @@ export function FileChangesList({ changes, onFileClick }: FileChangesListProps) 
         </div>
       )}
     </div>
-  )
+  );
 }

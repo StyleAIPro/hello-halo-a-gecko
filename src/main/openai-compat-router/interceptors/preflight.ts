@@ -22,8 +22,8 @@
  * Background: https://github.com/anthropics/claude-code/issues/1249
  */
 
-import type { AnthropicRequest, AnthropicSystemBlock } from '../types'
-import type { RequestInterceptor, InterceptorContext, InterceptorResult } from './types'
+import type { AnthropicRequest, AnthropicSystemBlock } from '../types';
+import type { RequestInterceptor, InterceptorContext, InterceptorResult } from './types';
 
 // ============================================================================
 // Fingerprint Definitions
@@ -37,11 +37,11 @@ import type { RequestInterceptor, InterceptorContext, InterceptorResult } from '
  */
 interface PreflightFingerprint {
   /** Identifier for logging */
-  name: string
+  name: string;
   /** Unique substring from the hardcoded system prompt in cli.js */
-  systemPromptMatch: string
+  systemPromptMatch: string;
   /** Text to return in the mock response */
-  mockResponseText: string
+  mockResponseText: string;
 }
 
 /**
@@ -70,9 +70,9 @@ const FINGERPRINTS: PreflightFingerprint[] = [
     // Frequency: Every single bash command execution.
     name: 'bash_extract_prefix',
     systemPromptMatch: 'Your task is to process Bash commands',
-    mockResponseText: 'none'
-  }
-]
+    mockResponseText: 'none',
+  },
+];
 
 // ============================================================================
 // Helpers
@@ -86,20 +86,20 @@ const FINGERPRINTS: PreflightFingerprint[] = [
  *   - Array<AnthropicSystemBlock>: array of typed blocks (extract text blocks)
  */
 function getSystemText(request: AnthropicRequest): string {
-  const { system } = request
+  const { system } = request;
 
   if (typeof system === 'string') {
-    return system
+    return system;
   }
 
   if (Array.isArray(system)) {
     return (system as AnthropicSystemBlock[])
       .filter((block) => block.type === 'text' && block.text)
       .map((block) => block.text)
-      .join('\n')
+      .join('\n');
   }
 
-  return ''
+  return '';
 }
 
 /**
@@ -114,20 +114,20 @@ function getSystemText(request: AnthropicRequest): string {
  */
 function matchFingerprint(request: AnthropicRequest): PreflightFingerprint | null {
   // Fast reject: main agent loop requests always carry tools (20+)
-  if (request.tools && request.tools.length > 0) return null
+  if (request.tools && request.tools.length > 0) return null;
 
   // Extract system prompt text
-  const systemText = getSystemText(request)
-  if (!systemText) return null
+  const systemText = getSystemText(request);
+  if (!systemText) return null;
 
   // Match against registered fingerprints
   for (const fp of FINGERPRINTS) {
     if (systemText.includes(fp.systemPromptMatch)) {
-      return fp
+      return fp;
     }
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -137,65 +137,74 @@ function matchFingerprint(request: AnthropicRequest): PreflightFingerprint | nul
  * The response format must match Anthropic's Messages API streaming protocol
  * exactly, since the SDK parses it as a standard Anthropic response.
  */
-function sendMockAnthropicResponse(
-  context: InterceptorContext,
-  responseText: string
-): void {
-  const { res, originalModel } = context
-  const msgId = `msg_preflight_${Date.now()}`
+function sendMockAnthropicResponse(context: InterceptorContext, responseText: string): void {
+  const { res, originalModel } = context;
+  const msgId = `msg_preflight_${Date.now()}`;
 
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
 
   // message_start
-  res.write(`event: message_start\ndata: ${JSON.stringify({
-    type: 'message_start',
-    message: {
-      id: msgId,
-      type: 'message',
-      role: 'assistant',
-      content: [],
-      model: originalModel,
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: 0, output_tokens: 0 }
-    }
-  })}\n\n`)
+  res.write(
+    `event: message_start\ndata: ${JSON.stringify({
+      type: 'message_start',
+      message: {
+        id: msgId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: originalModel,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    })}\n\n`,
+  );
 
   // content_block_start
-  res.write(`event: content_block_start\ndata: ${JSON.stringify({
-    type: 'content_block_start',
-    index: 0,
-    content_block: { type: 'text', text: '' }
-  })}\n\n`)
+  res.write(
+    `event: content_block_start\ndata: ${JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: '' },
+    })}\n\n`,
+  );
 
   // content_block_delta
-  res.write(`event: content_block_delta\ndata: ${JSON.stringify({
-    type: 'content_block_delta',
-    index: 0,
-    delta: { type: 'text_delta', text: responseText }
-  })}\n\n`)
+  res.write(
+    `event: content_block_delta\ndata: ${JSON.stringify({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: responseText },
+    })}\n\n`,
+  );
 
   // content_block_stop
-  res.write(`event: content_block_stop\ndata: ${JSON.stringify({
-    type: 'content_block_stop',
-    index: 0
-  })}\n\n`)
+  res.write(
+    `event: content_block_stop\ndata: ${JSON.stringify({
+      type: 'content_block_stop',
+      index: 0,
+    })}\n\n`,
+  );
 
   // message_delta
-  res.write(`event: message_delta\ndata: ${JSON.stringify({
-    type: 'message_delta',
-    delta: { stop_reason: 'end_turn', stop_sequence: null },
-    usage: { output_tokens: 1 }
-  })}\n\n`)
+  res.write(
+    `event: message_delta\ndata: ${JSON.stringify({
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { output_tokens: 1 },
+    })}\n\n`,
+  );
 
   // message_stop
-  res.write(`event: message_stop\ndata: ${JSON.stringify({
-    type: 'message_stop'
-  })}\n\n`)
+  res.write(
+    `event: message_stop\ndata: ${JSON.stringify({
+      type: 'message_stop',
+    })}\n\n`,
+  );
 
-  res.end()
+  res.end();
 }
 
 // ============================================================================
@@ -215,18 +224,18 @@ export const preflightInterceptor: RequestInterceptor = {
   name: 'preflight',
 
   shouldIntercept(request: AnthropicRequest): boolean {
-    return matchFingerprint(request) !== null
+    return matchFingerprint(request) !== null;
   },
 
   intercept(request: AnthropicRequest, context: InterceptorContext): InterceptorResult {
-    const fp = matchFingerprint(request)
+    const fp = matchFingerprint(request);
     if (!fp) {
       // Safety: should never reach here (shouldIntercept guards this)
-      return { handled: false }
+      return { handled: false };
     }
 
-    console.log(`[Interceptor:preflight] Intercepted ${fp.name}, returning mock response`)
-    sendMockAnthropicResponse(context, fp.mockResponseText)
-    return { handled: true, responded: true }
-  }
-}
+    console.log(`[Interceptor:preflight] Intercepted ${fp.name}, returning mock response`);
+    sendMockAnthropicResponse(context, fp.mockResponseText);
+    return { handled: true, responded: true };
+  },
+};

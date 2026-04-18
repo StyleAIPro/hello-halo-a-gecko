@@ -9,71 +9,90 @@
  * All text is built from i18n translations so onboarding follows the selected language.
  */
 
-import type { TFunction } from 'i18next'
+import type { TFunction } from 'i18next';
 
-import i18n, { getCurrentLanguage } from '../../i18n'
+import i18n, { getCurrentLanguage } from '../../i18n';
 
-export const ONBOARDING_ARTIFACT_NAME = 'aico-bot-intro.html'
-export const ONBOARDING_ARTIFACT_TYPE = 'file' as const
+export const ONBOARDING_ARTIFACT_NAME = 'aico-bot-intro.html';
+export const ONBOARDING_ARTIFACT_TYPE = 'file' as const;
 
 function getTranslator(translator?: TFunction): TFunction {
-  return translator || i18n.t.bind(i18n)
+  return translator || i18n.t.bind(i18n);
 }
 
 export function getOnboardingPrompt(translator?: TFunction): string {
-  const t = getTranslator(translator)
+  const t = getTranslator(translator);
   return t(
-    'Help me create an HTML slide deck introducing AICO-Bot (1920x1080) with a clean, modern style. Include: 1) What is AICO-Bot 2) Core capabilities 3) Use cases 4) Getting started'
-  )
+    'Help me create an HTML slide deck introducing AICO-Bot (1920x1080) with a clean, modern style. Include: 1) What is AICO-Bot 2) Core capabilities 3) Use cases 4) Getting started',
+  );
 }
 
 export function getOnboardingAiResponse(translator?: TFunction): string {
-  const t = getTranslator(translator)
+  const t = getTranslator(translator);
   return t(
-    "Sure, I'll create a polished HTML presentation that introduces AICO-Bot's core features and how to use it. The slides use a modern, minimal design, support left/right arrow navigation, and fit 1920x1080."
-  )
+    "Sure, I'll create a polished HTML presentation that introduces AICO-Bot's core features and how to use it. The slides use a modern, minimal design, support left/right arrow navigation, and fit 1920x1080.",
+  );
 }
 
 export function getOnboardingConversationTitle(translator?: TFunction): string {
-  const t = getTranslator(translator)
-  return t('Welcome to AICO-Bot')
+  const t = getTranslator(translator);
+  return t('Welcome to AICO-Bot');
 }
 
-export function getOnboardingHtmlArtifact(translator?: TFunction, lang: string = getCurrentLanguage()): string {
-  const t = getTranslator(translator)
+export function getOnboardingHtmlArtifact(
+  translator?: TFunction,
+  lang: string = getCurrentLanguage(),
+): string {
+  const t = getTranslator(translator);
 
-  const docTitle = t('AICO-Bot - AI that gets things done')
-  const tagline = t('AI that gets things done')
-  const whatIsAicoBot = t('What is AICO-Bot?')
-  const moreThanChatTitle = t('More than chat')
-  const moreThanChatDesc = t('AICO-Bot understands your goals, plans tasks, and can execute autonomously—not just answer questions.')
-  const createsFilesTitle = t('Creates real files')
-  const createsFilesDesc = t('Code, documents, spreadsheets, and web pages are saved as real files you can open anytime.')
-  const naturalLangTitle = t('Natural language interface')
-  const naturalLangDesc = t('Describe what you want in plain language; AICO-Bot will understand and act.')
-  const localFirstTitle = t('Local-first')
-  const localFirstDesc = t('Your data stays on your machine under your control. You can use your own API key.')
-  const coreCapabilities = t('Core capabilities')
-  const writeCodeTitle = t('Write code')
-  const writeCodeDesc = t('Describe your needs and AICO-Bot will generate complete code across languages and frameworks.')
-  const dataTitle = t('Work with data')
-  const dataDesc = t('Analyze tables, generate reports, and organize data while AI handles the busywork.')
-  const webTitle = t('Research with the web')
-  const webDesc = t('Need fresh information? AICO-Bot can search online and summarize what matters.')
-  const docsTitle = t('Write documents')
-  const docsDesc = t('Reports, proposals, emails—tell AICO-Bot what you need and it will draft it.')
-  const useCases = t('Use cases')
-  const devsTitle = t('Developers')
-  const devsDesc = t('Generate code quickly, debug issues, and scaffold projects.')
-  const prosTitle = t('Professionals')
-  const prosDesc = t('Write reports, build slides, organize meeting notes, and analyze data.')
-  const creatorsTitle = t('Creators')
-  const creatorsDesc = t('Write articles, design web pages, and generate ideas.')
-  const learnersTitle = t('Learners')
-  const learnersDesc = t('Answer questions, organize notes, and create study materials.')
-  const readyText = t('Ready to start?')
-  const startText = t('Start using AICO-Bot')
-  const navHint = t('Use ← → to move between slides')
+  const docTitle = t('AICO-Bot - AI that gets things done');
+  const tagline = t('AI that gets things done');
+  const whatIsAicoBot = t('What is AICO-Bot?');
+  const moreThanChatTitle = t('More than chat');
+  const moreThanChatDesc = t(
+    'AICO-Bot understands your goals, plans tasks, and can execute autonomously—not just answer questions.',
+  );
+  const createsFilesTitle = t('Creates real files');
+  const createsFilesDesc = t(
+    'Code, documents, spreadsheets, and web pages are saved as real files you can open anytime.',
+  );
+  const naturalLangTitle = t('Natural language interface');
+  const naturalLangDesc = t(
+    'Describe what you want in plain language; AICO-Bot will understand and act.',
+  );
+  const localFirstTitle = t('Local-first');
+  const localFirstDesc = t(
+    'Your data stays on your machine under your control. You can use your own API key.',
+  );
+  const coreCapabilities = t('Core capabilities');
+  const writeCodeTitle = t('Write code');
+  const writeCodeDesc = t(
+    'Describe your needs and AICO-Bot will generate complete code across languages and frameworks.',
+  );
+  const dataTitle = t('Work with data');
+  const dataDesc = t(
+    'Analyze tables, generate reports, and organize data while AI handles the busywork.',
+  );
+  const webTitle = t('Research with the web');
+  const webDesc = t(
+    'Need fresh information? AICO-Bot can search online and summarize what matters.',
+  );
+  const docsTitle = t('Write documents');
+  const docsDesc = t(
+    'Reports, proposals, emails—tell AICO-Bot what you need and it will draft it.',
+  );
+  const useCases = t('Use cases');
+  const devsTitle = t('Developers');
+  const devsDesc = t('Generate code quickly, debug issues, and scaffold projects.');
+  const prosTitle = t('Professionals');
+  const prosDesc = t('Write reports, build slides, organize meeting notes, and analyze data.');
+  const creatorsTitle = t('Creators');
+  const creatorsDesc = t('Write articles, design web pages, and generate ideas.');
+  const learnersTitle = t('Learners');
+  const learnersDesc = t('Answer questions, organize notes, and create study materials.');
+  const readyText = t('Ready to start?');
+  const startText = t('Start using AICO-Bot');
+  const navHint = t('Use ← → to move between slides');
 
   return `<!DOCTYPE html>
 <html lang="${lang}">
@@ -398,5 +417,5 @@ export function getOnboardingHtmlArtifact(translator?: TFunction, lang: string =
     setInterval(nextSlide, 8000)
   </script>
 </body>
-</html>`
+</html>`;
 }

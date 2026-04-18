@@ -23,7 +23,7 @@
  */
 export interface AicoBotEvent {
   /** Unique event identifier (UUID v4, assigned by the bus on emit). */
-  id: string
+  id: string;
   /**
    * Dotted event type string.
    *
@@ -31,13 +31,13 @@ export interface AicoBotEvent {
    * Examples: "file.changed", "file.created", "file.deleted",
    *           "webhook.received", "schedule.due"
    */
-  type: string
+  type: string;
   /** Identifier of the event source adapter that produced this event. */
-  source: string
+  source: string;
   /** Unix timestamp in milliseconds when the event was emitted. */
-  timestamp: number
+  timestamp: number;
   /** Arbitrary payload data specific to the event type. */
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>;
   /**
    * Optional deduplication key.
    *
@@ -45,7 +45,7 @@ export interface AicoBotEvent {
    * are silently dropped. Useful for preventing duplicate webhook
    * deliveries, file-watcher burst events, etc.
    */
-  dedupKey?: string
+  dedupKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +63,11 @@ export interface EventFilter {
    * - `"file.*"` -- matches any type starting with `"file."`
    * - `"*"` -- matches everything
    */
-  types?: string[]
+  types?: string[];
   /** Source adapter IDs to match. Exact match only. */
-  sources?: string[]
+  sources?: string[];
   /** Rule-based field matching (zero LLM cost pre-filtering). */
-  rules?: FilterRule[]
+  rules?: FilterRule[];
 }
 
 /**
@@ -82,11 +82,11 @@ export interface FilterRule {
    * Dot-separated field path into the AicoBotEvent.
    * Supports array index notation: `"payload.items[0].name"`
    */
-  field: string
+  field: string;
   /** Comparison operator. */
-  op: 'eq' | 'neq' | 'contains' | 'matches' | 'gt' | 'lt' | 'in' | 'nin'
+  op: 'eq' | 'neq' | 'contains' | 'matches' | 'gt' | 'lt' | 'in' | 'nin';
   /** Value to compare against. Type depends on the operator. */
-  value: unknown
+  value: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,10 +94,10 @@ export interface FilterRule {
 // ---------------------------------------------------------------------------
 
 /** Event handler callback. May be sync or async. */
-export type EventHandler = (event: AicoBotEvent) => void | Promise<void>
+export type EventHandler = (event: AicoBotEvent) => void | Promise<void>;
 
 /** Function to unsubscribe a previously registered handler. */
-export type Unsubscribe = () => void
+export type Unsubscribe = () => void;
 
 // ---------------------------------------------------------------------------
 // EventBus Service
@@ -119,14 +119,14 @@ export interface EventBusService {
    *
    * Matching subscribers are invoked sequentially with error isolation.
    */
-  emit(event: Omit<AicoBotEvent, 'id' | 'timestamp'>): void
+  emit(event: Omit<AicoBotEvent, 'id' | 'timestamp'>): void;
 
   /**
    * Subscribe to events matching the given filter.
    *
    * @returns An unsubscribe function. Calling it removes this subscription.
    */
-  on(filter: EventFilter, handler: EventHandler): Unsubscribe
+  on(filter: EventFilter, handler: EventHandler): Unsubscribe;
 
   /**
    * Register an event source adapter.
@@ -134,28 +134,28 @@ export interface EventBusService {
    * The source is started immediately if the bus is already running,
    * otherwise it will be started when `start()` is called.
    */
-  registerSource(source: EventSourceAdapter): void
+  registerSource(source: EventSourceAdapter): void;
 
   /**
    * Remove and stop a previously registered event source adapter.
    */
-  removeSource(sourceId: string): void
+  removeSource(sourceId: string): void;
 
   /**
    * List all registered event source adapters with basic info.
    */
-  listSources(): EventSourceInfo[]
+  listSources(): EventSourceInfo[];
 
   /**
    * Start the event bus and all registered source adapters.
    */
-  start(): void
+  start(): void;
 
   /**
    * Stop the event bus and all registered source adapters.
    * Clears all subscriptions and the dedup cache.
    */
-  stop(): void
+  stop(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,9 +167,9 @@ export type EventSourceType =
   | 'file-watcher'
   | 'webhook'
   | 'schedule-bridge'
-  | 'webpage'    // V2 placeholder
-  | 'rss'        // V2 placeholder
-  | 'internal'
+  | 'webpage' // V2 placeholder
+  | 'rss' // V2 placeholder
+  | 'internal';
 
 /**
  * Unified interface for all information source adapters.
@@ -183,9 +183,9 @@ export type EventSourceType =
  */
 export interface EventSourceAdapter {
   /** Unique identifier for this source instance. */
-  id: string
+  id: string;
   /** Type discriminator. */
-  type: EventSourceType
+  type: EventSourceType;
   /**
    * Start producing events.
    *
@@ -193,23 +193,23 @@ export interface EventSourceAdapter {
    *   this whenever it has a new event. The bus handles id/timestamp assignment,
    *   dedup, filtering, and dispatch.
    */
-  start(emit: EventEmitFn): void
+  start(emit: EventEmitFn): void;
   /**
    * Stop producing events and clean up all listeners/routes.
    *
    * Must be safe to call multiple times. Must not throw.
    */
-  stop(): void
+  stop(): void;
 }
 
 /** The emit function signature provided to source adapters. */
-export type EventEmitFn = (event: Omit<AicoBotEvent, 'id' | 'timestamp'>) => void
+export type EventEmitFn = (event: Omit<AicoBotEvent, 'id' | 'timestamp'>) => void;
 
 /** Summary information about a registered source adapter. */
 export interface EventSourceInfo {
-  id: string
-  type: EventSourceType
-  running: boolean
+  id: string;
+  type: EventSourceType;
+  running: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,9 +219,9 @@ export interface EventSourceInfo {
 /** Configuration for the in-memory dedup cache. */
 export interface DedupConfig {
   /** Time-to-live in milliseconds for dedup entries. Default: 60_000 (60s). */
-  ttlMs: number
+  ttlMs: number;
   /** Maximum number of entries in the cache. Default: 10_000. */
-  maxSize: number
+  maxSize: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ export interface DedupConfig {
  */
 export interface EventBusDeps {
   /** Database manager -- reserved for V2 persistent dedup. Not used in V1. */
-  db?: unknown
+  db?: unknown;
   /** Dedup cache configuration override. */
-  dedup?: Partial<DedupConfig>
+  dedup?: Partial<DedupConfig>;
 }

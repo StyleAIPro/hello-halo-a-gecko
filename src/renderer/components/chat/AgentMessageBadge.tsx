@@ -1,16 +1,16 @@
-import React from 'react'
-import { Crown, Wrench } from 'lucide-react'
+import React from 'react';
+import { Crown, Wrench } from 'lucide-react';
 
 // ============================================
 // Types
 // ============================================
 
 interface AgentMessageBadgeProps {
-  agentId: string
-  agentName?: string
-  agentRole?: 'leader' | 'worker'
-  isOnline?: boolean
-  size?: 'sm' | 'md'
+  agentId: string;
+  agentName?: string;
+  agentRole?: 'leader' | 'worker';
+  isOnline?: boolean;
+  size?: 'sm' | 'md';
 }
 
 // ============================================
@@ -22,9 +22,9 @@ interface AgentMessageBadgeProps {
  * Uses a simple hash to pick from a predefined palette.
  */
 function getAgentColor(agentId: string): string {
-  let hash = 0
+  let hash = 0;
   for (let i = 0; i < agentId.length; i++) {
-    hash = agentId.charCodeAt(i) + ((hash << 5) - hash)
+    hash = agentId.charCodeAt(i) + ((hash << 5) - hash);
   }
   const palette = [
     '#3B82F6', // blue
@@ -37,8 +37,8 @@ function getAgentColor(agentId: string): string {
     '#6366F1', // indigo
     '#14B8A6', // teal
     '#E11D48', // rose
-  ]
-  return palette[Math.abs(hash) % palette.length]
+  ];
+  return palette[Math.abs(hash) % palette.length];
 }
 
 // ============================================
@@ -54,11 +54,11 @@ export function AgentMessageBadge({
   agentName,
   agentRole,
   isOnline = true,
-  size = 'sm'
+  size = 'sm',
 }: AgentMessageBadgeProps) {
-  const color = getAgentColor(agentId)
-  const initial = (agentName || agentId || '?')[0].toUpperCase()
-  const isSm = size === 'sm'
+  const color = getAgentColor(agentId);
+  const initial = (agentName || agentId || '?')[0].toUpperCase();
+  const isSm = size === 'sm';
 
   return (
     <div className="flex items-center gap-1.5">
@@ -69,7 +69,7 @@ export function AgentMessageBadge({
             backgroundColor: color,
             width: isSm ? 22 : 28,
             height: isSm ? 22 : 28,
-            fontSize: isSm ? 10 : 13
+            fontSize: isSm ? 10 : 13,
           }}
         >
           {initial}
@@ -100,5 +100,5 @@ export function AgentMessageBadge({
         )}
       </div>
     </div>
-  )
+  );
 }

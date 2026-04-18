@@ -3,193 +3,204 @@
  * Manages permissions, auto-launch, logs, and diagnostics
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react';
 import {
-  FolderOpen, Activity, Loader2, AlertTriangle, CheckCircle,
-  XOctagon, ChevronRight, Copy, FileText, RotateCcw, RefreshCw
-} from 'lucide-react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import type { AicoBotConfig } from '../../types'
-import type { HealthCheckResult, HealthReport } from './types'
+  FolderOpen,
+  Activity,
+  Loader2,
+  AlertTriangle,
+  CheckCircle,
+  XOctagon,
+  ChevronRight,
+  Copy,
+  FileText,
+  RotateCcw,
+  RefreshCw,
+} from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import type { AicoBotConfig } from '../../types';
+import type { HealthCheckResult, HealthReport } from './types';
 
 interface SystemSectionProps {
-  config: AicoBotConfig | null
-  setConfig: (config: AicoBotConfig) => void
+  config: AicoBotConfig | null;
+  setConfig: (config: AicoBotConfig) => void;
 }
 
 export function SystemSection({ config, setConfig }: SystemSectionProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // System settings state
-  const [autoLaunch, setAutoLaunch] = useState(config?.system?.autoLaunch || false)
-  const [taskCompleteNotify, setTaskCompleteNotify] = useState(config?.notifications?.taskComplete || false)
-  const [maxTurns, setMaxTurnsState] = useState(config?.agent?.maxTurns ?? 50)
+  const [autoLaunch, setAutoLaunch] = useState(config?.system?.autoLaunch || false);
+  const [taskCompleteNotify, setTaskCompleteNotify] = useState(
+    config?.notifications?.taskComplete || false,
+  );
+  const [maxTurns, setMaxTurnsState] = useState(config?.agent?.maxTurns ?? 50);
 
   // Health diagnostics state
-  const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false)
-  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false)
-  const [healthReport, setHealthReport] = useState<HealthReport | null>(null)
-  const [isRecovering, setIsRecovering] = useState<string | null>(null)
+  const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+  const [healthReport, setHealthReport] = useState<HealthReport | null>(null);
+  const [isRecovering, setIsRecovering] = useState<string | null>(null);
   const [recoveryResult, setRecoveryResult] = useState<{
-    success: boolean
-    message: string
-  } | null>(null)
-  const [reportCopied, setReportCopied] = useState(false)
-  const [healthCheckResult, setHealthCheckResult] = useState<HealthCheckResult | null>(null)
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [reportCopied, setReportCopied] = useState(false);
+  const [healthCheckResult, setHealthCheckResult] = useState<HealthCheckResult | null>(null);
 
   // Load system settings
   useEffect(() => {
-    loadSystemSettings()
-  }, [])
+    loadSystemSettings();
+  }, []);
 
   const loadSystemSettings = async () => {
     try {
-      const autoLaunchRes = await api.getAutoLaunch()
+      const autoLaunchRes = await api.getAutoLaunch();
       if (autoLaunchRes.success) {
-        setAutoLaunch(autoLaunchRes.data as boolean)
+        setAutoLaunch(autoLaunchRes.data as boolean);
       }
     } catch (error) {
-      console.error('[SystemSection] Failed to load system settings:', error)
+      console.error('[SystemSection] Failed to load system settings:', error);
     }
-  }
+  };
 
   // Handle auto launch change
   const handleAutoLaunchChange = async (enabled: boolean) => {
-    setAutoLaunch(enabled)
+    setAutoLaunch(enabled);
     try {
-      await api.setAutoLaunch(enabled)
+      await api.setAutoLaunch(enabled);
     } catch (error) {
-      console.error('[SystemSection] Failed to set auto launch:', error)
-      setAutoLaunch(!enabled) // Revert on error
+      console.error('[SystemSection] Failed to set auto launch:', error);
+      setAutoLaunch(!enabled); // Revert on error
     }
-  }
+  };
 
   // Handle notification toggle
   const handleTaskNotifyChange = async (enabled: boolean) => {
-    setTaskCompleteNotify(enabled)
+    setTaskCompleteNotify(enabled);
     try {
       const updatedConfig = {
         ...config,
-        notifications: { ...config?.notifications, taskComplete: enabled }
-      } as AicoBotConfig
-      await api.setConfig({ notifications: updatedConfig.notifications })
-      setConfig(updatedConfig)
+        notifications: { ...config?.notifications, taskComplete: enabled },
+      } as AicoBotConfig;
+      await api.setConfig({ notifications: updatedConfig.notifications });
+      setConfig(updatedConfig);
     } catch (error) {
-      console.error('[SystemSection] Failed to update notification settings:', error)
-      setTaskCompleteNotify(!enabled) // Revert on error
+      console.error('[SystemSection] Failed to update notification settings:', error);
+      setTaskCompleteNotify(!enabled); // Revert on error
     }
-  }
+  };
 
   // Handle maxTurns change
   const handleMaxTurnsChange = async (value: number) => {
-    const clamped = Math.max(10, Math.min(9999, value))
-    setMaxTurnsState(clamped)
+    const clamped = Math.max(10, Math.min(9999, value));
+    setMaxTurnsState(clamped);
     try {
       const updatedConfig = {
         ...config,
-        agent: { ...config?.agent, maxTurns: clamped }
-      } as AicoBotConfig
-      await api.setConfig({ agent: updatedConfig.agent })
-      setConfig(updatedConfig)
+        agent: { ...config?.agent, maxTurns: clamped },
+      } as AicoBotConfig;
+      await api.setConfig({ agent: updatedConfig.agent });
+      setConfig(updatedConfig);
     } catch (error) {
-      console.error('[SystemSection] Failed to update maxTurns:', error)
-      setMaxTurnsState(config?.agent?.maxTurns ?? 50)
+      console.error('[SystemSection] Failed to update maxTurns:', error);
+      setMaxTurnsState(config?.agent?.maxTurns ?? 50);
     }
-  }
+  };
 
   // Handle run diagnostics
   const handleRunDiagnostics = async () => {
-    setIsRunningDiagnostics(true)
-    setRecoveryResult(null)
+    setIsRunningDiagnostics(true);
+    setRecoveryResult(null);
     try {
       // First, run immediate health check (PPID scan + service probes)
-      const checkResult = await api.runHealthCheck()
+      const checkResult = await api.runHealthCheck();
       if (checkResult.success && checkResult.data) {
-        setHealthCheckResult(checkResult.data)
+        setHealthCheckResult(checkResult.data);
       }
 
       // Then, generate the full diagnostic report
-      const result = await api.generateHealthReport()
+      const result = await api.generateHealthReport();
       if (result.success && result.data) {
-        setHealthReport(result.data)
-        setDiagnosticsExpanded(true)
+        setHealthReport(result.data);
+        setDiagnosticsExpanded(true);
       }
     } catch (error) {
-      console.error('[SystemSection] Failed to run diagnostics:', error)
+      console.error('[SystemSection] Failed to run diagnostics:', error);
     } finally {
-      setIsRunningDiagnostics(false)
+      setIsRunningDiagnostics(false);
     }
-  }
+  };
 
   // Handle recovery action
   const handleRecovery = async (strategyId: string) => {
-    setIsRecovering(strategyId)
-    setRecoveryResult(null)
+    setIsRecovering(strategyId);
+    setRecoveryResult(null);
     try {
-      const result = await api.triggerHealthRecovery(strategyId, true)
+      const result = await api.triggerHealthRecovery(strategyId, true);
       if (result.success && result.data) {
         setRecoveryResult({
           success: result.data.success,
-          message: result.data.message
-        })
+          message: result.data.message,
+        });
         if (result.data.success) {
-          setTimeout(handleRunDiagnostics, 1000)
+          setTimeout(handleRunDiagnostics, 1000);
         }
       }
     } catch (error) {
       setRecoveryResult({
         success: false,
-        message: t('Recovery failed')
-      })
+        message: t('Recovery failed'),
+      });
     } finally {
-      setIsRecovering(null)
+      setIsRecovering(null);
     }
-  }
+  };
 
   // Copy report to clipboard
   const handleCopyReport = async () => {
     try {
-      const result = await api.generateHealthReportText()
+      const result = await api.generateHealthReportText();
       if (result.success && result.data) {
-        await navigator.clipboard.writeText(result.data)
-        setReportCopied(true)
-        setTimeout(() => setReportCopied(false), 2000)
+        await navigator.clipboard.writeText(result.data);
+        setReportCopied(true);
+        setTimeout(() => setReportCopied(false), 2000);
       }
     } catch (error) {
-      console.error('[SystemSection] Failed to copy report:', error)
+      console.error('[SystemSection] Failed to copy report:', error);
     }
-  }
+  };
 
   // Export report to file
   const handleExportReport = async () => {
     try {
-      const result = await api.exportHealthReport()
+      const result = await api.exportHealthReport();
       if (result.success && result.data?.path) {
         setRecoveryResult({
           success: true,
-          message: t('Report exported to') + ': ' + result.data.path
-        })
-        setTimeout(() => setRecoveryResult(null), 3000)
+          message: t('Report exported to') + ': ' + result.data.path,
+        });
+        setTimeout(() => setRecoveryResult(null), 3000);
       }
     } catch (error) {
-      console.error('[SystemSection] Failed to export report:', error)
+      console.error('[SystemSection] Failed to export report:', error);
     }
-  }
+  };
 
   // Get health status color and icon
   const getHealthStatusStyle = (status: string) => {
     switch (status) {
       case 'healthy':
-        return { color: 'text-green-500', bg: 'bg-green-500/10', icon: CheckCircle }
+        return { color: 'text-green-500', bg: 'bg-green-500/10', icon: CheckCircle };
       case 'degraded':
-        return { color: 'text-amber-500', bg: 'bg-amber-500/10', icon: AlertTriangle }
+        return { color: 'text-amber-500', bg: 'bg-amber-500/10', icon: AlertTriangle };
       case 'unhealthy':
-        return { color: 'text-red-500', bg: 'bg-red-500/10', icon: XOctagon }
+        return { color: 'text-red-500', bg: 'bg-red-500/10', icon: XOctagon };
       default:
-        return { color: 'text-muted-foreground', bg: 'bg-muted', icon: Activity }
+        return { color: 'text-muted-foreground', bg: 'bg-muted', icon: Activity };
     }
-  }
+  };
 
   return (
     <>
@@ -211,15 +222,12 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
         <div className="flex items-center justify-between opacity-50">
           <div>
             <p className="font-medium">{t('Trust Mode')}</p>
-            <p className="text-sm text-muted-foreground">{t('Automatically execute all operations')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('Automatically execute all operations')}
+            </p>
           </div>
           <label className="relative inline-flex items-center cursor-not-allowed">
-            <input
-              type="checkbox"
-              checked={true}
-              disabled
-              className="sr-only peer"
-            />
+            <input type="checkbox" checked={true} disabled className="sr-only peer" />
             <div className="w-11 h-6 bg-primary rounded-full">
               <div className="w-5 h-5 bg-white rounded-full shadow-md transform translate-x-5 mt-0.5" />
             </div>
@@ -297,7 +305,9 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                 <p className="font-medium">{t('Max Turns per Message')}</p>
                 <span
                   className="inline-flex items-center justify-center w-4 h-4 text-xs rounded-full bg-muted text-muted-foreground cursor-help"
-                  title={t('Maximum number of tool call rounds the AI agent can execute per message')}
+                  title={t(
+                    'Maximum number of tool call rounds the AI agent can execute per message',
+                  )}
                 >
                   ?
                 </span>
@@ -312,15 +322,15 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
               max={9999}
               value={maxTurns}
               onChange={(e) => {
-                const val = parseInt(e.target.value, 10)
+                const val = parseInt(e.target.value, 10);
                 if (!isNaN(val)) {
-                  setMaxTurnsState(val)
+                  setMaxTurnsState(val);
                 }
               }}
               onBlur={(e) => {
-                const val = parseInt(e.target.value, 10)
+                const val = parseInt(e.target.value, 10);
                 if (!isNaN(val)) {
-                  handleMaxTurnsChange(val)
+                  handleMaxTurnsChange(val);
                 }
               }}
               className="w-24 px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -378,11 +388,12 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {(() => {
-                        const hasIssues = healthReport.health.consecutiveFailures > 0 ||
+                        const hasIssues =
+                          healthReport.health.consecutiveFailures > 0 ||
                           healthReport.processes.orphansFound > 0 ||
-                          healthReport.recentErrors.length > 0
-                        const StatusIcon = hasIssues ? AlertTriangle : CheckCircle
-                        const statusColor = hasIssues ? 'text-amber-500' : 'text-green-500'
+                          healthReport.recentErrors.length > 0;
+                        const StatusIcon = hasIssues ? AlertTriangle : CheckCircle;
+                        const statusColor = hasIssues ? 'text-amber-500' : 'text-green-500';
                         return (
                           <>
                             <StatusIcon className={`w-5 h-5 ${statusColor}`} />
@@ -391,14 +402,17 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                                 {hasIssues ? t('Issues Detected') : t('System Healthy')}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {t('Last check')}: {new Date(healthReport.timestamp).toLocaleString()}
+                                {t('Last check')}:{' '}
+                                {new Date(healthReport.timestamp).toLocaleString()}
                               </p>
                             </div>
                           </>
-                        )
+                        );
                       })()}
                     </div>
-                    <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${diagnosticsExpanded ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`w-4 h-4 text-muted-foreground transition-transform ${diagnosticsExpanded ? 'rotate-90' : ''}`}
+                    />
                   </div>
                 </div>
 
@@ -407,7 +421,9 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                   <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
                     {/* System Info */}
                     <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('System Info')}</p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {t('System Info')}
+                      </p>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Version')}</span>
@@ -415,26 +431,39 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Platform')}</span>
-                          <span>{healthReport.platform} ({healthReport.arch})</span>
+                          <span>
+                            {healthReport.platform} ({healthReport.arch})
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Memory')}</span>
-                          <span>{healthReport.system.memory.free} / {healthReport.system.memory.total}</span>
+                          <span>
+                            {healthReport.system.memory.free} / {healthReport.system.memory.total}
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Uptime')}</span>
-                          <span>{Math.floor(healthReport.system.uptime / 3600)}h {Math.floor((healthReport.system.uptime % 3600) / 60)}m</span>
+                          <span>
+                            {Math.floor(healthReport.system.uptime / 3600)}h{' '}
+                            {Math.floor((healthReport.system.uptime % 3600) / 60)}m
+                          </span>
                         </div>
                       </div>
                     </div>
 
                     {/* Health Metrics */}
                     <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('Health Metrics')}</p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {t('Health Metrics')}
+                      </p>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Consecutive Failures')}</span>
-                          <span className={healthReport.health.consecutiveFailures > 0 ? 'text-amber-500' : ''}>
+                          <span
+                            className={
+                              healthReport.health.consecutiveFailures > 0 ? 'text-amber-500' : ''
+                            }
+                          >
                             {healthReport.health.consecutiveFailures}
                           </span>
                         </div>
@@ -448,7 +477,11 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t('Orphans Found')}</span>
-                          <span className={healthReport.processes.orphansFound > 0 ? 'text-amber-500' : ''}>
+                          <span
+                            className={
+                              healthReport.processes.orphansFound > 0 ? 'text-amber-500' : ''
+                            }
+                          >
                             {healthReport.processes.orphansFound}
                           </span>
                         </div>
@@ -458,16 +491,24 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                     {/* Process Status (from PPID scan) */}
                     {healthCheckResult && (
                       <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('Process Status')}</p>
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {t('Process Status')}
+                        </p>
                         <div className="space-y-2">
                           {/* Claude processes */}
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${healthCheckResult.processes.claude.healthy ? 'bg-green-500' : 'bg-amber-500'}`} />
+                              <div
+                                className={`w-2 h-2 rounded-full ${healthCheckResult.processes.claude.healthy ? 'bg-green-500' : 'bg-amber-500'}`}
+                              />
                               <span className="text-muted-foreground">Claude (AI Sessions)</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className={healthCheckResult.processes.claude.healthy ? '' : 'text-amber-500'}>
+                              <span
+                                className={
+                                  healthCheckResult.processes.claude.healthy ? '' : 'text-amber-500'
+                                }
+                              >
                                 {healthCheckResult.processes.claude.actual} {t('running')}
                               </span>
                               {healthCheckResult.processes.claude.pids.length > 0 && (
@@ -480,12 +521,24 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                           {/* Cloudflared processes */}
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${healthCheckResult.processes.cloudflared.actual === 0 ? 'bg-muted-foreground' : healthCheckResult.processes.cloudflared.healthy ? 'bg-green-500' : 'bg-amber-500'}`} />
+                              <div
+                                className={`w-2 h-2 rounded-full ${healthCheckResult.processes.cloudflared.actual === 0 ? 'bg-muted-foreground' : healthCheckResult.processes.cloudflared.healthy ? 'bg-green-500' : 'bg-amber-500'}`}
+                              />
                               <span className="text-muted-foreground">Cloudflared (Tunnel)</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className={healthCheckResult.processes.cloudflared.actual === 0 ? 'text-muted-foreground' : healthCheckResult.processes.cloudflared.healthy ? '' : 'text-amber-500'}>
-                                {healthCheckResult.processes.cloudflared.actual === 0 ? t('Not running') : `${healthCheckResult.processes.cloudflared.actual} ${t('running')}`}
+                              <span
+                                className={
+                                  healthCheckResult.processes.cloudflared.actual === 0
+                                    ? 'text-muted-foreground'
+                                    : healthCheckResult.processes.cloudflared.healthy
+                                      ? ''
+                                      : 'text-amber-500'
+                                }
+                              >
+                                {healthCheckResult.processes.cloudflared.actual === 0
+                                  ? t('Not running')
+                                  : `${healthCheckResult.processes.cloudflared.actual} ${t('running')}`}
                               </span>
                               {healthCheckResult.processes.cloudflared.pids.length > 0 && (
                                 <span className="text-xs text-muted-foreground">
@@ -501,15 +554,22 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                     {/* Service Status (HTTP probes) */}
                     {healthCheckResult && (
                       <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('Service Status')}</p>
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {t('Service Status')}
+                        </p>
                         <div className="space-y-2">
                           {/* OpenAI Router */}
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${
-                                healthCheckResult.services.openaiRouter.port === null ? 'bg-muted-foreground' :
-                                healthCheckResult.services.openaiRouter.responsive ? 'bg-green-500' : 'bg-red-500'
-                              }`} />
+                              <div
+                                className={`w-2 h-2 rounded-full ${
+                                  healthCheckResult.services.openaiRouter.port === null
+                                    ? 'bg-muted-foreground'
+                                    : healthCheckResult.services.openaiRouter.responsive
+                                      ? 'bg-green-500'
+                                      : 'bg-red-500'
+                                }`}
+                              />
                               <span className="text-muted-foreground">OpenAI Router</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -519,7 +579,8 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                                 <>
                                   <span className="text-green-500">{t('Healthy')}</span>
                                   <span className="text-xs text-muted-foreground">
-                                    (:{healthCheckResult.services.openaiRouter.port}, {healthCheckResult.services.openaiRouter.responseTime}ms)
+                                    (:{healthCheckResult.services.openaiRouter.port},{' '}
+                                    {healthCheckResult.services.openaiRouter.responseTime}ms)
                                   </span>
                                 </>
                               ) : (
@@ -535,10 +596,15 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                           {/* HTTP Server */}
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${
-                                healthCheckResult.services.httpServer.port === null ? 'bg-muted-foreground' :
-                                healthCheckResult.services.httpServer.responsive ? 'bg-green-500' : 'bg-red-500'
-                              }`} />
+                              <div
+                                className={`w-2 h-2 rounded-full ${
+                                  healthCheckResult.services.httpServer.port === null
+                                    ? 'bg-muted-foreground'
+                                    : healthCheckResult.services.httpServer.responsive
+                                      ? 'bg-green-500'
+                                      : 'bg-red-500'
+                                }`}
+                              />
                               <span className="text-muted-foreground">HTTP Server</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -548,7 +614,8 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                                 <>
                                   <span className="text-green-500">{t('Healthy')}</span>
                                   <span className="text-xs text-muted-foreground">
-                                    (:{healthCheckResult.services.httpServer.port}, {healthCheckResult.services.httpServer.responseTime}ms)
+                                    (:{healthCheckResult.services.httpServer.port},{' '}
+                                    {healthCheckResult.services.httpServer.responseTime}ms)
                                   </span>
                                 </>
                               ) : (
@@ -566,24 +633,38 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
                     )}
 
                     {/* Registry Cleanup */}
-                    {healthCheckResult && (healthCheckResult.registryCleanup.removed > 0 || healthCheckResult.registryCleanup.orphans > 0) && (
-                      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-1">
-                        <p className="text-xs font-medium text-amber-500 uppercase tracking-wide">{t('Cleanup Actions')}</p>
-                        <div className="text-sm text-amber-500">
-                          {healthCheckResult.registryCleanup.removed > 0 && (
-                            <p>{t('Removed {{count}} dead process entries', { count: healthCheckResult.registryCleanup.removed })}</p>
-                          )}
-                          {healthCheckResult.registryCleanup.orphans > 0 && (
-                            <p>{t('Found {{count}} orphan processes', { count: healthCheckResult.registryCleanup.orphans })}</p>
-                          )}
+                    {healthCheckResult &&
+                      (healthCheckResult.registryCleanup.removed > 0 ||
+                        healthCheckResult.registryCleanup.orphans > 0) && (
+                        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 space-y-1">
+                          <p className="text-xs font-medium text-amber-500 uppercase tracking-wide">
+                            {t('Cleanup Actions')}
+                          </p>
+                          <div className="text-sm text-amber-500">
+                            {healthCheckResult.registryCleanup.removed > 0 && (
+                              <p>
+                                {t('Removed {{count}} dead process entries', {
+                                  count: healthCheckResult.registryCleanup.removed,
+                                })}
+                              </p>
+                            )}
+                            {healthCheckResult.registryCleanup.orphans > 0 && (
+                              <p>
+                                {t('Found {{count}} orphan processes', {
+                                  count: healthCheckResult.registryCleanup.orphans,
+                                })}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Recent Errors */}
                     {healthReport.recentErrors.length > 0 && (
                       <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 space-y-2">
-                        <p className="text-xs font-medium text-red-500 uppercase tracking-wide">{t('Recent Errors')}</p>
+                        <p className="text-xs font-medium text-red-500 uppercase tracking-wide">
+                          {t('Recent Errors')}
+                        </p>
                         <div className="space-y-1.5 max-h-32 overflow-y-auto">
                           {healthReport.recentErrors.slice(0, 5).map((error, index) => (
                             <div key={index} className="text-xs">
@@ -598,10 +679,14 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
 
                     {/* Recovery Actions */}
                     <div className="bg-muted/30 rounded-lg p-3 space-y-3">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('Recovery Actions')}</p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {t('Recovery Actions')}
+                      </p>
 
                       {recoveryResult && (
-                        <div className={`p-2 rounded-lg text-sm ${recoveryResult.success ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                        <div
+                          className={`p-2 rounded-lg text-sm ${recoveryResult.success ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}
+                        >
                           {recoveryResult.message}
                         </div>
                       )}
@@ -664,5 +749,5 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
         </div>
       </section>
     </>
-  )
+  );
 }

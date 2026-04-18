@@ -1,6 +1,6 @@
 {
   "name": "aico-bot",
-  "version": "2.0.2",
+  "version": "2.1.2",
   "description": "AI that gets things done",
   "type": "module",
   "main": "./out/main/index.mjs",
@@ -10,7 +10,8 @@
     "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
-    "build": "npm run build:proxy && electron-vite build",
+    "build:patch-sdk": "node scripts/patch-sdk.mjs",
+    "build": "npm run build:proxy && npm run build:patch-sdk && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "patch-package",
     "build:mac": "npm run build && electron-builder --mac",
@@ -187,6 +188,7 @@
       "aico-bot-local/dist/**/*",
       "packages/remote-agent-proxy/dist/**/*",
       "packages/remote-agent-proxy/package.json",
+      "packages/remote-agent-proxy/scripts/**/*",
       "!node_modules/better-sqlite3/prebuilds"
     ],
     "asarUnpack": [

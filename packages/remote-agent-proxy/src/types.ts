@@ -1,6 +1,8 @@
 export interface RemoteServerConfig {
   port: number
   authToken?: string
+  authTokens?: string[]
+  tokensJsonPath?: string
   workDir?: string
   maxThinkingTokens?: number
   pathToClaudeCodeExecutable?: string

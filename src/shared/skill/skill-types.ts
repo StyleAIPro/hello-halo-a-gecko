@@ -2,7 +2,7 @@
  * Skill 管理系统类型定义
  */
 
-import { AppSpec } from '../apps/spec-types';
+import type { AppSpec } from '../apps/spec-types';
 
 /**
  * Skill 元数据
@@ -13,7 +13,7 @@ export interface SkillMeta {
   description: string;
   version: string;
   author: string;
-  triggerCommand: string;  // 如 /code-commit
+  triggerCommand: string; // 如 /code-commit
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -41,7 +41,7 @@ export interface SkillMarketItem {
   author: string;
   tags: string[];
   downloadUrl: string;
-  sourceUrl?: string;  // GitHub repo 等
+  sourceUrl?: string; // GitHub repo 等
   rating?: number;
   downloads?: number;
   lastUpdated: string;

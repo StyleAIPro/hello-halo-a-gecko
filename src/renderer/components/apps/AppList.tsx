@@ -5,17 +5,17 @@
  * and renders AppListItem rows. Shows install/store actions at the bottom.
  */
 
-import { Plus } from 'lucide-react'
-import type { InstalledApp } from '../../../shared/apps/app-types'
-import { useAppsStore } from '../../stores/apps.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { AppListItem } from './AppListItem'
-import { useTranslation } from '../../i18n'
+import { Plus } from 'lucide-react';
+import type { InstalledApp } from '../../../shared/apps/app-types';
+import { useAppsStore } from '../../stores/apps.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { AppListItem } from './AppListItem';
+import { useTranslation } from '../../i18n';
 
 interface AppListProps {
-  onInstall: () => void
+  onInstall: () => void;
   /** Map from spaceId -> space name, for showing space labels on each app */
-  spaceMap?: Record<string, string>
+  spaceMap?: Record<string, string>;
 }
 
 // ──────────────────────────────────────────────
@@ -23,42 +23,42 @@ interface AppListProps {
 // ──────────────────────────────────────────────
 
 type AppGroup = {
-  label: string
-  apps: InstalledApp[]
-}
+  label: string;
+  apps: InstalledApp[];
+};
 
 function groupApps(apps: InstalledApp[]): AppGroup[] {
-  const running: InstalledApp[] = []
-  const waitingUser: InstalledApp[] = []
-  const paused: InstalledApp[] = []
-  const installed: InstalledApp[] = []  // mcp / skill / extension
-  const uninstalled: InstalledApp[] = []
+  const running: InstalledApp[] = [];
+  const waitingUser: InstalledApp[] = [];
+  const paused: InstalledApp[] = [];
+  const installed: InstalledApp[] = []; // mcp / skill / extension
+  const uninstalled: InstalledApp[] = [];
 
   for (const app of apps) {
     if (app.status === 'uninstalled') {
-      uninstalled.push(app)
-      continue
+      uninstalled.push(app);
+      continue;
     }
-    const t = app.spec.type
+    const t = app.spec.type;
     if (t === 'mcp' || t === 'skill' || t === 'extension') {
-      installed.push(app)
+      installed.push(app);
     } else if (app.status === 'waiting_user') {
-      waitingUser.push(app)
+      waitingUser.push(app);
     } else if (app.status === 'paused') {
-      paused.push(app)
+      paused.push(app);
     } else {
       // active (running/idle) + error
-      running.push(app)
+      running.push(app);
     }
   }
 
-  const groups: AppGroup[] = []
-  if (running.length > 0) groups.push({ label: 'Active', apps: running })
-  if (waitingUser.length > 0) groups.push({ label: 'Waiting for you', apps: waitingUser })
-  if (paused.length > 0) groups.push({ label: 'Paused', apps: paused })
-  if (uninstalled.length > 0) groups.push({ label: 'Uninstalled', apps: uninstalled })
-  if (installed.length > 0) groups.push({ label: 'Installed', apps: installed })
-  return groups
+  const groups: AppGroup[] = [];
+  if (running.length > 0) groups.push({ label: 'Active', apps: running });
+  if (waitingUser.length > 0) groups.push({ label: 'Waiting for you', apps: waitingUser });
+  if (paused.length > 0) groups.push({ label: 'Paused', apps: paused });
+  if (uninstalled.length > 0) groups.push({ label: 'Uninstalled', apps: uninstalled });
+  if (installed.length > 0) groups.push({ label: 'Installed', apps: installed });
+  return groups;
 }
 
 // ──────────────────────────────────────────────
@@ -66,11 +66,11 @@ function groupApps(apps: InstalledApp[]): AppGroup[] {
 // ──────────────────────────────────────────────
 
 export function AppList({ onInstall, spaceMap }: AppListProps) {
-  const { t } = useTranslation()
-  const { apps } = useAppsStore()
-  const { selectedAppId, selectApp } = useAppsPageStore()
+  const { t } = useTranslation();
+  const { apps } = useAppsStore();
+  const { selectedAppId, selectApp } = useAppsPageStore();
 
-  const groups = groupApps(apps)
+  const groups = groupApps(apps);
 
   return (
     <div className="flex flex-col h-full">
@@ -82,14 +82,16 @@ export function AppList({ onInstall, spaceMap }: AppListProps) {
           </p>
         )}
 
-        {groups.map(group => (
+        {groups.map((group) => (
           <div key={group.label}>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground px-1 mb-1">
               {t(group.label)}
-              <span className="ml-1 font-normal normal-case tracking-normal">({group.apps.length})</span>
+              <span className="ml-1 font-normal normal-case tracking-normal">
+                ({group.apps.length})
+              </span>
             </p>
             <div className="space-y-0.5">
-              {group.apps.map(app => (
+              {group.apps.map((app) => (
                 <AppListItem
                   key={app.id}
                   app={app}
@@ -98,9 +100,9 @@ export function AppList({ onInstall, spaceMap }: AppListProps) {
                   onClick={() => {
                     // Route uninstalled apps to uninstalled-detail view
                     if (app.status === 'uninstalled') {
-                      selectApp(app.id, 'uninstalled')
+                      selectApp(app.id, 'uninstalled');
                     } else {
-                      selectApp(app.id, app.spec.type)
+                      selectApp(app.id, app.spec.type);
                     }
                   }}
                 />
@@ -121,5 +123,5 @@ export function AppList({ onInstall, spaceMap }: AppListProps) {
         </button>
       </div>
     </div>
-  )
+  );
 }

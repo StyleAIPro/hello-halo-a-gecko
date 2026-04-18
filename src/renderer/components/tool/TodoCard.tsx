@@ -8,29 +8,24 @@
  * - Real-time updates - status changes animate smoothly
  */
 
-import { useMemo } from 'react'
-import {
-  Circle,
-  CheckCircle2,
-  Loader2,
-  ListTodo,
-} from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { useMemo } from 'react';
+import { Circle, CheckCircle2, Loader2, ListTodo } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 // Note: Loader2 is used for in_progress task icon animation
 
 // Todo item status from Claude Code SDK
-type TodoStatus = 'pending' | 'in_progress' | 'completed'
+type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
 interface TodoItem {
-  content: string
-  status: TodoStatus
-  activeForm?: string  // Present tense form for in_progress display
+  content: string;
+  status: TodoStatus;
+  activeForm?: string; // Present tense form for in_progress display
 }
 
 interface TodoCardProps {
-  todos: TodoItem[]
-  isAgentActive?: boolean  // When false and todo is in_progress, show interrupted state
+  todos: TodoItem[];
+  isAgentActive?: boolean; // When false and todo is in_progress, show interrupted state
 }
 
 // Get icon and style for todo status
@@ -42,7 +37,7 @@ function getTodoStatusDisplay(status: TodoStatus) {
         color: 'text-muted-foreground/50',
         bgColor: 'bg-transparent',
         textStyle: 'text-muted-foreground',
-      }
+      };
     case 'in_progress':
       return {
         Icon: Loader2,
@@ -50,29 +45,36 @@ function getTodoStatusDisplay(status: TodoStatus) {
         bgColor: 'bg-primary/10',
         textStyle: 'text-foreground font-medium',
         spin: true,
-      }
+      };
     case 'completed':
       return {
         Icon: CheckCircle2,
         color: 'text-green-500',
         bgColor: 'bg-green-500/10',
         textStyle: 'text-muted-foreground line-through',
-      }
+      };
   }
 }
 
 // Single todo item
-function TodoItemRow({ item, index, isAgentActive = true }: { item: TodoItem; index: number; isAgentActive?: boolean }) {
-  const display = getTodoStatusDisplay(item.status)
-  const Icon = display.Icon
+function TodoItemRow({
+  item,
+  index,
+  isAgentActive = true,
+}: {
+  item: TodoItem;
+  index: number;
+  isAgentActive?: boolean;
+}) {
+  const display = getTodoStatusDisplay(item.status);
+  const Icon = display.Icon;
 
   // Detect interrupted state: agent stopped but todo still in_progress
-  const isInterrupted = !isAgentActive && item.status === 'in_progress'
+  const isInterrupted = !isAgentActive && item.status === 'in_progress';
 
   // Show activeForm when in progress, otherwise show content
-  const displayText = item.status === 'in_progress' && item.activeForm
-    ? item.activeForm
-    : item.content
+  const displayText =
+    item.status === 'in_progress' && item.activeForm ? item.activeForm : item.content;
 
   return (
     <div
@@ -90,28 +92,30 @@ function TodoItemRow({ item, index, isAgentActive = true }: { item: TodoItem; in
           ${display.spin && !isInterrupted ? 'animate-spin' : ''}
         `}
       />
-      <span className={`text-sm leading-relaxed ${isInterrupted ? 'text-amber-600 dark:text-amber-400' : display.textStyle}`}>
+      <span
+        className={`text-sm leading-relaxed ${isInterrupted ? 'text-amber-600 dark:text-amber-400' : display.textStyle}`}
+      >
         {displayText}
       </span>
     </div>
-  )
+  );
 }
 
 export function TodoCard({ todos, isAgentActive = true }: TodoCardProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   // Calculate progress stats
   const stats = useMemo(() => {
-    const total = todos.length
-    const completed = todos.filter(t => t.status === 'completed').length
-    const inProgress = todos.filter(t => t.status === 'in_progress').length
-    const pending = todos.filter(t => t.status === 'pending').length
-    const progress = total > 0 ? Math.round((completed / total) * 100) : 0
+    const total = todos.length;
+    const completed = todos.filter((t) => t.status === 'completed').length;
+    const inProgress = todos.filter((t) => t.status === 'in_progress').length;
+    const pending = todos.filter((t) => t.status === 'pending').length;
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-    return { total, completed, inProgress, pending, progress }
-  }, [todos])
+    return { total, completed, inProgress, pending, progress };
+  }, [todos]);
 
   if (todos.length === 0) {
-    return null
+    return null;
   }
 
   return (
@@ -125,14 +129,16 @@ export function TodoCard({ todos, isAgentActive = true }: TodoCardProps) {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {stats.completed > 0 && (
-              <span className="text-green-500">{t('{{count}} completed', { count: stats.completed })}</span>
+              <span className="text-green-500">
+                {t('{{count}} completed', { count: stats.completed })}
+              </span>
             )}
             {stats.inProgress > 0 && (
-              <span className="text-primary">{t('{{count}} in progress', { count: stats.inProgress })}</span>
+              <span className="text-primary">
+                {t('{{count}} in progress', { count: stats.inProgress })}
+              </span>
             )}
-            {stats.pending > 0 && (
-              <span>{t('{{count}} pending', { count: stats.pending })}</span>
-            )}
+            {stats.pending > 0 && <span>{t('{{count}} pending', { count: stats.pending })}</span>}
           </div>
         </div>
 
@@ -152,27 +158,28 @@ export function TodoCard({ todos, isAgentActive = true }: TodoCardProps) {
             <TodoItemRow key={index} item={item} index={index} isAgentActive={isAgentActive} />
           ))}
         </div>
-
       </div>
     </div>
-  )
+  );
 }
 
 // Parse TodoWrite tool input to TodoItem array
 export function parseTodoInput(input: Record<string, unknown>): TodoItem[] {
-  const todos = input.todos as Array<{
-    content: string
-    status: string
-    activeForm?: string
-  }> | undefined
+  const todos = input.todos as
+    | Array<{
+        content: string;
+        status: string;
+        activeForm?: string;
+      }>
+    | undefined;
 
   if (!todos || !Array.isArray(todos)) {
-    return []
+    return [];
   }
 
-  return todos.map(t => ({
+  return todos.map((t) => ({
     content: t.content || '',
     status: (t.status as TodoStatus) || 'pending',
     activeForm: t.activeForm,
-  }))
+  }));
 }

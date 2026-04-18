@@ -15,27 +15,69 @@
  * Kept intentionally small to avoid pulling in a large dependency like `psl`.
  */
 const TWO_PART_TLDS = new Set([
-  'co.uk', 'co.jp', 'co.kr', 'co.in', 'co.nz', 'co.za', 'co.id', 'co.th',
-  'com.au', 'com.br', 'com.cn', 'com.hk', 'com.mx', 'com.my', 'com.sg',
-  'com.tw', 'com.ar', 'com.tr', 'com.co', 'com.ph', 'com.pk', 'com.pe',
-  'com.vn', 'com.ua', 'com.ng', 'com.eg', 'com.sa', 'com.bd',
-  'net.au', 'net.br', 'net.cn', 'net.nz',
-  'org.au', 'org.uk', 'org.cn', 'org.nz', 'org.hk', 'org.tw',
-  'ac.uk', 'ac.jp', 'ac.kr', 'ac.in',
-  'gov.uk', 'gov.au', 'gov.cn', 'gov.in',
-  'edu.au', 'edu.cn', 'edu.hk',
-  'ne.jp', 'or.jp', 'go.jp',
-])
+  'co.uk',
+  'co.jp',
+  'co.kr',
+  'co.in',
+  'co.nz',
+  'co.za',
+  'co.id',
+  'co.th',
+  'com.au',
+  'com.br',
+  'com.cn',
+  'com.hk',
+  'com.mx',
+  'com.my',
+  'com.sg',
+  'com.tw',
+  'com.ar',
+  'com.tr',
+  'com.co',
+  'com.ph',
+  'com.pk',
+  'com.pe',
+  'com.vn',
+  'com.ua',
+  'com.ng',
+  'com.eg',
+  'com.sa',
+  'com.bd',
+  'net.au',
+  'net.br',
+  'net.cn',
+  'net.nz',
+  'org.au',
+  'org.uk',
+  'org.cn',
+  'org.nz',
+  'org.hk',
+  'org.tw',
+  'ac.uk',
+  'ac.jp',
+  'ac.kr',
+  'ac.in',
+  'gov.uk',
+  'gov.au',
+  'gov.cn',
+  'gov.in',
+  'edu.au',
+  'edu.cn',
+  'edu.hk',
+  'ne.jp',
+  'or.jp',
+  'go.jp',
+]);
 
 /**
  * IPv4 address pattern (simple check).
  */
-const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/
+const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 /**
  * IPv6 address pattern (enclosed in brackets in URLs, but hostname strips them).
  */
-const IPV6_REGEX = /^[\da-fA-F:]+$/
+const IPV6_REGEX = /^[\da-fA-F:]+$/;
 
 /**
  * Extract the main domain from a hostname string.
@@ -52,32 +94,32 @@ const IPV6_REGEX = /^[\da-fA-F:]+$/
  */
 export function extractMainDomain(hostname: string): string {
   // Strip leading www.
-  const host = hostname.replace(/^www\./, '')
+  const host = hostname.replace(/^www\./, '');
 
   // IP addresses: use as-is
   if (IPV4_REGEX.test(host) || IPV6_REGEX.test(host)) {
-    return host
+    return host;
   }
 
-  const parts = host.split('.')
+  const parts = host.split('.');
 
   // Single label (e.g. "localhost") or two labels (e.g. "jd.com")
   if (parts.length <= 2) {
-    return host
+    return host;
   }
 
   // Check for two-part TLD
-  const lastTwo = parts.slice(-2).join('.')
+  const lastTwo = parts.slice(-2).join('.');
   if (TWO_PART_TLDS.has(lastTwo)) {
     // Need at least 3 parts for a valid domain with two-part TLD
     if (parts.length >= 3) {
-      return parts.slice(-3).join('.')
+      return parts.slice(-3).join('.');
     }
-    return host
+    return host;
   }
 
   // Default: last two parts
-  return parts.slice(-2).join('.')
+  return parts.slice(-2).join('.');
 }
 
 /**
@@ -96,16 +138,16 @@ export function extractMainDomain(hostname: string): string {
  */
 export function extractPartition(url: string): string {
   try {
-    const parsed = new URL(url)
-    const hostname = parsed.hostname
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
     if (!hostname) {
-      return 'persist:automation-unknown'
+      return 'persist:automation-unknown';
     }
-    const mainDomain = extractMainDomain(hostname)
-    return `persist:automation-${mainDomain}`
+    const mainDomain = extractMainDomain(hostname);
+    return `persist:automation-${mainDomain}`;
   } catch {
     // Invalid URL -- use a safe fallback
-    console.warn(`[Background] Failed to parse URL for partition extraction: ${url}`)
-    return 'persist:automation-unknown'
+    console.warn(`[Background] Failed to parse URL for partition extraction: ${url}`);
+    return 'persist:automation-unknown';
   }
 }

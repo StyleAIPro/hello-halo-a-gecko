@@ -12,9 +12,9 @@
  * instead of interactive conversation.
  */
 
-import type { AppSpec } from '../spec'
-import type { MemorySnapshot } from '../../platform/memory/snapshot'
-import { buildSystemPrompt } from '../../services/agent/system-prompt'
+import type { AppSpec } from '../spec';
+import type { MemorySnapshot } from '../../platform/memory/snapshot';
+import { buildSystemPrompt } from '../../services/agent/system-prompt';
 
 // ============================================
 // Automation Context Overlay
@@ -44,7 +44,7 @@ This is a headless background execution — there is no interactive user convers
 
 You run inside the user's own AICO-Bot browser — cookies, session, and localStorage are shared.
 If a website requires login, ask the user to log in first via escalation, then retry.
-`.trim()
+`.trim();
 
 // ============================================
 // Reporting Rules (injected into all automation sessions)
@@ -78,7 +78,7 @@ technical jargon.
 
 Example: ✅ "AirPods Pro lowest price today: ¥1199, no change from yesterday"
 Not:     ❌ "Successfully fetched 3 URLs, price delta: 0"
-`.trim()
+`.trim();
 
 // ============================================
 // Sub-Agent Instructions (when App uses AI Browser)
@@ -99,7 +99,7 @@ Pattern:
 Example Task tool prompt:
 "Navigate to https://example.com, use browser_snapshot to get the page structure,
 extract the price from the product listing, and return it as JSON: { price: number, currency: string }"
-`.trim()
+`.trim();
 
 // ============================================
 // Public API
@@ -107,19 +107,19 @@ extract the price from the product listing, and return it as JSON: { price: numb
 
 export interface AppPromptOptions {
   /** The App's specification */
-  appSpec: AppSpec
+  appSpec: AppSpec;
   /** Memory instructions (from memory.getPromptInstructions()) */
-  memoryInstructions: string
+  memoryInstructions: string;
   /** Trigger context description */
-  triggerContext: string
+  triggerContext: string;
   /** User configuration values */
-  userConfig?: Record<string, unknown>
+  userConfig?: Record<string, unknown>;
   /** Whether the App uses AI Browser (includes sub-agent instructions) */
-  usesAIBrowser?: boolean
+  usesAIBrowser?: boolean;
   /** Working directory for the agent (passed to base system prompt) */
-  workDir: string
+  workDir: string;
   /** Display model name (passed to base system prompt) */
-  modelInfo?: string
+  modelInfo?: string;
 }
 
 /**
@@ -134,38 +134,40 @@ export interface AppPromptOptions {
  * 6. Sub-agent instructions (if App uses AI Browser)
  */
 export function buildAppSystemPrompt(options: AppPromptOptions): string {
-  const sections: string[] = []
+  const sections: string[] = [];
 
   // 1. Full main Agent system prompt — gives the automation agent
   //    100% of the same capabilities as the interactive agent
-  sections.push(buildSystemPrompt({
-    workDir: options.workDir,
-    modelInfo: options.modelInfo,
-  }))
+  sections.push(
+    buildSystemPrompt({
+      workDir: options.workDir,
+      modelInfo: options.modelInfo,
+    }),
+  );
 
   // 2. Automation context overlay — establishes headless mode,
   //    overrides interaction patterns (escalation vs AskUserQuestion)
-  sections.push(AUTOMATION_CONTEXT)
+  sections.push(AUTOMATION_CONTEXT);
 
   // 3. App-specific instructions (from App spec)
   if (options.appSpec.system_prompt) {
-    sections.push(`## App Instructions\n\n${options.appSpec.system_prompt}`)
+    sections.push(`## App Instructions\n\n${options.appSpec.system_prompt}`);
   }
 
   // 4. Memory instructions (from memory service)
   if (options.memoryInstructions) {
-    sections.push(options.memoryInstructions)
+    sections.push(options.memoryInstructions);
   }
 
   // 5. Reporting rules
-  sections.push(REPORTING_RULES)
+  sections.push(REPORTING_RULES);
 
   // 6. Sub-agent instructions (only if App uses AI Browser)
   if (options.usesAIBrowser) {
-    sections.push(SUB_AGENT_INSTRUCTIONS)
+    sections.push(SUB_AGENT_INSTRUCTIONS);
   }
 
-  return sections.join('\n\n---\n\n')
+  return sections.join('\n\n---\n\n');
 }
 
 /**
@@ -175,32 +177,34 @@ export function buildAppSystemPrompt(options: AppPromptOptions): string {
  * and task instructions.
  */
 export function buildInitialMessage(options: {
-  triggerContext: string
-  userConfig?: Record<string, unknown>
-  appName: string
-  memorySnapshot: MemorySnapshot
+  triggerContext: string;
+  userConfig?: Record<string, unknown>;
+  appName: string;
+  memorySnapshot: MemorySnapshot;
 }): string {
-  const parts: string[] = []
+  const parts: string[] = [];
 
   // ── Trigger ────────────────────────────────────────────────────────────
-  parts.push(`## Trigger\n\n${options.triggerContext}`)
+  parts.push(`## Trigger\n\n${options.triggerContext}`);
 
   // ── Memory ─────────────────────────────────────────────────────────────
-  parts.push(buildMemorySection(options.memorySnapshot))
+  parts.push(buildMemorySection(options.memorySnapshot));
 
   // ── User Configuration ─────────────────────────────────────────────────
   if (options.userConfig && Object.keys(options.userConfig).length > 0) {
-    parts.push(`## User Configuration\n\n\`\`\`json\n${JSON.stringify(options.userConfig, null, 2)}\n\`\`\``)
+    parts.push(
+      `## User Configuration\n\n\`\`\`json\n${JSON.stringify(options.userConfig, null, 2)}\n\`\`\``,
+    );
   }
 
   // ── Instructions ───────────────────────────────────────────────────────
   parts.push(
     `## Instructions\n\nExecute the "${options.appName}" task based on the trigger above.\n` +
-    `Update memory (both \`# now\` and \`# History\`) before reporting.\n` +
-    `Report your findings via \`mcp__aico-bot-report__report_to_user\` when done.`
-  )
+      `Update memory (both \`# now\` and \`# History\`) before reporting.\n` +
+      `Report your findings via \`mcp__aico-bot-report__report_to_user\` when done.`,
+  );
 
-  return parts.join('\n\n')
+  return parts.join('\n\n');
 }
 
 // ============================================
@@ -216,72 +220,79 @@ export function buildInitialMessage(options: {
  * - Large file (>30 lines): first section + structural outline
  */
 function buildMemorySection(snapshot: MemorySnapshot): string {
-  const lines: string[] = []
-  lines.push('## Memory')
-  lines.push('')
+  const lines: string[] = [];
+  lines.push('## Memory');
+  lines.push('');
 
   if (!snapshot.exists) {
     // ── No memory file ─────────────────────────────────────────────────
-    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
-    lines.push('')
-    lines.push('No memory file exists yet. Create it with Write using the `# now` / `# History` structure.')
-    lines.push('Put your most important state under `# now` — it will be auto-loaded next run.')
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``);
+    lines.push('');
+    lines.push(
+      'No memory file exists yet. Create it with Write using the `# now` / `# History` structure.',
+    );
+    lines.push('Put your most important state under `# now` — it will be auto-loaded next run.');
   } else if (snapshot.fullContent !== null) {
     // ── Small memory: inject full content ──────────────────────────────
-    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1)
-    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
-    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`)
-    lines.push('')
-    lines.push('### Content (full):')
-    lines.push('')
-    lines.push(snapshot.fullContent)
+    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1);
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``);
+    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`);
+    lines.push('');
+    lines.push('### Content (full):');
+    lines.push('');
+    lines.push(snapshot.fullContent);
   } else {
     // ── Large memory: first section + outline ──────────────────────────
-    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1)
-    lines.push(`**File**: \`${snapshot.memoryFilePath}\``)
-    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`)
+    const sizeKB = (snapshot.sizeBytes / 1024).toFixed(1);
+    lines.push(`**File**: \`${snapshot.memoryFilePath}\``);
+    lines.push(`**Size**: ${snapshot.totalLines} lines, ${sizeKB}KB`);
 
     if (snapshot.firstSection) {
-      lines.push('')
-      lines.push('### Working Memory (# now, auto-loaded):')
-      lines.push('')
-      lines.push(snapshot.firstSection)
+      lines.push('');
+      lines.push('### Working Memory (# now, auto-loaded):');
+      lines.push('');
+      lines.push(snapshot.firstSection);
     }
 
     if (snapshot.headers.length > 0) {
-      lines.push('')
-      lines.push('### Structure:')
+      lines.push('');
+      lines.push('### Structure:');
       for (const h of snapshot.headers) {
-        const loadedTag = h === snapshot.headers[0] && snapshot.firstSection
-          ? ' ← loaded above'
-          : ''
-        lines.push(`  L${h.line}: ${h.heading} (${h.lineCount} lines)${loadedTag}`)
+        const loadedTag =
+          h === snapshot.headers[0] && snapshot.firstSection ? ' ← loaded above' : '';
+        lines.push(`  L${h.line}: ${h.heading} (${h.lineCount} lines)${loadedTag}`);
       }
     }
 
-    lines.push('')
-    lines.push(`Use \`Read("${snapshot.memoryFilePath}")\` to see full content or specific sections.`)
+    lines.push('');
+    lines.push(
+      `Use \`Read("${snapshot.memoryFilePath}")\` to see full content or specific sections.`,
+    );
   }
 
   // ── Archive info ─────────────────────────────────────────────────────
   if (snapshot.archiveTotalCount > 0 || snapshot.compactionArchiveCount > 0) {
-    lines.push('')
+    lines.push('');
 
     if (snapshot.archiveTotalCount > 0) {
-      lines.push(`**Run History** (\`${snapshot.memoryArchiveDir}\`, ${snapshot.archiveTotalCount} files):`)
+      lines.push(
+        `**Run History** (\`${snapshot.memoryArchiveDir}\`, ${snapshot.archiveTotalCount} files):`,
+      );
       for (const f of snapshot.archiveFiles) {
-        lines.push(`  - ${f}`)
+        lines.push(`  - ${f}`);
       }
       if (snapshot.archiveTotalCount > snapshot.archiveFiles.length) {
-        lines.push(`  ... and ${snapshot.archiveTotalCount - snapshot.archiveFiles.length} more`)
+        lines.push(`  ... and ${snapshot.archiveTotalCount - snapshot.archiveFiles.length} more`);
       }
     }
 
     if (snapshot.compactionArchiveCount > 0) {
-      const compactDir = snapshot.memoryArchiveDir.replace(/\/run$/, '')
-      lines.push(`**Compaction Archives** (\`${compactDir}\`, ${snapshot.compactionArchiveCount} files)`)
+      const compactDir = snapshot.memoryArchiveDir.replace(/\/run$/, '');
+      lines.push(
+        `**Compaction Archives** (\`${compactDir}\`, ${snapshot.compactionArchiveCount} files)`,
+      );
     }
   }
 
-  return lines.join('\n')
+  return lines.join('\n');
 }

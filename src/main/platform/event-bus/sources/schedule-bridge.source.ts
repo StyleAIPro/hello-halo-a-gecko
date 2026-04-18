@@ -23,7 +23,7 @@
  * - stop(): calls the unsubscribe function returned by onJobDue()
  */
 
-import type { EventSourceAdapter, EventEmitFn } from '../types'
+import type { EventSourceAdapter, EventEmitFn } from '../types';
 
 // ---------------------------------------------------------------------------
 // Minimal Scheduler Interface
@@ -44,7 +44,7 @@ export interface SchedulerLike {
    *
    * @param handler - Called with job details when a job fires.
    */
-  onJobDue(handler: (job: ScheduledJobInfo) => void): void
+  onJobDue(handler: (job: ScheduledJobInfo) => void): void;
 }
 
 /**
@@ -53,13 +53,13 @@ export interface SchedulerLike {
  */
 export interface ScheduledJobInfo {
   /** Unique job identifier. */
-  jobId: string
+  jobId: string;
   /** Human-readable job name. */
-  jobName: string
+  jobName: string;
   /** Arbitrary metadata attached to the job. */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
   /** Timestamp when the job was scheduled to run (ms). */
-  scheduledAt: number
+  scheduledAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,11 +67,11 @@ export interface ScheduledJobInfo {
 // ---------------------------------------------------------------------------
 
 export class ScheduleBridgeSource implements EventSourceAdapter {
-  readonly id = 'schedule-bridge'
-  readonly type = 'schedule-bridge' as const
+  readonly id = 'schedule-bridge';
+  readonly type = 'schedule-bridge' as const;
 
-  private emitFn: EventEmitFn | null = null
-  private scheduler: SchedulerLike | null
+  private emitFn: EventEmitFn | null = null;
+  private scheduler: SchedulerLike | null;
 
   /**
    * @param scheduler - The scheduler service to bridge from.
@@ -79,7 +79,7 @@ export class ScheduleBridgeSource implements EventSourceAdapter {
    *   This allows the event bus to start even before the scheduler is ready.
    */
   constructor(scheduler: SchedulerLike | null) {
-    this.scheduler = scheduler
+    this.scheduler = scheduler;
   }
 
   /**
@@ -90,22 +90,22 @@ export class ScheduleBridgeSource implements EventSourceAdapter {
    * subscribed.
    */
   setScheduler(scheduler: SchedulerLike): void {
-    this.scheduler = scheduler
+    this.scheduler = scheduler;
 
     // If we're already running, subscribe to the new scheduler
     if (this.emitFn) {
-      this.subscribeToScheduler()
+      this.subscribeToScheduler();
     }
   }
 
   start(emit: EventEmitFn): void {
-    this.emitFn = emit
+    this.emitFn = emit;
 
     if (this.scheduler) {
-      this.subscribeToScheduler()
-      console.log('[ScheduleBridgeSource] Started -- listening to scheduler events')
+      this.subscribeToScheduler();
+      console.log('[ScheduleBridgeSource] Started -- listening to scheduler events');
     } else {
-      console.log('[ScheduleBridgeSource] Started (no scheduler wired -- awaiting setScheduler())')
+      console.log('[ScheduleBridgeSource] Started (no scheduler wired -- awaiting setScheduler())');
     }
   }
 
@@ -115,8 +115,8 @@ export class ScheduleBridgeSource implements EventSourceAdapter {
     // the runtime service registers its own handler after this source, the
     // handler is effectively replaced. This is safe: the scheduler only
     // supports one handler at a time.
-    this.emitFn = null
-    console.log('[ScheduleBridgeSource] Stopped')
+    this.emitFn = null;
+    console.log('[ScheduleBridgeSource] Stopped');
   }
 
   // -------------------------------------------------------------------------
@@ -124,12 +124,12 @@ export class ScheduleBridgeSource implements EventSourceAdapter {
   // -------------------------------------------------------------------------
 
   private subscribeToScheduler(): void {
-    if (!this.scheduler || !this.emitFn) return
+    if (!this.scheduler || !this.emitFn) return;
 
-    const emit = this.emitFn
+    const emit = this.emitFn;
     this.scheduler.onJobDue((job) => {
       // Guard: source may have been stopped after handler was registered
-      if (!this.emitFn) return
+      if (!this.emitFn) return;
 
       emit({
         type: 'schedule.due',
@@ -138,10 +138,10 @@ export class ScheduleBridgeSource implements EventSourceAdapter {
           jobId: job.jobId,
           jobName: job.jobName,
           metadata: job.metadata ?? {},
-          scheduledAt: job.scheduledAt
-        }
+          scheduledAt: job.scheduledAt,
+        },
         // No dedupKey: scheduler guarantees single-fire
-      })
-    })
+      });
+    });
   }
 }

@@ -9,19 +9,19 @@
  * - Support for multiple edit chunks (when same file edited multiple times)
  */
 
-import { useMemo, useState } from 'react'
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
-import { ChevronDown, Columns2, AlignJustify } from 'lucide-react'
-import type { EditChunk } from './utils'
-import { useTranslation } from '../../i18n'
+import { useMemo, useState } from 'react';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
+import { ChevronDown, Columns2, AlignJustify } from 'lucide-react';
+import type { EditChunk } from './utils';
+import { useTranslation } from '../../i18n';
 
 interface DiffContentProps {
-  type: 'edit' | 'write'
-  oldString?: string
-  newString?: string
-  content?: string  // For write type
-  fileName?: string // For syntax detection
-  editChunks?: EditChunk[]  // Multiple edit chunks for same file
+  type: 'edit' | 'write';
+  oldString?: string;
+  newString?: string;
+  content?: string; // For write type
+  fileName?: string; // For syntax detection
+  editChunks?: EditChunk[]; // Multiple edit chunks for same file
 }
 
 // Custom styles for the diff viewer to match AICO-Bot's dark theme
@@ -98,15 +98,15 @@ const customStyles = {
     padding: '1px 2px',
     borderRadius: '2px',
   },
-}
+};
 
 // Detect if dark mode is active
 function useIsDarkMode(): boolean {
   // Check if html element has 'light' class (our theme system uses dark as default)
   if (typeof document !== 'undefined') {
-    return !document.documentElement.classList.contains('light')
+    return !document.documentElement.classList.contains('light');
   }
-  return true
+  return true;
 }
 
 // Single diff chunk component
@@ -117,22 +117,29 @@ function DiffChunk({
   totalChunks,
   splitView,
   isDark,
-  t
+  t,
 }: {
-  oldString: string
-  newString: string
-  chunkIndex?: number
-  totalChunks?: number
-  splitView: boolean
-  isDark: boolean
-  t: (key: string, options?: Record<string, unknown>) => string
+  oldString: string;
+  newString: string;
+  chunkIndex?: number;
+  totalChunks?: number;
+  splitView: boolean;
+  isDark: boolean;
+  t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   return (
-    <div className={chunkIndex !== undefined && chunkIndex > 0 ? 'border-t border-border/30 pt-2 mt-2' : ''}>
+    <div
+      className={
+        chunkIndex !== undefined && chunkIndex > 0 ? 'border-t border-border/30 pt-2 mt-2' : ''
+      }
+    >
       {/* Chunk header for multiple edits */}
       {totalChunks !== undefined && totalChunks > 1 && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground bg-muted/30 border-b border-border/20">
-          {t('Edit {{current}} / {{total}}', { current: (chunkIndex || 0) + 1, total: totalChunks })}
+          {t('Edit {{current}} / {{total}}', {
+            current: (chunkIndex || 0) + 1,
+            total: totalChunks,
+          })}
         </div>
       )}
 
@@ -148,7 +155,7 @@ function DiffChunk({
         extraLinesSurroundingDiff={3}
       />
     </div>
-  )
+  );
 }
 
 export function DiffContent({
@@ -157,32 +164,32 @@ export function DiffContent({
   newString,
   content,
   fileName,
-  editChunks
+  editChunks,
 }: DiffContentProps) {
-  const [splitView, setSplitView] = useState(false)
-  const isDark = useIsDarkMode()
-  const { t } = useTranslation()
+  const [splitView, setSplitView] = useState(false);
+  const isDark = useIsDarkMode();
+  const { t } = useTranslation();
 
   // For write type, show all content as "added"
-  const effectiveOldString = type === 'write' ? '' : (oldString || '')
-  const effectiveNewString = type === 'write' ? (content || '') : (newString || '')
+  const effectiveOldString = type === 'write' ? '' : oldString || '';
+  const effectiveNewString = type === 'write' ? content || '' : newString || '';
 
   // Calculate stats
   const stats = useMemo(() => {
     if (type === 'write') {
-      const lines = (content || '').split('\n').length
-      return { added: lines, removed: 0 }
+      const lines = (content || '').split('\n').length;
+      return { added: lines, removed: 0 };
     }
 
-    const oldLines = (oldString || '').split('\n')
-    const newLines = (newString || '').split('\n')
+    const oldLines = (oldString || '').split('\n');
+    const newLines = (newString || '').split('\n');
 
     // Simple line count (the diff viewer shows actual changes)
     return {
       added: Math.max(0, newLines.length - oldLines.length + 1),
-      removed: Math.max(0, oldLines.length - newLines.length + 1)
-    }
-  }, [type, content, oldString, newString])
+      removed: Math.max(0, oldLines.length - newLines.length + 1),
+    };
+  }, [type, content, oldString, newString]);
 
   return (
     <div className="overflow-hidden">
@@ -270,10 +277,8 @@ export function DiffContent({
 
       {/* Empty state */}
       {!effectiveNewString && !effectiveOldString && (!editChunks || editChunks.length === 0) && (
-        <div className="py-8 text-center text-muted-foreground/50">
-          {t('No changes')}
-        </div>
+        <div className="py-8 text-center text-muted-foreground/50">{t('No changes')}</div>
       )}
     </div>
-  )
+  );
 }

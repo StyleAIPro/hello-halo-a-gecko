@@ -9,8 +9,8 @@
  * SQLite row representations.
  */
 
-import type Database from 'better-sqlite3'
-import type { DatabaseManager, Migration } from '../store/types'
+import type Database from 'better-sqlite3';
+import type { DatabaseManager, Migration } from '../store/types';
 import type {
   SchedulerJob,
   RunLogEntry,
@@ -18,14 +18,14 @@ import type {
   RunOutcome,
   Schedule,
   JobStatus,
-  JobFilter
-} from './types'
+  JobFilter,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // Migrations
 // ---------------------------------------------------------------------------
 
-const NAMESPACE = 'scheduler'
+const NAMESPACE = 'scheduler';
 
 const migrations: Migration[] = [
   {
@@ -48,7 +48,7 @@ const migrations: Migration[] = [
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         )
-      `)
+      `);
 
       db.exec(`
         CREATE TABLE scheduler_run_log (
@@ -62,55 +62,55 @@ const migrations: Migration[] = [
           metadata_json TEXT,
           FOREIGN KEY (job_id) REFERENCES scheduler_jobs(id) ON DELETE CASCADE
         )
-      `)
+      `);
 
       db.exec(`
         CREATE INDEX idx_run_log_job_started
         ON scheduler_run_log(job_id, started_at DESC)
-      `)
-    }
-  }
-]
+      `);
+    },
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Row types (SQLite representation)
 // ---------------------------------------------------------------------------
 
 interface JobRow {
-  id: string
-  name: string
-  schedule_json: string
-  enabled: number  // SQLite boolean: 0 or 1
-  anchor_ms: number
-  next_run_at_ms: number
-  last_run_at_ms: number | null
-  running_at_ms: number | null
-  consecutive_errors: number
-  status: string
-  metadata_json: string | null
-  created_at: number
-  updated_at: number
+  id: string;
+  name: string;
+  schedule_json: string;
+  enabled: number; // SQLite boolean: 0 or 1
+  anchor_ms: number;
+  next_run_at_ms: number;
+  last_run_at_ms: number | null;
+  running_at_ms: number | null;
+  consecutive_errors: number;
+  status: string;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 interface RunLogRow {
-  id: number
-  job_id: string
-  started_at: number
-  finished_at: number
-  duration_ms: number
-  outcome: string
-  error: string | null
-  metadata_json: string | null
+  id: number;
+  job_id: string;
+  started_at: number;
+  finished_at: number;
+  duration_ms: number;
+  outcome: string;
+  error: string | null;
+  metadata_json: string | null;
 }
 
 interface RunStatsRow {
-  total_runs: number
-  useful_count: number
-  noop_count: number
-  error_count: number
-  skipped_count: number
-  avg_duration_ms: number | null
-  last_run_at: number | null
+  total_runs: number;
+  useful_count: number;
+  noop_count: number;
+  error_count: number;
+  skipped_count: number;
+  avg_duration_ms: number | null;
+  last_run_at: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,10 +129,12 @@ function rowToJob(row: JobRow): SchedulerJob {
     runningAtMs: row.running_at_ms ?? undefined,
     consecutiveErrors: row.consecutive_errors,
     status: row.status as JobStatus,
-    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : undefined,
+    metadata: row.metadata_json
+      ? (JSON.parse(row.metadata_json) as Record<string, unknown>)
+      : undefined,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }
+    updatedAt: row.updated_at,
+  };
 }
 
 function rowToRunLogEntry(row: RunLogRow): RunLogEntry {
@@ -144,8 +146,10 @@ function rowToRunLogEntry(row: RunLogRow): RunLogEntry {
     durationMs: row.duration_ms,
     outcome: row.outcome as RunOutcome,
     error: row.error ?? undefined,
-    metadata: row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : undefined
-  }
+    metadata: row.metadata_json
+      ? (JSON.parse(row.metadata_json) as Record<string, unknown>)
+      : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,13 +163,13 @@ function rowToRunLogEntry(row: RunLogRow): RunLogEntry {
  * Stateless -- it uses the database reference from the DatabaseManager.
  */
 export class SchedulerStore {
-  private db: Database.Database
+  private db: Database.Database;
 
   constructor(dbManager: DatabaseManager) {
-    this.db = dbManager.getAppDatabase()
+    this.db = dbManager.getAppDatabase();
 
     // Run schema migrations
-    dbManager.runMigrations(this.db, NAMESPACE, migrations)
+    dbManager.runMigrations(this.db, NAMESPACE, migrations);
   }
 
   // -----------------------------------------------------------------------
@@ -176,7 +180,9 @@ export class SchedulerStore {
    * Insert a new job into the database.
    */
   insertJob(job: SchedulerJob): void {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO scheduler_jobs (
         id, name, schedule_json, enabled, anchor_ms, next_run_at_ms,
         last_run_at_ms, running_at_ms, consecutive_errors, status,
@@ -186,28 +192,32 @@ export class SchedulerStore {
         @last_run_at_ms, @running_at_ms, @consecutive_errors, @status,
         @metadata_json, @created_at, @updated_at
       )
-    `).run({
-      id: job.id,
-      name: job.name,
-      schedule_json: JSON.stringify(job.schedule),
-      enabled: job.enabled ? 1 : 0,
-      anchor_ms: job.anchorMs,
-      next_run_at_ms: job.nextRunAtMs,
-      last_run_at_ms: job.lastRunAtMs ?? null,
-      running_at_ms: job.runningAtMs ?? null,
-      consecutive_errors: job.consecutiveErrors,
-      status: job.status,
-      metadata_json: job.metadata ? JSON.stringify(job.metadata) : null,
-      created_at: job.createdAt,
-      updated_at: job.updatedAt
-    })
+    `,
+      )
+      .run({
+        id: job.id,
+        name: job.name,
+        schedule_json: JSON.stringify(job.schedule),
+        enabled: job.enabled ? 1 : 0,
+        anchor_ms: job.anchorMs,
+        next_run_at_ms: job.nextRunAtMs,
+        last_run_at_ms: job.lastRunAtMs ?? null,
+        running_at_ms: job.runningAtMs ?? null,
+        consecutive_errors: job.consecutiveErrors,
+        status: job.status,
+        metadata_json: job.metadata ? JSON.stringify(job.metadata) : null,
+        created_at: job.createdAt,
+        updated_at: job.updatedAt,
+      });
   }
 
   /**
    * Update an existing job in the database (full replace of all mutable fields).
    */
   updateJob(job: SchedulerJob): void {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE scheduler_jobs SET
         name = @name,
         schedule_json = @schedule_json,
@@ -221,80 +231,84 @@ export class SchedulerStore {
         metadata_json = @metadata_json,
         updated_at = @updated_at
       WHERE id = @id
-    `).run({
-      id: job.id,
-      name: job.name,
-      schedule_json: JSON.stringify(job.schedule),
-      enabled: job.enabled ? 1 : 0,
-      anchor_ms: job.anchorMs,
-      next_run_at_ms: job.nextRunAtMs,
-      last_run_at_ms: job.lastRunAtMs ?? null,
-      running_at_ms: job.runningAtMs ?? null,
-      consecutive_errors: job.consecutiveErrors,
-      status: job.status,
-      metadata_json: job.metadata ? JSON.stringify(job.metadata) : null,
-      updated_at: job.updatedAt
-    })
+    `,
+      )
+      .run({
+        id: job.id,
+        name: job.name,
+        schedule_json: JSON.stringify(job.schedule),
+        enabled: job.enabled ? 1 : 0,
+        anchor_ms: job.anchorMs,
+        next_run_at_ms: job.nextRunAtMs,
+        last_run_at_ms: job.lastRunAtMs ?? null,
+        running_at_ms: job.runningAtMs ?? null,
+        consecutive_errors: job.consecutiveErrors,
+        status: job.status,
+        metadata_json: job.metadata ? JSON.stringify(job.metadata) : null,
+        updated_at: job.updatedAt,
+      });
   }
 
   /**
    * Delete a job and its associated run log entries (cascade).
    */
   deleteJob(jobId: string): boolean {
-    const result = this.db.prepare('DELETE FROM scheduler_jobs WHERE id = ?').run(jobId)
-    return result.changes > 0
+    const result = this.db.prepare('DELETE FROM scheduler_jobs WHERE id = ?').run(jobId);
+    return result.changes > 0;
   }
 
   /**
    * Get a single job by ID.
    */
   getJob(jobId: string): SchedulerJob | null {
-    const row = this.db.prepare('SELECT * FROM scheduler_jobs WHERE id = ?').get(jobId) as JobRow | undefined
-    return row ? rowToJob(row) : null
+    const row = this.db.prepare('SELECT * FROM scheduler_jobs WHERE id = ?').get(jobId) as
+      | JobRow
+      | undefined;
+    return row ? rowToJob(row) : null;
   }
 
   /**
    * List all jobs, optionally filtered.
    */
   listJobs(filter?: JobFilter): SchedulerJob[] {
-    let sql = 'SELECT * FROM scheduler_jobs'
-    const conditions: string[] = []
-    const params: Record<string, unknown> = {}
+    let sql = 'SELECT * FROM scheduler_jobs';
+    const conditions: string[] = [];
+    const params: Record<string, unknown> = {};
 
     if (filter?.status) {
-      conditions.push('status = @status')
-      params.status = filter.status
+      conditions.push('status = @status');
+      params.status = filter.status;
     }
 
     if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ')
+      sql += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY next_run_at_ms ASC'
+    sql += ' ORDER BY next_run_at_ms ASC';
 
-    const rows = this.db.prepare(sql).all(params) as JobRow[]
-    let jobs = rows.map(rowToJob)
+    const rows = this.db.prepare(sql).all(params) as JobRow[];
+    let jobs = rows.map(rowToJob);
 
     // Apply metadata filter in-memory (metadata is JSON, not SQL-queryable)
     if (filter?.metadata) {
-      const filterMeta = filter.metadata
-      jobs = jobs.filter(job => {
-        if (!job.metadata) return false
-        return Object.entries(filterMeta).every(([key, value]) => job.metadata![key] === value)
-      })
+      const filterMeta = filter.metadata;
+      jobs = jobs.filter((job) => {
+        if (!job.metadata) return false;
+        return Object.entries(filterMeta).every(([key, value]) => job.metadata![key] === value);
+      });
     }
 
-    return jobs
+    return jobs;
   }
 
   /**
    * Get all enabled jobs (for timer tick evaluation).
    */
   getEnabledJobs(): SchedulerJob[] {
-    const rows = this.db.prepare(
-      'SELECT * FROM scheduler_jobs WHERE enabled = 1'
-    ).all() as JobRow[]
-    return rows.map(rowToJob)
+    const rows = this.db
+      .prepare('SELECT * FROM scheduler_jobs WHERE enabled = 1')
+      .all() as JobRow[];
+    return rows.map(rowToJob);
   }
 
   /**
@@ -302,10 +316,12 @@ export class SchedulerStore {
    * Returns the number of affected jobs.
    */
   clearStaleRunningMarkers(): number {
-    const result = this.db.prepare(
-      `UPDATE scheduler_jobs SET running_at_ms = NULL, status = 'idle' WHERE running_at_ms IS NOT NULL AND status = 'running'`
-    ).run()
-    return result.changes
+    const result = this.db
+      .prepare(
+        `UPDATE scheduler_jobs SET running_at_ms = NULL, status = 'idle' WHERE running_at_ms IS NOT NULL AND status = 'running'`,
+      )
+      .run();
+    return result.changes;
   }
 
   // -----------------------------------------------------------------------
@@ -316,42 +332,52 @@ export class SchedulerStore {
    * Insert a run log entry.
    */
   insertRunLog(entry: Omit<RunLogEntry, 'id'>): void {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO scheduler_run_log (
         job_id, started_at, finished_at, duration_ms, outcome, error, metadata_json
       ) VALUES (
         @job_id, @started_at, @finished_at, @duration_ms, @outcome, @error, @metadata_json
       )
-    `).run({
-      job_id: entry.jobId,
-      started_at: entry.startedAt,
-      finished_at: entry.finishedAt,
-      duration_ms: entry.durationMs,
-      outcome: entry.outcome,
-      error: entry.error ?? null,
-      metadata_json: entry.metadata ? JSON.stringify(entry.metadata) : null
-    })
+    `,
+      )
+      .run({
+        job_id: entry.jobId,
+        started_at: entry.startedAt,
+        finished_at: entry.finishedAt,
+        duration_ms: entry.durationMs,
+        outcome: entry.outcome,
+        error: entry.error ?? null,
+        metadata_json: entry.metadata ? JSON.stringify(entry.metadata) : null,
+      });
   }
 
   /**
    * Get recent run log entries for a job, newest first.
    */
   getRunLog(jobId: string, limit: number = 50): RunLogEntry[] {
-    const rows = this.db.prepare(`
+    const rows = this.db
+      .prepare(
+        `
       SELECT * FROM scheduler_run_log
       WHERE job_id = ?
       ORDER BY started_at DESC
       LIMIT ?
-    `).all(jobId, limit) as RunLogRow[]
-    return rows.map(rowToRunLogEntry)
+    `,
+      )
+      .all(jobId, limit) as RunLogRow[];
+    return rows.map(rowToRunLogEntry);
   }
 
   /**
    * Get aggregated run statistics for a job since a given timestamp.
    */
   getRunStats(jobId: string, sinceMs?: number): RunStats {
-    const since = sinceMs ?? 0
-    const row = this.db.prepare(`
+    const since = sinceMs ?? 0;
+    const row = this.db
+      .prepare(
+        `
       SELECT
         COUNT(*) as total_runs,
         SUM(CASE WHEN outcome = 'useful' THEN 1 ELSE 0 END) as useful_count,
@@ -362,7 +388,9 @@ export class SchedulerStore {
         MAX(started_at) as last_run_at
       FROM scheduler_run_log
       WHERE job_id = ? AND started_at >= ?
-    `).get(jobId, since) as RunStatsRow
+    `,
+      )
+      .get(jobId, since) as RunStatsRow;
 
     return {
       totalRuns: row.total_runs,
@@ -371,8 +399,8 @@ export class SchedulerStore {
       error: row.error_count,
       skipped: row.skipped_count,
       avgDurationMs: row.avg_duration_ms ?? 0,
-      lastRunAt: row.last_run_at ?? undefined
-    }
+      lastRunAt: row.last_run_at ?? undefined,
+    };
   }
 
   /**
@@ -381,16 +409,22 @@ export class SchedulerStore {
    */
   pruneRunLog(maxEntriesPerJob: number = 1000): number {
     // Find job IDs that have more than maxEntries
-    const overflowJobs = this.db.prepare(`
+    const overflowJobs = this.db
+      .prepare(
+        `
       SELECT job_id, COUNT(*) as cnt
       FROM scheduler_run_log
       GROUP BY job_id
       HAVING cnt > ?
-    `).all(maxEntriesPerJob) as Array<{ job_id: string; cnt: number }>
+    `,
+      )
+      .all(maxEntriesPerJob) as Array<{ job_id: string; cnt: number }>;
 
-    let totalPruned = 0
+    let totalPruned = 0;
     for (const { job_id } of overflowJobs) {
-      const result = this.db.prepare(`
+      const result = this.db
+        .prepare(
+          `
         DELETE FROM scheduler_run_log
         WHERE job_id = ? AND id NOT IN (
           SELECT id FROM scheduler_run_log
@@ -398,10 +432,12 @@ export class SchedulerStore {
           ORDER BY started_at DESC
           LIMIT ?
         )
-      `).run(job_id, job_id, maxEntriesPerJob)
-      totalPruned += result.changes
+      `,
+        )
+        .run(job_id, job_id, maxEntriesPerJob);
+      totalPruned += result.changes;
     }
 
-    return totalPruned
+    return totalPruned;
   }
 }

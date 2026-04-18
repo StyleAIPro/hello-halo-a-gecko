@@ -7,22 +7,22 @@
  * Follows the same pattern as conversation.service.ts agent command persistence.
  */
 
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'fs'
-import { join, dirname } from 'path'
-import { getSpace } from '../space.service'
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { getSpace } from '../space.service';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface TerminalOutputFile {
-  version: number
-  conversationId: string
-  rawOutput: string
-  updatedAt: string
+  version: number;
+  conversationId: string;
+  rawOutput: string;
+  updatedAt: string;
 }
 
-const OUTPUT_VERSION = 1
+const OUTPUT_VERSION = 1;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,52 +33,57 @@ const OUTPUT_VERSION = 1
  * Duplicated from conversation.service.ts (private function).
  */
 function getConversationsDir(spaceId: string): string {
-  const space = getSpace(spaceId)
+  const space = getSpace(spaceId);
 
   if (!space) {
-    console.warn(`[TerminalOutput] Space not found: ${spaceId}, cannot determine conversations dir`)
-    return ''
+    console.warn(
+      `[TerminalOutput] Space not found: ${spaceId}, cannot determine conversations dir`,
+    );
+    return '';
   }
 
   const convDir = space.isTemp
     ? join(space.path, 'conversations')
-    : join(space.path, '.aico-bot', 'conversations')
-  return convDir
+    : join(space.path, '.aico-bot', 'conversations');
+  return convDir;
 }
 
 /**
  * Get the file path for terminal output of a conversation.
  */
 function getOutputFilePath(spaceId: string, conversationId: string): string {
-  const dir = getConversationsDir(spaceId)
-  if (!dir) return ''
-  return join(dir, `${conversationId}.terminal-output.json`)
+  const dir = getConversationsDir(spaceId);
+  if (!dir) return '';
+  return join(dir, `${conversationId}.terminal-output.json`);
 }
 
 /**
  * Write file atomically: write to .tmp first, then rename.
  */
 function atomicWriteFileSync(filePath: string, data: string): void {
-  const dir = dirname(filePath)
+  const dir = dirname(filePath);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true });
   }
-  const tmpPath = filePath + '.tmp'
-  writeFileSync(tmpPath, data)
-  renameSync(tmpPath, filePath)
+  const tmpPath = filePath + '.tmp';
+  writeFileSync(tmpPath, data);
+  renameSync(tmpPath, filePath);
 }
 
 // ---------------------------------------------------------------------------
 // Debounced write state
 // ---------------------------------------------------------------------------
 
-const pendingWrites = new Map<string, {
-  timer: ReturnType<typeof setTimeout>
-  spaceId: string
-  conversationId: string
-}>()
+const pendingWrites = new Map<
+  string,
+  {
+    timer: ReturnType<typeof setTimeout>;
+    spaceId: string;
+    conversationId: string;
+  }
+>();
 
-const FLUSH_DEBOUNCE_MS = 2000
+const FLUSH_DEBOUNCE_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -91,23 +96,23 @@ const FLUSH_DEBOUNCE_MS = 2000
 export function saveTerminalOutput(
   spaceId: string,
   conversationId: string,
-  rawOutput: string
+  rawOutput: string,
 ): void {
-  const filePath = getOutputFilePath(spaceId, conversationId)
-  if (!filePath) return
+  const filePath = getOutputFilePath(spaceId, conversationId);
+  if (!filePath) return;
 
   // Mark as pending (coalesce into existing debounce if any)
-  const existing = pendingWrites.get(filePath)
+  const existing = pendingWrites.get(filePath);
   if (existing) {
-    clearTimeout(existing.timer)
+    clearTimeout(existing.timer);
   }
 
   const timer = setTimeout(() => {
-    pendingWrites.delete(filePath)
-    doSave(filePath, conversationId, rawOutput)
-  }, FLUSH_DEBOUNCE_MS)
+    pendingWrites.delete(filePath);
+    doSave(filePath, conversationId, rawOutput);
+  }, FLUSH_DEBOUNCE_MS);
 
-  pendingWrites.set(filePath, { timer, spaceId, conversationId })
+  pendingWrites.set(filePath, { timer, spaceId, conversationId });
 }
 
 /**
@@ -116,19 +121,19 @@ export function saveTerminalOutput(
 export function saveTerminalOutputImmediate(
   spaceId: string,
   conversationId: string,
-  rawOutput: string
+  rawOutput: string,
 ): void {
-  const filePath = getOutputFilePath(spaceId, conversationId)
-  if (!filePath) return
+  const filePath = getOutputFilePath(spaceId, conversationId);
+  if (!filePath) return;
 
   // Cancel any pending debounced write for this file
-  const existing = pendingWrites.get(filePath)
+  const existing = pendingWrites.get(filePath);
   if (existing) {
-    clearTimeout(existing.timer)
-    pendingWrites.delete(filePath)
+    clearTimeout(existing.timer);
+    pendingWrites.delete(filePath);
   }
 
-  doSave(filePath, conversationId, rawOutput)
+  doSave(filePath, conversationId, rawOutput);
 }
 
 /**
@@ -136,16 +141,16 @@ export function saveTerminalOutputImmediate(
  * Returns empty string if not found or on error.
  */
 export function loadTerminalOutput(spaceId: string, conversationId: string): string {
-  const filePath = getOutputFilePath(spaceId, conversationId)
-  if (!filePath || !existsSync(filePath)) return ''
+  const filePath = getOutputFilePath(spaceId, conversationId);
+  if (!filePath || !existsSync(filePath)) return '';
 
   try {
-    const content = readFileSync(filePath, 'utf-8')
-    const file: TerminalOutputFile = JSON.parse(content)
-    return file.rawOutput || ''
+    const content = readFileSync(filePath, 'utf-8');
+    const file: TerminalOutputFile = JSON.parse(content);
+    return file.rawOutput || '';
   } catch (error) {
-    console.warn(`[TerminalOutput] Failed to load output for ${conversationId}:`, error)
-    return ''
+    console.warn(`[TerminalOutput] Failed to load output for ${conversationId}:`, error);
+    return '';
   }
 }
 
@@ -153,15 +158,15 @@ export function loadTerminalOutput(spaceId: string, conversationId: string): str
  * Clear persisted terminal output for a conversation.
  */
 export function clearTerminalOutput(spaceId: string, conversationId: string): void {
-  const filePath = getOutputFilePath(spaceId, conversationId)
-  if (!filePath) return
+  const filePath = getOutputFilePath(spaceId, conversationId);
+  if (!filePath) return;
 
   try {
     if (existsSync(filePath)) {
-      unlinkSync(filePath)
+      unlinkSync(filePath);
     }
   } catch (error) {
-    console.warn(`[TerminalOutput] Failed to clear output for ${conversationId}:`, error)
+    console.warn(`[TerminalOutput] Failed to clear output for ${conversationId}:`, error);
   }
 }
 
@@ -171,20 +176,20 @@ export function clearTerminalOutput(spaceId: string, conversationId: string): vo
  */
 export function flushAllPendingOutputWrites(): void {
   for (const [filePath, pending] of pendingWrites.entries()) {
-    clearTimeout(pending.timer)
+    clearTimeout(pending.timer);
     // We can't flush the actual content here because we don't have the rawOutput.
     // The caller (terminal-gateway) should use flushDirtySessions() instead,
     // which reads the current rawOutput from active sessions.
-    pendingWrites.delete(filePath)
+    pendingWrites.delete(filePath);
   }
-  console.log('[TerminalOutput] All pending writes flushed')
+  console.log('[TerminalOutput] All pending writes flushed');
 }
 
 /**
  * Check if there are any pending writes.
  */
 export function hasPendingWrites(): boolean {
-  return pendingWrites.size > 0
+  return pendingWrites.size > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,10 +202,10 @@ function doSave(filePath: string, conversationId: string, rawOutput: string): vo
       version: OUTPUT_VERSION,
       conversationId,
       rawOutput,
-      updatedAt: new Date().toISOString()
-    }
-    atomicWriteFileSync(filePath, JSON.stringify(file))
+      updatedAt: new Date().toISOString(),
+    };
+    atomicWriteFileSync(filePath, JSON.stringify(file));
   } catch (error) {
-    console.error(`[TerminalOutput] Failed to save output for ${conversationId}:`, error)
+    console.error(`[TerminalOutput] Failed to save output for ${conversationId}:`, error);
   }
 }

@@ -10,8 +10,8 @@
 // ============================================
 
 interface QueuedWaiter {
-  resolve: () => void
-  reject: (err: Error) => void
+  resolve: () => void;
+  reject: (err: Error) => void;
 }
 
 // ============================================
@@ -26,30 +26,30 @@ interface QueuedWaiter {
  * - `tryAcquire()` returns false instead of blocking.
  */
 export class Semaphore {
-  private readonly max: number
-  private current: number = 0
-  private readonly queue: QueuedWaiter[] = []
+  private readonly max: number;
+  private current: number = 0;
+  private readonly queue: QueuedWaiter[] = [];
 
   constructor(maxConcurrent: number) {
     if (maxConcurrent < 1) {
-      throw new Error(`Semaphore max must be >= 1, got ${maxConcurrent}`)
+      throw new Error(`Semaphore max must be >= 1, got ${maxConcurrent}`);
     }
-    this.max = maxConcurrent
+    this.max = maxConcurrent;
   }
 
   /** Current number of acquired slots */
   get activeCount(): number {
-    return this.current
+    return this.current;
   }
 
   /** Number of callers waiting in queue */
   get waitingCount(): number {
-    return this.queue.length
+    return this.queue.length;
   }
 
   /** Maximum concurrent slots */
   get maxConcurrent(): number {
-    return this.max
+    return this.max;
   }
 
   /**
@@ -58,13 +58,13 @@ export class Semaphore {
    */
   async acquire(): Promise<void> {
     if (this.current < this.max) {
-      this.current++
-      return
+      this.current++;
+      return;
     }
 
     return new Promise<void>((resolve, reject) => {
-      this.queue.push({ resolve, reject })
-    })
+      this.queue.push({ resolve, reject });
+    });
   }
 
   /**
@@ -73,10 +73,10 @@ export class Semaphore {
    */
   tryAcquire(): boolean {
     if (this.current < this.max) {
-      this.current++
-      return true
+      this.current++;
+      return true;
     }
-    return false
+    return false;
   }
 
   /**
@@ -84,11 +84,11 @@ export class Semaphore {
    */
   release(): void {
     if (this.queue.length > 0) {
-      const waiter = this.queue.shift()!
+      const waiter = this.queue.shift()!;
       // Slot transfers directly to the waiter (current stays the same)
-      waiter.resolve()
+      waiter.resolve();
     } else if (this.current > 0) {
-      this.current--
+      this.current--;
     }
   }
 
@@ -97,10 +97,10 @@ export class Semaphore {
    * Used during shutdown.
    */
   rejectAll(reason: string): void {
-    const waiters = this.queue.splice(0, this.queue.length)
-    const error = new Error(reason)
+    const waiters = this.queue.splice(0, this.queue.length);
+    const error = new Error(reason);
     for (const waiter of waiters) {
-      waiter.reject(error)
+      waiter.reject(error);
     }
   }
 }

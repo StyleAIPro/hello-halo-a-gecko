@@ -1,4 +1,4 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Agent Module - Public API
  *
  * This module provides the AI agent functionality for AICO-Bot.
@@ -40,27 +40,22 @@ export type {
   McpServerStatusInfo,
   TokenUsage,
   SingleCallUsage,
-  MainWindowRef
-} from './types'
+  MainWindowRef,
+} from './types';
 
 // ============================================
 // Core Functions
 // ============================================
 
 // Send message to agent
-export { sendMessage } from './send-message'
+export { sendMessage } from './send-message';
 
 // Stream processor (shared core for main agent + app chat)
-export { processStream } from './stream-processor'
-export type { ProcessStreamParams, StreamCallbacks, StreamResult } from './stream-processor'
+export { processStream } from './stream-processor';
+export type { ProcessStreamParams, StreamCallbacks, StreamResult } from './stream-processor';
 
 // Generation control
-export {
-  stopGeneration,
-  isGenerating,
-  getActiveSessions,
-  getSessionState
-} from './control'
+export { stopGeneration, isGenerating, getActiveSessions, getSessionState } from './control';
 
 // ============================================
 // Session Management
@@ -71,17 +66,14 @@ export {
   closeV2Session,
   closeAllV2Sessions,
   invalidateAllSessions,
-  compactContext
-} from './session-manager'
+  compactContext,
+} from './session-manager';
 
 // ============================================
 // MCP Management
 // ============================================
 
-export {
-  getCachedMcpStatus,
-  testMcpConnections
-} from './mcp-manager'
+export { getCachedMcpStatus, testMcpConnections } from './mcp-manager';
 
 // ============================================
 // Re-exports for Internal Use
@@ -90,8 +82,13 @@ export {
 // These are not part of the public API but may be needed internally
 // during the transition period
 
-export { createCanUseTool, resolveQuestion, rejectQuestion, rejectAllQuestions } from './permission-handler'
-export { getWorkingDir, getApiCredentials, sendToRenderer } from './helpers'
-export { parseSDKMessage, buildMessageContent, formatCanvasContext } from './message-utils'
-export { getOrCreateV2Session, activeSessions, v2Sessions } from './session-manager'
-export { broadcastMcpStatus } from './mcp-manager'
+export {
+  createCanUseTool,
+  resolveQuestion,
+  rejectQuestion,
+  rejectAllQuestions,
+} from './permission-handler';
+export { getWorkingDir, getApiCredentials, sendToRenderer } from './helpers';
+export { parseSDKMessage, buildMessageContent, formatCanvasContext } from './message-utils';
+export { getOrCreateV2Session, activeSessions, v2Sessions } from './session-manager';
+export { broadcastMcpStatus } from './mcp-manager';

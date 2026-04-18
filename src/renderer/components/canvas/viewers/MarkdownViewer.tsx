@@ -9,107 +9,107 @@
  * - Window maximize for fullscreen viewing
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { Copy, Check, Code, Eye, ExternalLink, Pencil } from 'lucide-react'
-import { Streamdown } from 'streamdown'
-import 'streamdown/styles.css'
-import { useCodePlugin } from '../../../lib/streamdown-plugins'
-import { api } from '../../../api'
-import type { CanvasTab } from '../../../stores/canvas.store'
-import { useTranslation } from '../../../i18n'
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Copy, Check, Code, Eye, ExternalLink, Pencil } from 'lucide-react';
+import { Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
+import { useCodePlugin } from '../../../lib/streamdown-plugins';
+import { api } from '../../../api';
+import type { CanvasTab } from '../../../stores/canvas.store';
+import { useTranslation } from '../../../i18n';
 
 /**
  * Resolve relative image paths to aico-bot-file:// protocol URLs
  * This bypasses cross-origin restrictions in dev mode (http://localhost -> file://)
  */
 function resolveImageSrc(src: string | undefined, basePath: string): string {
-  if (!src) return ''
+  if (!src) return '';
 
   // Keep absolute URLs and data URIs as-is
   if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
-    return src
+    return src;
   }
 
   // No base path available, return original
-  if (!basePath) return src
+  if (!basePath) return src;
 
   // Resolve relative paths to aico-bot-file:// protocol
   if (src.startsWith('./')) {
-    return `aico-bot-file://${basePath}/${src.slice(2)}`
+    return `aico-bot-file://${basePath}/${src.slice(2)}`;
   }
 
   if (src.startsWith('../')) {
-    const parts = basePath.split('/')
-    const srcParts = src.split('/')
+    const parts = basePath.split('/');
+    const srcParts = src.split('/');
     while (srcParts[0] === '..') {
-      parts.pop()
-      srcParts.shift()
+      parts.pop();
+      srcParts.shift();
     }
-    return `aico-bot-file://${parts.join('/')}/${srcParts.join('/')}`
+    return `aico-bot-file://${parts.join('/')}/${srcParts.join('/')}`;
   }
 
   if (src.startsWith('/')) {
-    return `aico-bot-file://${src}`
+    return `aico-bot-file://${src}`;
   }
 
   // Relative path without prefix
-  return `aico-bot-file://${basePath}/${src}`
+  return `aico-bot-file://${basePath}/${src}`;
 }
 
 interface MarkdownViewerProps {
-  tab: CanvasTab
-  onScrollChange?: (position: number) => void
-  onEditRequest?: () => void
+  tab: CanvasTab;
+  onScrollChange?: (position: number) => void;
+  onEditRequest?: () => void;
 }
 
 export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownViewerProps) {
-  const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered')
-  const [copied, setCopied] = useState(false)
-  const codePlugin = useCodePlugin()
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered');
+  const [copied, setCopied] = useState(false);
+  const codePlugin = useCodePlugin();
 
   // Get the base directory of the markdown file for resolving relative paths
-  const basePath = tab.path ? tab.path.substring(0, tab.path.lastIndexOf('/')) : ''
+  const basePath = tab.path ? tab.path.substring(0, tab.path.lastIndexOf('/')) : '';
 
   // Restore scroll position
   useEffect(() => {
     if (containerRef.current && tab.scrollPosition !== undefined) {
-      containerRef.current.scrollTop = tab.scrollPosition
+      containerRef.current.scrollTop = tab.scrollPosition;
     }
-  }, [tab.id, viewMode])
+  }, [tab.id, viewMode]);
 
   // Save scroll position
   const handleScroll = useCallback(() => {
     if (containerRef.current && onScrollChange) {
-      onScrollChange(containerRef.current.scrollTop)
+      onScrollChange(containerRef.current.scrollTop);
     }
-  }, [onScrollChange])
+  }, [onScrollChange]);
 
   // Copy content
   const handleCopy = async () => {
-    if (!tab.content) return
+    if (!tab.content) return;
     try {
-      await navigator.clipboard.writeText(tab.content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(tab.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }
+  };
 
   // Open with external application
   const handleOpenExternal = async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
     try {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } catch (err) {
-      console.error('Failed to open with external app:', err)
+      console.error('Failed to open with external app:', err);
     }
-  }
+  };
 
-  const content = tab.content || ''
-  const canOpenExternal = !api.isRemoteMode() && tab.path
+  const content = tab.content || '';
+  const canOpenExternal = !api.isRemoteMode() && tab.path;
 
   return (
     <div className="relative flex flex-col h-full bg-background">
@@ -122,9 +122,10 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
               onClick={() => setViewMode('rendered')}
               className={`
                 flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
-                ${viewMode === 'rendered'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                ${
+                  viewMode === 'rendered'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }
               `}
             >
@@ -135,9 +136,10 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
               onClick={() => setViewMode('source')}
               className={`
                 flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
-                ${viewMode === 'source'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
+                ${
+                  viewMode === 'source'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }
               `}
             >
@@ -186,11 +188,7 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
       </div>
 
       {/* Content */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-auto"
-      >
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto">
         {viewMode === 'rendered' ? (
           <div className="prose prose-invert max-w-none p-6 sm:p-8">
             <Streamdown
@@ -204,7 +202,7 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
                     <div className="overflow-x-auto">
                       <table className="min-w-full">{children}</table>
                     </div>
-                  )
+                  );
                 },
                 // Links - add target="_blank" (styling from tailwind.config.cjs)
                 a({ href, children }: any) {
@@ -212,7 +210,7 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
                     <a href={href} target="_blank" rel="noopener noreferrer">
                       {children}
                     </a>
-                  )
+                  );
                 },
                 // Style images - resolve relative paths using aico-bot-file:// protocol
                 img({ src, alt }: any) {
@@ -224,8 +222,8 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
                       // Don't stretch small images, limit large ones (like GitHub ~880px)
                       style={{ maxWidth: 'min(100%, 880px)' }}
                     />
-                  )
-                }
+                  );
+                },
               }}
             >
               {content}
@@ -236,23 +234,21 @@ export function MarkdownViewer({ tab, onScrollChange, onEditRequest }: MarkdownV
         )}
       </div>
     </div>
-  )
+  );
 }
 
 /**
  * Source code view with line numbers
  */
 function SourceView({ content }: { content: string }) {
-  const lines = content.split('\n')
+  const lines = content.split('\n');
 
   return (
     <div className="flex font-mono text-sm">
       {/* Line numbers */}
       <div className="sticky left-0 flex-shrink-0 select-none bg-background/80 backdrop-blur-sm border-r border-border/50 text-right text-muted-foreground/40 pr-3 pl-4 py-4 leading-6">
         {lines.map((_, i) => (
-          <div key={i + 1}>
-            {i + 1}
-          </div>
+          <div key={i + 1}>{i + 1}</div>
         ))}
       </div>
 
@@ -261,5 +257,5 @@ function SourceView({ content }: { content: string }) {
         {content}
       </pre>
     </div>
-  )
+  );
 }

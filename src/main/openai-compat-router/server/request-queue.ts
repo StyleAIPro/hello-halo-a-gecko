@@ -5,7 +5,7 @@
  * This solves 429 errors caused by parallel request behavior
  */
 
-const requestQueues = new Map<string, Promise<void>>()
+const requestQueues = new Map<string, Promise<void>>();
 
 /**
  * Execute a function with request queue protection
@@ -15,25 +15,25 @@ const requestQueues = new Map<string, Promise<void>>()
  */
 export async function withRequestQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
   // Wait for any pending request with the same key
-  const pending = requestQueues.get(key)
+  const pending = requestQueues.get(key);
   if (pending) {
-    await pending.catch(() => {}) // Ignore errors from previous request
+    await pending.catch(() => {}); // Ignore errors from previous request
   }
 
   // Create a new promise for this request
-  let resolve: () => void
+  let resolve: () => void;
   const thisRequest = new Promise<void>((r) => {
-    resolve = r
-  })
-  requestQueues.set(key, thisRequest)
+    resolve = r;
+  });
+  requestQueues.set(key, thisRequest);
 
   try {
-    return await fn()
+    return await fn();
   } finally {
-    resolve!()
+    resolve!();
     // Clean up if this is still the current request
     if (requestQueues.get(key) === thisRequest) {
-      requestQueues.delete(key)
+      requestQueues.delete(key);
     }
   }
 }
@@ -42,19 +42,19 @@ export async function withRequestQueue<T>(key: string, fn: () => Promise<T>): Pr
  * Generate a queue key from backend URL and API key
  */
 export function generateQueueKey(backendUrl: string, apiKey: string): string {
-  return `${backendUrl}:${apiKey.slice(0, 16)}`
+  return `${backendUrl}:${apiKey.slice(0, 16)}`;
 }
 
 /**
  * Clear all pending requests (for testing)
  */
 export function clearRequestQueues(): void {
-  requestQueues.clear()
+  requestQueues.clear();
 }
 
 /**
  * Get the number of pending requests (for monitoring)
  */
 export function getPendingRequestCount(): number {
-  return requestQueues.size
+  return requestQueues.size;
 }

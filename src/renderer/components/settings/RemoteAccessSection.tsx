@@ -3,104 +3,104 @@
  * Manages remote access and tunnel settings
  */
 
-import { useState, useEffect } from 'react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import type { RemoteAccessStatus } from './types'
+import { useState, useEffect } from 'react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import type { RemoteAccessStatus } from './types';
 
 export function RemoteAccessSection() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Remote access state
-  const [remoteStatus, setRemoteStatus] = useState<RemoteAccessStatus | null>(null)
-  const [isEnablingRemote, setIsEnablingRemote] = useState(false)
-  const [isEnablingTunnel, setIsEnablingTunnel] = useState(false)
-  const [qrCode, setQrCode] = useState<string | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
-  const [isEditingPassword, setIsEditingPassword] = useState(false)
-  const [customPassword, setCustomPassword] = useState('')
-  const [passwordError, setPasswordError] = useState<string | null>(null)
-  const [isSavingPassword, setIsSavingPassword] = useState(false)
+  const [remoteStatus, setRemoteStatus] = useState<RemoteAccessStatus | null>(null);
+  const [isEnablingRemote, setIsEnablingRemote] = useState(false);
+  const [isEnablingTunnel, setIsEnablingTunnel] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [customPassword, setCustomPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   // Load remote access status
   useEffect(() => {
-    loadRemoteStatus()
+    loadRemoteStatus();
 
     const unsubscribe = api.onRemoteStatusChange((data) => {
-      setRemoteStatus(data as RemoteAccessStatus)
-    })
+      setRemoteStatus(data as RemoteAccessStatus);
+    });
 
     return () => {
-      unsubscribe()
-    }
-  }, [])
+      unsubscribe();
+    };
+  }, []);
 
   // Load QR code when remote is enabled
   useEffect(() => {
     if (remoteStatus?.enabled) {
-      loadQRCode()
+      loadQRCode();
     } else {
-      setQrCode(null)
+      setQrCode(null);
     }
-  }, [remoteStatus?.enabled, remoteStatus?.tunnel.url])
+  }, [remoteStatus?.enabled, remoteStatus?.tunnel.url]);
 
   const loadRemoteStatus = async () => {
     try {
-      const response = await api.getRemoteStatus()
+      const response = await api.getRemoteStatus();
       if (response.success && response.data) {
-        setRemoteStatus(response.data as RemoteAccessStatus)
+        setRemoteStatus(response.data as RemoteAccessStatus);
       }
     } catch (error) {
-      console.error('[RemoteAccessSection] loadRemoteStatus error:', error)
+      console.error('[RemoteAccessSection] loadRemoteStatus error:', error);
     }
-  }
+  };
 
   const loadQRCode = async () => {
-    const response = await api.getRemoteQRCode(false)
+    const response = await api.getRemoteQRCode(false);
     if (response.success && response.data) {
-      setQrCode((response.data as any).qrCode)
+      setQrCode((response.data as any).qrCode);
     }
-  }
+  };
 
   const handleToggleRemote = async () => {
     if (remoteStatus?.enabled) {
-      const response = await api.disableRemoteAccess()
+      const response = await api.disableRemoteAccess();
       if (response.success) {
-        setRemoteStatus(null)
-        setQrCode(null)
+        setRemoteStatus(null);
+        setQrCode(null);
       }
     } else {
-      setIsEnablingRemote(true)
+      setIsEnablingRemote(true);
       try {
-        const response = await api.enableRemoteAccess()
+        const response = await api.enableRemoteAccess();
         if (response.success && response.data) {
-          setRemoteStatus(response.data as RemoteAccessStatus)
+          setRemoteStatus(response.data as RemoteAccessStatus);
         }
       } catch {
         // Enable failed silently
       } finally {
-        setIsEnablingRemote(false)
+        setIsEnablingRemote(false);
       }
     }
-  }
+  };
 
   const handleToggleTunnel = async () => {
     if (remoteStatus?.tunnel.status === 'running') {
-      await api.disableTunnel()
+      await api.disableTunnel();
     } else {
-      setIsEnablingTunnel(true)
+      setIsEnablingTunnel(true);
       try {
-        await api.enableTunnel()
+        await api.enableTunnel();
       } finally {
-        setIsEnablingTunnel(false)
+        setIsEnablingTunnel(false);
       }
     }
-    loadRemoteStatus()
-  }
+    loadRemoteStatus();
+  };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-  }
+    navigator.clipboard.writeText(text);
+  };
 
   return (
     <section id="remote" className="bg-card rounded-xl border border-border p-6">
@@ -113,7 +113,9 @@ export function RemoteAccessSection() {
           <div className="text-sm">
             <p className="text-amber-500 font-medium mb-1">{t('Security Warning')}</p>
             <p className="text-amber-500/80">
-              {t('After enabling remote access, anyone with the password can fully control your computer (read/write files, execute commands). Do not share the access password with untrusted people.')}
+              {t(
+                'After enabling remote access, anyone with the password can fully control your computer (read/write files, execute commands). Do not share the access password with untrusted people.',
+              )}
             </p>
           </div>
         </div>
@@ -205,9 +207,9 @@ export function RemoteAccessSection() {
                       </button>
                       <button
                         onClick={() => {
-                          setIsEditingPassword(true)
-                          setCustomPassword('')
-                          setPasswordError(null)
+                          setIsEditingPassword(true);
+                          setCustomPassword('');
+                          setPasswordError(null);
                         }}
                         className="text-xs text-primary hover:text-primary/80"
                       >
@@ -220,8 +222,8 @@ export function RemoteAccessSection() {
                         type="text"
                         value={customPassword}
                         onChange={(e) => {
-                          setCustomPassword(e.target.value)
-                          setPasswordError(null)
+                          setCustomPassword(e.target.value);
+                          setPasswordError(null);
                         }}
                         placeholder={t('4-32 characters')}
                         maxLength={32}
@@ -230,24 +232,24 @@ export function RemoteAccessSection() {
                       <button
                         onClick={async () => {
                           if (customPassword.length < 4) {
-                            setPasswordError(t('Password too short'))
-                            return
+                            setPasswordError(t('Password too short'));
+                            return;
                           }
-                          setIsSavingPassword(true)
-                          setPasswordError(null)
+                          setIsSavingPassword(true);
+                          setPasswordError(null);
                           try {
-                            const res = await api.setRemotePassword(customPassword)
+                            const res = await api.setRemotePassword(customPassword);
                             if (res.success) {
-                              setIsEditingPassword(false)
-                              setCustomPassword('')
-                              loadRemoteStatus()
+                              setIsEditingPassword(false);
+                              setCustomPassword('');
+                              loadRemoteStatus();
                             } else {
-                              setPasswordError(res.error || t('Failed to set password'))
+                              setPasswordError(res.error || t('Failed to set password'));
                             }
                           } catch (error) {
-                            setPasswordError(t('Failed to set password'))
+                            setPasswordError(t('Failed to set password'));
                           } finally {
-                            setIsSavingPassword(false)
+                            setIsSavingPassword(false);
                           }
                         }}
                         disabled={isSavingPassword || customPassword.length < 4}
@@ -257,9 +259,9 @@ export function RemoteAccessSection() {
                       </button>
                       <button
                         onClick={() => {
-                          setIsEditingPassword(false)
-                          setCustomPassword('')
-                          setPasswordError(null)
+                          setIsEditingPassword(false);
+                          setCustomPassword('');
+                          setPasswordError(null);
                         }}
                         className="text-xs text-muted-foreground hover:text-foreground"
                       >
@@ -268,15 +270,15 @@ export function RemoteAccessSection() {
                     </div>
                   )}
                 </div>
-                {passwordError && (
-                  <p className="text-xs text-red-500">{passwordError}</p>
-                )}
+                {passwordError && <p className="text-xs text-red-500">{passwordError}</p>}
               </div>
 
               {remoteStatus.clients > 0 && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('Connected Devices')}</span>
-                  <span className="text-green-500">{t('{{count}} devices', { count: remoteStatus.clients })}</span>
+                  <span className="text-green-500">
+                    {t('{{count}} devices', { count: remoteStatus.clients })}
+                  </span>
                 </div>
               )}
             </div>
@@ -287,7 +289,9 @@ export function RemoteAccessSection() {
                 <div>
                   <p className="font-medium">{t('Internet Access')}</p>
                   <p className="text-sm text-muted-foreground">
-                    {t('Get public address via Cloudflare (wait about 10 seconds for DNS resolution after startup)')}
+                    {t(
+                      'Get public address via Cloudflare (wait about 10 seconds for DNS resolution after startup)',
+                    )}
                   </p>
                 </div>
                 <button
@@ -357,5 +361,5 @@ export function RemoteAccessSection() {
         )}
       </div>
     </section>
-  )
+  );
 }

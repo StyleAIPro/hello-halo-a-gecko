@@ -5,80 +5,89 @@
  * this dialog presents the request in the main chat for the user to approve or deny.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 export interface PermissionRequestData {
-  requestId: string
-  requestingAgentId: string
-  requestingAgentName: string
-  toolName: string
-  toolInput: Record<string, unknown>
-  taskId?: string
-  timestamp: number
+  requestId: string;
+  requestingAgentId: string;
+  requestingAgentName: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  taskId?: string;
+  timestamp: number;
 }
 
 interface PermissionRequestDialogProps {
-  request: PermissionRequestData
-  onResolve: (approved: boolean) => void
+  request: PermissionRequestData;
+  onResolve: (approved: boolean) => void;
 }
 
 export function PermissionRequestDialog({ request, onResolve }: PermissionRequestDialogProps) {
-  const [resolved, setResolved] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const [resolved, setResolved] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-deny after 5 minutes
   useEffect(() => {
-    timeoutRef.current = setTimeout(() => {
-      if (!resolved) {
-        setResolved(true)
-        onResolve(false)
-      }
-    }, 5 * 60 * 1000)
+    timeoutRef.current = setTimeout(
+      () => {
+        if (!resolved) {
+          setResolved(true);
+          onResolve(false);
+        }
+      },
+      5 * 60 * 1000,
+    );
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [resolved, onResolve])
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [resolved, onResolve]);
 
-  const handleResolve = useCallback((approved: boolean) => {
-    if (resolved) return
-    setResolved(true)
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    onResolve(approved)
-  }, [resolved, onResolve])
+  const handleResolve = useCallback(
+    (approved: boolean) => {
+      if (resolved) return;
+      setResolved(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      onResolve(approved);
+    },
+    [resolved, onResolve],
+  );
 
   const formatToolInput = (input: Record<string, unknown>): string => {
-    const entries = Object.entries(input).slice(0, 5) // Limit display
-    if (entries.length === 0) return '(no input)'
-    return entries.map(([k, v]) => {
-      const val = typeof v === 'string' ? v : JSON.stringify(v)
-      const truncated = val.length > 200 ? val.substring(0, 200) + '...' : val
-      return `${k}: ${truncated}`
-    }).join('\n')
-  }
+    const entries = Object.entries(input).slice(0, 5); // Limit display
+    if (entries.length === 0) return '(no input)';
+    return entries
+      .map(([k, v]) => {
+        const val = typeof v === 'string' ? v : JSON.stringify(v);
+        const truncated = val.length > 200 ? val.substring(0, 200) + '...' : val;
+        return `${k}: ${truncated}`;
+      })
+      .join('\n');
+  };
 
   return (
-    <div className={`
+    <div
+      className={`
       mt-3 rounded-xl border overflow-hidden transition-all duration-300
-      ${resolved
-        ? 'border-border/50 bg-card/30 opacity-50'
-        : 'border-amber-400/60 bg-gradient-to-br from-amber-50/80 via-background to-amber-100/5 animate-fade-in'
-      }
-    `}>
-      {/* Header */}
-      <div className={`px-3 py-2 flex items-center gap-2 ${
+      ${
         resolved
-          ? 'bg-muted/30'
-          : 'bg-gradient-to-r from-amber-500/10 to-transparent'
-      }`}>
+          ? 'border-border/50 bg-card/30 opacity-50'
+          : 'border-amber-400/60 bg-gradient-to-br from-amber-50/80 via-background to-amber-100/5 animate-fade-in'
+      }
+    `}
+    >
+      {/* Header */}
+      <div
+        className={`px-3 py-2 flex items-center gap-2 ${
+          resolved ? 'bg-muted/30' : 'bg-gradient-to-r from-amber-500/10 to-transparent'
+        }`}
+      >
         {!resolved ? (
           <ShieldAlert size={14} className="text-amber-600 animate-pulse-gentle" />
         ) : (
           <ShieldCheck size={14} className="text-green-500" />
         )}
-        <span className="text-xs font-medium text-foreground">
-          Tool Permission Request
-        </span>
+        <span className="text-xs font-medium text-foreground">Tool Permission Request</span>
         <span className="text-[10px] text-muted-foreground ml-auto">
           {new Date(request.timestamp).toLocaleTimeString()}
         </span>
@@ -107,9 +116,7 @@ export function PermissionRequestDialog({ request, onResolve }: PermissionReques
         </div>
 
         {request.taskId && (
-          <div className="text-[10px] text-muted-foreground/70 ml-5">
-            Task: {request.taskId}
-          </div>
+          <div className="text-[10px] text-muted-foreground/70 ml-5">Task: {request.taskId}</div>
         )}
 
         {/* Action buttons */}
@@ -127,9 +134,7 @@ export function PermissionRequestDialog({ request, onResolve }: PermissionReques
             >
               Deny
             </button>
-            <span className="text-[10px] text-muted-foreground/60">
-              (auto-denies in 5 min)
-            </span>
+            <span className="text-[10px] text-muted-foreground/60">(auto-denies in 5 min)</span>
           </div>
         )}
 
@@ -141,5 +146,5 @@ export function PermissionRequestDialog({ request, onResolve }: PermissionReques
         )}
       </div>
     </div>
-  )
+  );
 }
