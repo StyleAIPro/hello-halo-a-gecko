@@ -274,6 +274,18 @@ export async function getGitHubToken(): Promise<string | undefined> {
   }
 }
 
+// ── Progress callback ──────────────────────────────────────────────
+
+export interface GitHubSkillFetchProgress {
+  phase: 'scanning' | 'fetching-metadata';
+  current: number;
+  total: number;
+}
+
+export type GitHubSkillFetchProgressCallback = (progress: GitHubSkillFetchProgress) => void;
+
+export type GitHubSkillFoundCallback = (skill: RemoteSkillItem, totalFound: number) => void;
+
 // ── Frontmatter parsing ──────────────────────────────────────────────
 
 interface SkillFrontmatter {
@@ -315,6 +327,8 @@ async function findSkillDirs(
   path: string,
   token?: string,
   maxDepth: number = 5,
+  onProgress?: GitHubSkillFetchProgressCallback,
+  scanned?: { count: number; total: number },
 ): Promise<Array<{ path: string; name: string }>> {
   if (maxDepth <= 0) return [];
 
@@ -344,11 +358,17 @@ async function findSkillDirs(
     return results; // Don't recurse into a skill directory
   }
 
+  // Track scanning progress
+  const tracker = scanned || { count: 0, total: dirs.length };
+
   // Not a skill directory — recurse into subdirectories (in parallel)
   const subResults = await Promise.all(
-    dirs.map((dir: any) => {
+    dirs.map(async (dir: any) => {
       const subPath = path === '/' ? `${dir.name}/` : `${path}${dir.name}/`;
-      return findSkillDirs(repo, subPath, token, maxDepth - 1);
+      const sub = await findSkillDirs(repo, subPath, token, maxDepth - 1, undefined, tracker);
+      tracker.count++;
+      onProgress?.({ phase: 'scanning', current: tracker.count, total: tracker.total });
+      return sub;
     }),
   );
 
@@ -364,7 +384,11 @@ async function findSkillDirs(
  * Recursively searches for directories containing SKILL.md,
  * starting from `skills/` subdirectory and root.
  */
-export async function listSkillsFromRepo(repo: string, token?: string): Promise<RemoteSkillItem[]> {
+export async function listSkillsFromRepo(
+  repo: string,
+  token?: string,
+  onProgress?: GitHubSkillFetchProgressCallback,
+): Promise<RemoteSkillItem[]> {
   const skills: RemoteSkillItem[] = [];
   const sourceId = `github:${repo}`;
   const seenPaths = new Set<string>();
@@ -374,6 +398,8 @@ export async function listSkillsFromRepo(repo: string, token?: string): Promise<
 
   for (const basePath of pathsToCheck) {
     try {
+      onProgress?.({ phase: 'scanning', current: 0, total: 0 });
+
       // Quick check: does this path exist?
       const apiPath =
         basePath === '/'
@@ -383,9 +409,9 @@ export async function listSkillsFromRepo(repo: string, token?: string): Promise<
       if (!Array.isArray(probe)) continue;
 
       // Recursively find all directories with SKILL.md
-      const skillDirs = await findSkillDirs(repo, basePath, token);
+      const skillDirs = await findSkillDirs(repo, basePath, token, 5, onProgress);
 
-      // Fetch metadata for each skill in parallel
+      // Fetch metadata for all skills in parallel (GitHub has no rate limit)
       const metadataResults = await Promise.all(
         skillDirs.map(async ({ path: skillPath, name }) => {
           if (seenPaths.has(skillPath)) return null;
@@ -424,8 +450,8 @@ export async function listSkillsFromRepo(repo: string, token?: string): Promise<
             tags: frontmatter.tags || [],
             lastUpdated: new Date().toISOString(),
             sourceId,
-            githubRepo: repo,
-            githubPath: skillPath,
+            remoteRepo: repo,
+            remotePath: skillPath,
           } as RemoteSkillItem;
         }),
       );
@@ -434,7 +460,113 @@ export async function listSkillsFromRepo(repo: string, token?: string): Promise<
         if (item) skills.push(item);
       }
 
+      onProgress?.({
+        phase: 'fetching-metadata',
+        current: metadataResults.length,
+        total: metadataResults.length,
+      });
+
       // If we found skills in skills/ subdirectory, don't check root
+      if (skills.length > 0 && basePath === 'skills/') break;
+    } catch (error) {
+      console.error(`[GitHubSkillSource] Error listing ${repo}/${basePath}:`, error);
+    }
+  }
+
+  return skills;
+}
+
+/**
+ * Streaming variant of listSkillsFromRepo: fetches skills one-by-one,
+ * calling onSkillFound after each metadata fetch completes.
+ */
+export async function listSkillsFromRepoStreaming(
+  repo: string,
+  token?: string,
+  onProgress?: GitHubSkillFetchProgressCallback,
+  onSkillFound?: GitHubSkillFoundCallback,
+): Promise<RemoteSkillItem[]> {
+  const skills: RemoteSkillItem[] = [];
+  const sourceId = `github:${repo}`;
+  const seenPaths = new Set<string>();
+
+  const pathsToCheck = ['skills/', '/'];
+
+  for (const basePath of pathsToCheck) {
+    try {
+      onProgress?.({ phase: 'scanning', current: 0, total: 0 });
+
+      const apiPath =
+        basePath === '/'
+          ? `/repos/${repo}/contents`
+          : `/repos/${repo}/contents/${basePath.replace(/\/$/, '')}`;
+      const probe = await githubApiFetch(apiPath, { token });
+      if (!Array.isArray(probe)) continue;
+
+      const skillDirs = await findSkillDirs(repo, basePath, token);
+
+      let metadataFetched = 0;
+      const totalToFetch = skillDirs.length;
+
+      for (const { path: skillPath, name } of skillDirs) {
+        if (seenPaths.has(skillPath)) continue;
+        seenPaths.add(skillPath);
+
+        try {
+          let frontmatter: SkillFrontmatter = {};
+          let description = '';
+
+          try {
+            const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
+            if (content) {
+              const parsed = parseFrontmatter(content);
+              frontmatter = parsed.frontmatter;
+              description = parsed.body
+                .split('\n')
+                .filter((l) => l.trim() && !l.startsWith('#'))
+                .slice(0, 3)
+                .join(' ');
+            }
+          } catch {
+            // continue without metadata
+          }
+
+          metadataFetched++;
+          onProgress?.({
+            phase: 'fetching-metadata',
+            current: metadataFetched,
+            total: totalToFetch,
+          });
+
+          const skillName = frontmatter.name || name;
+          const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
+
+          const item = {
+            id: `${sourceId}:${skillId}`,
+            name: formatSkillName(skillName),
+            description: frontmatter.description || description || `Skill from ${repo}`,
+            fullDescription: undefined,
+            version: frontmatter.version || '1.0.0',
+            author: frontmatter.author || repo.split('/')[0],
+            tags: frontmatter.tags || [],
+            lastUpdated: new Date().toISOString(),
+            sourceId,
+            remoteRepo: repo,
+            remotePath: skillPath,
+          } as RemoteSkillItem;
+
+          skills.push(item);
+          onSkillFound?.(item, skills.length);
+        } catch {
+          metadataFetched++;
+          onProgress?.({
+            phase: 'fetching-metadata',
+            current: metadataFetched,
+            total: totalToFetch,
+          });
+        }
+      }
+
       if (skills.length > 0 && basePath === 'skills/') break;
     } catch (error) {
       console.error(`[GitHubSkillSource] Error listing ${repo}/${basePath}:`, error);
@@ -489,8 +621,8 @@ export async function getSkillDetailFromRepo(
         tags: frontmatter.tags || [],
         lastUpdated: new Date().toISOString(),
         sourceId,
-        githubRepo: repo,
-        githubPath: skillPath,
+        remoteRepo: repo,
+        remotePath: skillPath,
         skillContent: content,
       };
     } catch {
@@ -629,14 +761,33 @@ export async function pushSkillAsPR(
       }
     }
 
-    // Get the default branch SHA to create branch from
+    // Get the default branch SHA to create branch from (try main, then master)
     console.log(`[GitHubSkillSource] Getting base SHA from ${targetRepo}...`);
-    const { stdout: refData } = await execAsync(
-      `"${ghBin}" api /repos/${targetRepo}/git/refs/heads/main --jq ".object.sha"`,
-      { timeout: 10_000 },
-    );
-    const baseSha = refData.trim();
-    console.log(`[GitHubSkillSource] Base SHA: ${baseSha}`);
+    let baseSha = '';
+    let baseBranch = 'main';
+    try {
+      const { stdout: refData } = await execAsync(
+        `"${ghBin}" api /repos/${targetRepo}/git/refs/heads/main --jq ".object.sha"`,
+        { timeout: 10_000 },
+      );
+      baseSha = refData.trim();
+    } catch {
+      // Fallback to master
+      baseBranch = 'master';
+      try {
+        const { stdout: refData } = await execAsync(
+          `"${ghBin}" api /repos/${targetRepo}/git/refs/heads/master --jq ".object.sha"`,
+          { timeout: 10_000 },
+        );
+        baseSha = refData.trim();
+      } catch (innerErr: any) {
+        throw new Error(
+          `Failed to resolve base branch. Tried 'main' and 'master'. ${innerErr.stderr?.trim() || innerErr.message}`,
+          { cause: innerErr },
+        );
+      }
+    }
+    console.log(`[GitHubSkillSource] Base SHA: ${baseSha} (branch: ${baseBranch})`);
 
     // Create a new branch
     console.log(`[GitHubSkillSource] Creating branch ${branchName} on ${targetRepo}...`);
@@ -649,6 +800,8 @@ export async function pushSkillAsPR(
     console.log(
       `[GitHubSkillSource] Committing ${files.length} file(s) to ${targetRepo}:${branchName}...`,
     );
+    const commitErrors: string[] = [];
+    let commitSuccess = 0;
     for (const file of files) {
       const filePath = targetPath
         ? `${targetPath}/${skillId}/${file.relativePath}`
@@ -672,43 +825,66 @@ export async function pushSkillAsPR(
         }),
       });
 
-      if (!putResp.ok) {
+      if (putResp.ok) {
+        commitSuccess++;
+      } else {
         const errText = await putResp.text();
-        throw new Error(`Failed to commit ${filePath}: ${putResp.status} ${errText}`);
+        commitErrors.push(`${filePath}: ${errText.slice(0, 150)}`);
       }
+    }
+
+    if (commitSuccess === 0) {
+      return { success: false, error: `All files failed to commit. First: ${commitErrors[0]}` };
     }
 
     // Create PR via GitHub API (avoids shell escaping issues with multiline body)
     const prTitle = `Add skill: ${skillId}`;
-    const prBody = `## New Skill: ${skillId}\n\nThis PR adds a new skill submitted via AICO-Bot.\n\nFiles included: ${files.length}\n\n---\n*Submitted by @${username}*`;
+    const prBody = `## New Skill: ${skillId}\n\nThis PR adds a new skill submitted via AICO-Bot.\n\nFiles included: ${commitSuccess}/${files.length}\n\n---\n*Submitted by @${username}*`;
 
     const head = targetRepo === prTargetRepo ? branchName : `${username}:${branchName}`;
 
     console.log(`[GitHubSkillSource] Creating PR: ${prTargetRepo} <- ${head}`);
-    const prResp = await fetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'AICO-Bot',
-      },
-      body: JSON.stringify({
-        title: prTitle,
-        body: prBody,
-        head: head,
-        base: 'main',
-      }),
-    });
+    const branchUrl = `https://github.com/${targetRepo}/tree/${branchName}`;
+    const warnings: string[] = [];
 
-    if (!prResp.ok) {
-      const errText = await prResp.text();
-      throw new Error(`Failed to create PR: ${prResp.status} ${errText}`);
+    if (commitErrors.length > 0) {
+      warnings.push(`${commitErrors.length} file(s) failed to commit`);
     }
 
-    const prData = await prResp.json();
-    const prUrl: string = prData.html_url || prData.url;
-    return { success: true, prUrl };
+    let prUrl = branchUrl;
+    try {
+      const prResp = await fetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'AICO-Bot',
+        },
+        body: JSON.stringify({
+          title: prTitle,
+          body: prBody,
+          head: head,
+          base: baseBranch,
+        }),
+      });
+
+      if (prResp.ok) {
+        const prData = await prResp.json();
+        prUrl = prData.html_url || prData.url;
+      } else {
+        const errText = await prResp.text();
+        warnings.push(`PR creation failed. Files committed to branch: ${branchUrl}`);
+        console.warn(`[GitHubSkillSource] PR creation failed: ${prResp.status} ${errText}`);
+      }
+    } catch (prError: any) {
+      warnings.push(
+        `PR creation error: ${prError.message}. Files committed to branch: ${branchUrl}`,
+      );
+    }
+
+    const warning = warnings.length > 0 ? warnings.join('. ') : undefined;
+    return { success: true, prUrl, warning };
   } catch (error: any) {
     console.error('[GitHubSkillSource] pushSkillAsPR error:', error);
     console.error('[GitHubSkillSource] error details:', {

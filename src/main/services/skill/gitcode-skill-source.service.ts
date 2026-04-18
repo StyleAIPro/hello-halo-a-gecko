@@ -18,36 +18,136 @@ interface GitCodeApiOptions {
 
 const GITCODE_API_BASE = 'https://gitcode.com/api/v5';
 
-// ── Rate limiter: GitCode allows ~50 API calls per minute per user ─────
+// ── Global concurrency semaphore ───────────────────────────────────────
+// A single shared queue ensures ALL GitCode API calls (including recursive
+// findSkillDirs) stay within the concurrency budget. No more per-level pools
+// that multiply concurrency at each recursion depth.
 
-const _rateLimitQueue: Array<() => void> = [];
-let _rateLimitProcessing = false;
+const MAX_CONCURRENCY = 3;
 
-function enqueueApiCall(fn: () => void): void {
-  _rateLimitQueue.push(fn);
-  if (!_rateLimitProcessing) {
-    _rateLimitProcessing = true;
-    // 1.2s interval → ~50 calls/minute with margin
-    setInterval(() => {
-      if (_rateLimitQueue.length > 0) {
-        _rateLimitQueue.shift()!();
-      }
-      if (_rateLimitQueue.length === 0) {
-        clearInterval(undefined as any);
-        _rateLimitProcessing = false;
-      }
-    }, 1250);
+class Semaphore {
+  private _queue: Array<() => void> = [];
+  private _running = 0;
+
+  async acquire(): Promise<void> {
+    if (this._running < MAX_CONCURRENCY) {
+      this._running++;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this._queue.push(resolve);
+    });
+  }
+
+  release(): void {
+    this._running--;
+    const next = this._queue.shift();
+    if (next) {
+      this._running++;
+      next();
+    }
   }
 }
 
-function rateLimitedFetch(url: string, init?: RequestInit): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    enqueueApiCall(() => gitcodeFetch(url, init).then(resolve, reject));
-  });
+const _apiSemaphore = new Semaphore();
+
+// ── Rate Limiter ──────────────────────────────────────────────────
+// GitCode limit: 50 requests/min per user. All repos share one quota.
+// Strategy: minimum 1s gap between consecutive requests + token bucket ceiling.
+
+const RATE_LIMIT_MAX_TOKENS = 50;
+const RATE_LIMIT_MIN_INTERVAL_MS = 1000; // 1s gap between any two requests
+const RATE_LIMIT_REFILL_INTERVAL_MS = 1200; // 50 tokens/min ceiling
+
+class RateLimiter {
+  private _tokens: number;
+  private _lastRefill: number;
+  private _lastAcquire: number;
+
+  constructor() {
+    this._tokens = 1;
+    this._lastRefill = Date.now();
+    this._lastAcquire = 0;
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = now - this._lastRefill;
+    const tokensToAdd = Math.floor(elapsed / RATE_LIMIT_REFILL_INTERVAL_MS);
+    if (tokensToAdd > 0) {
+      this._tokens = Math.min(this._tokens + tokensToAdd, RATE_LIMIT_MAX_TOKENS);
+      this._lastRefill += tokensToAdd * RATE_LIMIT_REFILL_INTERVAL_MS;
+    }
+  }
+
+  async acquire(): Promise<void> {
+    // Enforce minimum 1s interval between consecutive requests
+    const now = Date.now();
+    const sinceLast = now - this._lastAcquire;
+    if (sinceLast < RATE_LIMIT_MIN_INTERVAL_MS && this._lastAcquire > 0) {
+      await new Promise<void>((r) => setTimeout(r, RATE_LIMIT_MIN_INTERVAL_MS - sinceLast));
+    }
+
+    this.refill();
+    if (this._tokens > 0) {
+      this._tokens--;
+      this._lastAcquire = Date.now();
+      return;
+    }
+    // No tokens — wait for next refill
+    await new Promise<void>((r) => setTimeout(r, RATE_LIMIT_REFILL_INTERVAL_MS));
+    this.refill();
+    this._tokens = Math.max(this._tokens - 1, 0);
+    this._lastAcquire = Date.now();
+  }
+}
+
+const _rateLimiter = new RateLimiter();
+
+// Telemetry counters
+let _requestCount = 0;
+let _rateLimitWaits = 0;
+let _rateLimitWaitMs = 0;
+
+/**
+ * Run an async function with global concurrency and rate-limit control.
+ * All GitCode API calls should go through this.
+ */
+async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
+  // Rate limit first
+  const beforeRateLimit = Date.now();
+  await _rateLimiter.acquire();
+  const rateLimitElapsed = Date.now() - beforeRateLimit;
+  if (rateLimitElapsed > 50) {
+    _rateLimitWaits++;
+    _rateLimitWaitMs += rateLimitElapsed;
+  }
+  _requestCount++;
+
+  // Log telemetry every 10 requests
+  if (_requestCount % 10 === 0) {
+    console.log(
+      `[GitCodeSkillSource] Rate limit telemetry: ` +
+        `${_requestCount} requests, ${_rateLimitWaits} waits (${_rateLimitWaitMs}ms total)`,
+    );
+  }
+
+  // Then concurrency semaphore
+  await _apiSemaphore.acquire();
+  try {
+    return await fn();
+  } finally {
+    _apiSemaphore.release();
+  }
 }
 
 // Proxy support for internal networks
 let _proxyDispatcher: any = null;
+
+/** Reset cached proxy so next call re-reads env vars (e.g. after VPN change). */
+export function resetProxyDispatcher(): void {
+  _proxyDispatcher = null;
+}
 
 async function getProxyDispatcher(): Promise<any> {
   if (_proxyDispatcher !== null) return _proxyDispatcher;
@@ -72,13 +172,35 @@ async function getProxyDispatcher(): Promise<any> {
   }
 }
 
+/** Default request timeout for GitCode API calls (ms). */
+const GITCODE_FETCH_TIMEOUT_MS = 30_000;
+
 /**
- * Proxy-aware fetch for GitCode API. Exported for reuse by gitcode-auth.service.
+ * Proxy-aware fetch for GitCode API with 30s timeout. Exported for reuse by gitcode-auth.service.
  */
 export async function gitcodeFetch(url: string, init?: RequestInit): Promise<Response> {
   const dispatcher = await getProxyDispatcher();
-  const response = await fetch(url, { ...init, ...(dispatcher ? ({ dispatcher } as any) : {}) });
-  return response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GITCODE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      ...(dispatcher ? ({ dispatcher } as any) : {}),
+    });
+    return response;
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        `GitCode API request timed out after ${GITCODE_FETCH_TIMEOUT_MS / 1000}s: ${url}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promise<any> {
@@ -92,24 +214,49 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
   // Support access_token as query param fallback
   const url = path.includes('?') ? `${GITCODE_API_BASE}${path}` : `${GITCODE_API_BASE}${path}`;
 
-  const response = await rateLimitedFetch(url, { headers });
+  const response = await gitcodeFetch(url, { headers });
 
   if (response.status === 404) {
     return null;
   }
 
-  // Handle rate limiting (429): wait and retry once
-  if (response.status === 429) {
-    console.warn('[GitCodeAPI] Rate limited (429), waiting 5s before retry...');
-    await new Promise((r) => setTimeout(r, 5000));
-    const retryResponse = await rateLimitedFetch(url, { headers });
-    if (!retryResponse.ok) {
-      const text = await retryResponse.text();
-      console.error('[GitCodeAPI] error after retry:', retryResponse.status, text.slice(0, 200));
-      throw new Error(`GitCode API error ${retryResponse.status}: ${text}`);
+  // Handle rate limiting: GitCode returns 429 as HTTP 400 with error_code:429 in body
+  const isRateLimited = async (resp: Response): Promise<boolean> => {
+    if (resp.status === 429) return true;
+    if (resp.status === 400) {
+      try {
+        const body = await resp.clone().json();
+        return body?.error_code === 429;
+      } catch {
+        return false;
+      }
     }
-    const data = await retryResponse.json();
-    return data;
+    return false;
+  };
+
+  if (await isRateLimited(response)) {
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const delayMs = Math.min(2000 * Math.pow(2, attempt), 8000);
+      console.warn(
+        `[GitCodeAPI] Rate limited, attempt ${attempt + 1}/${maxRetries}, waiting ${delayMs}ms...`,
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
+      const retryResponse = await gitcodeFetch(url, { headers });
+      if (!(await isRateLimited(retryResponse))) {
+        if (!retryResponse.ok) {
+          const text = await retryResponse.text();
+          console.error(
+            '[GitCodeAPI] error after retry:',
+            retryResponse.status,
+            text.slice(0, 200),
+          );
+          throw new Error(`GitCode API error ${retryResponse.status}: ${text}`);
+        }
+        return retryResponse.json();
+      }
+    }
+    throw new Error('GitCode API rate limit exceeded after 3 retries. Please try again later.');
   }
 
   if (!response.ok) {
@@ -121,6 +268,16 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
   const data = await response.json();
   return data;
 }
+
+// ── Progress callback ─────────────────────────────────────────────
+
+export interface SkillFetchProgress {
+  phase: 'scanning' | 'fetching-metadata';
+  current: number;
+  total: number;
+}
+
+export type SkillFetchProgressCallback = (progress: SkillFetchProgress) => void;
 
 // ── Frontmatter parsing (shared pattern) ──────────────────────────
 
@@ -155,6 +312,25 @@ function formatSkillName(name: string): string {
 
 export { getGitCodeToken };
 
+// ── One-level skill directory listing (for known skill dirs like skills/) ───
+
+async function listSkillsDir(
+  repo: string,
+  dirPath: string,
+  token?: string,
+): Promise<Array<{ path: string; name: string }>> {
+  try {
+    const apiPath = `/repos/${repo}/contents/${dirPath.replace(/\/$/, '')}`;
+    const result = await gitcodeApiFetch(apiPath, { token });
+    if (!Array.isArray(result)) return [];
+    return result
+      .filter((item: any) => item.type === 'dir' && !item.name.startsWith('.'))
+      .map((item: any) => ({ path: `${dirPath}/${item.name}`, name: item.name }));
+  } catch {
+    return [];
+  }
+}
+
 // ── Recursive skill directory finder ──────────────────────────────
 
 async function findSkillDirs(
@@ -162,6 +338,7 @@ async function findSkillDirs(
   path: string,
   token?: string,
   maxDepth: number = 5,
+  onProgress?: SkillFetchProgressCallback,
 ): Promise<Array<{ path: string; name: string }>> {
   if (maxDepth <= 0) return [];
 
@@ -190,10 +367,18 @@ async function findSkillDirs(
     return results;
   }
 
+  // Report scanning progress (only at top-level, not recursive)
+  let scannedCount = 0;
+  const totalDirs = dirs.length;
+
   const subResults = await Promise.all(
-    dirs.map((dir: any) => {
+    dirs.map(async (dir: any) => {
       const subPath = path === '/' ? `${dir.name}/` : `${path}${dir.name}/`;
-      return findSkillDirs(repo, subPath, token, maxDepth - 1);
+      // Do NOT pass onProgress to recursive calls — avoids misleading counts
+      const sub = await withConcurrency(() => findSkillDirs(repo, subPath, token, maxDepth - 1));
+      scannedCount++;
+      onProgress?.({ phase: 'scanning', current: scannedCount, total: totalDirs });
+      return sub;
     }),
   );
 
@@ -254,23 +439,42 @@ export async function fetchSkillDirectoryContents(
 
   if (!Array.isArray(data)) return results;
 
+  // Separate files needing fetch and sub-directories for batch processing
+  const filesToFetch = data.filter((item: any) => item.type === 'file' && !item.content);
+  const dirsToTraverse = data.filter(
+    (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+  );
+
+  // Inline file content (already present, no API call needed)
   for (const item of data) {
-    if (item.type === 'file') {
-      if (item.content) {
-        const decoded = Buffer.from(item.content, 'base64').toString('utf-8');
-        results.push({ path: item.name, content: decoded });
-      } else {
-        const content = await fetchSkillFileContent(repo, item.path, token);
-        if (content !== null) {
-          results.push({ path: item.name, content });
-        }
-      }
-    } else if (item.type === 'dir' && !item.name.startsWith('.')) {
+    if (item.type === 'file' && item.content) {
+      const decoded = Buffer.from(item.content, 'base64').toString('utf-8');
+      results.push({ path: item.name, content: decoded });
+    }
+  }
+
+  // Batch fetch files that need separate API calls
+  const fetchResults = await Promise.all(
+    filesToFetch.map(async (item: any) => {
+      const content = await withConcurrency(() => fetchSkillFileContent(repo, item.path, token));
+      return { path: item.name, content: content || '' };
+    }),
+  );
+  for (const r of fetchResults) {
+    if (r.content) results.push(r);
+  }
+
+  // Batch traverse sub-directories
+  const dirResults = await Promise.all(
+    dirsToTraverse.map(async (item: any) => {
       const subPath = `${dirPath.replace(/\/$/, '')}/${item.name}`;
-      const subFiles = await fetchSkillDirectoryContents(repo, subPath, token);
-      for (const sub of subFiles) {
-        results.push({ path: `${item.name}/${sub.path}`, content: sub.content });
-      }
+      return withConcurrency(() => fetchSkillDirectoryContents(repo, subPath, token));
+    }),
+  );
+  for (let i = 0; i < dirResults.length; i++) {
+    const dir = dirsToTraverse[i];
+    for (const sub of dirResults[i]) {
+      results.push({ path: `${dir.name}/${sub.path}`, content: sub.content });
     }
   }
 
@@ -361,7 +565,11 @@ export async function listRepoDirectories(
 /**
  * List all skills in a GitCode repository.
  */
-export async function listSkillsFromRepo(repo: string, token?: string): Promise<RemoteSkillItem[]> {
+export async function listSkillsFromRepo(
+  repo: string,
+  token?: string,
+  onProgress?: SkillFetchProgressCallback,
+): Promise<RemoteSkillItem[]> {
   const skills: RemoteSkillItem[] = [];
   const sourceId = `gitcode:${repo}`;
   const seenPaths = new Set<string>();
@@ -370,52 +578,178 @@ export async function listSkillsFromRepo(repo: string, token?: string): Promise<
 
   for (const basePath of pathsToCheck) {
     try {
-      const skillDirs = await findSkillDirs(repo, basePath, token);
+      let skillDirs: Array<{ path: string; name: string }>;
 
-      const metadataResults = await Promise.all(
-        skillDirs.map(async ({ path: skillPath, name }) => {
-          if (seenPaths.has(skillPath)) return null;
-          seenPaths.add(skillPath);
+      if (basePath === 'skills/') {
+        // Fast path: skills/ directory — just list one level, no recursion.
+        skillDirs = await listSkillsDir(repo, 'skills', token);
+      } else {
+        // Fallback: root path — shallow scan for SKILL.md (max depth 2)
+        skillDirs = await findSkillDirs(repo, basePath, token, 3, onProgress);
+      }
 
-          let frontmatter: SkillFrontmatter = {};
-          let description = '';
+      const uniqueDirs = skillDirs.filter(({ path: p }) => {
+        if (seenPaths.has(p)) return false;
+        seenPaths.add(p);
+        return true;
+      });
 
-          try {
-            const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
-            if (content) {
-              const parsed = parseFrontmatter(content);
-              frontmatter = parsed.frontmatter;
-              description = parsed.body
-                .split('\n')
-                .filter((l) => l.trim() && !l.startsWith('#'))
-                .slice(0, 3)
-                .join(' ');
+      let metadataFetched = 0;
+      const totalToFetch = uniqueDirs.length;
+
+      // Sequential fetch for smooth, even progress advancement
+      for (const { path: skillPath, name } of uniqueDirs) {
+        try {
+          const item = await withConcurrency(async () => {
+            let frontmatter: SkillFrontmatter = {};
+            let description = '';
+
+            try {
+              const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
+              if (content) {
+                const parsed = parseFrontmatter(content);
+                frontmatter = parsed.frontmatter;
+                description = parsed.body
+                  .split('\n')
+                  .filter((l) => l.trim() && !l.startsWith('#'))
+                  .slice(0, 3)
+                  .join(' ');
+              }
+            } catch {
+              // continue without metadata
             }
-          } catch {
-            // continue without metadata
-          }
 
-          const skillName = frontmatter.name || name;
-          const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
+            const skillName = frontmatter.name || name;
+            const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
 
-          return {
-            id: `${sourceId}:${skillId}`,
-            name: formatSkillName(skillName),
-            description: frontmatter.description || description || `Skill from ${repo}`,
-            fullDescription: undefined,
-            version: frontmatter.version || '1.0.0',
-            author: frontmatter.author || repo.split('/')[0],
-            tags: frontmatter.tags || [],
-            lastUpdated: new Date().toISOString(),
-            sourceId,
-            githubRepo: repo,
-            githubPath: skillPath,
-          } as RemoteSkillItem;
-        }),
-      );
+            return {
+              id: `${sourceId}:${skillId}`,
+              name: formatSkillName(skillName),
+              description: frontmatter.description || description || `Skill from ${repo}`,
+              fullDescription: undefined,
+              version: frontmatter.version || '1.0.0',
+              author: frontmatter.author || repo.split('/')[0],
+              tags: frontmatter.tags || [],
+              lastUpdated: new Date().toISOString(),
+              sourceId,
+              remoteRepo: repo,
+              remotePath: skillPath,
+            } as RemoteSkillItem;
+          });
+          skills.push(item);
+        } catch {
+          // skip failed item
+        }
+        metadataFetched++;
+        onProgress?.({
+          phase: 'fetching-metadata',
+          current: metadataFetched,
+          total: totalToFetch,
+        });
+      }
 
-      for (const item of metadataResults) {
-        if (item) skills.push(item);
+      if (skills.length > 0 && basePath === 'skills/') break;
+    } catch (error) {
+      console.error(`[GitCodeSkillSource] Error listing ${repo}/${basePath}:`, error);
+    }
+  }
+
+  return skills;
+}
+
+/**
+ * Streaming variant: fetches skills one-by-one, calling onSkillFound after each.
+ * Used for progressive loading — frontend renders skills as they arrive.
+ */
+export type SkillFoundCallback = (skill: RemoteSkillItem, totalFound: number) => void;
+
+export async function listSkillsFromRepoStreaming(
+  repo: string,
+  token?: string,
+  onProgress?: SkillFetchProgressCallback,
+  onSkillFound?: SkillFoundCallback,
+): Promise<RemoteSkillItem[]> {
+  const skills: RemoteSkillItem[] = [];
+  const sourceId = `gitcode:${repo}`;
+  const seenPaths = new Set<string>();
+
+  const pathsToCheck = ['skills/', '/'];
+
+  for (const basePath of pathsToCheck) {
+    try {
+      let skillDirs: Array<{ path: string; name: string }>;
+
+      if (basePath === 'skills/') {
+        skillDirs = await listSkillsDir(repo, 'skills', token);
+      } else {
+        skillDirs = await findSkillDirs(repo, basePath, token, 3, onProgress);
+      }
+
+      const uniqueDirs = skillDirs.filter(({ path: p }) => {
+        if (seenPaths.has(p)) return false;
+        seenPaths.add(p);
+        return true;
+      });
+
+      let metadataFetched = 0;
+      const totalToFetch = uniqueDirs.length;
+
+      // Sequential fetch — each skill pushed individually
+      for (const { path: skillPath, name } of uniqueDirs) {
+        try {
+          const item = await withConcurrency(async () => {
+            let frontmatter: SkillFrontmatter = {};
+            let description = '';
+
+            try {
+              const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
+              if (content) {
+                const parsed = parseFrontmatter(content);
+                frontmatter = parsed.frontmatter;
+                description = parsed.body
+                  .split('\n')
+                  .filter((l) => l.trim() && !l.startsWith('#'))
+                  .slice(0, 3)
+                  .join(' ');
+              }
+            } catch {
+              // continue without metadata
+            }
+
+            const skillName = frontmatter.name || name;
+            const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
+
+            return {
+              id: `${sourceId}:${skillId}`,
+              name: formatSkillName(skillName),
+              description: frontmatter.description || description || `Skill from ${repo}`,
+              fullDescription: undefined,
+              version: frontmatter.version || '1.0.0',
+              author: frontmatter.author || repo.split('/')[0],
+              tags: frontmatter.tags || [],
+              lastUpdated: new Date().toISOString(),
+              sourceId,
+              remoteRepo: repo,
+              remotePath: skillPath,
+            } as RemoteSkillItem;
+          });
+
+          skills.push(item);
+          metadataFetched++;
+          onProgress?.({
+            phase: 'fetching-metadata',
+            current: metadataFetched,
+            total: totalToFetch,
+          });
+          onSkillFound?.(item, skills.length);
+        } catch {
+          metadataFetched++;
+          onProgress?.({
+            phase: 'fetching-metadata',
+            current: metadataFetched,
+            total: totalToFetch,
+          });
+        }
       }
 
       if (skills.length > 0 && basePath === 'skills/') break;
@@ -468,8 +802,8 @@ export async function getSkillDetailFromRepo(
         tags: frontmatter?.tags || [],
         lastUpdated: new Date().toISOString(),
         sourceId,
-        githubRepo: repo,
-        githubPath: skillPath,
+        remoteRepo: repo,
+        remotePath: skillPath,
         skillContent: content,
       };
     }
@@ -484,16 +818,24 @@ export async function getSkillDetailFromRepo(
 export async function validateRepo(
   repo: string,
   token?: string,
-): Promise<{ valid: boolean; error?: string; skillCount?: number }> {
+): Promise<{ valid: boolean; hasSkillsDir?: boolean; skillCount?: number; error?: string }> {
   try {
     const data = await gitcodeApiFetch(`/repos/${repo}`, { token });
     if (!data) {
       return { valid: false, error: 'Repository not found or access denied' };
     }
 
+    // Check if skills/ directory exists
+    let hasSkillsDir = false;
+    const skillsProbe = await gitcodeApiFetch(`/repos/${repo}/contents/skills`, { token });
+    if (Array.isArray(skillsProbe)) {
+      hasSkillsDir = true;
+    }
+
     const skills = await listSkillsFromRepo(repo, token);
     return {
       valid: true,
+      hasSkillsDir,
       skillCount: skills.length,
       error: skills.length === 0 ? 'No skills found in this repository' : undefined,
     };

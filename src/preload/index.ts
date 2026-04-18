@@ -599,6 +599,9 @@ export interface AicoBotAPI {
   skillMarketListGitCodeRepoDirs: (repo: string) => Promise<IpcResponse>;
   skillMarketValidateGitCodeRepo: (repo: string) => Promise<IpcResponse>;
   skillMarketSetGitCodeToken: (token: string) => Promise<IpcResponse>;
+  onSkillMarketFetchProgress: (
+    callback: (data: { phase: string; current: number; total: number }) => void,
+  ) => () => void;
   skillConfigGet: () => Promise<IpcResponse>;
   skillConfigUpdate: (config: { globalShared?: boolean }) => Promise<IpcResponse>;
   skillRefresh: () => Promise<IpcResponse>;
@@ -610,10 +613,6 @@ export interface AicoBotAPI {
     description?: string;
     triggerCommand?: string;
   }) => Promise<IpcResponse>;
-  skillAnalyzeConversations: (spaceId: string, conversationIds: string[]) => Promise<IpcResponse>;
-  skillCreateTempSession: (options: { skillName: string; context: any }) => Promise<IpcResponse>;
-  skillSendTempMessage: (sessionId: string, message: string) => Promise<IpcResponse>;
-  skillCloseTempSession: (sessionId: string) => Promise<IpcResponse>;
   onSkillTempMessageChunk: (
     callback: (data: { sessionId: string; chunk: any }) => void,
   ) => () => void;
@@ -1156,6 +1155,8 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('skill:market:validate-gitcode-repo', repo),
   skillMarketSetGitCodeToken: (token: string) =>
     ipcRenderer.invoke('skill:market:set-gitcode-token', token),
+  onSkillMarketFetchProgress: (callback) =>
+    createEventListener('skill:market:fetch-progress', callback as (data: unknown) => void),
   skillConfigGet: () => ipcRenderer.invoke('skill:config:get'),
   skillConfigUpdate: (config) => ipcRenderer.invoke('skill:config:update', config),
   skillRefresh: () => ipcRenderer.invoke('skill:refresh'),

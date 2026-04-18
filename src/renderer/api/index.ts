@@ -2375,6 +2375,10 @@ export const api = {
     return { success: false, error: 'Only available in desktop app' };
   },
 
+  onSkillMarketFetchProgress: (
+    callback: (data: { phase: string; current: number; total: number }) => void,
+  ) => onEvent('skill:market:fetch-progress', callback),
+
   skillMarketSources: async (): Promise<ApiResponse<any[]>> => {
     if (isElectron()) {
       return window.aicoBot.skillMarketSources();
@@ -2435,6 +2439,13 @@ export const api = {
       return window.aicoBot.skillMarketListRepoDirs(repo);
     }
     return httpRequest('POST', '/api/skills/market/list-repo-dirs', { repo });
+  },
+
+  skillMarketListGitCodeRepoDirs: async (repo: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketListGitCodeRepoDirs(repo);
+    }
+    return httpRequest('POST', '/api/skills/market/list-gitcode-repo-dirs', { repo });
   },
 
   skillMarketValidateRepo: async (repo: string): Promise<ApiResponse> => {
