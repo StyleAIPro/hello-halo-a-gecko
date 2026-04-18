@@ -120,7 +120,6 @@ export class RemoteDeployService {
   // Track update operations so the UI can restore state after component remount
   private updateOperations: Map<string, UpdateOperationState> = new Map();
 
-
   // Health monitor
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private healthCheckInProgress = false;
@@ -402,9 +401,7 @@ export class RemoteDeployService {
           const reasonMsg = reasons.join(', ');
 
           this.emitDeployProgress(id, 'deploy', `Deploying (${reasonMsg})...`, 60);
-          console.log(
-            `[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`,
-          );
+          console.log(`[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`);
 
           await this.updateServer(id, { status: 'deploying' });
 
@@ -1808,15 +1805,15 @@ WRAPPER
       try {
         const healthData = JSON.parse(healthCheck.stdout || '{}');
         if (healthData.status === 'ok') {
-          console.log(
-            '[RemoteDeployService] Agent already running and healthy, skipping start',
-          );
+          console.log('[RemoteDeployService] Agent already running and healthy, skipping start');
           return;
         }
       } catch {
         // Health check failed — process is zombie, kill and restart
       }
-      console.log('[RemoteDeployService] Agent process exists but unhealthy, killing and restarting...');
+      console.log(
+        '[RemoteDeployService] Agent process exists but unhealthy, killing and restarting...',
+      );
       await this.stopAgent(id);
     }
 
@@ -2298,14 +2295,8 @@ WRAPPER
         await this.deployAgentCode(id);
       }
     } else {
-      console.log(
-        `[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`,
-      );
-      this.emitDeployProgress(
-        id,
-        'update',
-        'Files and SDK verified, restarting agent...',
-      );
+      console.log(`[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`);
+      this.emitDeployProgress(id, 'update', 'Files and SDK verified, restarting agent...');
     }
 
     // Start proxy (or let deployAgentCode's internal start handle it)
@@ -2319,9 +2310,10 @@ WRAPPER
 
     const localVersionInfo = this.getLocalAgentVersion();
     const result = {
-      message: needsCodeDeploy || !sdkOk
-        ? 'Agent updated and restarted successfully'
-        : 'Agent restarted (files and SDK already up to date)',
+      message:
+        needsCodeDeploy || !sdkOk
+          ? 'Agent updated and restarted successfully'
+          : 'Agent restarted (files and SDK already up to date)',
       remoteVersion: REQUIRED_SDK_VERSION,
       localVersion: localVersionInfo?.version || 'unknown',
       localBuildTime: localVersionInfo?.buildTime,
@@ -2354,9 +2346,7 @@ WRAPPER
       const healthData = JSON.parse(healthResult.stdout || '{}');
       const isOk = healthData.status === 'ok';
       await this.updateServer(id, { proxyRunning: isOk });
-      console.log(
-        `[RemoteDeploy] Immediate health check for ${server.name}: proxyRunning=${isOk}`,
-      );
+      console.log(`[RemoteDeploy] Immediate health check for ${server.name}: proxyRunning=${isOk}`);
     } catch {
       await this.updateServer(id, { proxyRunning: false });
       console.warn(`[RemoteDeploy] Immediate health check failed for ${server.name}`);
@@ -2667,9 +2657,7 @@ WRAPPER
       }
 
       // Check all servers in parallel
-      await Promise.allSettled(
-        eligibleServers.map(({ id }) => this.checkServerHealth(id)),
-      );
+      await Promise.allSettled(eligibleServers.map(({ id }) => this.checkServerHealth(id)));
     } finally {
       this.healthCheckInProgress = false;
     }
@@ -3701,19 +3689,15 @@ WRAPPER
   ): Promise<SSHManager> {
     onOutput?.({ type: 'stdout', content: `[${serverName}] 正在连接...\n` });
 
-    // Always disconnect first to avoid stale connections
-    const manager = this.getSSHManager(id);
-    if (manager.isConnected()) {
-      manager.disconnect();
-    }
+    // Health-check the existing connection instead of blindly disconnecting.
+    // This avoids killing in-flight operations (e.g., health monitor).
+    await this.ensureSshConnectionHealthy(id);
 
-    // Reconnect
-    await this.connectServer(id);
-    const freshManager = this.getSSHManager(id);
-    if (!freshManager.isConnected()) {
+    const manager = this.getSSHManager(id);
+    if (!manager.isConnected()) {
       throw new Error(`Failed to connect to ${serverName}`);
     }
-    return freshManager;
+    return manager;
   }
 
   /**
@@ -3872,6 +3856,129 @@ WRAPPER
       onOutput?.({
         type: 'complete',
         content: `[${server.name}] ✓ Skill "${skillId}" synced successfully (${files.length} files)!\n`,
+      });
+      return { success: true };
+    } catch (error) {
+      const err = error as Error;
+      onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Sync a remote skill to local machine via SSH.
+   * Reads remote skill files and downloads them to ~/.agents/skills/<skillId>/ locally.
+   */
+  async syncRemoteSkillToLocal(
+    id: string,
+    skillId: string,
+    options?: { overwrite?: boolean },
+    onOutput?: (data: {
+      type: 'stdout' | 'stderr' | 'complete' | 'error';
+      content: string;
+    }) => void,
+  ): Promise<{ success: boolean; error?: string }> {
+    const server = this.servers.get(id);
+    if (!server) throw new Error(`Server not found: ${id}`);
+
+    let manager: SSHManager;
+    try {
+      manager = await this.ensureFreshConnection(id, server.name, onOutput);
+    } catch (error) {
+      const err = error as Error;
+      onOutput?.({ type: 'error', content: `[${server.name}] ${err.message}\n` });
+      return { success: false, error: err.message };
+    }
+
+    try {
+      const { getAgentsSkillsDir } = await import('../config.service');
+      const { promises: fsp } = await import('fs');
+
+      const localSkillDir = path.join(getAgentsSkillsDir(), skillId);
+
+      // Check if skill already exists locally
+      const existsLocally = fs.existsSync(localSkillDir);
+      if (existsLocally && !options?.overwrite) {
+        const error = `Skill "${skillId}" already exists locally. Use overwrite option to replace.`;
+        onOutput?.({ type: 'error', content: `${error}\n` });
+        return { success: false, error };
+      }
+      if (existsLocally) {
+        onOutput?.({
+          type: 'stdout',
+          content: `[${server.name}] Skill "${skillId}" already exists locally, will be overwritten.\n`,
+        });
+        await fsp.rm(localSkillDir, { recursive: true, force: true });
+      }
+
+      // List remote files
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] Discovering files for remote skill "${skillId}"...\n`,
+      });
+
+      const remoteFiles = await this.listRemoteSkillFiles(id, skillId);
+
+      // Flatten file tree to get all file paths
+      const filepaths: string[] = [];
+      function collectFiles(nodes: SkillFileNode[]): void {
+        for (const node of nodes) {
+          if (node.type === 'file') {
+            filepaths.push(node.path);
+          } else if (node.children) {
+            collectFiles(node.children);
+          }
+        }
+      }
+      collectFiles(remoteFiles);
+
+      if (filepaths.length === 0) {
+        const error = `Skill "${skillId}" has no files on remote server`;
+        onOutput?.({ type: 'error', content: `${error}\n` });
+        return { success: false, error };
+      }
+
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] Downloading skill "${skillId}" (${filepaths.length} files)...\n`,
+      });
+
+      // Create local directory
+      await fsp.mkdir(localSkillDir, { recursive: true });
+
+      // Build the skill directory discovery shell script (reusable prefix)
+      const findSkillDirScript = [
+        'skill_dir=""',
+        'for base in ~/.agents/skills ~/.claude/skills; do',
+        `  [ -d "$base/${skillId}" ] && skill_dir="$base/${skillId}" && break`,
+        'done',
+        '[ -z "$skill_dir" ] && exit 1',
+      ].join('\n');
+
+      // Download each file via SSH base64
+      for (const filePath of filepaths) {
+        const safePath = filePath.replace(/'/g, "'\\''");
+        const cmd = `${findSkillDirScript}\ncat "$skill_dir/${safePath}" | base64 -w 0`;
+        const result = await manager.executeCommandFull(cmd);
+
+        if (result.exitCode !== 0 || !result.stdout.trim()) {
+          onOutput?.({
+            type: 'stderr',
+            content: `  ⚠ ${filePath}: failed to read (skipped)\n`,
+          });
+          continue;
+        }
+
+        const content = Buffer.from(result.stdout.trim(), 'base64').toString('utf-8');
+        const localPath = path.join(localSkillDir, ...filePath.split('/'));
+        await fsp.mkdir(path.dirname(localPath), { recursive: true });
+        await fsp.writeFile(localPath, content, 'utf-8');
+        onOutput?.({ type: 'stdout', content: `  ✓ ${filePath}\n` });
+      }
+
+      onOutput?.({
+        type: 'complete',
+        content: `[${server.name}] ✓ Skill "${skillId}" synced to local successfully (${filepaths.length} files)!\n`,
       });
       return { success: true };
     } catch (error) {

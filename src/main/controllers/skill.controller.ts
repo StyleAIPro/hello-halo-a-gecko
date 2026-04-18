@@ -581,6 +581,55 @@ export async function syncLocalSkillToRemote(
   }
 }
 
+/**
+ * Sync a remote skill to local machine.
+ */
+export async function syncRemoteSkillToLocal(
+  skillId: string,
+  serverId: string,
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await ensureInitialized();
+
+    // Check if skill already exists locally
+    const existingSkill = skillManager.getSkill(skillId);
+    if (existingSkill) {
+      onOutput?.({
+        type: 'stdout',
+        content: `Warning: Skill "${skillId}" ("${existingSkill.spec.name}") already exists locally and will be overwritten.\n`,
+      });
+    }
+
+    onOutput?.({
+      type: 'stdout',
+      content: `Syncing skill "${skillId}" from remote server to local...\n`,
+    });
+
+    const result = await remoteDeployService.syncRemoteSkillToLocal(
+      serverId,
+      skillId,
+      { overwrite: true },
+      onOutput,
+    );
+
+    if (result.success) {
+      // Refresh local skill cache
+      await skillManager.refresh();
+      onOutput?.({
+        type: 'complete',
+        content: `Skill "${skillId}" synced to local successfully!\n`,
+      });
+    }
+
+    return result;
+  } catch (error) {
+    const err = error instanceof Error ? error.message : 'Failed to sync skill from remote';
+    onOutput?.({ type: 'error', content: `${err}\n` });
+    return { success: false, error: err };
+  }
+}
+
 export async function toggleSkill(skillId: string, enabled: boolean) {
   try {
     const result = await skillManager.toggleSkill(skillId, enabled);

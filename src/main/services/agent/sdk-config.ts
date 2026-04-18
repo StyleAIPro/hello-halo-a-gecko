@@ -258,6 +258,15 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
         if (!entry.isDirectory()) continue;
         const sourcePath = path.join(sourceDir, entry.name);
         try {
+          // Skip disabled skills (META.json.enabled === false)
+          const metaPath = path.join(sourcePath, 'META.json');
+          try {
+            const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+            if (meta.enabled === false) continue;
+          } catch {
+            // META.json missing or invalid — not a fatal error, proceed
+          }
+
           const stat = statSync(sourcePath);
           const mtime = stat.mtimeMs;
           const existing = candidates.get(entry.name);

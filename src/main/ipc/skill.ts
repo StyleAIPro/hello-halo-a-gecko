@@ -126,6 +126,20 @@ export function registerSkillHandlers(conversationService: ConversationService):
     },
   );
 
+  // ── skill:sync-from-remote ─────────────────────────────────────────────
+  ipcMain.handle(
+    'skill:sync-from-remote',
+    async (event, input: { skillId: string; serverId: string }) => {
+      const onOutput = (data: {
+        type: 'stdout' | 'stderr' | 'complete' | 'error';
+        content: string;
+      }) => {
+        event.sender.send('skill:sync-from-remote-output', input.skillId, input.serverId, data);
+      };
+      return skillController.syncRemoteSkillToLocal(input.skillId, input.serverId, onOutput);
+    },
+  );
+
   // ── skill:toggle ───────────────────────────────────────────────────────
   ipcMain.handle('skill:toggle', async (_event, input: { skillId: string; enabled: boolean }) => {
     return skillController.toggleSkill(input.skillId, input.enabled);

@@ -227,28 +227,6 @@ export const api = {
     return httpRequest('DELETE', `/api/spaces/${spaceId}`);
   },
 
-  // ===== Hyper Space =====
-  createHyperSpace: async (input: {
-    name: string;
-    icon: string;
-    customPath?: string;
-    spaceType?: 'hyper';
-    agents?: any[];
-    orchestration?: any;
-  }): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.aicoBot.createHyperSpace(input);
-    }
-    return httpRequest('POST', '/api/spaces/hyper', input);
-  },
-
-  getHyperSpaceStatus: async (spaceId: string): Promise<ApiResponse> => {
-    if (isElectron()) {
-      return window.aicoBot.getHyperSpaceStatus(spaceId);
-    }
-    return httpRequest('GET', `/api/spaces/${spaceId}/hyper-status`);
-  },
-
   getSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.getSpace(spaceId);
@@ -2344,6 +2322,29 @@ export const api = {
       return window.aicoBot.skillSyncToRemote(input);
     }
     return httpRequest('POST', '/api/skills/sync-to-remote', input);
+  },
+
+  skillSyncFromRemote: async (input: {
+    skillId: string;
+    serverId: string;
+  }): Promise<ApiResponse<{ success: boolean; error?: string }>> => {
+    if (isElectron()) {
+      return window.aicoBot.skillSyncFromRemote(input);
+    }
+    return httpRequest('POST', '/api/skills/sync-from-remote', input);
+  },
+
+  onSkillSyncFromRemoteOutput: (
+    callback: (data: {
+      skillId: string;
+      serverId: string;
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
+    }) => void,
+  ): (() => void) => {
+    if (isElectron() && window.aicoBot.onSkillSyncFromRemoteOutput) {
+      return window.aicoBot.onSkillSyncFromRemoteOutput(callback);
+    }
+    return () => {};
   },
 
   skillMarketList: async (

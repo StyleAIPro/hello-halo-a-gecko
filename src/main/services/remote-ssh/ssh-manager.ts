@@ -30,6 +30,24 @@ export class SSHManager {
   private localForwardServers: Map<number, any> = new Map(); // Local port -> net.Server
   private interactiveShell: any | null = null; // Stored interactive shell stream
 
+  // Simple Promise-based lock for serializing SSH operations.
+  // Prevents concurrent exec/SFTP calls from stepping on each other.
+  private _operationLock: Promise<void> = Promise.resolve();
+
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previousLock = this._operationLock;
+    let resolveLock!: () => void;
+    this._operationLock = new Promise<void>((r) => {
+      resolveLock = r;
+    });
+    try {
+      await previousLock;
+      return await fn();
+    } finally {
+      resolveLock();
+    }
+  }
+
   /**
    * Establish SSH connection
    */
@@ -116,42 +134,44 @@ export class SSHManager {
    * Execute a command on the remote server
    */
   async executeCommand(command: string): Promise<string> {
-    if (!this._ready || !this.client) {
-      throw new Error('Not connected');
-    }
+    return this.withLock(async () => {
+      if (!this._ready || !this.client) {
+        throw new Error('Not connected');
+      }
 
-    console.log(`[SSHManager] Executing command: ${command}`);
+      console.log(`[SSHManager] Executing command: ${command}`);
 
-    return new Promise((resolve, reject) => {
-      this.client!.exec(command, (err, stream) => {
-        if (err) {
-          console.error('[SSHManager] Command execution error:', err);
-          return reject(err);
-        }
-
-        let stdout = '';
-        let stderr = '';
-
-        stream.on('data', (data: Buffer) => {
-          stdout += data.toString();
-        });
-
-        stream.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
-        });
-
-        stream.on('close', (code: number | null) => {
-          console.log(`[SSHManager] Command completed with exit code: ${code}`);
-          if (code !== 0 && code !== null) {
-            reject(new Error(`Command failed with exit code ${code}: ${stderr}`));
-          } else {
-            resolve(stdout);
+      return new Promise((resolve, reject) => {
+        this.client!.exec(command, (err, stream) => {
+          if (err) {
+            console.error('[SSHManager] Command execution error:', err);
+            return reject(err);
           }
-        });
 
-        stream.on('error', (err) => {
-          console.error('[SSHManager] Stream error:', err);
-          reject(err);
+          let stdout = '';
+          let stderr = '';
+
+          stream.on('data', (data: Buffer) => {
+            stdout += data.toString();
+          });
+
+          stream.stderr.on('data', (data: Buffer) => {
+            stderr += data.toString();
+          });
+
+          stream.on('close', (code: number | null) => {
+            console.log(`[SSHManager] Command completed with exit code: ${code}`);
+            if (code !== 0 && code !== null) {
+              reject(new Error(`Command failed with exit code ${code}: ${stderr}`));
+            } else {
+              resolve(stdout);
+            }
+          });
+
+          stream.on('error', (err) => {
+            console.error('[SSHManager] Stream error:', err);
+            reject(err);
+          });
         });
       });
     });
@@ -161,38 +181,40 @@ export class SSHManager {
    * Execute a command and return full result including stderr and exit code
    */
   async executeCommandFull(command: string): Promise<SSHExecuteResult> {
-    if (!this._ready || !this.client) {
-      throw new Error('Not connected');
-    }
+    return this.withLock(async () => {
+      if (!this._ready || !this.client) {
+        throw new Error('Not connected');
+      }
 
-    console.log(`[SSHManager] Executing command (full): ${command}`);
+      console.log(`[SSHManager] Executing command (full): ${command}`);
 
-    return new Promise((resolve, reject) => {
-      this.client!.exec(command, (err, stream) => {
-        if (err) {
-          console.error('[SSHManager] Command execution error:', err);
-          return reject(err);
-        }
+      return new Promise((resolve, reject) => {
+        this.client!.exec(command, (err, stream) => {
+          if (err) {
+            console.error('[SSHManager] Command execution error:', err);
+            return reject(err);
+          }
 
-        let stdout = '';
-        let stderr = '';
+          let stdout = '';
+          let stderr = '';
 
-        stream.on('data', (data: Buffer) => {
-          stdout += data.toString();
-        });
+          stream.on('data', (data: Buffer) => {
+            stdout += data.toString();
+          });
 
-        stream.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
-        });
+          stream.stderr.on('data', (data: Buffer) => {
+            stderr += data.toString();
+          });
 
-        stream.on('close', (code: number | null) => {
-          console.log(`[SSHManager] Command completed with exit code: ${code}`);
-          resolve({ stdout, stderr, exitCode: code });
-        });
+          stream.on('close', (code: number | null) => {
+            console.log(`[SSHManager] Command completed with exit code: ${code}`);
+            resolve({ stdout, stderr, exitCode: code });
+          });
 
-        stream.on('error', (err) => {
-          console.error('[SSHManager] Stream error:', err);
-          reject(err);
+          stream.on('error', (err) => {
+            console.error('[SSHManager] Stream error:', err);
+            reject(err);
+          });
         });
       });
     });
@@ -207,42 +229,44 @@ export class SSHManager {
     command: string,
     onOutput: (type: 'stdout' | 'stderr', data: string) => void,
   ): Promise<SSHExecuteResult> {
-    if (!this._ready || !this.client) {
-      throw new Error('Not connected');
-    }
+    return this.withLock(async () => {
+      if (!this._ready || !this.client) {
+        throw new Error('Not connected');
+      }
 
-    console.log(`[SSHManager] Executing command (streaming): ${command}`);
+      console.log(`[SSHManager] Executing command (streaming): ${command}`);
 
-    return new Promise((resolve, reject) => {
-      this.client!.exec(command, (err, stream) => {
-        if (err) {
-          console.error('[SSHManager] Command execution error:', err);
-          return reject(err);
-        }
+      return new Promise((resolve, reject) => {
+        this.client!.exec(command, (err, stream) => {
+          if (err) {
+            console.error('[SSHManager] Command execution error:', err);
+            return reject(err);
+          }
 
-        let stdout = '';
-        let stderr = '';
+          let stdout = '';
+          let stderr = '';
 
-        stream.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stdout += chunk;
-          onOutput('stdout', chunk);
-        });
+          stream.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            stdout += chunk;
+            onOutput('stdout', chunk);
+          });
 
-        stream.stderr.on('data', (data: Buffer) => {
-          const chunk = data.toString();
-          stderr += chunk;
-          onOutput('stderr', chunk);
-        });
+          stream.stderr.on('data', (data: Buffer) => {
+            const chunk = data.toString();
+            stderr += chunk;
+            onOutput('stderr', chunk);
+          });
 
-        stream.on('close', (code: number | null) => {
-          console.log(`[SSHManager] Streaming command completed with exit code: ${code}`);
-          resolve({ stdout, stderr, exitCode: code });
-        });
+          stream.on('close', (code: number | null) => {
+            console.log(`[SSHManager] Streaming command completed with exit code: ${code}`);
+            resolve({ stdout, stderr, exitCode: code });
+          });
 
-        stream.on('error', (err) => {
-          console.error('[SSHManager] Stream error:', err);
-          reject(err);
+          stream.on('error', (err) => {
+            console.error('[SSHManager] Stream error:', err);
+            reject(err);
+          });
         });
       });
     });
@@ -277,24 +301,26 @@ export class SSHManager {
    * Upload a file to the remote server
    */
   async uploadFile(localPath: string, remotePath: string): Promise<void> {
-    await this.initSFTP();
+    return this.withLock(async () => {
+      await this.initSFTP();
 
-    console.log(`[SSHManager] Uploading ${localPath} to ${remotePath}`);
+      console.log(`[SSHManager] Uploading ${localPath} to ${remotePath}`);
 
-    return new Promise((resolve, reject) => {
-      const fs = require('fs');
-      const fastPut = promisify(this.sftp!.fastPut);
+      return new Promise((resolve, reject) => {
+        const fs = require('fs');
+        const fastPut = promisify(this.sftp!.fastPut);
 
-      fastPut
-        .call(this.sftp!, localPath, remotePath)
-        .then(() => {
-          console.log(`[SSHManager] Upload completed`);
-          resolve();
-        })
-        .catch((err) => {
-          console.error('[SSHManager] Upload error:', err);
-          reject(err);
-        });
+        fastPut
+          .call(this.sftp!, localPath, remotePath)
+          .then(() => {
+            console.log(`[SSHManager] Upload completed`);
+            resolve();
+          })
+          .catch((err) => {
+            console.error('[SSHManager] Upload error:', err);
+            reject(err);
+          });
+      });
     });
   }
 
@@ -302,23 +328,25 @@ export class SSHManager {
    * Download a file from the remote server
    */
   async downloadFile(remotePath: string, localPath: string): Promise<void> {
-    await this.initSFTP();
+    return this.withLock(async () => {
+      await this.initSFTP();
 
-    console.log(`[SSHManager] Downloading ${remotePath} to ${localPath}`);
+      console.log(`[SSHManager] Downloading ${remotePath} to ${localPath}`);
 
-    return new Promise((resolve, reject) => {
-      const fastGet = promisify(this.sftp!.fastGet);
+      return new Promise((resolve, reject) => {
+        const fastGet = promisify(this.sftp!.fastGet);
 
-      fastGet
-        .call(this.sftp!, remotePath, localPath)
-        .then(() => {
-          console.log(`[SSHManager] Download completed`);
-          resolve();
-        })
-        .catch((err) => {
-          console.error('[SSHManager] Download error:', err);
-          reject(err);
-        });
+        fastGet
+          .call(this.sftp!, remotePath, localPath)
+          .then(() => {
+            console.log(`[SSHManager] Download completed`);
+            resolve();
+          })
+          .catch((err) => {
+            console.error('[SSHManager] Download error:', err);
+            reject(err);
+          });
+      });
     });
   }
 
@@ -326,21 +354,23 @@ export class SSHManager {
    * Create a directory on the remote server
    */
   async mkdir(remotePath: string, recursive: boolean = true): Promise<void> {
-    await this.initSFTP();
+    return this.withLock(async () => {
+      await this.initSFTP();
 
-    return new Promise((resolve, reject) => {
-      this.sftp!.mkdir(remotePath, { mode: 0o755 }, (err) => {
-        if (err) {
-          // If directory already exists, that's okay
-          if (err.message && err.message.includes('exists')) {
+      return new Promise((resolve, reject) => {
+        this.sftp!.mkdir(remotePath, { mode: 0o755 }, (err) => {
+          if (err) {
+            // If directory already exists, that's okay
+            if (err.message && err.message.includes('exists')) {
+              resolve();
+              return;
+            }
+            console.error('[SSHManager] mkdir error:', err);
+            reject(err);
+          } else {
             resolve();
-            return;
           }
-          console.error('[SSHManager] mkdir error:', err);
-          reject(err);
-        } else {
-          resolve();
-        }
+        });
       });
     });
   }
@@ -601,7 +631,8 @@ export class SSHManager {
   }
 
   /**
-   * Disconnect from the remote server
+   * Disconnect from the remote server.
+   * Waits for any in-flight operation to complete before closing the connection.
    */
   disconnect(): void {
     // Close all local forward servers
@@ -615,14 +646,20 @@ export class SSHManager {
     }
     this.localForwardServers.clear();
 
-    if (this.client) {
-      console.log('[SSHManager] Disconnecting');
-      this._ready = false;
-      this.client.end();
-      this.client = null;
-      this.sftp = null;
-      this.config = null;
-      this.interactiveShell = null;
-    }
+    // Schedule actual disconnect after current operation finishes
+    const doDisconnect = () => {
+      if (this.client) {
+        console.log('[SSHManager] Disconnecting');
+        this._ready = false;
+        this.client.end();
+        this.client = null;
+        this.sftp = null;
+        this.config = null;
+        this.interactiveShell = null;
+      }
+    };
+
+    // Chain onto the operation lock so we wait for any running command
+    this._operationLock = this._operationLock.then(doDisconnect, doDisconnect);
   }
 }

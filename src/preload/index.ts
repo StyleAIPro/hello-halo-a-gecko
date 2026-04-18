@@ -631,6 +631,14 @@ export interface AicoBotAPI {
       output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
     }) => void,
   ) => () => void;
+  skillSyncFromRemote: (input: { skillId: string; serverId: string }) => Promise<IpcResponse>;
+  onSkillSyncFromRemoteOutput: (
+    callback: (data: {
+      skillId: string;
+      serverId: string;
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string };
+    }) => void,
+  ) => () => void;
 
   // Skill Conversation (持久化会话)
   skillConversationList: (relatedSkillId?: string) => Promise<IpcResponse>;
@@ -770,8 +778,6 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('space:update-preferences', spaceId, preferences),
 
   // Hyper Space
-  createHyperSpace: (input) => ipcRenderer.invoke('hyper-space:create', input),
-  getHyperSpaceStatus: (spaceId) => ipcRenderer.invoke('hyper-space:get-status', spaceId),
   getSpacePreferences: (spaceId) => ipcRenderer.invoke('space:get-preferences', spaceId),
   getSkillSpace: () => ipcRenderer.invoke('space:get-skill-space'),
   getSkillSpaceId: () => ipcRenderer.invoke('space:get-skill-space-id'),
@@ -1116,6 +1122,7 @@ const api: AicoBotAPI = {
   skillInstallMulti: (input) => ipcRenderer.invoke('skill:install-multi', input),
   skillUninstallMulti: (input) => ipcRenderer.invoke('skill:uninstall-multi', input),
   skillSyncToRemote: (input) => ipcRenderer.invoke('skill:sync-to-remote', input),
+  skillSyncFromRemote: (input) => ipcRenderer.invoke('skill:sync-from-remote', input),
   skillMarketList: (sourceId?: string, page?: number, pageSize?: number) =>
     ipcRenderer.invoke('skill:market:list', sourceId, page, pageSize),
   skillMarketSearch: (query: string, sourceId?: string, page?: number, pageSize?: number) =>
@@ -1223,8 +1230,20 @@ const api: AicoBotAPI = {
       ipcRenderer.removeListener('skill:sync-output', handler);
     };
   },
-
-  // Skill Conversation (持久化会话)
+  onSkillSyncFromRemoteOutput: (callback) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      skillId: string,
+      serverId: string,
+      output: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string },
+    ) => {
+      callback({ skillId, serverId, output });
+    };
+    ipcRenderer.on('skill:sync-from-remote-output', handler);
+    return () => {
+      ipcRenderer.removeListener('skill:sync-from-remote-output', handler);
+    };
+  },
   skillConversationList: (relatedSkillId) =>
     ipcRenderer.invoke('skill:conversation:list', relatedSkillId),
   skillConversationGet: (conversationId) =>

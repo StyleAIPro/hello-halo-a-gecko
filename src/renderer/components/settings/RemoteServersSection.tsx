@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Edit,
   AlertTriangle,
+  AlertCircle,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { api } from '../../api';

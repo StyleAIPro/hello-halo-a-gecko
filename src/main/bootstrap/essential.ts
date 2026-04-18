@@ -30,6 +30,7 @@ import { registerAuthHandlers } from '../ipc/auth';
 import { registerBootstrapStatusHandler } from './state';
 import { execFileSync } from 'child_process';
 import path from 'path';
+import { app } from 'electron';
 
 /**
  * Initialize essential services required for first screen render
@@ -45,14 +46,20 @@ export function initializeEssentialServices(): void {
   // === SDK PATCH ===
   // Must run before any SDK module is imported. Patches sdk.mjs to forward options
   // (cwd, systemPrompt, etc.) and enable turn-level message injection.
+  // In packaged builds, SDK is inside the read-only app.asar, so the patch must
+  // have been applied during the build step (electron-vite build → out/).
   try {
-    // __dirname in electron-vite dev points to out/main/, in packaged build points to resources/app/
-    // Both cases: project root is two levels up from the compiled output directory.
-    const projectRoot = path.join(__dirname, '..', '..');
-    const patchScript = path.join(projectRoot, 'scripts', 'patch-sdk.mjs');
-    console.log(`[Bootstrap] SDK patch script: ${patchScript}`);
-    execFileSync(process.execPath, [patchScript], { stdio: 'pipe' });
-    console.log('[Bootstrap] SDK patch applied');
+    if (app.isPackaged) {
+      console.log(
+        '[Bootstrap] Packaged build — skipping runtime SDK patch (must be pre-patched in build output)',
+      );
+    } else {
+      const projectRoot = path.join(__dirname, '..', '..');
+      const patchScript = path.join(projectRoot, 'scripts', 'patch-sdk.mjs');
+      console.log(`[Bootstrap] SDK patch script: ${patchScript}`);
+      execFileSync('node', [patchScript], { stdio: 'pipe' });
+      console.log('[Bootstrap] SDK patch applied');
+    }
   } catch (e) {
     console.error('[Bootstrap] SDK patch failed:', e);
   }

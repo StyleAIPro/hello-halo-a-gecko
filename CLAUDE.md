@@ -96,6 +96,20 @@ npm run format           # Prettier 格式化
 - 原生模块编译失败 → `npm config set msvs_version 2022 && npm install`
 - better-sqlite3/node-pty 报错 → `npx electron-rebuild && npm run prepare`
 - `npm run prepare` 下载失败 → 设置 `HTTPS_PROXY` 或手动下载
+- `app.asar` 被占用 → 关闭所有 AICO-Bot 和 Electron 进程后再打包
+
+### 远程 Agent Proxy 打包注意事项
+
+`packages/remote-agent-proxy/` 会被打包进 asar 并部署到远程服务器。以下目录必须包含在 `package.json` 的 `build.files` 中，否则远程部署会失败：
+
+| 目录 | 用途 | 部署后行为 |
+|------|------|-----------|
+| `dist/**/*` | 编译后的 JS 代码 | proxy 运行入口 |
+| `package.json` | 依赖声明 + `postinstall` 钩子 | `npm install` 后自动执行 `scripts/patch-sdk.mjs` |
+| `scripts/**/*` | `patch-sdk.mjs` 等 | SDK 补丁脚本，`postinstall` 依赖 |
+
+> **重要**：如果 `scripts/` 未包含在 asar 中，远程 `npm install` 会因找不到 `patch-sdk.mjs` 而失败（`MODULE_NOT_FOUND`）。
+> 新增 `packages/remote-agent-proxy/` 下的子目录时，必须同步更新 `package.json` 的 `build.files`。
 
 ## 架构概述
 

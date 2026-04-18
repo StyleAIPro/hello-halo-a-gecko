@@ -185,6 +185,10 @@ interface SkillState {
   // Actions - Sync to remote server
   syncSkillToRemote: (skillId: string, serverId: string) => Promise<boolean>;
   clearSyncState: () => void;
+
+  // Actions - Sync from remote server
+  syncSkillFromRemote: (skillId: string, serverId: string) => Promise<boolean>;
+  clearSyncFromRemoteState: () => void;
 }
 
 // ============================================
@@ -222,6 +226,10 @@ const initialState = {
   syncLoading: false,
   syncError: null,
   syncResult: null,
+  // Sync from remote server 状态
+  syncFromRemoteLoading: false,
+  syncFromRemoteError: null,
+  syncFromRemoteResult: null,
   // 远程技能状态
   remoteSkills: {} as Record<string, InstalledSkill[]>,
   remoteSkillsLoading: {} as Record<string, boolean>,
@@ -760,5 +768,39 @@ export const useSkillStore = create<SkillState>((set, get) => ({
 
   clearSyncState: () => {
     set({ syncLoading: false, syncError: null, syncResult: null });
+  },
+
+  // ==========================================
+  // Sync from remote server
+  // ==========================================
+
+  syncSkillFromRemote: async (skillId: string, serverId: string) => {
+    set({ syncFromRemoteLoading: true, syncFromRemoteError: null, syncFromRemoteResult: null });
+    try {
+      const result = await api.skillSyncFromRemote({ skillId, serverId });
+      if (result.success) {
+        set({
+          syncFromRemoteLoading: false,
+          syncFromRemoteResult: { skillId, success: true },
+        });
+        // Refresh local skills list
+        get().refreshSkills();
+        return true;
+      } else {
+        set({
+          syncFromRemoteLoading: false,
+          syncFromRemoteError: result.error || 'Failed to sync skill from remote',
+        });
+        return false;
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to sync skill from remote';
+      set({ syncFromRemoteLoading: false, syncFromRemoteError: msg });
+      return false;
+    }
+  },
+
+  clearSyncFromRemoteState: () => {
+    set({ syncFromRemoteLoading: false, syncFromRemoteError: null, syncFromRemoteResult: null });
   },
 }));
