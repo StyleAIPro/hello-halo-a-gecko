@@ -130,6 +130,7 @@
 | useSearchShortcuts | 搜索快捷键 | `renderer/hooks/useSearchShortcuts.ts` |
 | useWorkerTabs | Worker tab 构建、未读追踪、tab 切换 | `renderer/hooks/useWorkerTabs.ts` |
 | useMentionSystem | @mention 自动补全与键盘导航 | `renderer/hooks/useMentionSystem.ts` |
+| useSlashCommand | 斜杠命令自动补全、键盘导航、命令执行 | `renderer/hooks/slash-command/useSlashCommand.ts` |
 | useImageAttachments | 图片粘贴/拖拽/选择、压缩验证 | `renderer/hooks/useImageAttachments.ts` |
 | useSmartScroll | 智能滚动（自动跟随/用户滚动检测） | `renderer/hooks/useSmartScroll.ts` |
 | useAsyncHighlight | 异步内容高亮 | `renderer/hooks/useAsyncHighlight.ts` |
@@ -165,3 +166,4 @@
 | 日期 | 内容 | 指令人 |
 |------|------|--------|
 | 2026-04-16 | 初始模块文档 | @moonseeker1 |
+| 2026-04-19 | 新增斜杠命令框架：SlashCommandMenu 组件、useSlashCommand hook、命令注册表/执行器、/skill 系列 5 个子命令 | @MoonSeeker |

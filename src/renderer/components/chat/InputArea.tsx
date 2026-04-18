@@ -49,6 +49,7 @@ import {
 import { useOnboardingStore } from '../../stores/onboarding.store';
 import { useAIBrowserStore } from '../../stores/ai-browser.store';
 import { useSpaceStore } from '../../stores/space.store';
+import { useChatStore } from '../../stores/chat.store';
 import { getOnboardingPrompt } from '../onboarding/onboardingData';
 import { ImageAttachmentPreview } from './ImageAttachmentPreview';
 import type { ImageAttachment } from '../../types';
@@ -56,6 +57,8 @@ import { useTranslation } from '../../i18n';
 import { api } from '../../api';
 import { useMentionSystem, type AgentMember } from '../../hooks/useMentionSystem';
 import { useImageAttachments, MAX_IMAGES } from '../../hooks/useImageAttachments';
+import { useSlashCommand, type SlashCommandExecutionResult } from '../../hooks/slash-command';
+import { SlashCommandMenu } from './SlashCommandMenu';
 
 interface InputAreaProps {
   onSend: (
@@ -159,6 +162,68 @@ function InputAreaInternal(
     clearImages,
     hasImages,
   } = useImageAttachments();
+
+  // Slash command system (/ autocomplete)
+  const handleCommandResult = useCallback(
+    (result: SlashCommandExecutionResult) => {
+      // Clear input
+      setContent('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+      // Inject command result as message into chat UI (both DB + store cache)
+      const spaceId = currentSpaceId;
+      if (spaceId && conversationId) {
+        const prefix = result.success ? '/ ' : '/! ';
+        const messageContent = `${prefix}${result.message}`;
+        const now = new Date().toISOString();
+
+        // 1. Persist to DB
+        api
+          .addMessage(spaceId, conversationId, {
+            role: 'user',
+            content: messageContent,
+          })
+          .catch(console.error);
+
+        // 2. Update chat store cache so UI refreshes immediately
+        // Use the store object directly (not the hook result) for setState
+        useChatStore.setState((state) => {
+          const conversation = state.conversationCache.get(conversationId);
+          if (!conversation) return {};
+          const newMessage = {
+            id: `slash-cmd-${Date.now()}`,
+            role: 'user' as const,
+            content: messageContent,
+            timestamp: now,
+          };
+          const newCache = new Map(state.conversationCache);
+          newCache.set(conversationId, {
+            ...conversation,
+            messages: [...conversation.messages, newMessage],
+          });
+          return { conversationCache: newCache };
+        });
+      }
+    },
+    [currentSpaceId, conversationId],
+  );
+
+  const {
+    showCommandMenu,
+    commandMenuRef,
+    matchedCommands,
+    selectedIndex,
+    isExecuting,
+    handleTextChange: handleSlashTextChange,
+    handleSlashKeyDown,
+    selectMenuItem,
+  } = useSlashCommand({
+    content,
+    setContent,
+    textareaRef,
+    onExecuteCommand: handleCommandResult,
+  });
 
   // Initialize AI Browser based on space type
   useEffect(() => {
@@ -286,10 +351,12 @@ function InputAreaInternal(
     return 'ontouchstart' in window && window.innerWidth < 768;
   };
 
-  // Handle key press - include mention popup navigation
+  // Handle key press - include mention popup and slash command navigation
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Let mention system handle keys first (returns true if consumed)
     if (handleMentionKeyDown(e)) return;
+    // Let slash command system handle keys (returns true if consumed)
+    if (handleSlashKeyDown(e)) return;
 
     // Mobile: Enter for newline, send via button only
     // PC: Enter to send, Shift+Enter for newline
@@ -432,13 +499,16 @@ function InputAreaInternal(
             <textarea
               ref={textareaRef}
               value={displayContent}
-              onChange={handleMentionTextChange}
+              onChange={(e) => {
+                handleMentionTextChange(e);
+                handleSlashTextChange(e);
+              }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               placeholder={placeholder || t('Type a message, let AICO-Bot help you...')}
-              disabled={isOnboardingSendStep} // Only disabled during onboarding
+              disabled={isOnboardingSendStep || isExecuting}
               readOnly={isOnboardingSendStep}
               rows={1}
               className={`w-full bg-transparent resize-none
@@ -502,6 +572,16 @@ function InputAreaInternal(
                   ))
                 )}
               </div>
+            )}
+
+            {/* Slash Command Menu */}
+            {showCommandMenu && (
+              <SlashCommandMenu
+                ref={commandMenuRef}
+                items={matchedCommands}
+                selectedIndex={selectedIndex}
+                onSelect={selectMenuItem}
+              />
             )}
           </div>
 
