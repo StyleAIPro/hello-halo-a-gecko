@@ -103,6 +103,12 @@ export function SkillMarket() {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [fetchProgress, setFetchProgress] = useState<{
+    phase: string;
+    current: number;
+    total: number;
+  } | null>(null);
 
   // 操作状态：正在操作的 skill ID 集合（支持同时操作多个环境）
   const [operatingTargets, setOperatingTargets] = useState<Set<string>>(new Set());
@@ -114,6 +120,7 @@ export function SkillMarket() {
   // 滚动容器引用
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const fetchGenerationRef = useRef(0); // Race condition guard
 
   // 远程服务器列表
   const [servers, setServers] = useState<ServerInfo[]>([]);
@@ -192,11 +199,26 @@ export function SkillMarket() {
   useEffect(() => {
     loadInstalledSkills();
     loadServers();
-    loadMarketSources();
+    loadMarketSources().then(() => {
+      // Use backend's activeSourceId directly to ensure UI matches fetch source
+      const { marketSources, _activeSourceId } = useSkillStore.getState();
+      if (marketSources.length > 0) {
+        const backendActive = _activeSourceId;
+        const fallback = marketSources.find((s) => s.enabled) || marketSources[0];
+        setActiveSourceId(backendActive || fallback?.id || null);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 监听安装/卸载输出
+  useEffect(() => {
+    const cleanupProgress = api.onSkillMarketFetchProgress((progress) => {
+      setFetchProgress(progress);
+    });
+    return () => cleanupProgress();
+  }, []);
+
   useEffect(() => {
     const cleanupInstall = api.onSkillInstallOutput((data) => {
       setInstallOutputs((prev) => [
@@ -353,7 +375,10 @@ export function SkillMarket() {
     async (pageNum: number, reset: boolean = false) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
+      const generation = ++fetchGenerationRef.current;
       setLoading(true);
+      setLoadError(null);
+      if (reset) setFetchProgress(null);
 
       try {
         let result;
@@ -362,6 +387,9 @@ export function SkillMarket() {
         } else {
           result = await api.skillMarketList(pageNum, PAGE_SIZE);
         }
+
+        // Discard stale results if a newer fetch was started
+        if (generation !== fetchGenerationRef.current) return;
 
         if (result.success && result.data) {
           const newSkills = result.data.skills || [];
@@ -373,15 +401,22 @@ export function SkillMarket() {
           setHasMore(result.data.hasMore || false);
           setTotal(result.data.total || 0);
           setPage(pageNum);
+        } else if (!result.success) {
+          setLoadError(result.error || t('Failed to load skills'));
         }
       } catch (error) {
+        if (generation !== fetchGenerationRef.current) return;
         console.error('Failed to load skills:', error);
+        setLoadError(error instanceof Error ? error.message : t('Failed to load skills'));
       } finally {
-        setLoading(false);
-        loadingRef.current = false;
+        if (generation === fetchGenerationRef.current) {
+          setLoading(false);
+          loadingRef.current = false;
+          setFetchProgress(null);
+        }
       }
     },
-    [debouncedQuery],
+    [debouncedQuery, t],
   );
 
   // 初始加载 - 当搜索词变化时重新加载
@@ -612,7 +647,9 @@ export function SkillMarket() {
                 ) : (
                   <Store className="w-4 h-4" />
                 )}
-                <span className="max-w-[120px] truncate">{activeSource?.name || 'Skills.sh'}</span>
+                <span className="max-w-[120px] truncate">
+                  {activeSource?.name || t('Skills.sh')}
+                </span>
                 <ChevronDown className="w-3 h-3 text-muted-foreground" />
               </button>
               {showSourceDropdown && (
@@ -697,10 +734,31 @@ export function SkillMarket() {
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
             {loading ? (
-              <span className="flex items-center gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                {t('Loading...')}
-              </span>
+              fetchProgress && fetchProgress.total > 0 ? (
+                <div className="space-y-1">
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {fetchProgress.phase === 'scanning'
+                      ? `${t('Scanning directories...')} (${fetchProgress.current})`
+                      : `${t('Loading skill details...')} (${fetchProgress.current}/${fetchProgress.total})`}
+                  </span>
+                  {fetchProgress.phase === 'fetching-metadata' && (
+                    <div className="w-full bg-secondary rounded-full h-1.5">
+                      <div
+                        className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.round((fetchProgress.current / fetchProgress.total) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  {t('Loading...')}
+                </span>
+              )
             ) : (
               <span>
                 {total} {t('skills')}
@@ -715,7 +773,18 @@ export function SkillMarket() {
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto p-3"
         >
-          {skills.length === 0 && !loading ? (
+          {loadError && skills.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
+              <X className="w-12 h-12 mb-4 opacity-50 text-destructive" />
+              <p className="text-destructive mb-1">{loadError}</p>
+              <button
+                onClick={() => loadSkills(1, true)}
+                className="text-sm text-primary hover:underline mt-2"
+              >
+                {t('Retry')}
+              </button>
+            </div>
+          ) : skills.length === 0 && !loading ? (
             <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
               <Store className="w-12 h-12 mb-4 opacity-50" />
               <p>{t('No skills found')}</p>
@@ -745,7 +814,9 @@ export function SkillMarket() {
                         <h3 className="text-sm font-medium text-foreground truncate">
                           {skill.name}
                         </h3>
-                        <p className="text-xs text-muted-foreground">by {skill.author}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t('by')} {skill.author}
+                        </p>
                       </div>
                       {isInstalled && (
                         <span className="text-xs text-green-500 px-1.5 py-0.5 bg-green-500/10 rounded flex items-center gap-1 shrink-0">
@@ -836,7 +907,9 @@ export function SkillMarket() {
             <div className="p-3 space-y-3">
               <div>
                 <h3 className="text-base font-semibold text-foreground">{selectedSkill.name}</h3>
-                <p className="text-xs text-muted-foreground">by {selectedSkill.author}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('by')} {selectedSkill.author}
+                </p>
               </div>
 
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -880,19 +953,21 @@ export function SkillMarket() {
                 </div>
               )}
 
-              {selectedSkill.githubRepo && (
+              {selectedSkill.remoteRepo && (
                 <a
                   href={
                     selectedSkill.sourceId?.startsWith('gitcode:')
-                      ? `https://gitcode.com/${selectedSkill.githubRepo}`
-                      : `https://github.com/${selectedSkill.githubRepo}`
+                      ? `https://gitcode.com/${selectedSkill.remoteRepo}`
+                      : `https://github.com/${selectedSkill.remoteRepo}`
                   }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-xs text-primary hover:text-primary/80"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  {t('View on GitHub')}
+                  {selectedSkill.sourceId?.startsWith('gitcode:')
+                    ? t('View on GitCode')
+                    : t('View on GitHub')}
                 </a>
               )}
 
@@ -1048,7 +1123,13 @@ export function SkillMarket() {
                               : 'bg-green-500/10 text-green-500'
                       }`}
                     >
-                      {source.type}
+                      {source.type === 'github'
+                        ? 'GitHub'
+                        : source.type === 'gitcode'
+                          ? 'GitCode'
+                          : source.type === 'builtin'
+                            ? t('Built-in')
+                            : source.type}
                     </span>
                     {source.type !== 'builtin' && (
                       <button
@@ -1076,7 +1157,9 @@ export function SkillMarket() {
                 <div className="space-y-2">
                   <input
                     type="text"
-                    placeholder="https://github.com/owner/repo or https://gitcode.com/owner/repo"
+                    placeholder={t(
+                      'https://github.com/owner/repo or https://gitcode.com/owner/repo',
+                    )}
                     value={newRepoUrl}
                     onChange={(e) => {
                       setNewRepoUrl(e.target.value);
@@ -1109,7 +1192,7 @@ export function SkillMarket() {
                             valid: false,
                             hasSkillsDir: false,
                             skillCount: 0,
-                            error: 'Validation failed',
+                            error: t('Validation failed'),
                           });
                         }
                         setValidating(false);

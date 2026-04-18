@@ -253,19 +253,19 @@ export async function installSkillFromMarket(
     // 1. 获取技能安装信息
     const downloadResult = await skillMarket.downloadSkill(skillId);
 
-    if (!downloadResult.success || !downloadResult.githubRepo || !downloadResult.skillName) {
+    if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
       const error = downloadResult.error || 'Failed to download skill';
       onOutput?.({ type: 'error', content: error });
       return { success: false, error };
     }
 
     console.log('[SkillController] Skill info:', {
-      githubRepo: downloadResult.githubRepo,
+      remoteRepo: downloadResult.remoteRepo,
       skillName: downloadResult.skillName,
     });
 
     // 2. 根据 sourceType 选择安装方式
-    const { githubRepo: repo, skillName, sourceType } = downloadResult;
+    const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
     // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
     if (sourceType === 'gitcode') {
@@ -402,14 +402,14 @@ export async function installSkillMultiTarget(
   const results: Record<string, { success: boolean; error?: string }> = {};
 
   // Step 1: Get skill info from market (needed for remote install)
-  let githubRepo: string | undefined;
+  let remoteRepo: string | undefined;
   let skillName: string | undefined;
 
   try {
     await ensureInitialized();
     const downloadResult = await skillMarket.downloadSkill(skillId);
-    if (downloadResult.success && downloadResult.githubRepo && downloadResult.skillName) {
-      githubRepo = downloadResult.githubRepo;
+    if (downloadResult.success && downloadResult.remoteRepo && downloadResult.skillName) {
+      remoteRepo = downloadResult.remoteRepo;
       skillName = downloadResult.skillName;
     }
   } catch (e) {
@@ -432,7 +432,7 @@ export async function installSkillMultiTarget(
       results[key] = result;
     } else {
       // Remote install
-      if (!githubRepo || !skillName) {
+      if (!remoteRepo || !skillName) {
         onOutput?.(key, {
           type: 'error',
           content: 'Failed to get skill info for remote install\n',
@@ -451,7 +451,7 @@ export async function installSkillMultiTarget(
         const result = await remoteDeployService.installRemoteSkill(
           target.serverId,
           skillId,
-          githubRepo,
+          remoteRepo,
           skillName,
           remoteOnOutput,
         );
@@ -723,7 +723,8 @@ export async function getMarketSources() {
   try {
     await ensureInitialized();
     const sources = skillMarket.getSources();
-    return { success: true, data: sources };
+    const activeSourceId = skillMarket.getActiveSourceId();
+    return { success: true, data: sources, activeSourceId };
   } catch (error) {
     return {
       success: false,
@@ -1602,7 +1603,7 @@ export async function pushSkillToGitCode(
   skillId: string,
   targetRepo: string,
   targetPath?: string,
-): Promise<{ success: boolean; mrUrl?: string; error?: string; warning?: string }> {
+): Promise<{ success: boolean; prUrl?: string; error?: string; warning?: string }> {
   try {
     const files = await gitcodeSkillSource.readLocalSkillFiles(skillId);
     if (files.length === 0) {
@@ -1612,7 +1613,18 @@ export async function pushSkillToGitCode(
     if (!token) {
       return { success: false, error: 'GitCode token not configured. Please set it in Settings.' };
     }
-    return await gitcodeSkillSource.pushSkillAsMR(targetRepo, skillId, files, targetPath, token);
+    const result = await gitcodeSkillSource.pushSkillAsMR(
+      targetRepo,
+      skillId,
+      files,
+      targetPath,
+      token,
+    );
+    // Normalize mrUrl → prUrl for consistent frontend handling
+    if (result.success && result.mrUrl) {
+      return { ...result, prUrl: result.mrUrl, mrUrl: undefined };
+    }
+    return result as any;
   } catch (error: any) {
     console.error('[SkillController] pushSkillToGitCode error:', error);
     return { success: false, error: error.message || 'Failed to push skill to GitCode' };

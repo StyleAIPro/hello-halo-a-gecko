@@ -3726,7 +3726,7 @@ WRAPPER
   async installRemoteSkill(
     id: string,
     skillId: string,
-    githubRepo: string,
+    remoteRepo: string,
     skillName: string,
     onOutput?: (data: {
       type: 'stdout' | 'stderr' | 'complete' | 'error';
@@ -3758,10 +3758,10 @@ WRAPPER
     }
 
     // Execute npx command on remote server
-    const command = `cd ~ && npx --yes skills add https://github.com/${githubRepo} --skill ${skillName} -y --global 2>&1`;
+    const command = `cd ~ && npx --yes skills add https://github.com/${remoteRepo} --skill ${skillName} -y --global 2>&1`;
     onOutput?.({
       type: 'stdout',
-      content: `[${server.name}] $ npx skills add https://github.com/${githubRepo} --skill ${skillName} -y --global\n`,
+      content: `[${server.name}] $ npx skills add https://github.com/${remoteRepo} --skill ${skillName} -y --global\n`,
     });
 
     try {
