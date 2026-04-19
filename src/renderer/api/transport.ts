@@ -321,6 +321,7 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'remote-server:status-change': 'onRemoteServerStatusChange',
       'remote-server:deploy-progress': 'onRemoteServerDeployProgress',
       'remote-server:update-complete': 'onRemoteServerUpdateComplete',
+      'skill:market:fetch-progress': 'onSkillMarketFetchProgress',
     };
 
     const method = methodMap[channel];

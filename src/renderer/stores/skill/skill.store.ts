@@ -62,6 +62,7 @@ interface SkillState {
 
   // 市场源
   marketSources: SkillMarketSource[];
+  _activeSourceId: string | null;
 
   // 技能库配置
   config: SkillLibraryConfig | null;
@@ -167,6 +168,7 @@ interface SkillState {
     targetPath?: string,
   ) => Promise<{ success: boolean; prUrl?: string }>;
   loadRepoDirectories: (repo: string) => Promise<void>;
+  loadGitCodeRepoDirectories: (repo: string) => Promise<void>;
   validateGitHubRepo: (repo: string) => Promise<{
     valid: boolean;
     hasSkillsDir: boolean;
@@ -203,6 +205,7 @@ const initialState = {
   marketLoading: false,
   marketError: null,
   marketSources: [],
+  _activeSourceId: null,
   config: null,
   currentView: 'library' as const,
   searchQuery: '',
@@ -316,10 +319,10 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   // 市场技能
   // ==========================================
 
-  loadMarketSkills: async (sourceId?: string) => {
+  loadMarketSkills: async () => {
     set({ marketLoading: true, marketError: null });
     try {
-      const result = await api.skillMarketList(sourceId);
+      const result = await api.skillMarketList();
       if (result.success) {
         set({ marketSkills: result.data || [], marketLoading: false });
       } else {
@@ -367,7 +370,10 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     try {
       const result = await api.skillMarketSources();
       if (result.success) {
-        set({ marketSources: result.data || [] });
+        const sources = result.data || [];
+        const activeSourceId =
+          (result as any).activeSourceId || sources.find((s) => s.enabled)?.id || sources[0]?.id;
+        set({ marketSources: sources, _activeSourceId: activeSourceId });
       }
     } catch (error) {
       console.error('Failed to load market sources:', error);
@@ -602,9 +608,11 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     set({ pushLoading: true, pushError: null, pushResult: null });
     try {
       const result = await api.skillMarketPushToGitHub(skillId, targetRepo, targetPath);
-      if (result.success && result.data?.prUrl) {
-        set({ pushLoading: false, pushResult: { prUrl: result.data.prUrl } });
-        return { success: true, prUrl: result.data.prUrl };
+      const prUrl = (result as any)?.prUrl || (result as any)?.data?.prUrl;
+      const warning = (result as any)?.warning || (result as any)?.data?.warning;
+      if (result.success && prUrl) {
+        set({ pushLoading: false, pushResult: { prUrl, warning } });
+        return { success: true, prUrl };
       } else {
         set({ pushLoading: false, pushError: result.error || 'Failed to push skill' });
         return { success: false };
@@ -620,17 +628,17 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     set({ pushLoading: true, pushError: null, pushResult: null });
     try {
       const result = await api.skillMarketPushToGitCode(skillId, targetRepo, targetPath);
-      const mrUrl = (result as any)?.mrUrl || (result as any)?.data?.mrUrl;
+      const prUrl = (result as any)?.prUrl || (result as any)?.data?.prUrl;
       const warning = (result as any)?.warning || (result as any)?.data?.warning;
-      if (result.success && mrUrl) {
-        set({ pushLoading: false, pushResult: { prUrl: mrUrl, warning } });
-        return { success: true, prUrl: mrUrl };
+      if (result.success && prUrl) {
+        set({ pushLoading: false, pushResult: { prUrl, warning } });
+        return { success: true, prUrl };
       } else {
-        set({ pushLoading: false, pushError: result.error || 'Failed to push skill to GitCode' });
+        set({ pushLoading: false, pushError: result.error || 'Failed to push skill' });
         return { success: false };
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Failed to push skill to GitCode';
+      const msg = error instanceof Error ? error.message : 'Failed to push skill';
       set({ pushLoading: false, pushError: msg });
       return { success: false };
     }
@@ -647,6 +655,21 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       }
     } catch (error) {
       console.error('[SkillStore] loadRepoDirectories error:', error);
+      set({ repoDirs: [], repoDirsLoading: false });
+    }
+  },
+
+  loadGitCodeRepoDirectories: async (repo: string) => {
+    set({ repoDirsLoading: true });
+    try {
+      const result = await api.skillMarketListGitCodeRepoDirs(repo);
+      if (result.success && result.data) {
+        set({ repoDirs: result.data as string[], repoDirsLoading: false });
+      } else {
+        set({ repoDirs: [], repoDirsLoading: false });
+      }
+    } catch (error) {
+      console.error('[SkillStore] loadGitCodeRepoDirectories error:', error);
       set({ repoDirs: [], repoDirsLoading: false });
     }
   },
