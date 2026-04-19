@@ -17,6 +17,8 @@
 - `stores/ai-browser.store.ts` -- AI 浏览器状态
 - `components/chat/ImageAttachmentPreview.tsx` -- 图片附件预览
 - `components/chat/AgentMentionInput.tsx` -- Agent @提及输入
+- `components/chat/SlashCommandMenu.tsx` -- 斜杠命令下拉菜单
+- `hooks/slash-command/` -- 斜杠命令框架（注册表、执行器、hook、内置命令）
 - `utils/imageProcessor.ts` -- 图片压缩和处理
 
 ## 实现逻辑

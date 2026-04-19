@@ -73,10 +73,10 @@ export interface RemoteSkillItem {
   lastUpdated: string;
   /** 来源 ID */
   sourceId: string;
-  /** GitHub 仓库 */
-  githubRepo?: string;
-  /** GitHub 路径（仓库内的子路径） */
-  githubPath?: string;
+  /** 远程仓库（GitHub / GitCode / 其他） */
+  remoteRepo?: string;
+  /** 远程仓库内的技能路径 */
+  remotePath?: string;
   /** 下载URL */
   downloadUrl?: string;
   /** SKILL.md 内容 */

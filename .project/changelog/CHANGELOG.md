@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- BUG-001: GitCode 技能获取全面失败（rate limiter 失效 + 无超时 + getSkills()/searchSkills() 吞没错误 + 缓存空结果 + UI 无错误展示 + 代理不刷新） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/skill-market-service.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-gitcode-skill-fetch-v1.md`
+- BUG-003: 技能市场 UX 精修（GitCode 顺序获取进度均匀化 + 前端源选择同步后端 activeSourceId + GitHub 恢复并行获取减少请求延迟） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/github-skill-source.service.ts`、`src/renderer/stores/skill/skill.store.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-skill-market-ux-v1.md`
+- BUG-004: 技能市场 GitHub/GitCode 平台隔离（`githubRepo`/`githubPath` → `remoteRepo`/`remotePath` 类型重命名 + Push 流程平台校验 + i18n 硬编码修复 + Controller 返回值统一） — `src/shared/skill/skill-types.ts`、`src/main/services/skill/`、`src/main/controllers/skill.controller.ts`、`src/renderer/api/index.ts`、`src/renderer/stores/skill/skill.store.ts`、`src/renderer/components/skill/SkillMarket.tsx`、`src/renderer/components/skill/SkillLibrary.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/refactor/skill/refactor-skill-market-platform-isolation-v1.md`
 - BUG-003: SDK 安装命令模板字符串未插值导致安装错误版本（3 处 npm install 单引号字符串未插值 `${REQUIRED_SDK_VERSION}`，远程安装了最新版而非指定版本） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-sdk-version-interpolation-v1.md`
 - BUG-004: checkAgentInstalled 未做版本精确匹配导致 UI 状态错误（只检查 SDK 是否安装不检查版本号，安装错误版本后 UI 仍显示绿色正常） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-sdk-version-check-v1.md`
 - BUG-002: 远程 WebSocket 认证 token 不一致导致连接失败（`createWsClient` 中 `authToken` 使用 `server.password` 而非 `server.authToken`） — `src/main/services/remote-deploy/remote-deploy.service.ts` — modules/remote-agent/features/remote-deploy/bugfix.md — PRD: `prd/bugfix/remote-deploy/bugfix-ws-auth-token-mismatch-v1.md`
@@ -33,6 +36,7 @@
 - Remote Agent 独立详解文档（架构全景、通信协议、部署架构、消息流、故障排查） — `docs/remote-agent-guide.md`
 
 ### Refactored
+- 技能市场 GitHub/GitCode 平台隔离：`RemoteSkillItem.githubRepo`/`githubPath` → `remoteRepo`/`remotePath`（10+ 文件），Push 流程根据 source type 路由到正确 API，Controller 返回值 `mrUrl` → `prUrl` 统一 — PRD: `prd/refactor/skill/refactor-skill-market-platform-isolation-v1.md`
 - 删除 analytics 模块代码（6 文件），移除 Baidu Tongji SDK 和 `initAnalytics` 启动调用 — `src/main/services/analytics/`、`src/main/index.ts`、`src/preload/index.ts`、`src/renderer/index.html`
 - 删除 perf 模块代码（7 文件），移除性能监控 IPC/API/store — `src/main/services/perf/`、`src/main/ipc/perf.ts`、`src/renderer/stores/perf.store.ts`、`src/renderer/lib/perf-collector.ts`
 - 删除 notify-channels 代码（7 文件）和 notification IPC/设置 UI，精简 notification.service.ts 仅保留系统通知 — `src/main/services/notify-channels/`、`src/main/services/notification.service.ts`、`src/main/apps/runtime/`

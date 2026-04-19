@@ -432,16 +432,26 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // Open DevTools in development (skip during E2E to avoid viewport interference)
+  // Register BEFORE loadURL so the listener is guaranteed to catch the event.
+  // Use did-finish-load instead of dom-ready — more reliable, fires once after full load.
+  if (is.dev && !process.env.AICO_BOT_E2E_TEST) {
+    let devToolsOpened = false;
+    const openDevTools = () => {
+      if (devToolsOpened || mainWindow?.isDestroyed()) return;
+      devToolsOpened = true;
+      mainWindow?.webContents.openDevTools({ mode: 'detach', activate: true });
+    };
+    mainWindow.webContents.on('did-finish-load', openDevTools);
+    // Fallback: if did-finish-load was missed (race), retry after 2s
+    setTimeout(openDevTools, 2000);
+  }
+
   // Load the renderer
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
-  }
-
-  // Open DevTools in development (skip during E2E to avoid viewport interference)
-  if (is.dev && !process.env.AICO_BOT_E2E_TEST) {
-    mainWindow.webContents.openDevTools({ mode: 'detach', activate: true });
   }
 }
 

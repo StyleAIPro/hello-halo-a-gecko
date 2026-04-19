@@ -2,49 +2,139 @@
 
 本文件为 Claude Code (claude.ai/code) 提供项目代码指引。
 
-## 文档管理规范
-
-> **PRD 优先于代码。** 这是本项目的最高优先级规则。任何代码改动（包括 Bug 修复）都必须先有 PRD。
-
-所有项目文档位于 `.project/` 下，遵循 [vibecoding-doc-standard.md](./docs/vibecoding-doc-standard.md)。Agent **必须**遵守以下铁律：
-
-1. **无 PRD 拒绝工作**：在每一次的需求开发和bug修改，没有需求文档不写代码，Bug 修复也不例外。这一点一定要记住！！！因为如果没有prd，将来代码开发将无法追溯和管理，这非常可怕！！！
-2. **修改必留痕**：任何文档改动追加变更行
-3. **API 必须最新**：接口改了文档必须立即同步
-4. **合并必解冲突**：合并代码时同步解决文档差异
-5. **先 PRD 后代码**：Agent 必须在写任何代码之前先确认 PRD 已存在或创建 PRD
-6. **写 PRD 操作要独立**：Agent 在写 PRD 时要创建一个subagent去写，主agent在后续开发时去读取这个文件
-7. **中文书写**: Agent在写 PRD 时，使用中文书写
-
-其他规则：
-- 每个模块自包含：功能设计、changelog、bugfix 在 `modules/<name>/features/<feature>/` 下
-- PRD 按层级分目录：`prd/project/`（项目级）、`prd/module/<name>/`（模块级）、`prd/feature/<name>/`（功能级）、`prd/bugfix/<name>/`（Bug 修复级）
-- 指令人必确认：创建/大改文档问用户
-- 版本命名带描述：`<名称>-vN`
-- Bug 记在对应功能的 `bugfix.md`，同时写 `prd/bugfix/<module>/bugfix-<简述>-vN.md`
-- 全局变更记在 `.project/changelog/CHANGELOG.md`
-- **跨模块逐功能更新 changelog**：一个 PRD 影响多个功能时，必须为每个受影响功能的 `changelog.md` 追加条目，不能只更新全局 CHANGELOG
-- **架构文档与模块目录同步**：新增/删除模块时，`architecture/` 的模块划分表和全景图必须同步更新
-- **模块文档标注代码归属**：「内部组件」表标注文件路径，「归属 Hooks」「归属 IPC Handler」段标注逻辑上属于本模块但物理平铺的文件
-- **基础设施不建独立文档**：analytics、perf、notify-channels 等体量小或辅助性的代码区域，归属到相关业务模块下作为功能，不单独建模块
-- **模块删除同步清理代码**：删除模块文档时，必须同步清理对应代码（service/controller/hooks/store/IPC），不能只删文档留代码
-
-## 编码规范
-
-**所有代码修改必须遵循 [Development-Standards-Guide.md](./docs/Development-Standards-Guide.md)。** 核心规则：
-
-- TypeScript strict 模式，禁止 `any`（用 `unknown`），纯类型导入使用 `import type`
-- IPC 通道名必须使用 `src/shared/constants/` 中的常量，禁止硬编码字符串
-- Preload 禁止暴露原始 `ipcRenderer`
-- 所有 IPC handler 必须有 try/catch，返回 `{ success, data/error }` 结构
-- React：只允许函数组件，Zustand 按功能拆分 store
-- 命名：文件夹 kebab-case，组件 PascalCase，接口不加 `I` 前缀
-- 提交前运行 `npm run lint:fix`；pre-commit hooks 会自动处理
-- **编辑文件后必须运行 `npx eslint --fix <file>`**：项目强制 LF 行尾（`.prettierrc` + `.gitattributes`），Windows 环境下 Prettier 会全文件重写行尾。编辑后必须立即执行 lint:fix 并**重新 Read 被修改的文件确认逻辑改动未被覆盖**，尤其是 `eslint --fix` 输出大量 `Delete ␍` 时
-
 ## 项目概述
 
 AICO-Bot 是一个开源 Electron 桌面应用，将 Claude Code 的 AI Agent 能力封装为可视化跨平台界面。用户无需使用终端即可与 AI Agent 交互。2.x 版本包含 Digital Humans 自动化平台。
+
+## 开发流程
+
+> 详细工作流见 [ai-development-workflow.md](./docs/ai-development-workflow.md)
+
+```
+需求 → PRD(subagent写) → 文档预读 → 编码 → 自测 → 文档更新 → 提交
+```
+
+### 铁律
+
+1. **无 PRD 拒绝工作**：需求开发和 bug 修改都必须先有 PRD，无一例外
+2. **PRD 用 subagent 写**：Agent 创建 subagent 写 PRD，主 agent 在开发时读取 PRD 文件
+3. **编码前必读文档**：必须先读取 PRD「开发前必读」中列出的所有文档，跳过 = 违规
+4. **一个 PRD 一个 commit**：commit message 引用 PRD 路径，禁止不相关变更堆叠
+5. **精准增量更新文档**：只更新 PRD 涉及文件对应的文档，不做全量同步
+
+### PRD 状态流转
+
+`draft` → `confirmed`（人确认）→ `in-progress`（开始编码）→ `done`（验收通过）
+
+### 步骤详解
+
+#### 步骤 1：需求提出（人）
+
+人描述需求（新功能 / Bug / 重构），Agent 用 AskUserQuestion 补充：
+- 归属哪个模块？
+- 优先级？（P0 / P1 / P2）
+- 影响范围？（仅前端 / 仅后端 / 全栈）
+
+#### 步骤 2：PRD 编写（Agent subagent）
+
+1. 判断 PRD 级别：bugfix / feature / module / project
+2. 搜索 `.project/prd/` 已有 PRD，存在则升版本而非新建
+3. **Subagent 独立写 PRD**（中文），必须包含：
+   - 元信息（时间戳、状态、指令人）
+   - 需求分析 / 问题根因
+   - 技术方案
+   - **开发前必读**（Agent 编码前必须读取的文档清单）
+   - **涉及文件**（预估，开发后更新为实际）
+   - **验收标准**（可逐条打勾）
+4. 人确认 → PRD 状态改为 `confirmed`
+
+#### 步骤 3：文档预读（Agent）
+
+读取 PRD「开发前必读」中列出的所有文档，建立上下文：
+- **模块设计文档** → 理解模块职责、对外接口、内部组件
+- **功能 design.md** → 理解实现逻辑、正常/异常流程
+- **changelog.md** → 了解最近变更，避免回归
+- **bugfix.md** → 了解已知问题，避免重复踩坑
+
+根据预读结果确认技术方案是否需要调整，发现问题向人提出。
+
+#### 步骤 4：编码（Agent）
+
+1. PRD 状态 → `in-progress`
+2. 按 PRD 技术方案编码
+3. 每个文件编辑后：`npx eslint --fix <file>` + **re-read 确认逻辑未被覆盖**（Windows 行尾问题）
+4. 编码完成后更新 PRD「涉及文件」为实际修改清单
+5. 跨模块变更时，用 TaskList 逐模块追踪进度
+
+#### 步骤 5：自测（Agent + 人）
+
+Agent 自动检查（必须全部通过）：
+```bash
+npm run typecheck && npm run lint && npm run build
+```
+涉及新用户可见文本时：`npm run i18n`
+
+人功能验证：按 PRD「验收标准」逐条测试。不通过 → 回步骤 2 更新 PRD。
+
+#### 步骤 6：文档更新（Agent）
+
+精准增量更新（只更新 PRD 涉及文件对应的文档）：
+
+| 更新目标 | 触发条件 | 操作 |
+|----------|---------|------|
+| 功能 changelog.md | 每次 | 追加变更行 |
+| 功能 bugfix.md | bug 修复时 | 追加 bug 记录 |
+| 模块设计文档 | 涉及文件变化时 | 仅更新受影响段落 |
+| API 文档 | 接口签名变化时 | 仅更新变更的接口 |
+| 全局 CHANGELOG | 每次 | 追加一行 |
+
+#### 步骤 7：提交（Agent 提交，人审核）
+
+**一个 PRD = 一个逻辑 commit。**
+
+```
+<type>(<scope>): <中文简述>
+
+- 改了什么、为什么改
+- PRD: .project/prd/bugfix/skill/bugfix-xxx-v1.md
+```
+
+| PRD 规模 | 提交策略 |
+|----------|---------|
+| 小（单 bug / 单功能） | 1 commit |
+| 中（2-3 层变更） | 代码 + 文档各 1 commit |
+| 大（跨模块重构） | 每个子任务 1 commit |
+
+**禁止**：不相关变更堆叠、空提交、不引用 PRD。
+
+#### 步骤 8：收尾
+
+- PRD 状态 → `done`，验收标准全部打勾
+- Agent 生成变更摘要：做了什么、改了哪些文件、验收结果、待跟进
+
+## 规范引用
+
+### 文档管理
+
+详见 [vibecoding-doc-standard.md](./docs/vibecoding-doc-standard.md)。Agent 必须遵守：
+
+- PRD 是一切代码改动的前提，中文书写，指令人必确认
+- 修改必留痕、API 必须最新、合并必解冲突
+- 模块自包含，跨模块逐功能更新 changelog
+- PRD 按层级分目录：`prd/project/`、`prd/module/`、`prd/feature/`、`prd/bugfix/`
+- PRD 模板含：时间戳、状态、开发前必读、涉及文件、验收标准
+
+### 编码规范
+
+详见 [Development-Standards-Guide.md](./docs/Development-Standards-Guide.md)。核心规则：
+
+- TypeScript strict，禁止 `any`（用 `unknown`），纯类型导入用 `import type`
+- IPC 通道常量化（`src/shared/constants/`），handler 必须 try/catch + `{ success, data/error }`
+- Preload 禁止暴露原始 `ipcRenderer`
+- React 只允许函数组件，Zustand 按功能拆分 store
+- 命名：文件夹 kebab-case，组件 PascalCase，接口不加 `I` 前缀
+- UI 禁止硬编码文本（用 `t()`），Tailwind 用 CSS 变量主题色
+- **编辑文件后必须 `npx eslint --fix <file>` 并 re-read 确认逻辑未被覆盖**（Windows 行尾问题）
 
 ## 构建/测试命令
 
@@ -209,51 +299,6 @@ SDK stream_event                 RemoteWsClient 事件              Zustand stor
 ├─ thinking delta ──────────────► 'thought:delta' 事件 ──────────► handleAgentThoughtDelta()
 └─ thinking stop ───────────────► (完成信号) ────────────────────► thought.isStreaming = false
 ```
-
-## 代码约定
-
-### 提交格式
-
-使用 conventional commits（中文描述）：`feat:`、`fix:`、`docs:`、`style:`、`refactor:`、`chore:`
-
-示例：`feat(ipc): 添加 IPC 通道常量定义`、`fix(chat): 修复重连后消息不显示`
-
-### UI 禁止硬编码文本
-
-所有用户可见字符串必须使用 `t()`：
-
-```tsx
-// 正确
-<Button>{t('Save')}</Button>
-
-// 错误 — 硬编码文本会破坏国际化
-<Button>Save</Button>
-```
-
-英文是源语言 — `t('English text')` 本身就是英文值。提交新用户可见文本前运行 `npm run i18n`。
-
-### Tailwind 样式
-
-使用 CSS 变量主题色，禁止硬编码值：
-
-```tsx
-// 正确
-<div className="bg-background text-foreground border-border">
-
-// 错误
-<div className="bg-white text-black border-gray-200">
-```
-
-### 状态管理
-
-- **Zustand** 用于前端状态（参见 `chat.store.ts`）
-- 每会话状态：`Map<conversationId, SessionState>`
-- 每空间状态：`Map<spaceId, SpaceState>`
-
-### IPC 通信
-
-- 主进程 → 渲染进程：`sendToRenderer('agent:event', spaceId, conversationId, data)`
-- 渲染进程 → 主进程：使用 `src/renderer/api/` 中的 `api.*` 方法
 
 ## SDK 集成
 
