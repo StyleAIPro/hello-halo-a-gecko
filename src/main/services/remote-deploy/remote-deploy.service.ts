@@ -21,9 +21,7 @@ import { removePooledConnection } from '../remote-ws/remote-ws-client';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
 import { CLAUDE_AGENT_SDK_VERSION } from '../../../shared/constants/sdk';
-import {
-  DEFAULT_MIRROR_URLS,
-} from '../../../shared/types/mirror-source';
+import { DEFAULT_MIRROR_URLS } from '../../../shared/types/mirror-source';
 import type { MirrorSourceUrls } from '../../../shared/types/mirror-source';
 
 /**
@@ -1165,7 +1163,9 @@ WRAPPER
 
       // Install dependencies on remote server
       this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 50);
-      await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
+      await manager.executeCommand(
+        `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+      );
 
       // Verify package.json exists before installing
       const packageJsonCheck = await manager.executeCommandFull(
@@ -1444,6 +1444,11 @@ WRAPPER
       this.emitCommandOutput(id, 'output', 'package.json 已变更，执行 npm install...');
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 45);
 
+      // Configure npm registry from mirror source config
+      await manager.executeCommand(
+        `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+      );
+
       // Connection health check before long-running npm install
       await this.ensureSshConnectionHealthy(id);
 
@@ -1512,6 +1517,10 @@ WRAPPER
           `SDK 版本变更: ${remoteSdkVersion} → ${REQUIRED_SDK_VERSION}`,
         );
         this.emitDeployProgress(id, 'install', '正在更新 SDK...', 57);
+        // Configure npm registry from mirror source config
+        await manager.executeCommand(
+          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+        );
         // Connection health check before SDK install
         await this.ensureSshConnectionHealthy(id);
         await manager.executeCommandStreaming(
@@ -1931,6 +1940,9 @@ WRAPPER
         await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
 
         // Run npm install
+        await manager.executeCommand(
+          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+        );
         this.emitCommandOutput(id, 'output', '执行 npm install...');
         const repairResult = await manager.executeCommandStreaming(
           `cd ${deployPath} && export PATH="/usr/local/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
@@ -3189,7 +3201,9 @@ WRAPPER
         }
 
         // Configure npm to use Chinese mirror after installation
-        await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
+        await manager.executeCommand(
+          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+        );
 
         this.emitCommandOutput(id, 'success', 'Node.js installed successfully');
       }
@@ -3378,7 +3392,9 @@ WRAPPER
 
         // Configure npm to use Chinese mirror for faster installation
         console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
-        await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
+        await manager.executeCommand(
+          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
+        );
 
         const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
         this.emitCommandOutput(id, 'command', installCmd);
