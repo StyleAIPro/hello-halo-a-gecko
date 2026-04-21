@@ -787,6 +787,8 @@ export class RemoteAgentServer {
           })
         }
 
+        let needsClosedSessionRetry = false
+
         try {
           const sdkSessionIdToUse = sdkSessionIdForResume;
 
@@ -804,6 +806,9 @@ export class RemoteAgentServer {
           do {
             needsAuthRetry = false
 
+          // Skip resume session ID on auth retry or closed session retry
+          const shouldSkipResume = authRetries > 0 || needsClosedSessionRetry
+
           // Check if session has an active stream — if so, queue message and return.
           // Only check on the first iteration (subsequent iterations are for pending messages
           // and the previous streamChat has already completed).
@@ -820,7 +825,7 @@ export class RemoteAgentServer {
             sessionId,
             currentChatMessages,
             currentOptions,
-            authRetries > 0 ? undefined : sdkSessionIdToUse,  // Don't resume on auth retry
+            shouldSkipResume ? undefined : sdkSessionIdToUse,  // Don't resume on retry
             onToolCall,
             onTerminalOutput,
             onThought,
@@ -928,6 +933,13 @@ export class RemoteAgentServer {
             // Expected interrupt - mark and continue normally
             wasInterrupted = true
             console.log(`[RemoteAgentServer] Stream interrupted for session ${sessionId}`)
+          } else if (errorMessage.includes('Cannot send to closed session') && !wasInterrupted && !needsClosedSessionRetry) {
+            // Race condition: close:session arrived concurrently and closed the SDK session
+            // before/during session.send(). Rebuild session and retry once.
+            console.warn(`[RemoteAgentServer] Closed session race detected for session ${sessionId}, rebuilding and retrying...`)
+            this.claudeManager.forceSessionRebuild(sessionId)
+            needsClosedSessionRetry = true
+            // Don't re-throw — let execution continue to interrupt check + complete below
           } else {
             // Unexpected error - log and re-throw
             console.error(`[RemoteAgentServer] Stream error for session ${sessionId}:`, streamError)

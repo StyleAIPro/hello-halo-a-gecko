@@ -607,6 +607,13 @@ export async function getOrCreateV2Session(
       );
       closeV2SessionForRebuild(conversationId);
       // Fall through to create new session
+    } else if ((existing.session as any).closed) {
+      // CRITICAL: Check SDK's closed flag — the session may have been closed by
+      // abortController.abort() or SDK internal error without calling closeV2SessionForRebuild(),
+      // leaving a stale entry with closed=true.
+      console.log(`[Agent][${conversationId}] Session closed flag set, recreating...`);
+      closeV2SessionForRebuild(conversationId);
+      // Fall through to create new session
     } else {
       // Check if credentials have changed since session was created
       // This catches race conditions where session was created with stale credentials
@@ -830,7 +837,11 @@ export function closeV2Session(conversationId: string): void {
  * On Windows, file handles are not released until the process fully exits,
  * so we must wait before deleting the space directory.
  */
-async function waitForSessionExit(conversationId: string, pid: number, timeoutMs = 5000): Promise<void> {
+async function waitForSessionExit(
+  conversationId: string,
+  pid: number,
+  timeoutMs = 5000,
+): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {

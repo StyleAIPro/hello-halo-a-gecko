@@ -1237,7 +1237,7 @@ export class ClaudeManager {
     const effectiveResumeId = workDirChanged ? undefined : resumeSessionId
 
     // Pre-declared for resume path (options built in parallel) — visible to session creation below
-    let prebuiltOptions: any = undefined
+    const prebuiltOptions: any = undefined
 
     if (existing) {
       // CRITICAL: Check if workDir changed - if so, need to recreate session
@@ -1251,6 +1251,13 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${conversationId}] Session transport not ready, recreating...`)
         this.cleanupSession(conversationId, 'process not ready')
         // Fall through to create new session
+      } else if ((existing.session as any).closed) {
+        // CRITICAL: Check SDK's closed flag — the session may have been closed by
+        // abortController.abort() or SDK internal error without calling cleanupSession(),
+        // leaving a stale entry in this.sessions with closed=true.
+        console.log(`[ClaudeManager][${conversationId}] Session closed flag set, recreating...`)
+        this.cleanupSession(conversationId, 'session closed')
+        // Fall through to create new session (without resume — closed sessions can't resume)
       } else if (effectiveResumeId) {
         // OPTIMIZATION: Try to reuse existing session on resume instead of always
         // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
@@ -1712,7 +1719,7 @@ export class ClaudeManager {
       }
     } : undefined
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
+    let session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -1828,6 +1835,31 @@ export class ClaudeManager {
       }
 
       console.log(`[ClaudeManager] Sending last user message: ${lastMessage.content.substring(0, 50)}...`)
+
+      // DEFENSIVE: Handle race condition where close:session arrives concurrently
+      // (from stopGeneration) and closes the SDK session between getOrCreateSession
+      // returning and session.send() being called. Detect and rebuild.
+      if ((session as any).closed) {
+        console.warn(`[ClaudeManager][${sessionId}] Session closed before send (race condition), rebuilding...`)
+        this.cleanupSession(sessionId, 'session closed before send (race)')
+        // Recreate session — skip resume since the old session is gone
+        const freshSession = await this.getOrCreateSession(
+          sessionId, options.workDir, undefined,
+          options.maxThinkingTokens, hyperSpaceMcpServer, options.system,
+          aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials,
+          askUserQuestionCanUseTool, newMcpToolSignature
+        )
+        // Replace the closed session reference with the fresh one
+        session = freshSession
+        // Re-apply thinking tokens to the new session
+        try {
+          if ((session as any).setMaxThinkingTokens) {
+            const thinkingTokens = options.maxThinkingTokens ?? null
+            await (session as any).setMaxThinkingTokens(thinkingTokens)
+          }
+        } catch (e) { /* ignore */ }
+      }
+
       await session.send(lastMessage.content)
 
       console.log(`[ClaudeManager] Starting stream for session ${sessionId}...`)
@@ -2476,7 +2508,7 @@ export class ClaudeManager {
       // across turns (streamInput iterator conflict). When this happens, cleanup
       // the session so the next message will rebuild fresh.
       // This is the fallback for the "try reuse first" optimization in getOrCreateSession.
-      if (errorMsg.includes('process aborted') || errorMsg.includes('ECONNRESET') || errorMsg.includes('streamInput')) {
+      if (errorMsg.includes('process aborted') || errorMsg.includes('ECONNRESET') || errorMsg.includes('streamInput') || errorMsg.includes('Cannot send to closed session')) {
         console.warn(`[ClaudeManager][${sessionId}] Session reuse failed (SDK state corruption), cleaning up for next message`)
         this.cleanupSession(sessionId, 'reuse failed - SDK state corruption')
       }

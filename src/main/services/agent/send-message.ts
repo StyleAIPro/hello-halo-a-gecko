@@ -1282,7 +1282,12 @@ async function executeRemoteMessage(
         // sessionState.thoughts already points to the same array (no copy needed)
 
         // Send to renderer in the same format as local agent:thought
-        sendToRenderer('agent:thought', spaceId, conversationId, { thought: thoughtData });
+        // Spread agentId/agentName to top level so handleAgentThought can route to worker session
+        sendToRenderer('agent:thought', spaceId, conversationId, {
+          thought: thoughtData,
+          ...(thoughtData.agentId && { agentId: thoughtData.agentId }),
+          ...(thoughtData.agentName && { agentName: thoughtData.agentName }),
+        });
       }
     });
 
