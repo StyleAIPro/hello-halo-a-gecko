@@ -28,3 +28,6 @@ export { GitHubSection } from './GitHubSection';
 
 // GitCode Integration
 export { GitCodeSection } from './GitCodeSection';
+
+// Mirror Source Configuration
+export { MirrorSourceSection } from './MirrorSourceSection';

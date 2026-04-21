@@ -30,6 +30,7 @@ API_KEY="${3:-}"
 BASE_URL="${4:-}"
 WORK_DIR="${5:-/root}"
 SSH_PASSWORD="${6:-}"  # Optional SSH password
+NPM_REGISTRY="${7:-https://registry.npmmirror.com}"  # Optional npm registry mirror
 REMOTE_DEPLOY_PATH="/opt/claude-deployment"
 LOCAL_PACKAGE_PATH="./packages/remote-agent-proxy"
 
@@ -149,7 +150,7 @@ install_claude_code_cli() {
         fi
 
         # Configure npm to use Chinese mirror for faster installation
-        npm config set registry https://registry.npmmirror.com
+        npm config set registry ${NPM_REGISTRY}
 
         # Install Claude Code CLI globally
         npm install -g @anthropic-ai/claude-code@latest
@@ -173,7 +174,7 @@ install_dependencies() {
         cd $REMOTE_DEPLOY_PATH
 
         # Configure npm to use Chinese mirror for faster installation
-        npm config set registry https://registry.npmmirror.com
+        npm config set registry ${NPM_REGISTRY}
 
         # Install dependencies
         npm install --production

@@ -21,6 +21,10 @@ import { removePooledConnection } from '../remote-ws/remote-ws-client';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
 import { CLAUDE_AGENT_SDK_VERSION } from '../../../shared/constants/sdk';
+import {
+  DEFAULT_MIRROR_URLS,
+} from '../../../shared/types/mirror-source';
+import type { MirrorSourceUrls } from '../../../shared/types/mirror-source';
 
 /**
  * Escape a value for use in shell environment variable
@@ -129,6 +133,51 @@ export class RemoteDeployService {
   constructor() {
     this.loadServers();
     this.startHealthMonitor();
+  }
+
+  /**
+   * 获取当前激活的镜像源配置
+   * 如果未配置镜像源，返回 null（表示使用代码中的默认值）
+   */
+  private getActiveMirrorUrls(): MirrorSourceUrls | null {
+    const config = getConfig();
+    const mirrorConfig = config.deployMirror;
+    if (!mirrorConfig || !mirrorConfig.activeProfileId) {
+      return null;
+    }
+    const profile = mirrorConfig.profiles.find((p) => p.id === mirrorConfig.activeProfileId);
+    if (!profile) {
+      return null;
+    }
+    return profile.sources;
+  }
+
+  /**
+   * 获取 npm registry URL（优先使用镜像源配置，否则使用默认值）
+   */
+  private getNpmRegistry(): string {
+    const mirrorUrls = this.getActiveMirrorUrls();
+    return mirrorUrls?.npmRegistry || DEFAULT_MIRROR_URLS.npmRegistry;
+  }
+
+  /**
+   * 构建可配置镜像的 Node.js 安装命令
+   * 当配置了 nodeDownloadMirror 时，所有 Linux 发行版统一使用二进制 tarball 安装
+   * 否则保持原有行为（Debian/RHEL 用 NodeSource，EulerOS 用 tarball）
+   */
+  private buildNodeInstallCommand(): string {
+    const mirrorUrls = this.getActiveMirrorUrls();
+    const nodeMirror = mirrorUrls?.nodeDownloadMirror || DEFAULT_MIRROR_URLS.nodeDownloadMirror;
+    const nodeFallback = 'https://npmmirror.com/mirrors/node/';
+    const useBinaryInstall = !!mirrorUrls?.nodeDownloadMirror;
+
+    if (useBinaryInstall) {
+      // 所有系统统一使用二进制 tarball 安装
+      return `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; else echo "Using configured mirror for Node.js installation..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "${escapeEnvValue(nodeMirror)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "${escapeEnvValue(nodeFallback)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; fi`;
+    }
+
+    // 未配置镜像：保持原有行为
+    return `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
   }
 
   /**
@@ -974,8 +1023,8 @@ export class RemoteDeployService {
         // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
         // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
         // Note: Check if node can actually execute (not just exists) to handle broken installations
-        // Use npmmirror (Taobao) as fallback for China network issues
-        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
+        // When mirror is configured, all distros use binary tarball (bypasses NodeSource for intranet)
+        const installNodeCmd = this.buildNodeInstallCommand();
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
         if (nodeInstallResult.stdout.trim()) {
@@ -1116,7 +1165,7 @@ WRAPPER
 
       // Install dependencies on remote server
       this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 50);
-      await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
+      await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
 
       // Verify package.json exists before installing
       const packageJsonCheck = await manager.executeCommandFull(
@@ -3123,8 +3172,8 @@ WRAPPER
         // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
         // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
         // Note: Check if node can actually execute (not just exists) to handle broken installations
-        // Use npmmirror (Taobao) as fallback for China network issues
-        const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
+        // When mirror is configured, all distros use binary tarball (bypasses NodeSource for intranet)
+        const installNodeCmd = this.buildNodeInstallCommand();
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
         if (nodeInstallResult.stdout.trim()) {
@@ -3140,7 +3189,7 @@ WRAPPER
         }
 
         // Configure npm to use Chinese mirror after installation
-        await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
+        await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
 
         this.emitCommandOutput(id, 'success', 'Node.js installed successfully');
       }
@@ -3329,7 +3378,7 @@ WRAPPER
 
         // Configure npm to use Chinese mirror for faster installation
         console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
-        await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
+        await manager.executeCommand(`npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`);
 
         const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
         this.emitCommandOutput(id, 'command', installCmd);

@@ -99,7 +99,11 @@ export function SettingsPage() {
               {/* AI Sources Section (v2) */}
               <section id="ai-model" className="bg-card rounded-xl border border-border p-6">
                 <h2 className="text-lg font-medium mb-4">{t('AI Model')}</h2>
-                <AISourcesSection config={config as AicoBotConfig} setConfig={setConfig} updateConfig={updateConfig} />
+                <AISourcesSection
+                  config={config as AicoBotConfig}
+                  setConfig={setConfig}
+                  updateConfig={updateConfig}
+                />
               </section>
 
               {/* Remote Servers Section */}

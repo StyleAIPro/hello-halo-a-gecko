@@ -192,3 +192,6 @@ export * from './mailbox';
 
 // TaskBoard types (shared task board)
 export * from './taskboard';
+
+// Mirror source types (remote deployment mirror configuration)
+export * from './mirror-source';

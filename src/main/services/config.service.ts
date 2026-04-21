@@ -24,6 +24,7 @@ import type {
   CustomSourceConfig,
   ModelOption,
 } from '../../shared/types';
+import type { DeployMirrorConfig } from '../../shared/types/mirror-source';
 import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants';
 import { decryptString } from './secure-storage.service';
 
@@ -386,6 +387,8 @@ interface AicoBotConfig {
   gitcodeToken?: string;
   // GitHub Personal Access Token (direct, no gh CLI required)
   githubToken?: string;
+  // Remote deployment mirror source configuration
+  deployMirror?: DeployMirrorConfig;
 }
 
 // MCP server configuration types

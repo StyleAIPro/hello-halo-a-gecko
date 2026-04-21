@@ -27,6 +27,7 @@ import { api } from '../../api';
 import { useConfirm } from '../ui/ConfirmDialog';
 import { useChatStore } from '../../stores/chat.store';
 import { useSpaceStore } from '../../stores/space.store';
+import { MirrorSourceSection } from './MirrorSourceSection';
 import type { ModelOption } from '../../types';
 
 interface TerminalEntry {
@@ -1575,6 +1576,9 @@ export function RemoteServersSection() {
             </div>
           </div>
         )}
+
+        {/* Mirror Source Configuration */}
+        <MirrorSourceSection />
       </section>
     </>
   );

@@ -4,6 +4,7 @@
 
 // Import values needed in this file's scope
 import type { AISourcesConfig } from '../../shared/types/ai-sources';
+import type { DeployMirrorConfig } from '../../shared/types/mirror-source';
 import { DEFAULT_MODEL, getCurrentModelName, hasAnyAISource } from '../../shared/types/ai-sources';
 // Re-export them
 export { DEFAULT_MODEL, getCurrentModelName, hasAnyAISource };
@@ -189,6 +190,8 @@ export interface AicoBotConfig {
   agent?: AgentConfig; // Agent behavior settings
   layout?: LayoutConfig; // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;
+  // Remote deployment mirror source configuration
+  deployMirror?: DeployMirrorConfig;
 }
 
 // ============================================
