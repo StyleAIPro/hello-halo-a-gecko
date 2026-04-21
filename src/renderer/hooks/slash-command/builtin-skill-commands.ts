@@ -1,8 +1,8 @@
 /**
  * Built-in /skill command definition
  *
- * Provides 5 subcommands covering installed skill management
- * and market operations. All subcommands use execution: 'ipc'
+ * Provides 9 subcommands covering installed skill management,
+ * market operations, and skill lifecycle. All subcommands use execution: 'ipc'
  * to call existing API layer methods.
  */
 
@@ -78,6 +78,65 @@ export const skillCommand: SlashCommand = {
           required: true,
           descriptionKey: 'Search keywords',
           placeholderKey: 'Enter search keywords',
+        },
+      ],
+      execution: 'ipc',
+    },
+    {
+      name: 'enable',
+      labelKey: 'Enable Skill',
+      descriptionKey: 'Enable a disabled skill',
+      arguments: [
+        {
+          name: 'skillId',
+          type: 'string',
+          required: true,
+          descriptionKey: 'Skill ID',
+          placeholderKey: 'Enter skill ID',
+        },
+      ],
+      execution: 'ipc',
+    },
+    {
+      name: 'disable',
+      labelKey: 'Disable Skill',
+      descriptionKey: 'Disable an enabled skill',
+      arguments: [
+        {
+          name: 'skillId',
+          type: 'string',
+          required: true,
+          descriptionKey: 'Skill ID',
+          placeholderKey: 'Enter skill ID',
+        },
+      ],
+      execution: 'ipc',
+    },
+    {
+      name: 'refresh',
+      labelKey: 'Refresh Skills',
+      descriptionKey: 'Reload installed skills list',
+      arguments: [],
+      execution: 'ipc',
+    },
+    {
+      name: 'create',
+      labelKey: 'Create Skill',
+      descriptionKey: 'Create a new skill from a prompt',
+      arguments: [
+        {
+          name: 'name',
+          type: 'string',
+          required: true,
+          descriptionKey: 'Skill name',
+          placeholderKey: 'Enter skill name',
+        },
+        {
+          name: 'description',
+          type: 'rest',
+          required: true,
+          descriptionKey: 'Skill description',
+          placeholderKey: 'Enter skill description',
         },
       ],
       execution: 'ipc',
