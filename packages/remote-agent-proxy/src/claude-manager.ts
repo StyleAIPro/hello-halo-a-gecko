@@ -2486,14 +2486,21 @@ export class ClaudeManager {
       throw new Error(`Claude stream error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       // Clean up any active subagents that didn't complete
-      // Moved here from try-block to ensure cleanup on ALL exit paths (normal end, interrupt, error)
+      // Only send failure events when user explicitly stopped (wasAborted).
+      // On normal completion, silently clean up — SDK doesn't guarantee all
+      // task_notification events arrive before the parent's result event.
+      // Sending failure here on normal completion would cause false "Stream interrupted" errors.
       for (const [taskId, state] of subagentStates) {
         if (!state.isComplete) {
-          yield { type: 'worker:completed', data: {
-            agentId: state.agentId, agentName: state.agentName, taskId,
-            result: '', error: wasAborted ? 'Stopped by user' : 'Stream interrupted', status: 'failed'
-          }}
-          console.log(`[ClaudeManager] Subagent ${taskId} cleaned up (stream ended, aborted=${wasAborted})`)
+          if (wasAborted) {
+            yield { type: 'worker:completed', data: {
+              agentId: state.agentId, agentName: state.agentName, taskId,
+              result: '', error: 'Stopped by user', status: 'failed'
+            }}
+            console.log(`[ClaudeManager] Subagent ${taskId} marked as stopped by user`)
+          } else {
+            console.log(`[ClaudeManager] Subagent ${taskId} silently cleaned up (normal stream end)`)
+          }
         }
       }
 
