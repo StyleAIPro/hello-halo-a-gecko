@@ -5,76 +5,76 @@
  * Simple token-based auth - stores PAT, validates via /user API.
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { Globe, LogOut, Loader2, Check, AlertCircle } from 'lucide-react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
+import { useState, useEffect, useCallback } from 'react';
+import { Globe, LogOut, Loader2, Check, AlertCircle } from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
 
 interface GitCodeAuthStatus {
-  authenticated: boolean
-  user: string | null
-  name: string | null
-  avatarUrl: string | null
-  error?: string
+  authenticated: boolean;
+  user: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  error?: string;
 }
 
 export function GitCodeSection() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
-  const [authStatus, setAuthStatus] = useState<GitCodeAuthStatus | null>(null)
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true)
+  const [authStatus, setAuthStatus] = useState<GitCodeAuthStatus | null>(null);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
 
-  const [token, setToken] = useState('')
-  const [isLoggingIn, setIsLoggingIn] = useState(false)
-  const [loginError, setLoginError] = useState<string | null>(null)
+  const [token, setToken] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const loadAuthStatus = useCallback(async () => {
-    setIsLoadingStatus(true)
+    setIsLoadingStatus(true);
     try {
-      const response = await api.gitcodeGetAuthStatus()
+      const response = await api.gitcodeGetAuthStatus();
       if (response.success && response.data) {
-        setAuthStatus(response.data as GitCodeAuthStatus)
+        setAuthStatus(response.data as GitCodeAuthStatus);
       } else {
-        setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null })
+        setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null });
       }
     } catch {
-      setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null })
+      setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null });
     } finally {
-      setIsLoadingStatus(false)
+      setIsLoadingStatus(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadAuthStatus()
-  }, [loadAuthStatus])
+    loadAuthStatus();
+  }, [loadAuthStatus]);
 
   const handleLogin = async () => {
-    if (!token.trim()) return
-    setIsLoggingIn(true)
-    setLoginError(null)
+    if (!token.trim()) return;
+    setIsLoggingIn(true);
+    setLoginError(null);
     try {
-      const response = await api.gitcodeLoginToken(token.trim())
+      const response = await api.gitcodeLoginToken(token.trim());
       if (response.success) {
-        setToken('')
-        await loadAuthStatus()
+        setToken('');
+        await loadAuthStatus();
       } else {
-        setLoginError(response.error || t('Invalid token'))
+        setLoginError(response.error || t('Invalid token'));
       }
     } catch (error: any) {
-      setLoginError(error.message || t('Login failed'))
+      setLoginError(error.message || t('Login failed'));
     } finally {
-      setIsLoggingIn(false)
+      setIsLoggingIn(false);
     }
-  }
+  };
 
   const handleLogout = async () => {
     try {
-      await api.gitcodeLogout()
-      setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null })
+      await api.gitcodeLogout();
+      setAuthStatus({ authenticated: false, user: null, name: null, avatarUrl: null });
     } catch {
       // Ignore
     }
-  }
+  };
 
   return (
     <section id="gitcode" className="bg-card rounded-xl border border-border p-6">
@@ -94,7 +94,9 @@ export function GitCodeSection() {
 
       <div className="space-y-4">
         {/* Connection Status */}
-        <div className={`rounded-lg p-4 ${authStatus?.authenticated ? 'bg-green-500/10 border border-green-500/30' : 'bg-secondary/50'}`}>
+        <div
+          className={`rounded-lg p-4 ${authStatus?.authenticated ? 'bg-green-500/10 border border-green-500/30' : 'bg-secondary/50'}`}
+        >
           {isLoadingStatus ? (
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -109,7 +111,7 @@ export function GitCodeSection() {
                     alt={authStatus.user || ''}
                     className="w-8 h-8 rounded-full"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none'
+                      (e.target as HTMLImageElement).style.display = 'none';
                     }}
                   />
                 ) : (
@@ -120,7 +122,9 @@ export function GitCodeSection() {
                 <div>
                   <div className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-green-500" />
-                    <span className="font-medium text-sm">{authStatus.name || authStatus.user}</span>
+                    <span className="font-medium text-sm">
+                      {authStatus.name || authStatus.user}
+                    </span>
                   </div>
                   <span className="text-xs text-muted-foreground">
                     {t('Connected to {{host}}', { host: 'gitcode.com' })}
@@ -141,7 +145,9 @@ export function GitCodeSection() {
               <div>
                 <span className="text-sm font-medium">{t('Not Connected')}</span>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {t('Connect to GitCode to enable skill browsing and push from GitCode repositories')}
+                  {t(
+                    'Connect to GitCode to enable skill browsing and push from GitCode repositories',
+                  )}
                 </p>
               </div>
             </div>
@@ -155,7 +161,10 @@ export function GitCodeSection() {
               <input
                 type="password"
                 value={token}
-                onChange={(e) => { setToken(e.target.value); setLoginError(null) }}
+                onChange={(e) => {
+                  setToken(e.target.value);
+                  setLoginError(null);
+                }}
                 placeholder={t('GitCode Personal Access Token')}
                 className="w-full px-3 py-2 text-sm bg-input rounded-lg border border-border focus:border-primary focus:outline-none font-mono"
               />
@@ -177,7 +186,9 @@ export function GitCodeSection() {
                 )}
               </button>
               <p className="text-xs text-muted-foreground">
-                {t('Generate a token at gitcode.com/-/profile/personal_access_tokens (needs api scope)')}
+                {t(
+                  'Generate a token at gitcode.com/-/profile/personal_access_tokens (needs api scope)',
+                )}
               </p>
             </div>
 
@@ -192,5 +203,5 @@ export function GitCodeSection() {
         )}
       </div>
     </section>
-  )
+  );
 }

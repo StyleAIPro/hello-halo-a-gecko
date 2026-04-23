@@ -16,6 +16,8 @@
 | 3 | **API 必须最新可用** | `.project/api/` 下的文档任何时候都必须与代码一致 |
 | 4 | **合并必解冲突** | 合并代码时，必须同步解决文档冲突，不允许文档落后于代码 |
 | 5 | **先 PRD 后代码** | Agent 在写任何代码之前必须先确认 PRD 已存在，不存在则先创建并让用户确认 |
+| 6 | **编码前必读文档** | Agent 必须先读取 PRD「开发前必读」中列出的所有文档 |
+| 7 | **一个 PRD 一个 commit** | commit message 引用 PRD 路径，禁止不相关变更堆叠 |
 
 ---
 
@@ -93,23 +95,37 @@
 # PRD [项目级] — <标题>
 
 > 版本：<标题>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
+> 状态：draft
 > 上一版本：<标题>-v<N-1>（首次填「无」）
 
 ## 背景
 要解决什么问题、目标用户
+
+## 开发前必读
+- [ ] modules/<module>/design.md
+- [ ] modules/<module>/changelog.md
 
 ## 需求列表
 | # | 需求 | 指令人 | 状态 | 功能设计 |
 |---|------|--------|------|---------|
 | 1 | ... | @xxx | 开发中 | modules/auth/features/user-login/design.md |
 
+## 涉及文件
+开发完成后更新为实际修改清单：
+### 后端
+### 前端
+### 文档
+
+## 验收标准
+- [ ] ...
+
 ## 驱动
 → architecture/<架构名称>-vN.md
 
 ## 变更
-| 日期 | 内容 | 指令人 |
+| 时间 | 内容 | 指令人 |
 |------|------|--------|
 ```
 
@@ -119,8 +135,9 @@
 # PRD [模块级] — <标题>
 
 > 版本：<模块描述>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
+> 状态：draft
 > 归属模块：modules/<module-name>
 
 ## 背景
@@ -129,16 +146,29 @@
 ## 职责
 一句话描述模块的职责边界
 
+## 开发前必读
+- [ ] modules/<module-name>/<模块描述>-vN.md
+- [ ] modules/<module-name>/features/<feature>/design.md
+
 ## 功能规划
 | # | 功能 | 优先级 | 功能设计 |
 |---|------|--------|---------|
 | 1 | ... | P0 | modules/<module-name>/features/<feature>/design.md |
 
+## 涉及文件
+开发完成后更新为实际修改清单：
+### 后端
+### 前端
+### 文档
+
+## 验收标准
+- [ ] ...
+
 ## 模块设计
 → modules/<module-name>/<模块描述>-vN.md
 
 ## 变更
-| 日期 | 内容 | 指令人 |
+| 时间 | 内容 | 指令人 |
 |------|------|--------|
 ```
 
@@ -148,18 +178,32 @@
 # PRD [功能级] — <标题>
 
 > 版本：<feature-name>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
+> 状态：draft
 > 归属模块：modules/<module-name>
 
 ## 需求
 做什么、为什么做、预期效果
 
+## 开发前必读
+- [ ] modules/<module-name>/features/<feature-name>/design.md
+- [ ] modules/<module-name>/features/<feature-name>/changelog.md
+
+## 涉及文件
+开发完成后更新为实际修改清单：
+### 后端
+### 前端
+### 文档
+
+## 验收标准
+- [ ] ...
+
 ## 功能设计
 → modules/<module-name>/features/<feature-name>/design.md
 
 ## 变更
-| 日期 | 内容 | 指令人 |
+| 时间 | 内容 | 指令人 |
 |------|------|--------|
 ```
 
@@ -169,8 +213,9 @@
 # PRD [Bug 修复级] — <标题>
 
 > 版本：bugfix-<简述>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
+> 状态：draft
 > 反馈人：@用户名
 > 归属模块：modules/<module-name>
 > 严重程度：Critical / Major / Minor
@@ -183,19 +228,30 @@
 ## 根因分析
 定位到哪个文件/函数/逻辑出了问题
 
+## 开发前必读
+- [ ] modules/<module-name>/features/<feature>/design.md
+- [ ] modules/<module-name>/features/<feature>/changelog.md
+- [ ] modules/<module-name>/features/<feature>/bugfix.md
+
 ## 修复方案
 改什么、怎么改、为什么这样改
+
+## 涉及文件
+开发完成后更新为实际修改清单：
+### 后端
+### 前端
+### 文档
 
 ## 影响范围
 - [ ] 涉及 API 变更 → api/<resource>.md
 - [ ] 涉及数据结构变更 → db/schema.md
 - [ ] 涉及功能设计变更 → modules/<name>/features/<feature>/design.md
 
-## 验证方式
-如何确认修复生效
+## 验收标准
+- [ ] ...
 
 ## 变更
-| 日期 | 内容 | 指令人 |
+| 时间 | 内容 | 指令人 |
 |------|------|--------|
 ```
 
@@ -207,7 +263,7 @@
 # 架构 — <标题>-vN
 
 > 版本：<标题>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
 > 来源 PRD：prd/project/<项目描述>-vN
 
@@ -253,7 +309,7 @@
 # 模块 — <名称> <描述>-vN
 
 > 版本：<描述>-vN
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
 > 来源架构：architecture/<架构描述>-vN
 
@@ -311,7 +367,7 @@
 ```markdown
 # 功能 — <名称>
 
-> 日期：YYYY-MM-DD
+> 时间：YYYY-MM-DDTHH:MM:SS+08:00
 > 指令人：@用户名
 > 来源 PRD：prd/feature/<module-name>/<feature-name>-vN
 > 所属模块：modules/<name>/<当前版本>
@@ -344,11 +400,9 @@
 ```markdown
 # 变更记录 — <功能名称>
 
-| 日期 | 内容 | 指令人 | 触发来源 |
+| 时间 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
-| YYYY-MM-DD | 初始设计 | @xxx | 新功能 |
-| YYYY-MM-DD | 追加手机号字段 | @xxx | 需求变更 |
-| YYYY-MM-DD | 修复空指针异常 | @xxx | BUG-002 |
+| YYYY-MM-DDTHH:MM:SS+08:00 | 初始设计 | @xxx | 新功能 |
 ```
 
 > 每次改动必追加一行，不留空的变更表。
@@ -364,7 +418,7 @@
 # Bug 记录 — <功能名称>
 
 ## BUG-001: <标题>
-- **日期**：YYYY-MM-DD
+- **时间**：YYYY-MM-DDTHH:MM:SS+08:00
 - **严重程度**：Critical / Major / Minor
 - **发现人**：@xxx
 - **问题**：期望 vs 实际
@@ -634,6 +688,8 @@
 |------|------|
 | **无 PRD 不工作** | 没有需求文档，Agent 拒绝编码（包括 Bug 修复） |
 | **先 PRD 后代码** | Agent 在写任何代码前必须先确认 PRD 存在，不存在则先创建 |
+| **编码前必读文档** | Agent 必须先读取 PRD「开发前必读」中列出的所有文档，跳过 = 违规 |
+| **PRD 用 subagent 写** | Agent 创建 subagent 写 PRD，主 agent 在开发时读取 PRD 文件 |
 | **修改必留痕** | 任何文档改动都追加变更行 |
 | **API 永远最新** | `api/` 下文档任何时候都与代码一致 |
 | **合并必解冲突** | 合并代码时同步解决文档差异 |
@@ -641,83 +697,100 @@
 | **模块自包含** | 功能设计、changelog、bugfix 都在模块文件夹内 |
 | **版本带描述** | 文件名 `<描述>-vN`，不纯 `v1/v2` |
 | **PRD 按层级分目录** | `prd/project/`、`prd/module/<name>/`、`prd/feature/<name>/`、`prd/bugfix/<name>/` |
+| **精准增量文档更新** | 只更新 PRD 涉及文件对应的文档，不做全量同步 |
+| **一个 PRD 一个 commit** | commit message 引用 PRD 路径，禁止不相关变更堆叠 |
 | **跨模块逐功能更新 changelog** | 一个 PRD 影响多个功能时，必须为每个受影响功能的 `changelog.md` 追加条目 |
 | **模块删除同步清理代码** | 删除模块文档时，必须同步清理对应代码（service/controller/hooks/store/IPC），不能只删文档留代码 |
 
 ---
 
-## 6. CLAUDE.md 集成
+## 6. Agent 开发协议
 
-```markdown
-## 文档管理规范
+### 6.1 预读协议
 
-> **PRD 优先于代码。** 这是本项目的最高优先级规则。任何代码改动（包括 Bug 修复）都必须先有 PRD。
+Agent 开始编码前，**必须**读取 PRD「开发前必读」中列出的所有文档：
 
-所有文档位于 `.project/` 下。Agent **必须**遵守以下铁律：
-
-1. **无 PRD 拒绝工作**：没有需求文档不写代码，Bug 修复也不例外
-2. **修改必留痕**：任何文档改动追加变更行
-3. **API 必须最新**：接口改了文档必须立即同步
-4. **合并必解冲突**：合并代码时同步解决文档差异
-5. **先 PRD 后代码**：Agent 必须在写任何代码之前先确认 PRD 已存在或创建 PRD
-
-PRD 按层级分目录：
-- `prd/project/` — 项目级（立项、架构变更）
-- `prd/module/<name>/` — 模块级（新增/调整模块）
-- `prd/feature/<name>/` — 功能级（模块内功能增删改）
-- `prd/bugfix/<name>/` — Bug 修复级（通过目录位置体现归属）
-
-其他规则：
-- 每个模块自包含：功能设计、changelog、bugfix 在 `modules/<name>/features/<feature>/` 下
-- 指令人必确认：创建/大改文档问用户
-- 版本命名带描述：`<名称>-vN`
-- Bug 记在对应功能的 `bugfix.md`，同时写 `prd/bugfix/<module>/bugfix-<简述>-vN.md`
-- 全局变更记在 `.project/changelog/CHANGELOG.md`
-- **跨模块逐功能更新 changelog**：一个 PRD 影响多个功能时，必须为每个受影响功能的 `changelog.md` 追加条目
-- **架构文档与模块目录同步**：新增/删除模块时，`architecture/` 的模块划分表和全景图必须同步更新
-- **模块文档标注代码归属**：「内部组件」表标注文件路径，「归属 Hooks」「归属 IPC Handler」段标注逻辑上属于本模块但物理平铺的文件
-- **基础设施不建独立文档**：analytics、perf、notify-channels 等体量小或辅助性的代码区域，归属到相关业务模块下作为功能，不单独建模块
-- **模块删除同步清理代码**：删除模块文档时，必须同步清理对应代码（service/controller/hooks/store/IPC），不能只删文档留代码
-
-详见：docs/vibecoding-doc-standard.md
 ```
+PRD 确认（confirmed）
+  → 读取开发前必读清单
+    → 模块设计文档：理解模块职责、对外接口、内部组件
+    → 功能 design.md：理解实现逻辑、正常/异常流程
+    → changelog.md：了解最近变更，避免回归
+    → bugfix.md：了解已知问题，避免重复踩坑
+  → 确认技术方案是否需要调整
+  → 开始编码
+```
+
+跳过预读 = 违规，即使看起来是简单的修改。
+
+### 6.2 精准增量文档更新
+
+开发完成后只更新 PRD 涉及文件对应的文档，不做全量同步：
+
+| 更新目标 | 触发条件 | 操作 |
+|----------|---------|------|
+| 功能 changelog.md | 每次 | 追加变更行 |
+| 功能 bugfix.md | bug 修复时 | 追加 bug 记录 |
+| 模块设计文档 | 涉及文件变化时 | 仅更新受影响段落 |
+| API 文档 | 接口签名变化时 | 仅更新变更的接口 |
+| 全局 CHANGELOG | 每次 | 追加一行 |
+
+**禁止**：改了 skill-market 的 bug 就去更新 agent 模块的 changelog。
+
+### 6.3 Git 提交纪律
+
+- **一个 PRD 一个逻辑 commit**
+- commit message 引用 PRD 文件路径：`fix(skill): 修复 XX — .project/prd/bugfix/skill/bugfix-xxx-v1.md`
+- PRD 状态为 `done` 后才提交
+- **禁止**：不相关变更堆叠、文档与无关代码混在同一个 commit、空提交、不引用 PRD
+
+### 6.4 PRD 状态管理
+
+| 状态 | 含义 | 触发 |
+|------|------|------|
+| `draft` | 刚写完 | subagent 写完 PRD |
+| `confirmed` | 人确认 | 人审核通过 |
+| `in-progress` | 开发中 | Agent 开始编码 |
+| `done` | 完成 | 验收标准全部通过 |
 
 ---
 
 ## 7. 检查清单
 
 - [ ] 有对应 PRD？（没有 → **停，先写 PRD**）
-- [ ] 指令人已确认？
+- [ ] PRD 状态为 `confirmed`？
+- [ ] **已读取 PRD「开发前必读」中的所有文档？**
 - [ ] 所有文档变更都留痕了？
-- [ ] API 文档与代码一致？
-- [ ] 模块内功能列表已更新？
-- [ ] **所有受影响功能的 changelog.md 都追加了？**（跨模块任务容易遗漏，逐个检查）
-- [ ] Bug 记到功能的 bugfix.md 了？
-- [ ] DB schema 同步了？
-- [ ] 全局 CHANGELOG 更新了？（Added / Refactored / Changed / Fixed / Breaking）
-- [ ] 合并时文档冲突解决了？
-- [ ] 有破坏性变更需要 ADR？
-- [ ] **架构文档的模块划分表与 `.project/modules/` 目录同步？**（新增/删除模块时必须同步）
-- [ ] **模块删除时代码是否同步清理？**（service/controller/hooks/store/IPC 是否全部清理）
+- [ ] API 文档与代码一致？（如涉及接口变更）
+- [ ] **所有受影响功能的 changelog.md 都追加了？**（精准增量，非全量）
+- [ ] Bug 记到功能的 bugfix.md 了？（如为 bug 修复）
+- [ ] 全局 CHANGELOG 更新了？
+- [ ] `npm run typecheck && npm run lint && npm run build` 通过？
+- [ ] PRD 验收标准全部打勾？PRD 状态改为 `done`？
+- [ ] commit message 引用了 PRD 路径？
 
-### 7.1 跨模块变更检查清单（附加）
+### 7.1 跨模块变更附加检查
 
-当 PRD 影响多个模块/功能时，在标准检查清单基础上额外确认：
-
-- [ ] 列出本次变更涉及的所有功能（features）清单
+- [ ] 列出本次变更涉及的所有功能清单
 - [ ] 每个功能的 `changelog.md` 都追加了对应条目
-- [ ] 全局 CHANGELOG 的 Refactored/Changed 段落按功能分组，标注涉及文件路径
-- [ ] PRD 变更表记录完成状态
+- [ ] 架构文档的模块划分表与 `.project/modules/` 目录同步？
+
+---
+
+## 8. CLAUDE.md 集成
+
+> CLAUDE.md 引用本文档作为文档管理规范的详细参考。
+> 核心铁律和开发流程已整合到 CLAUDE.md 的「开发流程」和「规范引用」段。
 
 ---
 
 ## 变更
 
-| 日期 | 内容 | 指令人 |
+| 时间 | 内容 | 指令人 |
 |------|------|--------|
-| 2026-04-16 | 初始文档规范 | @moonseeker1 |
-| 2026-04-16 | 强化 PRD 优先级：增加第 5 条铁律「先 PRD 后代码」，Bug 修复流程增加步骤 0 强调先写 PRD，日常规则加粗前两条 | @moonseeker1 |
-| 2026-04-16 | PRD 分四层目录（project/module/feature/bugfix），新增模块级 PRD 模板，Agent 协议更新路径引用 | @moonseeker1 |
-| 2026-04-16 | 新增跨模块变更规则：逐功能更新 changelog、全局 CHANGELOG 增加 Refactored 分类、触发来源扩展（代码审计/重构）、检查清单增加跨模块附加项 | @moonseeker1 |
-| 2026-04-16 | 强化模块文档模板：新增「归属 Hooks」「归属 IPC Handler」段（代码归属映射）；架构文档模板分业务模块/基础设施两类，增加模块目录同步规则；检查清单增加架构同步检查项 | @moonseeker1 |
-| 2026-04-16 | 新增模块删除同步清理规则：删除模块文档时必须同步清理代码（service/hooks/store/IPC），日常规则、CLAUDE.md 集成、检查清单同步更新 | @moonseeker1 |
+| 2026-04-16T10:00:00+08:00 | 初始文档规范 | @moonseeker1 |
+| 2026-04-16T14:00:00+08:00 | 强化 PRD 优先级，增加第 5 条铁律 | @moonseeker1 |
+| 2026-04-16T15:00:00+08:00 | PRD 分四层目录，新增模块级 PRD 模板 | @moonseeker1 |
+| 2026-04-16T16:00:00+08:00 | 新增跨模块变更规则、模块归属映射 | @moonseeker1 |
+| 2026-04-16T17:00:00+08:00 | 新增模块删除同步清理规则 | @moonseeker1 |
+| 2026-04-18T17:30:00+08:00 | PRD 模板增加时间戳/状态/开发前必读/涉及文件/验收标准；新增 Agent 预读协议、精准增量更新、Git 提交纪律；精简检查清单 | @MoonSeeker |

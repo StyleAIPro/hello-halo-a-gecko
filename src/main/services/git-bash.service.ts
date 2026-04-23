@@ -5,16 +5,16 @@
  * This service detects existing Git Bash installations and manages paths.
  */
 
-import { existsSync } from 'fs'
-import { join } from 'path'
-import { app } from 'electron'
-import { createMockBash, cleanupMockBash } from './mock-bash.service'
-import { getConfig, saveConfig } from './config.service'
+import { existsSync } from 'fs';
+import { join } from 'path';
+import { app } from 'electron';
+import { createMockBash, cleanupMockBash } from './mock-bash.service';
+import { getConfig, saveConfig } from './config.service';
 
 export interface GitBashDetectionResult {
-  found: boolean
-  path: string | null
-  source: 'system' | 'app-local' | 'env-var' | null
+  found: boolean;
+  path: string | null;
+  source: 'system' | 'app-local' | 'env-var' | null;
 }
 
 /**
@@ -29,21 +29,21 @@ export interface GitBashDetectionResult {
 export function detectGitBash(): GitBashDetectionResult {
   // Non-Windows platforms use system bash
   if (process.platform !== 'win32') {
-    return { found: true, path: '/bin/bash', source: 'system' }
+    return { found: true, path: '/bin/bash', source: 'system' };
   }
 
   // 1. Check environment variable
-  const envPath = process.env.CLAUDE_CODE_GIT_BASH_PATH
+  const envPath = process.env.CLAUDE_CODE_GIT_BASH_PATH;
   if (envPath && existsSync(envPath)) {
-    console.log('[GitBash] Found via environment variable:', envPath)
-    return { found: true, path: envPath, source: 'env-var' }
+    console.log('[GitBash] Found via environment variable:', envPath);
+    return { found: true, path: envPath, source: 'env-var' };
   }
 
   // 2. Check app-local installation (managed by AICO-Bot)
-  const localGitBash = join(app.getPath('userData'), 'git-bash', 'bin', 'bash.exe')
+  const localGitBash = join(app.getPath('userData'), 'git-bash', 'bin', 'bash.exe');
   if (existsSync(localGitBash)) {
-    console.log('[GitBash] Found app-local installation:', localGitBash)
-    return { found: true, path: localGitBash, source: 'app-local' }
+    console.log('[GitBash] Found app-local installation:', localGitBash);
+    return { found: true, path: localGitBash, source: 'app-local' };
   }
 
   // 3. Check system installation paths
@@ -52,69 +52,69 @@ export function detectGitBash(): GitBashDetectionResult {
     join(process.env['PROGRAMFILES(X86)'] || '', 'Git', 'bin', 'bash.exe'),
     join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
     'C:\\Program Files\\Git\\bin\\bash.exe',
-    'C:\\Program Files (x86)\\Git\\bin\\bash.exe'
-  ]
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+  ];
 
   for (const p of systemPaths) {
     if (p && existsSync(p)) {
-      console.log('[GitBash] Found system installation:', p)
-      return { found: true, path: p, source: 'system' }
+      console.log('[GitBash] Found system installation:', p);
+      return { found: true, path: p, source: 'system' };
     }
   }
 
   // 4. Try to find git in PATH and derive bash path
-  const gitFromPath = findGitInPath()
+  const gitFromPath = findGitInPath();
   if (gitFromPath) {
     // Git is typically at: C:\Program Files\Git\cmd\git.exe
     // Bash is at: C:\Program Files\Git\bin\bash.exe
-    const bashPath = join(gitFromPath, '..', '..', 'bin', 'bash.exe')
+    const bashPath = join(gitFromPath, '..', '..', 'bin', 'bash.exe');
     if (existsSync(bashPath)) {
-      console.log('[GitBash] Found via PATH:', bashPath)
-      return { found: true, path: bashPath, source: 'system' }
+      console.log('[GitBash] Found via PATH:', bashPath);
+      return { found: true, path: bashPath, source: 'system' };
     }
   }
 
-  console.log('[GitBash] Not found')
-  return { found: false, path: null, source: null }
+  console.log('[GitBash] Not found');
+  return { found: false, path: null, source: null };
 }
 
 /**
  * Find git.exe in PATH environment variable
  */
 function findGitInPath(): string | null {
-  const pathEnv = process.env.PATH || ''
-  const paths = pathEnv.split(';')
+  const pathEnv = process.env.PATH || '';
+  const paths = pathEnv.split(';');
 
   for (const p of paths) {
-    const gitExe = join(p, 'git.exe')
+    const gitExe = join(p, 'git.exe');
     if (existsSync(gitExe)) {
-      return gitExe
+      return gitExe;
     }
   }
-  return null
+  return null;
 }
 
 /**
  * Get the path to the app-local Git Bash installation directory
  */
 export function getAppLocalGitBashDir(): string {
-  return join(app.getPath('userData'), 'git-bash')
+  return join(app.getPath('userData'), 'git-bash');
 }
 
 /**
  * Check if Git Bash is installed by AICO-Bot (app-local)
  */
 export function isAppLocalInstallation(): boolean {
-  const result = detectGitBash()
-  return result.found && result.source === 'app-local'
+  const result = detectGitBash();
+  return result.found && result.source === 'app-local';
 }
 
 /**
  * Set the Git Bash path environment variable for Claude Code SDK
  */
 export function setGitBashPathEnv(path: string): void {
-  process.env.CLAUDE_CODE_GIT_BASH_PATH = path
-  console.log('[GitBash] Environment variable set:', path)
+  process.env.CLAUDE_CODE_GIT_BASH_PATH = path;
+  console.log('[GitBash] Environment variable set:', path);
 }
 
 // ──────────────────────────────────────────────
@@ -122,10 +122,10 @@ export function setGitBashPathEnv(path: string): void {
 // ──────────────────────────────────────────────
 
 export interface GitBashStatus {
-  found: boolean
-  path: string | null
-  source: string | null
-  mockMode: boolean
+  found: boolean;
+  path: string | null;
+  source: string | null;
+  mockMode: boolean;
 }
 
 /**
@@ -135,19 +135,19 @@ export interface GitBashStatus {
  */
 export function getGitBashStatus(): GitBashStatus {
   if (process.platform !== 'win32') {
-    return { found: true, path: '/bin/bash', source: 'system', mockMode: false }
+    return { found: true, path: '/bin/bash', source: 'system', mockMode: false };
   }
 
-  const config = getConfig() as any
+  const config = getConfig() as any;
   if (config.gitBash?.skipped) {
-    return { found: true, path: null, source: 'mock', mockMode: true }
+    return { found: true, path: null, source: 'mock', mockMode: true };
   }
   if (config.gitBash?.installed && config.gitBash?.path) {
-    return { found: true, path: config.gitBash.path, source: 'app-local', mockMode: false }
+    return { found: true, path: config.gitBash.path, source: 'app-local', mockMode: false };
   }
 
-  const result = detectGitBash()
-  return { ...result, mockMode: false }
+  const result = detectGitBash();
+  return { ...result, mockMode: false };
 }
 
 /**
@@ -156,73 +156,73 @@ export function getGitBashStatus(): GitBashStatus {
  * Validates saved config paths and handles edge cases like Git Bash being deleted.
  */
 export async function initializeGitBashOnStartup(): Promise<{
-  available: boolean
-  needsSetup: boolean
-  mockMode: boolean
-  path: string | null
-  configCleared?: boolean
+  available: boolean;
+  needsSetup: boolean;
+  mockMode: boolean;
+  path: string | null;
+  configCleared?: boolean;
 }> {
   if (process.platform !== 'win32') {
-    return { available: true, needsSetup: false, mockMode: false, path: '/bin/bash' }
+    return { available: true, needsSetup: false, mockMode: false, path: '/bin/bash' };
   }
 
-  const config = getConfig() as any
+  const config = getConfig() as any;
 
   // Case 1: Config says installed with a specific path — VALIDATE it still exists
   if (config.gitBash?.installed && config.gitBash?.path) {
-    const savedPath = config.gitBash.path
+    const savedPath = config.gitBash.path;
 
     if (existsSync(savedPath)) {
-      setGitBashPathEnv(savedPath)
-      console.log('[GitBash] Using saved path:', savedPath)
-      return { available: true, needsSetup: false, mockMode: false, path: savedPath }
+      setGitBashPathEnv(savedPath);
+      console.log('[GitBash] Using saved path:', savedPath);
+      return { available: true, needsSetup: false, mockMode: false, path: savedPath };
     } else {
-      console.log('[GitBash] Saved path no longer exists:', savedPath)
-      saveConfig({ gitBash: { installed: false, path: null, skipped: false } } as any)
-      console.log('[GitBash] Cleared stale config, will re-detect')
+      console.log('[GitBash] Saved path no longer exists:', savedPath);
+      saveConfig({ gitBash: { installed: false, path: null, skipped: false } } as any);
+      console.log('[GitBash] Cleared stale config, will re-detect');
       // Fall through to fresh detection below
     }
   }
 
   // Case 2: User previously skipped — use mock mode
   if (config.gitBash?.skipped) {
-    const mockPath = createMockBash()
-    setGitBashPathEnv(mockPath)
-    console.log('[GitBash] Mock mode active (user skipped)')
-    return { available: true, needsSetup: false, mockMode: true, path: mockPath }
+    const mockPath = createMockBash();
+    setGitBashPathEnv(mockPath);
+    console.log('[GitBash] Mock mode active (user skipped)');
+    return { available: true, needsSetup: false, mockMode: true, path: mockPath };
   }
 
   // Case 3: Fresh detection
-  const detection = detectGitBash()
+  const detection = detectGitBash();
 
   if (detection.found && detection.path) {
-    setGitBashPathEnv(detection.path)
-    saveConfig({ gitBash: { installed: true, path: detection.path, skipped: false } } as any)
-    console.log('[GitBash] Detected system Git Bash:', detection.path)
-    return { available: true, needsSetup: false, mockMode: false, path: detection.path }
+    setGitBashPathEnv(detection.path);
+    saveConfig({ gitBash: { installed: true, path: detection.path, skipped: false } } as any);
+    console.log('[GitBash] Detected system Git Bash:', detection.path);
+    return { available: true, needsSetup: false, mockMode: false, path: detection.path };
   }
 
   // Case 4: Git Bash not found anywhere
-  console.log('[GitBash] Not found, setup required')
-  return { available: false, needsSetup: true, mockMode: false, path: null, configCleared: true }
+  console.log('[GitBash] Not found, setup required');
+  return { available: false, needsSetup: true, mockMode: false, path: null, configCleared: true };
 }
 
 /**
  * Set Git Bash as skipped (user chose to skip installation)
  */
 export function setGitBashSkipped(): void {
-  const mockPath = createMockBash()
-  setGitBashPathEnv(mockPath)
-  saveConfig({ gitBash: { installed: false, path: null, skipped: true } } as any)
-  console.log('[GitBash] User skipped installation, using mock mode')
+  const mockPath = createMockBash();
+  setGitBashPathEnv(mockPath);
+  saveConfig({ gitBash: { installed: false, path: null, skipped: true } } as any);
+  console.log('[GitBash] User skipped installation, using mock mode');
 }
 
 /**
  * Complete Git Bash installation — set env, save config, cleanup mock
  */
 export function completeGitBashInstallation(path: string): void {
-  setGitBashPathEnv(path)
-  saveConfig({ gitBash: { installed: true, path, skipped: false } } as any)
-  cleanupMockBash()
-  console.log('[GitBash] Installation completed, path saved to config')
+  setGitBashPathEnv(path);
+  saveConfig({ gitBash: { installed: true, path, skipped: false } } as any);
+  cleanupMockBash();
+  console.log('[GitBash] Installation completed, path saved to config');
 }

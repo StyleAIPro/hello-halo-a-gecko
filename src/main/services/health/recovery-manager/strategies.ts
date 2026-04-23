@@ -8,7 +8,7 @@
  * - S4: Factory Reset (requires consent, manual only)
  */
 
-import type { RecoveryStrategy, RecoveryStrategyId } from '../types'
+import type { RecoveryStrategy, RecoveryStrategyId } from '../types';
 
 /**
  * All available recovery strategies
@@ -22,9 +22,9 @@ export const RECOVERY_STRATEGIES: Record<RecoveryStrategyId, RecoveryStrategy> =
     actions: [
       'Kill the unhealthy process',
       'Wait for process to terminate',
-      'Process will be recreated on next use'
+      'Process will be recreated on next use',
     ],
-    requiresConsent: false
+    requiresConsent: false,
   },
 
   S2: {
@@ -36,9 +36,9 @@ export const RECOVERY_STRATEGIES: Record<RecoveryStrategyId, RecoveryStrategy> =
       'Close all active V2 sessions',
       'Kill all SDK CLI processes',
       'Restart OpenAI compat router (if active)',
-      'Clear agent error counters'
+      'Clear agent error counters',
     ],
-    requiresConsent: false
+    requiresConsent: false,
   },
 
   S3: {
@@ -49,9 +49,9 @@ export const RECOVERY_STRATEGIES: Record<RecoveryStrategyId, RecoveryStrategy> =
     actions: [
       'Save current state (if possible)',
       'Close all windows and processes',
-      'Relaunch application'
+      'Relaunch application',
     ],
-    requiresConsent: true
+    requiresConsent: true,
   },
 
   S4: {
@@ -63,11 +63,11 @@ export const RECOVERY_STRATEGIES: Record<RecoveryStrategyId, RecoveryStrategy> =
       'Clear all cached data',
       'Reset configuration to defaults',
       'Clear conversation index (preserves data)',
-      'Restart application'
+      'Restart application',
     ],
-    requiresConsent: true
-  }
-}
+    requiresConsent: true,
+  },
+};
 
 /**
  * Error thresholds for automatic strategy selection
@@ -78,14 +78,14 @@ export const ERROR_THRESHOLDS = {
   /** Trigger S3 (Restart App) after this many consecutive errors */
   APP_RESTART: 5,
   /** Time window for counting consecutive errors (ms) */
-  ERROR_WINDOW_MS: 60_000
-}
+  ERROR_WINDOW_MS: 60_000,
+};
 
 /**
  * Get strategy by ID
  */
 export function getStrategy(id: RecoveryStrategyId): RecoveryStrategy {
-  return RECOVERY_STRATEGIES[id]
+  return RECOVERY_STRATEGIES[id];
 }
 
 /**
@@ -93,28 +93,28 @@ export function getStrategy(id: RecoveryStrategyId): RecoveryStrategy {
  */
 export function selectRecoveryStrategy(
   errorCount: number,
-  source: string
+  source: string,
 ): RecoveryStrategyId | null {
   // S2: Reset agent engine after 3+ errors
   if (errorCount >= ERROR_THRESHOLDS.AGENT_RESET && errorCount < ERROR_THRESHOLDS.APP_RESTART) {
     // Only for agent-related errors
     if (source.includes('agent') || source.includes('session')) {
-      return 'S2'
+      return 'S2';
     }
   }
 
   // S3: Restart app after 5+ errors
   if (errorCount >= ERROR_THRESHOLDS.APP_RESTART) {
-    return 'S3'
+    return 'S3';
   }
 
   // S1: For single process issues (handled case-by-case)
-  return null
+  return null;
 }
 
 /**
  * Check if a strategy requires user consent
  */
 export function requiresConsent(strategyId: RecoveryStrategyId): boolean {
-  return RECOVERY_STRATEGIES[strategyId].requiresConsent
+  return RECOVERY_STRATEGIES[strategyId].requiresConsent;
 }

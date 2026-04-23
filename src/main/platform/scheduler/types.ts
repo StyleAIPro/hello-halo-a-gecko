@@ -23,29 +23,29 @@
  * - `once`: One-shot execution at a specific timestamp. Job is disabled after
  *   execution (success or error).
  */
-export type ScheduleKind = 'every' | 'cron' | 'once'
+export type ScheduleKind = 'every' | 'cron' | 'once';
 
 export interface ScheduleEvery {
-  kind: 'every'
+  kind: 'every';
   /** Human-readable interval string: "30m" | "2h" | "1d" | "45s" etc. */
-  every: string
+  every: string;
 }
 
 export interface ScheduleCron {
-  kind: 'cron'
+  kind: 'cron';
   /** Standard cron expression, e.g. "0 9 * * *". */
-  cron: string
+  cron: string;
   /** IANA timezone for cron evaluation. Defaults to system timezone. */
-  timezone?: string
+  timezone?: string;
 }
 
 export interface ScheduleOnce {
-  kind: 'once'
+  kind: 'once';
   /** Absolute timestamp in milliseconds (Date.now() style). */
-  once: number
+  once: number;
 }
 
-export type Schedule = ScheduleEvery | ScheduleCron | ScheduleOnce
+export type Schedule = ScheduleEvery | ScheduleCron | ScheduleOnce;
 
 // ---------------------------------------------------------------------------
 // Job status
@@ -59,7 +59,7 @@ export type Schedule = ScheduleEvery | ScheduleCron | ScheduleOnce
  * - `paused`: User explicitly paused. Will not fire until resumed.
  * - `disabled`: Auto-disabled due to repeated errors. Requires explicit resume.
  */
-export type JobStatus = 'idle' | 'running' | 'paused' | 'disabled'
+export type JobStatus = 'idle' | 'running' | 'paused' | 'disabled';
 
 // ---------------------------------------------------------------------------
 // Run outcome
@@ -73,7 +73,7 @@ export type JobStatus = 'idle' | 'running' | 'paused' | 'disabled'
  * - `error`: The execution failed.
  * - `skipped`: The execution was skipped (e.g., consumer-side concurrency limit).
  */
-export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
+export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped';
 
 // ---------------------------------------------------------------------------
 // Job definition
@@ -85,19 +85,19 @@ export type RunOutcome = 'useful' | 'noop' | 'error' | 'skipped'
  */
 export interface SchedulerJob {
   /** Unique job identifier (UUID). */
-  id: string
+  id: string;
   /** Human-readable job name. */
-  name: string
+  name: string;
   /** Schedule configuration. */
-  schedule: Schedule
+  schedule: Schedule;
   /** Whether the job is enabled for scheduling. */
-  enabled: boolean
+  enabled: boolean;
   /**
    * Opaque metadata passed through to the consumer's handler.
    * The scheduler never reads or modifies this data.
    * Typical use: { appId: string, subscriptionId: string }
    */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 
   // -- Scheduler-managed runtime state --
 
@@ -106,21 +106,21 @@ export interface SchedulerJob {
    * anchorMs, anchorMs + everyMs, anchorMs + 2*everyMs, ...
    * Set to job creation time by default.
    */
-  anchorMs: number
+  anchorMs: number;
   /** Computed next run time in epoch milliseconds. */
-  nextRunAtMs: number
+  nextRunAtMs: number;
   /** Timestamp of the last completed run (success or error). */
-  lastRunAtMs?: number
+  lastRunAtMs?: number;
   /** Epoch ms when the current execution started. Null if not running. */
-  runningAtMs?: number
+  runningAtMs?: number;
   /** Number of consecutive execution errors (reset on success). */
-  consecutiveErrors: number
+  consecutiveErrors: number;
   /** Current job status. */
-  status: JobStatus
+  status: JobStatus;
   /** Timestamp when the job was created. */
-  createdAt: number
+  createdAt: number;
   /** Timestamp when the job was last modified. */
-  updatedAt: number
+  updatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,8 +133,15 @@ export interface SchedulerJob {
  */
 export type SchedulerJobCreate = Omit<
   SchedulerJob,
-  'anchorMs' | 'nextRunAtMs' | 'lastRunAtMs' | 'runningAtMs' | 'consecutiveErrors' | 'status' | 'createdAt' | 'updatedAt'
->
+  | 'anchorMs'
+  | 'nextRunAtMs'
+  | 'lastRunAtMs'
+  | 'runningAtMs'
+  | 'consecutiveErrors'
+  | 'status'
+  | 'createdAt'
+  | 'updatedAt'
+>;
 
 // ---------------------------------------------------------------------------
 // Job update input
@@ -144,7 +151,9 @@ export type SchedulerJobCreate = Omit<
  * Partial update for a job. Only the specified fields are changed.
  * Runtime state fields cannot be directly updated by the consumer.
  */
-export type SchedulerJobUpdate = Partial<Pick<SchedulerJob, 'name' | 'schedule' | 'enabled' | 'metadata'>>
+export type SchedulerJobUpdate = Partial<
+  Pick<SchedulerJob, 'name' | 'schedule' | 'enabled' | 'metadata'>
+>;
 
 // ---------------------------------------------------------------------------
 // Run log
@@ -155,21 +164,21 @@ export type SchedulerJobUpdate = Partial<Pick<SchedulerJob, 'name' | 'schedule' 
  */
 export interface RunLogEntry {
   /** Auto-incremented log entry ID. */
-  id: number
+  id: number;
   /** The job that was executed. */
-  jobId: string
+  jobId: string;
   /** When the execution started (epoch ms). */
-  startedAt: number
+  startedAt: number;
   /** When the execution finished (epoch ms). */
-  finishedAt: number
+  finishedAt: number;
   /** Duration in milliseconds. */
-  durationMs: number
+  durationMs: number;
   /** The outcome of the execution. */
-  outcome: RunOutcome
+  outcome: RunOutcome;
   /** Error message if outcome is 'error'. */
-  error?: string
+  error?: string;
   /** Snapshot of job metadata at execution time. */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -177,16 +186,16 @@ export interface RunLogEntry {
  */
 export interface RunStats {
   /** Total number of runs in the query window. */
-  totalRuns: number
+  totalRuns: number;
   /** Count of each outcome type. */
-  useful: number
-  noop: number
-  error: number
-  skipped: number
+  useful: number;
+  noop: number;
+  error: number;
+  skipped: number;
   /** Average duration in milliseconds. */
-  avgDurationMs: number
+  avgDurationMs: number;
   /** Timestamp of the last run (any outcome). */
-  lastRunAt?: number
+  lastRunAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +212,7 @@ export interface RunStats {
  * - A job's handler is never called concurrently with itself.
  * - The handler receives a snapshot of the job at execution time.
  */
-export type JobDueHandler = (job: SchedulerJob) => Promise<RunOutcome>
+export type JobDueHandler = (job: SchedulerJob) => Promise<RunOutcome>;
 
 // ---------------------------------------------------------------------------
 // Filter for listing jobs
@@ -211,9 +220,9 @@ export type JobDueHandler = (job: SchedulerJob) => Promise<RunOutcome>
 
 export interface JobFilter {
   /** Filter by job status. */
-  status?: JobStatus
+  status?: JobStatus;
   /** Filter by metadata key-value match (shallow equality). */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,28 +239,28 @@ export interface SchedulerService {
   // -- Job CRUD --
 
   /** Create a new job. Returns the generated job ID. */
-  addJob(job: SchedulerJobCreate): string
+  addJob(job: SchedulerJobCreate): string;
 
   /** Remove a job and its run log entries. */
-  removeJob(jobId: string): void
+  removeJob(jobId: string): void;
 
   /** Update job configuration. Runtime state fields are not directly updatable. */
-  updateJob(jobId: string, updates: SchedulerJobUpdate): void
+  updateJob(jobId: string, updates: SchedulerJobUpdate): void;
 
   /** Pause a job (stop scheduling, preserve state). */
-  pauseJob(jobId: string): void
+  pauseJob(jobId: string): void;
 
   /**
    * Resume a paused or disabled job.
    * Resets consecutiveErrors to 0 and recomputes nextRunAtMs.
    */
-  resumeJob(jobId: string): void
+  resumeJob(jobId: string): void;
 
   /** Get a job by ID, or null if not found. */
-  getJob(jobId: string): SchedulerJob | null
+  getJob(jobId: string): SchedulerJob | null;
 
   /** List jobs, optionally filtered. */
-  listJobs(filter?: JobFilter): SchedulerJob[]
+  listJobs(filter?: JobFilter): SchedulerJob[];
 
   // -- Execution --
 
@@ -259,19 +268,19 @@ export interface SchedulerService {
    * Register the callback invoked when a job is due.
    * Only one handler is supported; subsequent calls replace the previous handler.
    */
-  onJobDue(handler: JobDueHandler): void
+  onJobDue(handler: JobDueHandler): void;
 
   /** Start the timer loop. Call after registering the handler. */
-  start(): void
+  start(): void;
 
   /** Stop the timer loop. Does not cancel in-flight executions. */
-  stop(): void
+  stop(): void;
 
   // -- Observability --
 
   /** Get recent run log entries for a job. Default limit: 50. */
-  getRunLog(jobId: string, limit?: number): RunLogEntry[]
+  getRunLog(jobId: string, limit?: number): RunLogEntry[];
 
   /** Get aggregated run statistics for a job since a given timestamp. */
-  getRunStats(jobId: string, since?: number): RunStats
+  getRunStats(jobId: string, since?: number): RunStats;
 }

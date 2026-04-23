@@ -31,7 +31,11 @@ import {
   ExternalLink,
   Upload,
 } from 'lucide-react';
-import type { InstalledSkill, SkillFileNode } from '../../../shared/skill/skill-types';
+import type {
+  InstalledSkill,
+  SkillFileNode,
+  SkillMarketSource,
+} from '../../../shared/skill/skill-types';
 import { api } from '../../api';
 import { useConfirm } from '../ui/ConfirmDialog';
 
@@ -72,15 +76,20 @@ export function SkillLibrary() {
     repoDirs,
     repoDirsLoading,
     loadRepoDirectories,
+    loadGitCodeRepoDirectories,
     syncLoading,
     syncError,
     syncSkillToRemote,
     clearSyncState,
+    syncSkillFromRemote,
+    syncFromRemoteLoading,
+    clearSyncFromRemoteState,
   } = useSkillStore();
 
   // GitHub 推送状态
   const [showPushModal, setShowPushModal] = useState(false);
   const [pushTargetRepo, setPushTargetRepo] = useState('');
+  const [pushTargetSourceId, setPushTargetSourceId] = useState('');
   const [pushTargetPath, setPushTargetPath] = useState('');
 
   // Sync to remote server 状态
@@ -88,8 +97,18 @@ export function SkillLibrary() {
   const [syncTargetServerId, setSyncTargetServerId] = useState<string | null>(null);
   const [syncOutput, setSyncOutput] = useState<string>('');
 
+  // Sync from remote server 状态
+  const [showSyncFromRemoteModal, setShowSyncFromRemoteModal] = useState(false);
+  const [syncFromRemoteOutput, setSyncFromRemoteOutput] = useState<string>('');
+
   // GitHub + GitCode 源列表
   const githubSources = marketSources.filter((s) => s.type === 'github' || s.type === 'gitcode');
+
+  // Push target helpers
+  const pushTargetSource = pushTargetSourceId
+    ? githubSources.find((s) => s.id === pushTargetSourceId)
+    : null;
+  const isGitCodePush = pushTargetSource?.type === 'gitcode';
 
   // 技能来源选择
   const [selectedSource, setSelectedSource] = useState<SkillSource>({ type: 'local' });
@@ -223,6 +242,16 @@ export function SkillLibrary() {
     const cleanup = api.onSkillSyncOutput(({ skillId, serverId, output }) => {
       if (skillId === selectedSkillId) {
         setSyncOutput((prev) => prev + output.content);
+      }
+    });
+    return cleanup;
+  }, [selectedSkillId]);
+
+  // 监听从远程同步技能输出
+  useEffect(() => {
+    const cleanup = api.onSkillSyncFromRemoteOutput(({ skillId, serverId, output }) => {
+      if (skillId === selectedSkillId) {
+        setSyncFromRemoteOutput((prev) => prev + output.content);
       }
     });
     return cleanup;
@@ -556,14 +585,23 @@ export function SkillLibrary() {
                     onUninstall={isLocal ? (e) => handleUninstall(selectedSkillId, e) : undefined}
                     onOpenFiles={() => handleOpenFiles(selectedSkillId)}
                     hasGitHubSources={githubSources.length > 0}
+                    githubSourcesList={githubSources}
                     onPushToGitHub={
                       isLocal
                         ? () => {
-                            const repo = githubSources[0]?.repos?.[0] || '';
+                            const firstSource = githubSources[0];
+                            const repo = firstSource?.repos?.[0] || '';
                             setPushTargetRepo(repo);
+                            setPushTargetSourceId(firstSource?.id || '');
                             setPushTargetPath('');
                             setShowPushModal(true);
-                            if (repo) loadRepoDirectories(repo);
+                            if (repo) {
+                              if (firstSource?.type === 'gitcode') {
+                                loadGitCodeRepoDirectories(repo);
+                              } else {
+                                loadRepoDirectories(repo);
+                              }
+                            }
                           }
                         : undefined
                     }
@@ -578,6 +616,16 @@ export function SkillLibrary() {
                         : undefined
                     }
                     syncLoading={syncLoading}
+                    onSyncFromServer={
+                      !isLocal && selectedSource.type === 'remote'
+                        ? () => {
+                            setSyncFromRemoteOutput('');
+                            clearSyncFromRemoteState();
+                            setShowSyncFromRemoteModal(true);
+                          }
+                        : undefined
+                    }
+                    syncFromRemoteLoading={syncFromRemoteLoading}
                   />
                 );
               })()
@@ -696,10 +744,7 @@ export function SkillLibrary() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                 <Github className="w-5 h-5" />
-                {pushTargetRepo &&
-                githubSources.find((s) => s.repos?.[0] === pushTargetRepo && s.type === 'gitcode')
-                  ? t('Push to GitCode')
-                  : t('Push to GitHub')}
+                {pushTargetSource?.type === 'gitcode' ? t('Push to GitCode') : t('Push to GitHub')}
               </h3>
               <button
                 onClick={() => {
@@ -715,7 +760,9 @@ export function SkillLibrary() {
             <p className="text-sm text-muted-foreground">
               {t('Submit skill')}{' '}
               <span className="font-medium text-foreground">{selectedSkillId}</span>{' '}
-              {t('as a Pull Request to a repository.')}
+              {isGitCodePush
+                ? t('as a Merge Request to a repository.')
+                : t('as a Pull Request to a repository.')}
             </p>
 
             {/* Target repo selector */}
@@ -725,18 +772,26 @@ export function SkillLibrary() {
               </label>
               {githubSources.length > 0 ? (
                 <select
-                  value={pushTargetRepo}
+                  value={pushTargetSourceId}
                   onChange={(e) => {
-                    setPushTargetRepo(e.target.value);
+                    const selectedSource = githubSources.find((s) => s.id === e.target.value);
+                    const repo = selectedSource?.repos?.[0] || '';
+                    setPushTargetSourceId(e.target.value);
+                    setPushTargetRepo(repo);
                     setPushTargetPath('');
-                    if (e.target.value) {
-                      loadRepoDirectories(e.target.value);
+                    if (repo) {
+                      if (selectedSource?.type === 'gitcode') {
+                        loadGitCodeRepoDirectories(repo);
+                      } else {
+                        loadRepoDirectories(repo);
+                      }
                     }
                   }}
                   className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm text-foreground"
                 >
                   {githubSources.map((s) => (
-                    <option key={s.id} value={s.repos?.[0] || ''}>
+                    <option key={s.id} value={s.id}>
+                      {s.type === 'gitcode' ? 'GitCode: ' : s.type === 'github' ? 'GitHub: ' : ''}
                       {s.repos?.[0] || s.name}
                     </option>
                   ))}
@@ -831,10 +886,7 @@ export function SkillLibrary() {
                 <button
                   onClick={async () => {
                     if (pushTargetRepo) {
-                      const targetSource = githubSources.find(
-                        (s) => s.repos?.[0] === pushTargetRepo,
-                      );
-                      if (targetSource?.type === 'gitcode') {
+                      if (isGitCodePush) {
                         const { pushSkillToGitCode } = useSkillStore.getState();
                         await pushSkillToGitCode(
                           selectedSkillId,
@@ -856,12 +908,12 @@ export function SkillLibrary() {
                   {pushLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {t('Creating PR...')}
+                      {isGitCodePush ? t('Creating MR...') : t('Creating PR...')}
                     </>
                   ) : (
                     <>
                       <Github className="w-4 h-4" />
-                      {t('Create PR')}
+                      {isGitCodePush ? t('Create MR') : t('Create PR')}
                     </>
                   )}
                 </button>
@@ -978,6 +1030,110 @@ export function SkillLibrary() {
           </div>
         </div>
       )}
+
+      {/* Sync from Remote Server Modal */}
+      {showSyncFromRemoteModal && selectedSkillId && selectedSource.type === 'remote' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => {
+              if (!syncFromRemoteLoading) {
+                setShowSyncFromRemoteModal(false);
+                clearSyncFromRemoteState();
+              }
+            }}
+          />
+          <div className="relative bg-background border border-border rounded-xl shadow-xl w-[420px] max-h-[70vh] flex flex-col z-10">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <Download className="w-5 h-5" />
+                {t('Download to Local')}
+              </h3>
+              {!syncFromRemoteLoading && (
+                <button
+                  onClick={() => {
+                    setShowSyncFromRemoteModal(false);
+                    clearSyncFromRemoteState();
+                  }}
+                  className="p-1 hover:bg-secondary rounded"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <p className="px-4 pt-3 text-sm text-muted-foreground">
+              {t('Download skill from remote server and install it locally.')}
+            </p>
+
+            {/* Download progress */}
+            {syncFromRemoteLoading && (
+              <div className="px-4 pt-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                  <span>{t('Connecting to remote server...')}</span>
+                </div>
+                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-400 rounded-full animate-pulse"
+                    style={{ width: '60%' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {syncFromRemoteOutput && (
+              <div className="border-t border-border p-3 max-h-40 overflow-y-auto">
+                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
+                  {syncFromRemoteOutput}
+                </pre>
+              </div>
+            )}
+
+            <div className="p-4 border-t border-border flex justify-end gap-2">
+              {!syncFromRemoteLoading && (
+                <button
+                  onClick={() => {
+                    setShowSyncFromRemoteModal(false);
+                    clearSyncFromRemoteState();
+                  }}
+                  className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t('Cancel')}
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  setSyncFromRemoteOutput('');
+                  const success = await syncSkillFromRemote(
+                    selectedSkillId,
+                    selectedSource.serverId,
+                  );
+                  if (success) {
+                    setShowSyncFromRemoteModal(false);
+                    refreshSkills();
+                    setSelectedSource({ type: 'local' });
+                  }
+                }}
+                disabled={syncFromRemoteLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {syncFromRemoteLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('Downloading...')}
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    {t('Download to Local')}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -993,8 +1149,11 @@ function SkillDetail({
   onOpenFiles,
   onPushToGitHub,
   hasGitHubSources,
+  githubSourcesList,
   onSyncToServer,
   syncLoading,
+  onSyncFromServer,
+  syncFromRemoteLoading,
 }: {
   skill: InstalledSkill;
   isRemote?: boolean;
@@ -1005,8 +1164,11 @@ function SkillDetail({
   onOpenFiles?: () => void;
   onPushToGitHub?: () => void;
   hasGitHubSources?: boolean;
+  githubSourcesList?: SkillMarketSource[];
   onSyncToServer?: () => void;
   syncLoading?: boolean;
+  onSyncFromServer?: () => void;
+  syncFromRemoteLoading?: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -1141,7 +1303,11 @@ function SkillDetail({
               className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm font-medium transition-colors"
             >
               <Github className="w-4 h-4" />
-              {t('Push to GitHub')}
+              {(githubSourcesList?.length ?? 0) === 1
+                ? githubSourcesList![0].type === 'gitcode'
+                  ? t('Push to GitCode')
+                  : t('Push to GitHub')
+                : t('Push to Remote')}
             </button>
           )}
 
@@ -1173,6 +1339,20 @@ function SkillDetail({
       {/* 远程只读提示 */}
       {isRemote && (
         <div className="pt-4 border-t border-border">
+          {onSyncFromServer && (
+            <button
+              onClick={onSyncFromServer}
+              disabled={syncFromRemoteLoading}
+              className="flex items-center gap-2 w-full px-4 py-2 mt-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {syncFromRemoteLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {syncFromRemoteLoading ? t('Downloading...') : t('Download to Local')}
+            </button>
+          )}
           <button
             onClick={onOpenFiles}
             className="flex items-center gap-2 w-full px-4 py-2 mt-2 bg-secondary/50 hover:bg-secondary text-secondary-foreground hover:text-foreground rounded-lg text-sm font-medium transition-colors"

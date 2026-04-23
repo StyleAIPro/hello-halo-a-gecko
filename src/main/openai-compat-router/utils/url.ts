@@ -8,8 +8,8 @@
  * Extract base URL (protocol + host) from endpoint URL
  */
 export function extractBaseUrl(endpointUrl: string): string {
-  const url = new URL(endpointUrl)
-  return `${url.protocol}//${url.host}`
+  const url = new URL(endpointUrl);
+  return `${url.protocol}//${url.host}`;
 }
 
 /**
@@ -24,29 +24,29 @@ export function extractBaseUrl(endpointUrl: string): string {
  * @returns Normalized URL ready for use
  */
 export function normalizeApiUrl(apiUrl: string, provider: 'anthropic' | 'openai'): string {
-  const trimSlash = (s: string) => s.replace(/\/+$/, '')
-  let normalized = trimSlash(apiUrl)
+  const trimSlash = (s: string) => s.replace(/\/+$/, '');
+  let normalized = trimSlash(apiUrl);
 
   if (provider === 'anthropic') {
     // Anthropic: just trim trailing slashes
-    return normalized
+    return normalized;
   }
 
   // OpenAI compatible: ensure URL ends with valid endpoint
   // Already has full endpoint? Return as-is
   if (normalized.endsWith('/chat/completions') || normalized.endsWith('/responses')) {
-    return normalized
+    return normalized;
   }
 
   // Strip incomplete path suffix
   if (normalized.endsWith('/chat')) {
-    normalized = normalized.slice(0, -5)
+    normalized = normalized.slice(0, -5);
   }
 
   // Host-only URL defaults to OpenAI's /v1 API base.
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]+$/.test(normalized)) {
-    normalized = `${normalized}/v1`
+    normalized = `${normalized}/v1`;
   }
 
-  return `${normalized}/chat/completions`
+  return `${normalized}/chat/completions`;
 }

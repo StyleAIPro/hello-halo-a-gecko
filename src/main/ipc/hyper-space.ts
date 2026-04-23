@@ -4,26 +4,26 @@
  * Handles IPC communication for multi-agent Hyper Space features
  */
 
-import { ipcMain } from 'electron'
-import { agentOrchestrator } from '../services/agent/orchestrator'
-import { taskboardService } from '../services/agent/taskboard'
-import { permissionForwarder } from '../services/agent/permission-forwarder'
+import { ipcMain } from 'electron';
+import { agentOrchestrator } from '../services/agent/orchestrator';
+import { taskboardService } from '../services/agent/taskboard';
+import { permissionForwarder } from '../services/agent/permission-forwarder';
 import type {
   AgentConfig,
   OrchestrationConfig,
   SubagentTask,
-  CreateHyperSpaceInput
-} from '../../shared/types/hyper-space'
-import type { PostTaskInput } from '../../shared/types/taskboard'
-import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service'
-import type { Space } from '../../shared/types'
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service'
+  CreateHyperSpaceInput,
+} from '../../shared/types/hyper-space';
+import type { PostTaskInput } from '../../shared/types/taskboard';
+import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service';
+import type { Space } from '../../shared/types';
+import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
 
 /**
  * Register Hyper Space IPC handlers
  */
 export function registerHyperSpaceHandlers(): void {
-  console.log('[IPC] Registering Hyper Space handlers')
+  console.log('[IPC] Registering Hyper Space handlers');
 
   // ============================================
   // Team Management
@@ -37,44 +37,57 @@ export function registerHyperSpaceHandlers(): void {
       // Use createHyperSpace for hyper spaces
       if (input.spaceType === 'hyper') {
         // Validate all remote worker agents: their servers must be ready (SDK + Bot Proxy)
-        const remoteAgents = (input.agents || []).filter(a => a.type === 'remote' && a.remoteServerId)
-        const invalidAgents: string[] = []
+        const remoteAgents = (input.agents || []).filter(
+          (a) => a.type === 'remote' && a.remoteServerId,
+        );
+        const invalidAgents: string[] = [];
         for (const agent of remoteAgents) {
-          const server = remoteDeployService.getServer(agent.remoteServerId!)
+          const server = remoteDeployService.getServer(agent.remoteServerId!);
           if (!server) {
-            invalidAgents.push(`Agent "${agent.name}": remote server not found`)
+            invalidAgents.push(`Agent "${agent.name}": remote server not found`);
           } else if (!server.sdkInstalled) {
-            invalidAgents.push(`Agent "${agent.name}": SDK not installed on "${server.name}"`)
+            invalidAgents.push(`Agent "${agent.name}": SDK not installed on "${server.name}"`);
           } else if (!server.proxyRunning) {
-            invalidAgents.push(`Agent "${agent.name}": Bot Proxy not running on "${server.name}"`)
+            invalidAgents.push(`Agent "${agent.name}": Bot Proxy not running on "${server.name}"`);
           }
         }
         if (invalidAgents.length > 0) {
-          return { success: false, error: `Remote servers not ready:\n${invalidAgents.join('\n')}` }
+          return {
+            success: false,
+            error: `Remote servers not ready:\n${invalidAgents.join('\n')}`,
+          };
         }
 
-        const space = createHyperSpace(input)
+        const space = createHyperSpace(input);
 
         if (!space) {
-          return { success: false, error: 'Failed to create Hyper Space' }
+          return { success: false, error: 'Failed to create Hyper Space' };
         }
 
-        console.log(`[IPC] Created Hyper Space ${space.id} with ${input.agents?.length || 0} agents`)
+        console.log(
+          `[IPC] Created Hyper Space ${space.id} with ${input.agents?.length || 0} agents`,
+        );
 
-        return { success: true, space }
+        return { success: true, space };
       }
 
       // Fallback to regular space creation
       if (input.claudeSource === 'remote' && input.remoteServerId) {
-        const server = remoteDeployService.getServer(input.remoteServerId)
+        const server = remoteDeployService.getServer(input.remoteServerId);
         if (!server) {
-          return { success: false, error: 'Remote server not found' }
+          return { success: false, error: 'Remote server not found' };
         }
         if (!server.sdkInstalled) {
-          return { success: false, error: `Remote server "${server.name}" is not ready: SDK is not installed. Please deploy the agent first.` }
+          return {
+            success: false,
+            error: `Remote server "${server.name}" is not ready: SDK is not installed. Please deploy the agent first.`,
+          };
         }
         if (!server.proxyRunning) {
-          return { success: false, error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.` }
+          return {
+            success: false,
+            error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.`,
+          };
         }
       }
 
@@ -85,18 +98,18 @@ export function registerHyperSpaceHandlers(): void {
         claudeSource: input.claudeSource || 'local',
         remoteServerId: input.remoteServerId,
         remotePath: input.remotePath,
-        useSshTunnel: input.useSshTunnel
-      })
+        useSshTunnel: input.useSshTunnel,
+      });
 
-      return { success: true, space }
+      return { success: true, space };
     } catch (error) {
-      console.error('[IPC] Failed to create Hyper Space:', error)
+      console.error('[IPC] Failed to create Hyper Space:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Get Hyper Space team status
@@ -104,21 +117,21 @@ export function registerHyperSpaceHandlers(): void {
   ipcMain.handle('hyper-space:get-status', async (_event, spaceId: string) => {
     try {
       const status = agentOrchestrator.getTeamStatus(
-        agentOrchestrator.getTeamBySpace(spaceId)?.id || ''
-      )
+        agentOrchestrator.getTeamBySpace(spaceId)?.id || '',
+      );
 
       if (!status) {
-        return { success: false, error: 'Team not found' }
+        return { success: false, error: 'Team not found' };
       }
 
-      return { success: true, status }
+      return { success: true, status };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Get worker session states for recovery after page refresh.
@@ -126,63 +139,75 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:get-worker-states', async (_event, spaceId: string) => {
     try {
-      const workerStates = agentOrchestrator.getWorkerSessionStates(spaceId)
-      return { success: true, data: workerStates }
+      const workerStates = agentOrchestrator.getWorkerSessionStates(spaceId);
+      return { success: true, data: workerStates };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Add agent to existing Hyper Space
    */
-  ipcMain.handle('hyper-space:add-agent', async (_event, params: {
-    spaceId: string
-    agent: AgentConfig
-  }) => {
-    try {
-      const team = agentOrchestrator.getTeamBySpace(params.spaceId)
-      if (!team) {
-        return { success: false, error: 'Hyper Space team not found' }
-      }
+  ipcMain.handle(
+    'hyper-space:add-agent',
+    async (
+      _event,
+      params: {
+        spaceId: string;
+        agent: AgentConfig;
+      },
+    ) => {
+      try {
+        const team = agentOrchestrator.getTeamBySpace(params.spaceId);
+        if (!team) {
+          return { success: false, error: 'Hyper Space team not found' };
+        }
 
-      const success = agentOrchestrator.addAgentToTeam(team.id, params.agent)
+        const success = agentOrchestrator.addAgentToTeam(team.id, params.agent);
 
-      return { success }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
   /**
    * Remove agent from Hyper Space
    */
-  ipcMain.handle('hyper-space:remove-agent', async (_event, params: {
-    spaceId: string
-    agentId: string
-  }) => {
-    try {
-      const team = agentOrchestrator.getTeamBySpace(params.spaceId)
-      if (!team) {
-        return { success: false, error: 'Hyper Space team not found' }
-      }
+  ipcMain.handle(
+    'hyper-space:remove-agent',
+    async (
+      _event,
+      params: {
+        spaceId: string;
+        agentId: string;
+      },
+    ) => {
+      try {
+        const team = agentOrchestrator.getTeamBySpace(params.spaceId);
+        if (!team) {
+          return { success: false, error: 'Hyper Space team not found' };
+        }
 
-      const success = agentOrchestrator.removeAgentFromTeam(team.id, params.agentId)
+        const success = agentOrchestrator.removeAgentFromTeam(team.id, params.agentId);
 
-      return { success }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
   // ============================================
   // Task Dispatching
@@ -191,115 +216,133 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Dispatch a task to agents
    */
-  ipcMain.handle('hyper-space:dispatch-task', async (_event, params: {
-    spaceId: string
-    task: string
-    conversationId: string
-  }) => {
-    try {
-      const team = agentOrchestrator.getTeamBySpace(params.spaceId)
-      if (!team) {
-        return { success: false, error: 'Hyper Space team not found' }
-      }
+  ipcMain.handle(
+    'hyper-space:dispatch-task',
+    async (
+      _event,
+      params: {
+        spaceId: string;
+        task: string;
+        conversationId: string;
+      },
+    ) => {
+      try {
+        const team = agentOrchestrator.getTeamBySpace(params.spaceId);
+        if (!team) {
+          return { success: false, error: 'Hyper Space team not found' };
+        }
 
-      const tasks = await agentOrchestrator.dispatchTask({
-        teamId: team.id,
-        task: params.task,
-        conversationId: params.conversationId
-      })
+        const tasks = await agentOrchestrator.dispatchTask({
+          teamId: team.id,
+          task: params.task,
+          conversationId: params.conversationId,
+        });
 
-      return {
-        success: true,
-        tasks: tasks.map(t => ({
-          id: t.id,
-          agentId: t.agentId,
-          status: t.status,
-          task: t.task
-        }))
+        return {
+          success: true,
+          tasks: tasks.map((t) => ({
+            id: t.id,
+            agentId: t.agentId,
+            status: t.status,
+            task: t.task,
+          })),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+    },
+  );
 
   /**
    * Get task status
    */
   ipcMain.handle('hyper-space:get-task', async (_event, taskId: string) => {
     try {
-      const task = agentOrchestrator.getTask(taskId)
+      const task = agentOrchestrator.getTask(taskId);
       if (!task) {
-        return { success: false, error: 'Task not found' }
+        return { success: false, error: 'Task not found' };
       }
 
-      return { success: true, task }
+      return { success: true, task };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Get all tasks for a conversation
    */
   ipcMain.handle('hyper-space:get-tasks', async (_event, conversationId: string) => {
     try {
-      const tasks = agentOrchestrator.getTasksForConversation(conversationId)
-      return { success: true, tasks }
+      const tasks = agentOrchestrator.getTasksForConversation(conversationId);
+      return { success: true, tasks };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Wait for all tasks to complete
    */
-  ipcMain.handle('hyper-space:wait-completion', async (_event, params: {
-    conversationId: string
-    timeout?: number
-  }) => {
-    try {
-      const tasks = await agentOrchestrator.waitForCompletion({
-        conversationId: params.conversationId,
-        timeout: params.timeout
-      })
+  ipcMain.handle(
+    'hyper-space:wait-completion',
+    async (
+      _event,
+      params: {
+        conversationId: string;
+        timeout?: number;
+      },
+    ) => {
+      try {
+        const tasks = await agentOrchestrator.waitForCompletion({
+          conversationId: params.conversationId,
+          timeout: params.timeout,
+        });
 
-      return { success: true, tasks }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success: true, tasks };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
   /**
    * Aggregate results from multiple tasks
    */
-  ipcMain.handle('hyper-space:aggregate-results', async (_event, params: {
-    conversationId: string
-    strategy: 'concat' | 'summarize' | 'vote'
-  }) => {
-    try {
-      const tasks = agentOrchestrator.getTasksForConversation(params.conversationId)
-      const result = agentOrchestrator.aggregateResults(tasks, params.strategy)
+  ipcMain.handle(
+    'hyper-space:aggregate-results',
+    async (
+      _event,
+      params: {
+        conversationId: string;
+        strategy: 'concat' | 'summarize' | 'vote';
+      },
+    ) => {
+      try {
+        const tasks = agentOrchestrator.getTasksForConversation(params.conversationId);
+        const result = agentOrchestrator.aggregateResults(tasks, params.strategy);
 
-      return { success: true, result }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success: true, result };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
   // ============================================
   // Orchestration Configuration
@@ -308,23 +351,29 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Update orchestration configuration
    */
-  ipcMain.handle('hyper-space:update-config', async (_event, params: {
-    spaceId: string
-    config: Partial<OrchestrationConfig>
-  }) => {
-    try {
-      const ok = agentOrchestrator.updateTeamConfig(params.spaceId, params.config)
-      if (!ok) {
-        return { success: false, error: 'Hyper Space team not found' }
+  ipcMain.handle(
+    'hyper-space:update-config',
+    async (
+      _event,
+      params: {
+        spaceId: string;
+        config: Partial<OrchestrationConfig>;
+      },
+    ) => {
+      try {
+        const ok = agentOrchestrator.updateTeamConfig(params.spaceId, params.config);
+        if (!ok) {
+          return { success: false, error: 'Hyper Space team not found' };
+        }
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+    },
+  );
 
   // ============================================
   // Agent Mention (for @ autocomplete)
@@ -335,37 +384,37 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:get-members', async (_event, spaceId: string) => {
     try {
-      const members = agentOrchestrator.getTeamMembers(spaceId)
+      const members = agentOrchestrator.getTeamMembers(spaceId);
 
       if (members) {
-        return { success: true, data: { members } }
+        return { success: true, data: { members } };
       }
 
       // Team not in runtime, try to get from space definition
-      const space = getSpace(spaceId)
+      const space = getSpace(spaceId);
       if (space && space.agents) {
         return {
           success: true,
           data: {
-            members: space.agents.map(a => ({
+            members: space.agents.map((a) => ({
               id: a.id,
               name: a.name,
               role: a.role,
               type: a.type,
-              capabilities: a.capabilities
-            }))
-          }
-        }
+              capabilities: a.capabilities,
+            })),
+          },
+        };
       }
 
-      return { success: false, error: 'Hyper Space team not found' }
+      return { success: false, error: 'Hyper Space team not found' };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   // ============================================
   // TaskBoard
@@ -376,79 +425,85 @@ export function registerHyperSpaceHandlers(): void {
    */
   ipcMain.handle('hyper-space:get-taskboard', async (_event, spaceId: string) => {
     try {
-      const tasks = taskboardService.getTasks(spaceId)
-      return { success: true, data: { tasks } }
+      const tasks = taskboardService.getTasks(spaceId);
+      return { success: true, data: { tasks } };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Post a new task to the TaskBoard
    */
   ipcMain.handle('hyper-space:post-task', async (_event, spaceId: string, input: PostTaskInput) => {
     try {
-      const task = taskboardService.postTask(spaceId, input)
-      return { success: true, data: task }
+      const task = taskboardService.postTask(spaceId, input);
+      return { success: true, data: task };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   /**
    * Claim a task from the TaskBoard
    */
-  ipcMain.handle('hyper-space:claim-task', async (_event, spaceId: string, taskId: string, agentId: string, agentName?: string) => {
-    try {
-      const task = taskboardService.claimTask(taskId, agentId, agentName, spaceId)
-      if (!task) {
-        return { success: false, error: 'Task not found or not claimable' }
+  ipcMain.handle(
+    'hyper-space:claim-task',
+    async (_event, spaceId: string, taskId: string, agentId: string, agentName?: string) => {
+      try {
+        const task = taskboardService.claimTask(taskId, agentId, agentName, spaceId);
+        if (!task) {
+          return { success: false, error: 'Task not found or not claimable' };
+        }
+        return { success: true, data: task };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-      return { success: true, data: task }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+    },
+  );
 
   /**
    * Update task status on the TaskBoard
    */
-  ipcMain.handle('hyper-space:update-task-status', async (
-    _event,
-    spaceId: string,
-    taskId: string,
-    status: string,
-    result?: string,
-    error?: string
-  ) => {
-    try {
-      const task = taskboardService.updateTaskStatus(
-        taskId,
-        status as any,
-        result,
-        error,
-        spaceId
-      )
-      if (!task) {
-        return { success: false, error: 'Task not found' }
+  ipcMain.handle(
+    'hyper-space:update-task-status',
+    async (
+      _event,
+      spaceId: string,
+      taskId: string,
+      status: string,
+      result?: string,
+      error?: string,
+    ) => {
+      try {
+        const task = taskboardService.updateTaskStatus(
+          taskId,
+          status as any,
+          result,
+          error,
+          spaceId,
+        );
+        if (!task) {
+          return { success: false, error: 'Task not found' };
+        }
+        return { success: true, data: task };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-      return { success: true, data: task }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+    },
+  );
 
   // ============================================
   // Persistent Mode
@@ -458,45 +513,48 @@ export function registerHyperSpaceHandlers(): void {
    * Enable/disable persistent worker mode for a team.
    * When enabled, workers stay alive between tasks and auto-claim from TaskBoard.
    */
-  ipcMain.handle('hyper-space:set-persistent-mode', async (_event, spaceId: string, enabled: boolean) => {
-    try {
-      const team = agentOrchestrator.getTeamBySpace(spaceId)
-      if (!team) {
-        return { success: false, error: 'Team not found for this space' }
-      }
+  ipcMain.handle(
+    'hyper-space:set-persistent-mode',
+    async (_event, spaceId: string, enabled: boolean) => {
+      try {
+        const team = agentOrchestrator.getTeamBySpace(spaceId);
+        if (!team) {
+          return { success: false, error: 'Team not found for this space' };
+        }
 
-      if (enabled) {
-        await agentOrchestrator.startPersistentWorkers(team.id)
-      } else {
-        await agentOrchestrator.stopPersistentWorkers(team.id)
-      }
+        if (enabled) {
+          await agentOrchestrator.startPersistentWorkers(team.id);
+        } else {
+          await agentOrchestrator.stopPersistentWorkers(team.id);
+        }
 
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
   /**
    * Check if persistent mode is active for a space.
    */
   ipcMain.handle('hyper-space:get-persistent-mode', async (_event, spaceId: string) => {
     try {
-      const team = agentOrchestrator.getTeamBySpace(spaceId)
+      const team = agentOrchestrator.getTeamBySpace(spaceId);
       if (!team) {
-        return { success: false, error: 'Team not found' }
+        return { success: false, error: 'Team not found' };
       }
-      return { success: true, data: { persistent: agentOrchestrator.isPersistentMode(team.id) } }
+      return { success: true, data: { persistent: agentOrchestrator.isPersistentMode(team.id) } };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
-  })
+  });
 
   // ============================================
   // Permission Forwarding
@@ -505,33 +563,36 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Resolve a worker's permission request (approve/deny from UI).
    */
-  ipcMain.handle('hyper-space:resolve-permission', async (
-    _event,
-    spaceId: string,
-    workerAgentId: string,
-    requestId: string,
-    approved: boolean
-  ) => {
-    try {
-      // Handle locally (resolve the waiting promise)
-      permissionForwarder.handleResponse({
-        spaceId,
-        respondingAgentId: 'user',
-        requestId,
-        approved
-      })
+  ipcMain.handle(
+    'hyper-space:resolve-permission',
+    async (
+      _event,
+      spaceId: string,
+      workerAgentId: string,
+      requestId: string,
+      approved: boolean,
+    ) => {
+      try {
+        // Handle locally (resolve the waiting promise)
+        permissionForwarder.handleResponse({
+          spaceId,
+          respondingAgentId: 'user',
+          requestId,
+          approved,
+        });
 
-      // Also post response to worker's mailbox (for remote workers)
-      permissionForwarder.postResponse(spaceId, workerAgentId, requestId, approved)
+        // Also post response to worker's mailbox (for remote workers)
+        permissionForwarder.postResponse(spaceId, workerAgentId, requestId, approved);
 
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
-    }
-  })
+    },
+  );
 
-  console.log('[IPC] Hyper Space handlers registered')
+  console.log('[IPC] Hyper Space handlers registered');
 }

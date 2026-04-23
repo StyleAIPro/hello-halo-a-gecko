@@ -10,8 +10,8 @@ export {
   ERROR_THRESHOLDS,
   getStrategy,
   selectRecoveryStrategy,
-  requiresConsent
-} from './strategies'
+  requiresConsent,
+} from './strategies';
 
 // Executor
 export {
@@ -21,8 +21,8 @@ export {
   canRecover,
   getRecoveryStats,
   updateErrorCount,
-  requestRecoveryConsent
-} from './executor'
+  requestRecoveryConsent,
+} from './executor';
 
 // UI
 export {
@@ -33,9 +33,9 @@ export {
   showRecoveryFailedDialog,
   resetDialogSuppression,
   isDialogSuppressed,
-  suppressAllDialogs
-} from './ui'
-export type { RecoveryDialogResult, RecoveryDialogOptions } from './ui'
+  suppressAllDialogs,
+} from './ui';
+export type { RecoveryDialogResult, RecoveryDialogOptions } from './ui';
 
 // Re-export types
-export type { RecoveryStrategy, RecoveryResult, RecoveryStrategyId } from '../types'
+export type { RecoveryStrategy, RecoveryResult, RecoveryStrategyId } from '../types';

@@ -6,13 +6,13 @@
  * Clicking toggles the ConversationList sidebar open/closed.
  */
 
-import { Menu } from 'lucide-react'
-import { usePulseBeaconStatus } from '../../stores/chat.store'
-import { useTranslation } from '../../i18n'
+import { Menu } from 'lucide-react';
+import { usePulseBeaconStatus } from '../../stores/chat.store';
+import { useTranslation } from '../../i18n';
 
 interface SidebarToggleProps {
-  isOpen: boolean
-  onToggle: () => void
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
 const BEACON_DOT_CLASS: Record<string, string> = {
@@ -20,11 +20,11 @@ const BEACON_DOT_CLASS: Record<string, string> = {
   completed: 'pulse-dot-completed',
   generating: 'pulse-dot-generating',
   error: 'pulse-dot-error',
-}
+};
 
 export function SidebarToggle({ isOpen, onToggle }: SidebarToggleProps) {
-  const { t } = useTranslation()
-  const beaconStatus = usePulseBeaconStatus()
+  const { t } = useTranslation();
+  const beaconStatus = usePulseBeaconStatus();
 
   return (
     <button
@@ -47,5 +47,5 @@ export function SidebarToggle({ isOpen, onToggle }: SidebarToggleProps) {
         />
       )}
     </button>
-  )
+  );
 }

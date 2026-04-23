@@ -12,7 +12,7 @@
  * - Browser-native IntersectionObserver runs off main thread
  */
 
-import { useRef, useState, useEffect, type RefObject } from 'react'
+import { useRef, useState, useEffect, type RefObject } from 'react';
 
 /**
  * @param rootMargin - Buffer around viewport to pre-load items (default '200px')
@@ -27,31 +27,31 @@ export function useLazyVisible(
   root?: RefObject<Element | null>,
   initialVisible = false,
 ): [RefObject<HTMLDivElement | null>, boolean] {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [isVisible, setIsVisible] = useState(initialVisible)
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [isVisible, setIsVisible] = useState(initialVisible);
 
   useEffect(() => {
-    if (isVisible) return // Already visible, no need to observe
+    if (isVisible) return; // Already visible, no need to observe
 
-    const el = ref.current
-    if (!el) return
+    const el = ref.current;
+    if (!el) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setIsVisible(true)
-          observer.disconnect()
+          setIsVisible(true);
+          observer.disconnect();
         }
       },
       {
         root: root?.current ?? null,
         rootMargin,
-      }
-    )
+      },
+    );
 
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [isVisible, rootMargin, root])
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isVisible, rootMargin, root]);
 
-  return [ref, isVisible]
+  return [ref, isVisible];
 }

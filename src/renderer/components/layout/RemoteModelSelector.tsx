@@ -4,198 +4,199 @@
  * Switching updates the server card's aiSourceId + credential snapshot.
  */
 
-import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Plus, Sparkles, X, Check } from 'lucide-react'
-import { useAppStore } from '../../stores/app.store'
-import { api } from '../../api'
-import {
-  type AISourcesConfig,
-  type AISource,
-  type ModelOption
-} from '../../types'
-import { useTranslation } from '../../i18n'
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useState, useRef, useEffect } from 'react';
+import { ChevronDown, Plus, Sparkles, X, Check } from 'lucide-react';
+import { useAppStore } from '../../stores/app.store';
+import { api } from '../../api';
+import { type AISourcesConfig, type AISource, type ModelOption } from '../../types';
+import { useTranslation } from '../../i18n';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 interface RemoteModelSelectorProps {
   space: {
-    remoteServerId?: string
-  }
+    remoteServerId?: string;
+  };
 }
 
 export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
-  const { t } = useTranslation()
-  const isMobile = useIsMobile()
-  const { config, setConfig } = useAppStore()
-  const [isOpen, setIsOpen] = useState(false)
-  const [isAnimatingOut, setIsAnimatingOut] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const [remoteServers, setRemoteServers] = useState<Array<{ id: string; aiSourceId?: string; claudeModel?: string; claudeBaseUrl?: string }>>([])
+  const { t } = useTranslation();
+  const isMobile = useIsMobile();
+  const { config, setConfig } = useAppStore();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [remoteServers, setRemoteServers] = useState<
+    Array<{ id: string; aiSourceId?: string; claudeModel?: string; claudeBaseUrl?: string }>
+  >([]);
 
-  const [expandedSection, setExpandedSection] = useState<string | null>(null)
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   // Get v2 aiSources config
-  const aiSources: AISourcesConfig = config?.aiSources?.version === 2
-    ? config.aiSources
-    : { version: 2, currentId: null, sources: [] }
+  const aiSources: AISourcesConfig =
+    config?.aiSources?.version === 2
+      ? config.aiSources
+      : { version: 2, currentId: null, sources: [] };
 
   // Find the remote server for this space
-  const server = remoteServers.find(s => s.id === space.remoteServerId)
+  const server = remoteServers.find((s) => s.id === space.remoteServerId);
 
   // Get the AI source bound to this server
-  const serverSourceId = server?.aiSourceId
-  const serverSource = serverSourceId ? aiSources.sources.find(s => s.id === serverSourceId) : undefined
+  const serverSourceId = server?.aiSourceId;
+  const serverSource = serverSourceId
+    ? aiSources.sources.find((s) => s.id === serverSourceId)
+    : undefined;
 
   // Current model display name — prioritize server's overridden model over source default
-  const currentModelName = server?.claudeModel || serverSource?.model || t('Not configured')
+  const currentModelName = server?.claudeModel || serverSource?.model || t('Not configured');
 
   // Initialize expanded section to server's source when opening
   useEffect(() => {
     if (isOpen && serverSourceId) {
-      setExpandedSection(serverSourceId)
+      setExpandedSection(serverSourceId);
     }
-  }, [isOpen, serverSourceId])
+  }, [isOpen, serverSourceId]);
 
   // Load remote servers
   useEffect(() => {
     const loadServers = async () => {
       try {
-        const result = await api.getRemoteServers()
+        const result = await api.getRemoteServers();
         if (result.success && Array.isArray(result.data)) {
-          setRemoteServers(result.data)
+          setRemoteServers(result.data);
         }
       } catch (error) {
-        console.error('[RemoteModelSelector] Failed to load remote servers:', error)
+        console.error('[RemoteModelSelector] Failed to load remote servers:', error);
       }
-    }
-    loadServers()
-  }, [])
+    };
+    loadServers();
+  }, []);
 
   const toggleSection = (sourceId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setExpandedSection(prev => prev === sourceId ? null : sourceId)
-  }
+    e.stopPropagation();
+    setExpandedSection((prev) => (prev === sourceId ? null : sourceId));
+  };
 
   // Close dropdown when clicking outside (desktop only)
   useEffect(() => {
-    if (!isOpen || isMobile) return
+    if (!isOpen || isMobile) return;
 
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
+        setIsOpen(false);
       }
     }
 
     const timeoutId = setTimeout(() => {
-      document.addEventListener('click', handleClickOutside)
-    }, 0)
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
 
     return () => {
-      clearTimeout(timeoutId)
-      document.removeEventListener('click', handleClickOutside)
-    }
-  }, [isOpen, isMobile])
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [isOpen, isMobile]);
 
   // Handle escape key
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        handleClose()
+        handleClose();
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen])
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const handleClose = () => {
     if (isMobile) {
-      setIsAnimatingOut(true)
+      setIsAnimatingOut(true);
       setTimeout(() => {
-        setIsOpen(false)
-        setIsAnimatingOut(false)
-      }, 200)
+        setIsOpen(false);
+        setIsAnimatingOut(false);
+      }, 200);
     } else {
-      setIsOpen(false)
+      setIsOpen(false);
     }
-  }
+  };
 
-  if (!config || !space.remoteServerId) return null
+  if (!config || !space.remoteServerId) return null;
 
   // Handle AI source selection for the remote server
   const handleSelectSource = async (sourceId: string) => {
-    if (!space.remoteServerId) return
+    if (!space.remoteServerId) return;
 
-    const result = await api.remoteServerUpdateAiSource(space.remoteServerId, sourceId)
+    const result = await api.remoteServerUpdateAiSource(space.remoteServerId, sourceId);
     if (result.success) {
       // Reload remote servers to reflect updated config
-      const serversResult = await api.getRemoteServers()
+      const serversResult = await api.getRemoteServers();
       if (serversResult.success && Array.isArray(serversResult.data)) {
-        setRemoteServers(serversResult.data)
+        setRemoteServers(serversResult.data);
       }
     } else {
-      console.error('[RemoteModelSelector] Failed to update AI source:', result.error)
+      console.error('[RemoteModelSelector] Failed to update AI source:', result.error);
     }
-    handleClose()
-  }
+    handleClose();
+  };
 
   // Handle model selection — switches AI source if needed, then sets model
   const handleSelectModel = async (sourceId: string, modelId: string) => {
-    if (!space.remoteServerId) return
+    if (!space.remoteServerId) return;
 
     // If model is from a different source, switch the source first (updates URL + API key)
     if (serverSourceId !== sourceId) {
-      const sourceResult = await api.remoteServerUpdateAiSource(space.remoteServerId, sourceId)
+      const sourceResult = await api.remoteServerUpdateAiSource(space.remoteServerId, sourceId);
       if (!sourceResult.success) {
-        console.error('[RemoteModelSelector] Failed to switch AI source:', sourceResult.error)
-        handleClose()
-        return
+        console.error('[RemoteModelSelector] Failed to switch AI source:', sourceResult.error);
+        handleClose();
+        return;
       }
     }
 
     // Then update the model
-    const result = await api.remoteServerUpdateModel(space.remoteServerId, modelId)
+    const result = await api.remoteServerUpdateModel(space.remoteServerId, modelId);
     if (result.success) {
       // Reload remote servers to reflect updated config
-      const serversResult = await api.getRemoteServers()
+      const serversResult = await api.getRemoteServers();
       if (serversResult.success && Array.isArray(serversResult.data)) {
-        setRemoteServers(serversResult.data)
+        setRemoteServers(serversResult.data);
       }
     } else {
-      console.error('[RemoteModelSelector] Failed to update model:', result.error)
+      console.error('[RemoteModelSelector] Failed to update model:', result.error);
     }
-    handleClose()
-  }
+    handleClose();
+  };
 
   // Get available models for a source
   const getModelsForSource = (source: AISource): ModelOption[] => {
     // If source has its own available models (user fetched or configured), use them
     if (source.availableModels && source.availableModels.length > 0) {
-      return source.availableModels
+      return source.availableModels;
     }
     // Fallback: return current model as single option
     if (source.model) {
-      return [{ id: source.model, name: source.model }]
+      return [{ id: source.model, name: source.model }];
     }
-    return []
-  }
+    return [];
+  };
 
   // Get display name for source
   const getSourceDisplayName = (source: AISource): string => {
-    if (source.name) return source.name
-    if (source.authType === 'oauth') return 'OAuth Provider'
-    return t('Custom API')
-  }
+    if (source.name) return source.name;
+    if (source.authType === 'oauth') return 'OAuth Provider';
+    return t('Custom API');
+  };
 
   // Render model list
   const renderModelList = () => (
     <>
-      {aiSources.sources.map(source => {
-        const isExpanded = expandedSection === source.id
-        const isActiveSource = serverSourceId === source.id
-        const models = getModelsForSource(source)
-        const displayName = getSourceDisplayName(source)
+      {aiSources.sources.map((source) => {
+        const isExpanded = expandedSection === source.id;
+        const isActiveSource = serverSourceId === source.id;
+        const models = getModelsForSource(source);
+        const displayName = getSourceDisplayName(source);
 
         return (
           <div key={source.id}>
@@ -204,7 +205,9 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
               onClick={(e) => toggleSection(source.id, e)}
             >
               <div className="flex items-center gap-2">
-                <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                />
                 <span>{displayName}</span>
               </div>
               <div className="flex items-center gap-2">
@@ -212,7 +215,10 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
                   <span className="w-2.5 h-2.5 rounded-full bg-primary" title={t('Active')} />
                 ) : (
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleSelectSource(source.id) }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectSource(source.id);
+                    }}
                     className="w-2.5 h-2.5 rounded-full border border-muted-foreground hover:border-primary hover:bg-primary/20 transition-colors"
                     title={t('Switch to this source')}
                   />
@@ -223,9 +229,9 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
             {isExpanded && (
               <div className="bg-secondary/10 pb-1">
                 {models.map((model) => {
-                  const modelId = typeof model === 'string' ? model : model.id
-                  const modelName = typeof model === 'string' ? model : (model.name || model.id)
-                  const isSelected = isActiveSource && server?.claudeModel === modelId
+                  const modelId = typeof model === 'string' ? model : model.id;
+                  const modelName = typeof model === 'string' ? model : model.name || model.id;
+                  const isSelected = isActiveSource && server?.claudeModel === modelId;
 
                   return (
                     <button
@@ -238,19 +244,22 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
                       {isSelected ? <Check className="w-3 h-3" /> : <span className="w-3" />}
                       {modelName}
                     </button>
-                  )
+                  );
                 })}
               </div>
             )}
             <div className="border-t border-border/50" />
           </div>
-        )
+        );
       })}
 
       {/* Add source button */}
       {aiSources.sources.length === 0 ? (
         <button
-          onClick={() => { handleClose(); setConfig({ ...config, appView: 'settings' }) }}
+          onClick={() => {
+            handleClose();
+            setConfig({ ...config, appView: 'settings' });
+          }}
           className="w-full px-3 py-3 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors flex items-center gap-2"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -258,7 +267,10 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
         </button>
       ) : (
         <button
-          onClick={() => { handleClose(); setConfig({ ...config, appView: 'settings' }) }}
+          onClick={() => {
+            handleClose();
+            setConfig({ ...config, appView: 'settings' });
+          }}
           className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-2"
         >
           <Plus className="w-3 h-3" />
@@ -266,7 +278,7 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
         </button>
       )}
     </>
-  )
+  );
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -307,7 +319,9 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-primary" />
                     <div>
-                      <h3 className="text-base font-semibold text-foreground">{t('Select Model')}</h3>
+                      <h3 className="text-base font-semibold text-foreground">
+                        {t('Select Model')}
+                      </h3>
                       <p className="text-xs text-muted-foreground">{currentModelName}</p>
                     </div>
                   </div>
@@ -331,5 +345,5 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
         </>
       )}
     </div>
-  )
+  );
 }

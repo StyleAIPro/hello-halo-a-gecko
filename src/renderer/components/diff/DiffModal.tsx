@@ -9,7 +9,7 @@
  * - Keyboard navigation support (←/→ for prev/next, Esc to close)
  */
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback } from 'react';
 import {
   X,
   ChevronLeft,
@@ -19,19 +19,19 @@ import {
   FolderOpen,
   Copy,
   Check,
-} from 'lucide-react'
-import { useState } from 'react'
-import { DiffContent } from './DiffContent'
-import type { FileChange } from './types'
-import { useTranslation } from '../../i18n'
+} from 'lucide-react';
+import { useState } from 'react';
+import { DiffContent } from './DiffContent';
+import type { FileChange } from './types';
+import { useTranslation } from '../../i18n';
 
 interface DiffModalProps {
-  isOpen: boolean
-  file: FileChange | null
-  allFiles: FileChange[]
-  currentIndex: number
-  onClose: () => void
-  onNavigate: (direction: 'prev' | 'next') => void
+  isOpen: boolean;
+  file: FileChange | null;
+  allFiles: FileChange[];
+  currentIndex: number;
+  onClose: () => void;
+  onNavigate: (direction: 'prev' | 'next') => void;
 }
 
 export function DiffModal({
@@ -40,74 +40,72 @@ export function DiffModal({
   allFiles,
   currentIndex,
   onClose,
-  onNavigate
+  onNavigate,
 }: DiffModalProps) {
-  const [copied, setCopied] = useState(false)
-  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
 
   // Handle keyboard navigation
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'Escape':
-          onClose()
-          break
+          onClose();
+          break;
         case 'ArrowLeft':
-          if (currentIndex > 0) onNavigate('prev')
-          break
+          if (currentIndex > 0) onNavigate('prev');
+          break;
         case 'ArrowRight':
-          if (currentIndex < allFiles.length - 1) onNavigate('next')
-          break
+          if (currentIndex < allFiles.length - 1) onNavigate('next');
+          break;
       }
-    }
+    };
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, currentIndex, allFiles.length, onClose, onNavigate])
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, currentIndex, allFiles.length, onClose, onNavigate]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = 'hidden'
+      document.body.style.overflow = 'hidden';
     } else {
-      document.body.style.overflow = ''
+      document.body.style.overflow = '';
     }
     return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
 
   // Copy content
   const handleCopy = useCallback(async () => {
-    if (!file) return
+    if (!file) return;
 
-    const content = file.type === 'write'
-      ? file.content
-      : file.newString
+    const content = file.type === 'write' ? file.content : file.newString;
 
     if (content) {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  }, [file])
+  }, [file]);
 
   // Open in folder (Electron only)
   const handleOpenFolder = useCallback(() => {
-    if (!file) return
+    if (!file) return;
     // This will be handled by the preload bridge
     if (window.aicoBot?.openFolder) {
-      window.aicoBot.openFolder(file.file)
+      window.aicoBot.openFolder(file.file);
     }
-  }, [file])
+  }, [file]);
 
-  if (!isOpen || !file) return null
+  if (!isOpen || !file) return null;
 
-  const isWrite = file.type === 'write'
-  const hasPrev = currentIndex > 0
-  const hasNext = currentIndex < allFiles.length - 1
+  const isWrite = file.type === 'write';
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < allFiles.length - 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -132,22 +130,17 @@ export function DiffModal({
 
             {/* File name and path */}
             <div className="min-w-0">
-              <div className="font-medium text-foreground truncate">
-                {file.fileName}
-              </div>
-              <div className="text-xs text-muted-foreground truncate">
-                {file.file}
-              </div>
+              <div className="font-medium text-foreground truncate">{file.fileName}</div>
+              <div className="text-xs text-muted-foreground truncate">{file.file}</div>
             </div>
 
             {/* Stats badge */}
-            <div className={`
+            <div
+              className={`
               px-2 py-0.5 rounded text-xs font-mono shrink-0
-              ${isWrite
-                ? 'bg-green-500/10 text-green-400'
-                : 'bg-muted text-muted-foreground'
-              }
-            `}>
+              ${isWrite ? 'bg-green-500/10 text-green-400' : 'bg-muted text-muted-foreground'}
+            `}
+            >
               {isWrite ? (
                 t('New file')
               ) : (
@@ -176,9 +169,10 @@ export function DiffModal({
                   disabled={!hasPrev}
                   className={`
                     p-1.5 rounded-md transition-colors
-                    ${hasPrev
-                      ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                      : 'text-muted-foreground/30 cursor-not-allowed'
+                    ${
+                      hasPrev
+                        ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/30 cursor-not-allowed'
                     }
                   `}
                   title={t('Previous file (←)')}
@@ -195,9 +189,10 @@ export function DiffModal({
                   disabled={!hasNext}
                   className={`
                     p-1.5 rounded-md transition-colors
-                    ${hasNext
-                      ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                      : 'text-muted-foreground/30 cursor-not-allowed'
+                    ${
+                      hasNext
+                        ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/30 cursor-not-allowed'
                     }
                   `}
                   title={t('Next file (→)')}
@@ -213,11 +208,7 @@ export function DiffModal({
               className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               title={t('Copy content')}
             >
-              {copied ? (
-                <Check size={18} className="text-green-400" />
-              ) : (
-                <Copy size={18} />
-              )}
+              {copied ? <Check size={18} className="text-green-400" /> : <Copy size={18} />}
             </button>
 
             {/* Open folder button (only in Electron) */}
@@ -257,11 +248,9 @@ export function DiffModal({
         {/* Footer hint */}
         <div className="px-4 py-2 border-t border-border/30 bg-muted/20 text-xs text-muted-foreground/50 shrink-0">
           <span>{t('Esc to close')}</span>
-          {allFiles.length > 1 && (
-            <span className="ml-4">{t('← → to switch files')}</span>
-          )}
+          {allFiles.length > 1 && <span className="ml-4">{t('← → to switch files')}</span>}
         </div>
       </div>
     </div>
-  )
+  );
 }

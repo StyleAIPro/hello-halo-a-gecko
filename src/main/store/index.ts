@@ -21,4 +21,4 @@ export {
   addRegistry,
   removeRegistry,
   toggleRegistry,
-} from './registry.service'
+} from './registry.service';

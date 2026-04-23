@@ -18,16 +18,17 @@
  * 3. Pass to SDK via mcpServers option
  */
 
-import { BrowserWindow } from 'electron'
-import { browserContext, BrowserContext, createScopedBrowserContext } from './context'
-import { browserViewManager } from '../browser-view.service'
+import type { BrowserWindow } from 'electron';
+import type { BrowserContext } from './context';
+import { browserContext, createScopedBrowserContext } from './context';
+import { browserViewManager } from '../browser-view.service';
 
 // Import SDK MCP server creator
-import { createAIBrowserMcpServer, getAIBrowserSdkToolNames } from './sdk-mcp-server'
+import { createAIBrowserMcpServer, getAIBrowserSdkToolNames } from './sdk-mcp-server';
 
 // Re-export SDK MCP server functions
-export { createAIBrowserMcpServer, getAIBrowserSdkToolNames }
-export { createScopedBrowserContext }
+export { createAIBrowserMcpServer, getAIBrowserSdkToolNames };
+export { createScopedBrowserContext };
 
 // ============================================
 // Module Initialization
@@ -38,12 +39,12 @@ export { createScopedBrowserContext }
  * Must be called with the main window before using any tools
  */
 export function initializeAIBrowser(mainWindow: BrowserWindow): void {
-  browserContext.initialize(mainWindow)
+  browserContext.initialize(mainWindow);
 
   // Extend browserViewManager to expose getWebContents
-  extendBrowserViewManager()
+  extendBrowserViewManager();
 
-  console.log('[AI Browser] Module initialized')
+  console.log('[AI Browser] Module initialized');
 }
 
 /**
@@ -51,27 +52,27 @@ export function initializeAIBrowser(mainWindow: BrowserWindow): void {
  * This is needed for the context to execute CDP commands
  */
 function extendBrowserViewManager(): void {
-  const manager = browserViewManager as any
+  const manager = browserViewManager as any;
 
   // Add getWebContents method if not exists
   if (!manager.getWebContents) {
     manager.getWebContents = (viewId: string) => {
-      const view = manager.views?.get(viewId)
-      return view?.webContents || null
-    }
+      const view = manager.views?.get(viewId);
+      return view?.webContents || null;
+    };
   }
 
   // Add getAllStates method if not exists
   if (!manager.getAllStates) {
     manager.getAllStates = () => {
-      const states: any[] = []
+      const states: any[] = [];
       if (manager.states) {
         for (const [id, state] of manager.states) {
-          states.push({ ...state, id })
+          states.push({ ...state, id });
         }
       }
-      return states
-    }
+      return states;
+    };
   }
 }
 
@@ -84,14 +85,14 @@ function extendBrowserViewManager(): void {
  * Delegates to SDK MCP server implementation
  */
 export function getAIBrowserToolNames(): string[] {
-  return getAIBrowserSdkToolNames()
+  return getAIBrowserSdkToolNames();
 }
 
 /**
  * Check if a tool name is an AI Browser tool
  */
 export function isAIBrowserTool(toolName: string): boolean {
-  return toolName.startsWith('browser_')
+  return toolName.startsWith('browser_');
 }
 
 // ============================================
@@ -166,7 +167,7 @@ You can now control AICO-Bot's embedded real browser. All browser tools are prov
 - Prefer \`browser_snapshot\` over \`browser_screenshot\` (more lightweight)
 - Use \`browser_fill_form\` for batch form filling (more efficient)
 - Ensure element is visible before interacting, scroll if necessary
-`
+`;
 
 // ============================================
 // Context Access
@@ -176,23 +177,23 @@ You can now control AICO-Bot's embedded real browser. All browser tools are prov
  * Get the browser context for advanced operations
  */
 export function getBrowserContext(): BrowserContext {
-  return browserContext
+  return browserContext;
 }
 
 /**
  * Set the active browser view for AI operations
  */
 export function setActiveBrowserView(viewId: string): void {
-  browserContext.setActiveViewId(viewId)
+  browserContext.setActiveViewId(viewId);
 }
 
 /**
  * Clean up AI Browser resources
  */
 export function cleanupAIBrowser(): void {
-  browserContext.destroy()
-  console.log('[AI Browser] Module cleaned up')
+  browserContext.destroy();
+  console.log('[AI Browser] Module cleaned up');
 }
 
 // Re-export types
-export type { AIBrowserTool, ToolResult } from './types'
+export type { AIBrowserTool, ToolResult } from './types';

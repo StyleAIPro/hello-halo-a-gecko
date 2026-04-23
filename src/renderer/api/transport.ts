@@ -5,41 +5,41 @@
 
 // Detect if running in Electron (has window.aicoBot via preload)
 export function isElectron(): boolean {
-  return typeof window !== 'undefined' && 'aicoBot' in window
+  return typeof window !== 'undefined' && 'aicoBot' in window;
 }
 
 // Detect if running as remote web client
 export function isRemoteClient(): boolean {
-  return !isElectron()
+  return !isElectron();
 }
 
 // Get the remote server URL (for remote clients)
 export function getRemoteServerUrl(): string {
   // In remote mode, use the current origin
-  return window.location.origin
+  return window.location.origin;
 }
 
 // Get stored auth token
 export function getAuthToken(): string | null {
   if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('aico_bot_remote_token')
+    return localStorage.getItem('aico_bot_remote_token');
   }
-  return null
+  return null;
 }
 
 // Set auth token
 export function setAuthToken(token: string): void {
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('aico_bot_remote_token', token)
+    localStorage.setItem('aico_bot_remote_token', token);
   }
 }
 
 // Clear auth token
 export function clearAuthToken(): string | null {
   if (typeof localStorage !== 'undefined') {
-    return localStorage.removeItem('aico_bot_remote_token')
+    return localStorage.removeItem('aico_bot_remote_token');
   }
-  return null
+  return null;
 }
 
 /**
@@ -48,161 +48,166 @@ export function clearAuthToken(): string | null {
 export async function httpRequest<T>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
   path: string,
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
-  const token = getAuthToken()
-  const url = `${getRemoteServerUrl()}${path}`
+  const token = getAuthToken();
+  const url = `${getRemoteServerUrl()}${path}`;
 
-  console.log(`[HTTP] ${method} ${path} - token: ${token ? 'present' : 'missing'}`)
+  console.log(`[HTTP] ${method} ${path} - token: ${token ? 'present' : 'missing'}`);
 
   try {
     const response = await fetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined
-    })
+      body: body ? JSON.stringify(body) : undefined,
+    });
 
     // Handle 401 - token expired or invalid, redirect to login
     if (response.status === 401) {
-      console.warn(`[HTTP] ${method} ${path} - 401 Unauthorized, clearing token and redirecting to login`)
-      clearAuthToken()
+      console.warn(
+        `[HTTP] ${method} ${path} - 401 Unauthorized, clearing token and redirecting to login`,
+      );
+      clearAuthToken();
       // Clear the auth cookie
-      document.cookie = 'aico_bot_authenticated=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+      document.cookie = 'aico_bot_authenticated=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       // Reload page - server will show login page
-      window.location.reload()
-      return { success: false, error: 'Token expired, please login again' }
+      window.location.reload();
+      return { success: false, error: 'Token expired, please login again' };
     }
 
-    const data = await response.json()
-    console.log(`[HTTP] ${method} ${path} - status: ${response.status}, success: ${data.success}`)
+    const data = await response.json();
+    console.log(`[HTTP] ${method} ${path} - status: ${response.status}, success: ${data.success}`);
 
     if (!response.ok) {
-      console.warn(`[HTTP] ${method} ${path} - error:`, data.error)
+      console.warn(`[HTTP] ${method} ${path} - error:`, data.error);
     }
 
-    return data
+    return data;
   } catch (error) {
-    console.error(`[HTTP] ${method} ${path} - exception:`, error)
+    console.error(`[HTTP] ${method} ${path} - exception:`, error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Network error'
-    }
+      error: error instanceof Error ? error.message : 'Network error',
+    };
   }
 }
 
 /**
  * WebSocket connection for real-time events (remote mode)
  */
-let wsConnection: WebSocket | null = null
-let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
-const wsEventListeners = new Map<string, Set<(data: unknown) => void>>()
+let wsConnection: WebSocket | null = null;
+let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const wsEventListeners = new Map<string, Set<(data: unknown) => void>>();
 
 // Pending subscribe acknowledgments: conversationId -> { resolve, timer }
-const pendingSubscribeAcks = new Map<string, {
-  resolve: () => void
-  timer: ReturnType<typeof setTimeout>
-}>()
+const pendingSubscribeAcks = new Map<
+  string,
+  {
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 // Timeout for subscribe acknowledgment (ms)
-const SUBSCRIBE_ACK_TIMEOUT_MS = 3000
+const SUBSCRIBE_ACK_TIMEOUT_MS = 3000;
 
 export function connectWebSocket(): void {
-  if (!isRemoteClient()) return
-  if (wsConnection?.readyState === WebSocket.OPEN) return
+  if (!isRemoteClient()) return;
+  if (wsConnection?.readyState === WebSocket.OPEN) return;
 
-  const token = getAuthToken()
+  const token = getAuthToken();
   if (!token) {
-    console.warn('[WS] No auth token, cannot connect')
-    return
+    console.warn('[WS] No auth token, cannot connect');
+    return;
   }
 
-  const wsUrl = `${getRemoteServerUrl().replace('http', 'ws')}/ws`
-  console.log('[WS] Connecting to:', wsUrl)
+  const wsUrl = `${getRemoteServerUrl().replace('http', 'ws')}/ws`;
+  console.log('[WS] Connecting to:', wsUrl);
 
-  wsConnection = new WebSocket(wsUrl)
+  wsConnection = new WebSocket(wsUrl);
 
   wsConnection.onopen = () => {
-    console.log('[WS] Connected')
+    console.log('[WS] Connected');
     // Authenticate
-    wsConnection?.send(JSON.stringify({ type: 'auth', payload: { token } }))
-  }
+    wsConnection?.send(JSON.stringify({ type: 'auth', payload: { token } }));
+  };
 
   wsConnection.onmessage = (event) => {
     try {
-      const message = JSON.parse(event.data)
+      const message = JSON.parse(event.data);
 
       if (message.type === 'auth:success') {
-        console.log('[WS] Authenticated')
-        return
+        console.log('[WS] Authenticated');
+        return;
       }
 
       if (message.type === 'subscribe:success') {
-        const conversationId = message.payload?.conversationId
-        console.log(`[WS] Subscribe ack received for ${conversationId}`)
-        const pending = pendingSubscribeAcks.get(conversationId)
+        const conversationId = message.payload?.conversationId;
+        console.log(`[WS] Subscribe ack received for ${conversationId}`);
+        const pending = pendingSubscribeAcks.get(conversationId);
         if (pending) {
-          clearTimeout(pending.timer)
-          pending.resolve()
-          pendingSubscribeAcks.delete(conversationId)
+          clearTimeout(pending.timer);
+          pending.resolve();
+          pendingSubscribeAcks.delete(conversationId);
         }
-        return
+        return;
       }
 
       if (message.type === 'event') {
         // Dispatch to registered listeners
-        const listeners = wsEventListeners.get(message.channel)
+        const listeners = wsEventListeners.get(message.channel);
         if (listeners) {
           for (const callback of listeners) {
-            callback(message.data)
+            callback(message.data);
           }
         }
       }
     } catch (error) {
-      console.error('[WS] Failed to parse message:', error)
+      console.error('[WS] Failed to parse message:', error);
     }
-  }
+  };
 
   wsConnection.onclose = () => {
-    console.log('[WS] Disconnected')
-    wsConnection = null
+    console.log('[WS] Disconnected');
+    wsConnection = null;
 
     // Clean up any pending subscribe acks so callers don't hang
     for (const [, pending] of pendingSubscribeAcks) {
-      clearTimeout(pending.timer)
-      pending.resolve()
+      clearTimeout(pending.timer);
+      pending.resolve();
     }
-    pendingSubscribeAcks.clear()
+    pendingSubscribeAcks.clear();
 
     // Attempt to reconnect after 3 seconds
     if (isRemoteClient() && getAuthToken()) {
-      wsReconnectTimer = setTimeout(connectWebSocket, 3000)
+      wsReconnectTimer = setTimeout(connectWebSocket, 3000);
     }
-  }
+  };
 
   wsConnection.onerror = (error) => {
-    console.error('[WS] Error:', error)
-  }
+    console.error('[WS] Error:', error);
+  };
 }
 
 export function disconnectWebSocket(): void {
   if (wsReconnectTimer) {
-    clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = null
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
   }
 
   // Clean up pending subscribe acks
   for (const [, pending] of pendingSubscribeAcks) {
-    clearTimeout(pending.timer)
-    pending.resolve()
+    clearTimeout(pending.timer);
+    pending.resolve();
   }
-  pendingSubscribeAcks.clear()
+  pendingSubscribeAcks.clear();
 
   if (wsConnection) {
-    wsConnection.close()
-    wsConnection = null
+    wsConnection.close();
+    wsConnection = null;
   }
 }
 
@@ -220,44 +225,48 @@ export function subscribeToConversation(conversationId: string): Promise<void> {
     // Still send a new subscribe frame to ensure the server has it (the previous
     // frame may still be in the TCP buffer and not processed yet).
     if (pendingSubscribeAcks.has(conversationId)) {
-      const existing = pendingSubscribeAcks.get(conversationId)!
-      const originalResolve = existing.resolve
+      const existing = pendingSubscribeAcks.get(conversationId)!;
+      const originalResolve = existing.resolve;
       // When the ack arrives, resolve both callers
       existing.resolve = () => {
-        originalResolve()
-        resolve()
-      }
+        originalResolve();
+        resolve();
+      };
       // Re-send subscribe frame to guarantee server-side registration
       if (wsConnection?.readyState === WebSocket.OPEN) {
-        wsConnection.send(JSON.stringify({
-          type: 'subscribe',
-          payload: { conversationId }
-        }))
+        wsConnection.send(
+          JSON.stringify({
+            type: 'subscribe',
+            payload: { conversationId },
+          }),
+        );
       }
-      return
+      return;
     }
 
     // If WebSocket is not connected, resolve immediately
     // (will re-subscribe on reconnect via selectConversation)
     if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-      resolve()
-      return
+      resolve();
+      return;
     }
 
     // Set up timeout fallback — proceed even if ack never arrives
     const timer = setTimeout(() => {
-      console.warn(`[WS] Subscribe ack timeout for ${conversationId}, proceeding anyway`)
-      pendingSubscribeAcks.delete(conversationId)
-      resolve()
-    }, SUBSCRIBE_ACK_TIMEOUT_MS)
+      console.warn(`[WS] Subscribe ack timeout for ${conversationId}, proceeding anyway`);
+      pendingSubscribeAcks.delete(conversationId);
+      resolve();
+    }, SUBSCRIBE_ACK_TIMEOUT_MS);
 
-    pendingSubscribeAcks.set(conversationId, { resolve, timer })
+    pendingSubscribeAcks.set(conversationId, { resolve, timer });
 
-    wsConnection.send(JSON.stringify({
-      type: 'subscribe',
-      payload: { conversationId }
-    }))
-  })
+    wsConnection.send(
+      JSON.stringify({
+        type: 'subscribe',
+        payload: { conversationId },
+      }),
+    );
+  });
 }
 
 export function unsubscribeFromConversation(conversationId: string): void {
@@ -265,9 +274,9 @@ export function unsubscribeFromConversation(conversationId: string): void {
     wsConnection.send(
       JSON.stringify({
         type: 'unsubscribe',
-        payload: { conversationId }
-      })
-    )
+        payload: { conversationId },
+      }),
+    );
   }
 }
 
@@ -311,24 +320,25 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'remote-server:command-output': 'onRemoteServerCommandOutput',
       'remote-server:status-change': 'onRemoteServerStatusChange',
       'remote-server:deploy-progress': 'onRemoteServerDeployProgress',
-      'remote-server:update-complete': 'onRemoteServerUpdateComplete'
-    }
+      'remote-server:update-complete': 'onRemoteServerUpdateComplete',
+      'skill:market:fetch-progress': 'onSkillMarketFetchProgress',
+    };
 
-    const method = methodMap[channel]
+    const method = methodMap[channel];
     if (method && typeof window.aicoBot[method] === 'function') {
-      return (window.aicoBot[method] as (cb: (data: unknown) => void) => () => void)(callback)
+      return (window.aicoBot[method] as (cb: (data: unknown) => void) => () => void)(callback);
     }
 
-    return () => {}
+    return () => {};
   } else {
     // Use WebSocket in remote mode
     if (!wsEventListeners.has(channel)) {
-      wsEventListeners.set(channel, new Set())
+      wsEventListeners.set(channel, new Set());
     }
-    wsEventListeners.get(channel)!.add(callback)
+    wsEventListeners.get(channel)!.add(callback);
 
     return () => {
-      wsEventListeners.get(channel)?.delete(callback)
-    }
+      wsEventListeners.get(channel)?.delete(callback);
+    };
   }
 }

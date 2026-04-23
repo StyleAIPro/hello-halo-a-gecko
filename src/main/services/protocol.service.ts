@@ -12,7 +12,7 @@
  * Security: Only file:// URLs are allowed, no remote URLs pass through.
  */
 
-import { protocol, net } from 'electron'
+import { protocol, net } from 'electron';
 
 /**
  * Register custom protocols for secure local resource access
@@ -22,9 +22,9 @@ export function registerProtocols(): void {
   // aico-bot-file:// - Proxy to file:// for local resources
   // Chromium blocks file:// from localhost/app origins, this bypasses that
   protocol.handle('aico-bot-file', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('aico-bot-file://', ''))
-    return net.fetch(`file://${filePath}`)
-  })
+    const filePath = decodeURIComponent(request.url.replace('aico-bot-file://', ''));
+    return net.fetch(`file://${filePath}`);
+  });
 
-  console.log('[Protocol] Registered aico-bot-file:// protocol')
+  console.log('[Protocol] Registered aico-bot-file:// protocol');
 }

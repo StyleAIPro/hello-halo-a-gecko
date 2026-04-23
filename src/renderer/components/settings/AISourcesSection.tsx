@@ -12,24 +12,20 @@
  * - Delete source with confirmation
  */
 
-import {
-  Plus, Check, ChevronRight, Edit2, Trash2, Key
-} from 'lucide-react'
-import type {
-  AISource,
-  AicoBotConfig
-} from '../../types'
-import { useTranslation } from '../../i18n'
-import { ProviderSelector } from './ProviderSelector'
-import { useAISources } from '../../hooks/useAISources'
+import { Plus, Check, ChevronRight, Edit2, Trash2, Key } from 'lucide-react';
+import type { AISource, AicoBotConfig } from '../../types';
+import { useTranslation } from '../../i18n';
+import { ProviderSelector } from './ProviderSelector';
+import { useAISources } from '../../hooks/useAISources';
 
 interface AISourcesSectionProps {
-  config: AicoBotConfig
-  setConfig: (config: AicoBotConfig) => void
+  config: AicoBotConfig;
+  setConfig: (config: AicoBotConfig) => void;
+  updateConfig: (updates: Partial<AicoBotConfig>) => void;
 }
 
-export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
-  const { t } = useTranslation()
+export function AISourcesSection({ config, setConfig, updateConfig }: AISourcesSectionProps) {
+  const { t } = useTranslation();
 
   const {
     aiSources,
@@ -46,22 +42,20 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
     setEditingSourceId,
     setDeletingSourceId,
     setExpandedSourceId,
-    getSourceDisplayInfo
-  } = useAISources({ config, setConfig })
+    getSourceDisplayInfo,
+  } = useAISources({ config, setConfig, updateConfig });
 
   // Render source card
   const renderSourceCard = (source: AISource) => {
-    const isCurrent = source.id === aiSources.currentId
-    const isExpanded = expandedSourceId === source.id
-    const displayInfo = getSourceDisplayInfo(source)
+    const isCurrent = source.id === aiSources.currentId;
+    const isExpanded = expandedSourceId === source.id;
+    const displayInfo = getSourceDisplayInfo(source);
 
     return (
       <div
         key={source.id}
         className={`border rounded-lg transition-all ${
-          isCurrent
-            ? 'border-primary bg-primary/5'
-            : 'border-border-primary bg-surface-secondary'
+          isCurrent ? 'border-primary bg-primary/5' : 'border-border-primary bg-surface-secondary'
         }`}
       >
         {/* Header */}
@@ -72,8 +66,8 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
           {/* Radio button for selection */}
           <button
             onClick={(e) => {
-              e.stopPropagation()
-              if (!isCurrent) handleSwitchSource(source.id)
+              e.stopPropagation();
+              if (!isCurrent) handleSwitchSource(source.id);
             }}
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
               isCurrent
@@ -85,17 +79,17 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
           </button>
 
           {/* Icon */}
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-            isCurrent ? 'bg-primary/20' : 'bg-surface-tertiary'
-          }`}>
+          <div
+            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              isCurrent ? 'bg-primary/20' : 'bg-surface-tertiary'
+            }`}
+          >
             <Key size={18} className="text-text-secondary" />
           </div>
 
           {/* Name & Model */}
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-text-primary truncate">
-              {displayInfo.name}
-            </div>
+            <div className="font-medium text-text-primary truncate">{displayInfo.name}</div>
             <div className="text-xs text-text-tertiary truncate">
               {source.model || t('No model selected')}
             </div>
@@ -121,9 +115,7 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
               {/* API URL */}
               <div className="flex justify-between text-sm">
                 <span className="text-text-secondary">{t('API URL')}</span>
-                <span className="text-text-primary truncate max-w-[200px]">
-                  {source.apiUrl}
-                </span>
+                <span className="text-text-primary truncate max-w-[200px]">{source.apiUrl}</span>
               </div>
 
               {/* Actions */}
@@ -149,8 +141,8 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
           </div>
         )}
       </div>
-    )
-  }
+    );
+  };
 
   // Show add/edit form
   if (showAddForm || editingSourceId) {
@@ -166,12 +158,12 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
           editingSourceId={editingSourceId}
         />
       </div>
-    )
+    );
   }
 
   // Show delete confirmation
   if (deletingSourceId) {
-    const sourceToDelete = aiSources.sources.find(s => s.id === deletingSourceId)
+    const sourceToDelete = aiSources.sources.find((s) => s.id === deletingSourceId);
     return (
       <div className="p-4 bg-surface-secondary rounded-lg border border-border-primary space-y-4">
         <h3 className="font-medium text-text-primary">{t('Confirm Delete')}</h3>
@@ -193,16 +185,14 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="space-y-4">
       {/* Sources List */}
       {aiSources.sources.length > 0 ? (
-        <div className="space-y-2">
-          {aiSources.sources.map(renderSourceCard)}
-        </div>
+        <div className="space-y-2">{aiSources.sources.map(renderSourceCard)}</div>
       ) : (
         <div className="p-6 text-center text-text-tertiary bg-surface-secondary rounded-lg border border-border-primary">
           {t('No AI sources configured')}
@@ -220,5 +210,5 @@ export function AISourcesSection({ config, setConfig }: AISourcesSectionProps) {
         {t('Add AI Provider')}
       </button>
     </div>
-  )
+  );
 }

@@ -6,43 +6,43 @@
  * - Resolved: shows a summary of the question + the user's choice
  */
 
-import { useState } from 'react'
-import { Loader2, MessageSquare, CheckCircle2 } from 'lucide-react'
-import type { ActivityEntry } from '../../../shared/apps/app-types'
-import { useAppsStore } from '../../stores/apps.store'
-import { useTranslation } from '../../i18n'
+import { useState } from 'react';
+import { Loader2, MessageSquare, CheckCircle2 } from 'lucide-react';
+import type { ActivityEntry } from '../../../shared/apps/app-types';
+import { useAppsStore } from '../../stores/apps.store';
+import { useTranslation } from '../../i18n';
 
 interface EscalationCardProps {
-  entry: ActivityEntry
-  appId: string
+  entry: ActivityEntry;
+  appId: string;
 }
 
 export function EscalationCard({ entry, appId }: EscalationCardProps) {
-  const { t } = useTranslation()
-  const { respondToEscalation } = useAppsStore()
-  const [customText, setCustomText] = useState('')
-  const [showTextInput, setShowTextInput] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { t } = useTranslation();
+  const { respondToEscalation } = useAppsStore();
+  const [customText, setCustomText] = useState('');
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const resolved = !!entry.userResponse
-  const question = entry.content.question ?? entry.content.summary
-  const choices = entry.content.choices ?? []
+  const resolved = !!entry.userResponse;
+  const question = entry.content.question ?? entry.content.summary;
+  const choices = entry.content.choices ?? [];
 
   async function handleChoice(choice: string) {
-    setIsSubmitting(true)
-    await respondToEscalation(appId, entry.id, { choice })
-    setIsSubmitting(false)
+    setIsSubmitting(true);
+    await respondToEscalation(appId, entry.id, { choice });
+    setIsSubmitting(false);
   }
 
   async function handleCustomSubmit() {
-    if (!customText.trim()) return
-    setIsSubmitting(true)
-    await respondToEscalation(appId, entry.id, { text: customText.trim() })
-    setIsSubmitting(false)
+    if (!customText.trim()) return;
+    setIsSubmitting(true);
+    await respondToEscalation(appId, entry.id, { text: customText.trim() });
+    setIsSubmitting(false);
   }
 
   if (resolved) {
-    const userAnswer = entry.userResponse?.choice ?? entry.userResponse?.text ?? ''
+    const userAnswer = entry.userResponse?.choice ?? entry.userResponse?.text ?? '';
     return (
       <div className="flex items-start gap-2 text-xs text-muted-foreground">
         <CheckCircle2 className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" />
@@ -53,7 +53,7 @@ export function EscalationCard({ entry, appId }: EscalationCardProps) {
           </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -67,7 +67,7 @@ export function EscalationCard({ entry, appId }: EscalationCardProps) {
       {/* Preset choices */}
       {choices.length > 0 && !showTextInput && (
         <div className="flex flex-wrap gap-2">
-          {choices.map(choice => (
+          {choices.map((choice) => (
             <button
               key={choice}
               onClick={() => handleChoice(choice)}
@@ -92,7 +92,7 @@ export function EscalationCard({ entry, appId }: EscalationCardProps) {
         <div className="space-y-2">
           <textarea
             value={customText}
-            onChange={e => setCustomText(e.target.value)}
+            onChange={(e) => setCustomText(e.target.value)}
             placeholder={t('Type your response...')}
             rows={2}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
@@ -102,7 +102,10 @@ export function EscalationCard({ entry, appId }: EscalationCardProps) {
           <div className="flex items-center gap-2">
             {choices.length > 0 && (
               <button
-                onClick={() => { setShowTextInput(false); setCustomText('') }}
+                onClick={() => {
+                  setShowTextInput(false);
+                  setCustomText('');
+                }}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 ← {t('Back')}
@@ -120,5 +123,5 @@ export function EscalationCard({ entry, appId }: EscalationCardProps) {
         </div>
       )}
     </div>
-  )
+  );
 }

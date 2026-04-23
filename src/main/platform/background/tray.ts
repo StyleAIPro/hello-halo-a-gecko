@@ -6,9 +6,9 @@
  * and quick access to show the main window, toggle online/offline, and quit.
  */
 
-import { Tray, Menu, app, nativeImage } from 'electron'
-import { join } from 'path'
-import type { BackgroundStatus } from './types'
+import { Tray, Menu, app, nativeImage } from 'electron';
+import { join } from 'path';
+import type { BackgroundStatus } from './types';
 
 /**
  * Callback interface for tray menu actions.
@@ -16,12 +16,12 @@ import type { BackgroundStatus } from './types'
  * all actions to the parent (BackgroundService) through these callbacks.
  */
 export interface TrayCallbacks {
-  onShowWindow: () => void
-  onGoOnline: () => void
-  onGoOffline: () => void
-  onQuit: () => void
-  getStatus: () => BackgroundStatus
-  getActiveReasons: () => string[]
+  onShowWindow: () => void;
+  onGoOnline: () => void;
+  onGoOffline: () => void;
+  onQuit: () => void;
+  getStatus: () => BackgroundStatus;
+  getActiveReasons: () => string[];
 }
 
 /**
@@ -34,91 +34,91 @@ export interface TrayCallbacks {
  *   notification area.
  */
 export class TrayManager {
-  private tray: Tray | null = null
-  private callbacks: TrayCallbacks | null = null
+  private tray: Tray | null = null;
+  private callbacks: TrayCallbacks | null = null;
 
   /**
    * Initialize the tray icon and menu.
    * Safe to call multiple times; subsequent calls update the existing tray.
    */
   init(callbacks: TrayCallbacks): void {
-    this.callbacks = callbacks
+    this.callbacks = callbacks;
 
     if (this.tray) {
       // Already created, just rebuild the menu
-      this.updateMenu()
-      return
+      this.updateMenu();
+      return;
     }
 
-    const icon = this.createIcon()
-    this.tray = new Tray(icon)
+    const icon = this.createIcon();
+    this.tray = new Tray(icon);
 
-    this.tray.setToolTip('AICO-Bot')
+    this.tray.setToolTip('AICO-Bot');
 
     // On macOS, clicking the tray icon should show a menu (default behavior).
     // On Windows, clicking should show the main window.
     if (process.platform !== 'darwin') {
       this.tray.on('click', () => {
-        this.callbacks?.onShowWindow()
-      })
+        this.callbacks?.onShowWindow();
+      });
     }
 
-    this.updateMenu()
-    console.log('[Tray] System tray initialized')
+    this.updateMenu();
+    console.log('[Tray] System tray initialized');
   }
 
   /**
    * Update the context menu to reflect current status.
    */
   updateMenu(): void {
-    if (!this.tray || !this.callbacks) return
+    if (!this.tray || !this.callbacks) return;
 
-    const status = this.callbacks.getStatus()
-    const reasons = this.callbacks.getActiveReasons()
-    const isOnline = status === 'online'
+    const status = this.callbacks.getStatus();
+    const reasons = this.callbacks.getActiveReasons();
+    const isOnline = status === 'online';
 
     const menuItems: Electron.MenuItemConstructorOptions[] = [
       {
         label: 'Show AICO-Bot',
-        click: () => this.callbacks?.onShowWindow()
+        click: () => this.callbacks?.onShowWindow(),
       },
       { type: 'separator' },
       {
         label: isOnline ? 'Go Offline' : 'Go Online',
         click: () => {
           if (isOnline) {
-            this.callbacks?.onGoOffline()
+            this.callbacks?.onGoOffline();
           } else {
-            this.callbacks?.onGoOnline()
+            this.callbacks?.onGoOnline();
           }
-        }
+        },
       },
       {
         label: `Status: ${isOnline ? 'Online' : 'Offline'}`,
-        enabled: false
-      }
-    ]
+        enabled: false,
+      },
+    ];
 
     // Show active keep-alive reasons if any
     if (reasons.length > 0) {
-      menuItems.push({ type: 'separator' })
+      menuItems.push({ type: 'separator' });
       menuItems.push({
         label: `Active Tasks (${reasons.length})`,
-        enabled: false
-      })
+        enabled: false,
+      });
       // Show up to 5 reasons to avoid an excessively long menu
-      const displayReasons = reasons.slice(0, 5)
+      const displayReasons = reasons.slice(0, 5);
       for (const reason of displayReasons) {
         menuItems.push({
           label: `  ${reason}`,
-          enabled: false
-        })
+          enabled: false,
+        });
       }
       if (reasons.length > 5) {
         menuItems.push({
           label: `  ... and ${reasons.length - 5} more`,
-          enabled: false
-        })
+          enabled: false,
+        });
       }
     }
 
@@ -126,18 +126,19 @@ export class TrayManager {
       { type: 'separator' },
       {
         label: 'Quit AICO-Bot',
-        click: () => this.callbacks?.onQuit()
-      }
-    )
+        click: () => this.callbacks?.onQuit(),
+      },
+    );
 
-    const contextMenu = Menu.buildFromTemplate(menuItems)
-    this.tray.setContextMenu(contextMenu)
+    const contextMenu = Menu.buildFromTemplate(menuItems);
+    this.tray.setContextMenu(contextMenu);
 
     // Update tooltip to show status
-    const tooltip = reasons.length > 0
-      ? `AICO-Bot (${isOnline ? 'Online' : 'Offline'}) - ${reasons.length} active task(s)`
-      : `AICO-Bot (${isOnline ? 'Online' : 'Offline'})`
-    this.tray.setToolTip(tooltip)
+    const tooltip =
+      reasons.length > 0
+        ? `AICO-Bot (${isOnline ? 'Online' : 'Offline'}) - ${reasons.length} active task(s)`
+        : `AICO-Bot (${isOnline ? 'Online' : 'Offline'})`;
+    this.tray.setToolTip(tooltip);
   }
 
   /**
@@ -145,9 +146,9 @@ export class TrayManager {
    */
   destroy(): void {
     if (this.tray) {
-      this.tray.destroy()
-      this.tray = null
-      console.log('[Tray] System tray destroyed')
+      this.tray.destroy();
+      this.tray = null;
+      console.log('[Tray] System tray destroyed');
     }
   }
 
@@ -155,26 +156,26 @@ export class TrayManager {
    * Create the tray icon appropriate for the current platform.
    */
   private createIcon(): Electron.NativeImage {
-    const isMac = process.platform === 'darwin'
+    const isMac = process.platform === 'darwin';
 
     // Resolve the path to tray icon assets
     // In development, resources are at the project root.
     // In production (packaged), resources are at the app root.
     const resourcesPath = app.isPackaged
       ? join(process.resourcesPath, 'tray')
-      : join(app.getAppPath(), 'resources', 'tray')
+      : join(app.getAppPath(), 'resources', 'tray');
 
     if (isMac) {
       // macOS: Use template images. Electron automatically picks @2x for Retina.
       // Template images adapt to the menu bar's light/dark appearance.
-      const iconPath = join(resourcesPath, 'trayTemplate.png')
-      const icon = nativeImage.createFromPath(iconPath)
-      icon.setTemplateImage(true)
-      return icon
+      const iconPath = join(resourcesPath, 'trayTemplate.png');
+      const icon = nativeImage.createFromPath(iconPath);
+      icon.setTemplateImage(true);
+      return icon;
     }
 
     // Windows/Linux: Use standard 16x16 icon
-    const iconPath = join(resourcesPath, 'tray-16.png')
-    return nativeImage.createFromPath(iconPath)
+    const iconPath = join(resourcesPath, 'tray-16.png');
+    return nativeImage.createFromPath(iconPath);
   }
 }

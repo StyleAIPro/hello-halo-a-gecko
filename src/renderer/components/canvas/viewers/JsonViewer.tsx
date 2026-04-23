@@ -9,96 +9,94 @@
  * - Window maximize for fullscreen viewing
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { Copy, Check, ExternalLink, WrapText } from 'lucide-react'
-import { highlightCodeSync } from '../../../lib/highlight-loader'
-import { api } from '../../../api'
-import { useTranslation } from '../../../i18n'
-import type { CanvasTab } from '../../../stores/canvas.store'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Copy, Check, ExternalLink, WrapText } from 'lucide-react';
+import { highlightCodeSync } from '../../../lib/highlight-loader';
+import { api } from '../../../api';
+import { useTranslation } from '../../../i18n';
+import type { CanvasTab } from '../../../stores/canvas.store';
 
 interface JsonViewerProps {
-  tab: CanvasTab
-  onScrollChange?: (position: number) => void
+  tab: CanvasTab;
+  onScrollChange?: (position: number) => void;
 }
 
 export function JsonViewer({ tab, onScrollChange }: JsonViewerProps) {
-  const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [copied, setCopied] = useState(false)
-  const [isFormatted, setIsFormatted] = useState(true)
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [isFormatted, setIsFormatted] = useState(true);
 
-  const content = tab.content || ''
+  const content = tab.content || '';
 
   // Format or minify JSON
   const displayContent = useMemo(() => {
-    if (!content) return ''
+    if (!content) return '';
     try {
-      const parsed = JSON.parse(content)
-      return isFormatted
-        ? JSON.stringify(parsed, null, 2)
-        : JSON.stringify(parsed)
+      const parsed = JSON.parse(content);
+      return isFormatted ? JSON.stringify(parsed, null, 2) : JSON.stringify(parsed);
     } catch {
       // If invalid JSON, just show as-is
-      return content
+      return content;
     }
-  }, [content, isFormatted])
+  }, [content, isFormatted]);
 
   // Syntax highlight (JSON is pre-loaded, so sync is fine)
   const highlightedContent = useMemo(() => {
-    if (!displayContent) return ''
-    return highlightCodeSync(displayContent, 'json')
-  }, [displayContent])
+    if (!displayContent) return '';
+    return highlightCodeSync(displayContent, 'json');
+  }, [displayContent]);
 
   // Restore scroll position
   useEffect(() => {
     if (containerRef.current && tab.scrollPosition !== undefined) {
-      containerRef.current.scrollTop = tab.scrollPosition
+      containerRef.current.scrollTop = tab.scrollPosition;
     }
-  }, [tab.id])
+  }, [tab.id]);
 
   // Save scroll position
   const handleScroll = useCallback(() => {
     if (containerRef.current && onScrollChange) {
-      onScrollChange(containerRef.current.scrollTop)
+      onScrollChange(containerRef.current.scrollTop);
     }
-  }, [onScrollChange])
+  }, [onScrollChange]);
 
   // Copy content
   const handleCopy = async () => {
-    if (!content) return
+    if (!content) return;
     try {
-      await navigator.clipboard.writeText(displayContent)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(displayContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }
+  };
 
   // Open with external application
   const handleOpenExternal = async () => {
-    if (!tab.path) return
+    if (!tab.path) return;
     try {
-      await api.openArtifact(tab.path)
+      await api.openArtifact(tab.path);
     } catch (err) {
-      console.error('Failed to open with external app:', err)
+      console.error('Failed to open with external app:', err);
     }
-  }
+  };
 
   // Count lines
-  const lines = displayContent.split('\n')
-  const lineCount = lines.length
-  const canOpenExternal = !api.isRemoteMode() && tab.path
+  const lines = displayContent.split('\n');
+  const lineCount = lines.length;
+  const canOpenExternal = !api.isRemoteMode() && tab.path;
 
   // Check if JSON is valid
   const isValidJson = useMemo(() => {
     try {
-      JSON.parse(content)
-      return true
+      JSON.parse(content);
+      return true;
     } catch {
-      return false
+      return false;
     }
-  }, [content])
+  }, [content]);
 
   return (
     <div className="relative flex flex-col h-full bg-background">
@@ -168,9 +166,7 @@ export function JsonViewer({ tab, onScrollChange }: JsonViewerProps) {
           {/* Line numbers */}
           <div className="sticky left-0 flex-shrink-0 select-none bg-background/80 backdrop-blur-sm border-r border-border/50 text-right text-muted-foreground/40 pr-3 pl-4 py-4 leading-6">
             {Array.from({ length: lineCount }, (_, i) => (
-              <div key={i + 1}>
-                {i + 1}
-              </div>
+              <div key={i + 1}>{i + 1}</div>
             ))}
           </div>
 
@@ -184,5 +180,5 @@ export function JsonViewer({ tab, onScrollChange }: JsonViewerProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }

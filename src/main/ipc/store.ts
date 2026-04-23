@@ -15,81 +15,69 @@
  *   store:toggle-registry Enable or disable a registry source
  */
 
-import { ipcMain } from 'electron'
-import * as storeController from '../controllers/store.controller'
+import { ipcMain } from 'electron';
+import * as storeController from '../controllers/store.controller';
 
 export function registerStoreHandlers(): void {
   // ── store:list-apps ────────────────────────────────────────────────────
   ipcMain.handle(
     'store:list-apps',
-    async (_event, query?: { search?: string; category?: string; type?: string; tags?: string[] }) => {
-      return storeController.listStoreApps(query)
-    }
-  )
+    async (
+      _event,
+      query?: { search?: string; category?: string; type?: string; tags?: string[] },
+    ) => {
+      return storeController.listStoreApps(query);
+    },
+  );
 
   // ── store:get-app-detail ───────────────────────────────────────────────
-  ipcMain.handle(
-    'store:get-app-detail',
-    async (_event, slug: string) => {
-      return storeController.getStoreAppDetail(slug)
-    }
-  )
+  ipcMain.handle('store:get-app-detail', async (_event, slug: string) => {
+    return storeController.getStoreAppDetail(slug);
+  });
 
   // ── store:install ──────────────────────────────────────────────────────
   ipcMain.handle(
     'store:install',
-    async (_event, input: { slug: string; spaceId: string; userConfig?: Record<string, unknown> }) => {
-      return storeController.installStoreApp(input.slug, input.spaceId, input.userConfig)
-    }
-  )
+    async (
+      _event,
+      input: { slug: string; spaceId: string; userConfig?: Record<string, unknown> },
+    ) => {
+      return storeController.installStoreApp(input.slug, input.spaceId, input.userConfig);
+    },
+  );
 
   // ── store:refresh ──────────────────────────────────────────────────────
-  ipcMain.handle(
-    'store:refresh',
-    async () => {
-      return storeController.refreshStoreIndex()
-    }
-  )
+  ipcMain.handle('store:refresh', async () => {
+    return storeController.refreshStoreIndex();
+  });
 
   // ── store:check-updates ────────────────────────────────────────────────
-  ipcMain.handle(
-    'store:check-updates',
-    async () => {
-      return storeController.checkStoreUpdates()
-    }
-  )
+  ipcMain.handle('store:check-updates', async () => {
+    return storeController.checkStoreUpdates();
+  });
 
   // ── store:get-registries ───────────────────────────────────────────────
-  ipcMain.handle(
-    'store:get-registries',
-    async () => {
-      return storeController.getStoreRegistries()
-    }
-  )
+  ipcMain.handle('store:get-registries', async () => {
+    return storeController.getStoreRegistries();
+  });
 
   // ── store:add-registry ─────────────────────────────────────────────────
-  ipcMain.handle(
-    'store:add-registry',
-    async (_event, input: { name: string; url: string }) => {
-      return storeController.addStoreRegistry(input)
-    }
-  )
+  ipcMain.handle('store:add-registry', async (_event, input: { name: string; url: string }) => {
+    return storeController.addStoreRegistry(input);
+  });
 
   // ── store:remove-registry ──────────────────────────────────────────────
-  ipcMain.handle(
-    'store:remove-registry',
-    async (_event, registryId: string) => {
-      return storeController.removeStoreRegistry(registryId)
-    }
-  )
+  ipcMain.handle('store:remove-registry', async (_event, registryId: string) => {
+    return storeController.removeStoreRegistry(registryId);
+  });
 
   // ── store:toggle-registry ──────────────────────────────────────────────
   ipcMain.handle(
     'store:toggle-registry',
     async (_event, input: { registryId: string; enabled: boolean }) => {
-      return storeController.toggleStoreRegistry(input.registryId, input.enabled)
-    }
-  )
+      return storeController.toggleStoreRegistry(input.registryId, input.enabled);
+    },
+  );
 
-  console.log('[StoreIPC] Store handlers registered (9 channels)')
+  console.log('[StoreIPC] Store handlers registered (9 channels)');
 }

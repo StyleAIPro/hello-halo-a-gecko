@@ -9,51 +9,51 @@
  * Performance: Uses Promise.all for concurrent file reads, with progress callbacks
  */
 
-import { join } from 'path'
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { getTempSpacePath, getAicoBotDir } from './config.service'
-import { getSpace } from './space.service'
+import { join } from 'path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { getTempSpacePath, getAicoBotDir } from './config.service';
+import { getSpace } from './space.service';
 
 /**
  * Search result for a single message match
  */
 export interface SearchResult {
-  conversationId: string
-  conversationTitle: string
-  messageId: string
-  spaceId: string
-  spaceName: string
-  messageRole: 'user' | 'assistant'
-  messageContent: string
-  messageTimestamp: string
-  matchCount: number
-  contextBefore?: string
-  contextAfter?: string
+  conversationId: string;
+  conversationTitle: string;
+  messageId: string;
+  spaceId: string;
+  spaceName: string;
+  messageRole: 'user' | 'assistant';
+  messageContent: string;
+  messageTimestamp: string;
+  matchCount: number;
+  contextBefore?: string;
+  contextAfter?: string;
 }
 
 /**
  * Conversation file structure for searching
  */
 interface ConversationFile {
-  id: string
-  spaceId: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
+  id: string;
+  spaceId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
   messages: Array<{
-    id: string
-    role: 'user' | 'assistant' | 'system'
-    content: string
-    timestamp: string
-  }>
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: string;
+  }>;
 }
 
 /**
  * Search service for managing conversation searches
  */
 export class SearchService {
-  private cancelToken: boolean = false
+  private cancelToken: boolean = false;
 
   /**
    * Execute search across specified scope
@@ -69,53 +69,53 @@ export class SearchService {
     scope: 'conversation' | 'space' | 'global',
     currentConversationId?: string,
     currentSpaceId?: string,
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
   ): Promise<SearchResult[]> {
     if (!query.trim()) {
-      return []
+      return [];
     }
 
-    this.cancelToken = false
+    this.cancelToken = false;
 
     try {
       // Step 1: Get files to search based on scope
-      const files = this.getFilesToSearch(scope, currentConversationId, currentSpaceId)
+      const files = this.getFilesToSearch(scope, currentConversationId, currentSpaceId);
 
       if (files.length === 0) {
-        return []
+        return [];
       }
 
       // Step 2: Concurrent file reading with progress tracking
       const promises = files.map((file, index) =>
         this.searchFile(file, query)
-          .then(results => {
+          .then((results) => {
             if (!this.cancelToken) {
-              onProgress?.(index + 1, files.length)
+              onProgress?.(index + 1, files.length);
             }
-            return results
+            return results;
           })
-          .catch(err => {
-            console.error(`Error searching ${file}:`, err)
-            return []
-          })
-      )
+          .catch((err) => {
+            console.error(`Error searching ${file}:`, err);
+            return [];
+          }),
+      );
 
       // Step 3: Wait for all searches to complete
-      const allResults = await Promise.all(promises)
+      const allResults = await Promise.all(promises);
 
       if (this.cancelToken) {
-        return []
+        return [];
       }
 
       // Step 4: Merge and sort results by timestamp (newest first)
-      const mergedResults = allResults.flat()
+      const mergedResults = allResults.flat();
 
-      return mergedResults.sort((a, b) =>
-        new Date(b.messageTimestamp).getTime() - new Date(a.messageTimestamp).getTime()
-      )
+      return mergedResults.sort(
+        (a, b) => new Date(b.messageTimestamp).getTime() - new Date(a.messageTimestamp).getTime(),
+      );
     } catch (error) {
-      console.error('Search error:', error)
-      return []
+      console.error('Search error:', error);
+      return [];
     }
   }
 
@@ -123,7 +123,7 @@ export class SearchService {
    * Cancel ongoing search operation
    */
   cancel(): void {
-    this.cancelToken = true
+    this.cancelToken = true;
   }
 
   /**
@@ -131,24 +131,24 @@ export class SearchService {
    */
   private async searchFile(filePath: string, query: string): Promise<SearchResult[]> {
     if (this.cancelToken) {
-      return []
+      return [];
     }
 
     try {
-      const content = readFileSync(filePath, 'utf-8')
-      const data: ConversationFile = JSON.parse(content)
+      const content = readFileSync(filePath, 'utf-8');
+      const data: ConversationFile = JSON.parse(content);
 
-      const results: SearchResult[] = []
-      const searchRegex = new RegExp(query, 'gi')
+      const results: SearchResult[] = [];
+      const searchRegex = new RegExp(query, 'gi');
 
       // Get space name
-      let spaceName = data.spaceId === 'aico-bot-temp' ? 'AICO-Bot' : data.spaceId
+      let spaceName = data.spaceId === 'aico-bot-temp' ? 'AICO-Bot' : data.spaceId;
 
       try {
         if (data.spaceId !== 'aico-bot-temp') {
-          const space = getSpace(data.spaceId)
+          const space = getSpace(data.spaceId);
           if (space) {
-            spaceName = space.name
+            spaceName = space.name;
           }
         }
       } catch (e) {
@@ -158,24 +158,21 @@ export class SearchService {
       // Search through messages
       data.messages?.forEach((message) => {
         if (this.cancelToken) {
-          return
+          return;
         }
 
-        const messageContent = message.content || ''
-        const matches = messageContent.match(searchRegex)
-        const matchCount = matches?.length || 0
+        const messageContent = message.content || '';
+        const matches = messageContent.match(searchRegex);
+        const matchCount = matches?.length || 0;
 
         if (matchCount > 0) {
           // Extract context (before and after search term)
-          const firstMatch = messageContent.search(searchRegex)
-          const contextStart = Math.max(0, firstMatch - 50)
-          const contextEnd = Math.min(messageContent.length, firstMatch + 100)
+          const firstMatch = messageContent.search(searchRegex);
+          const contextStart = Math.max(0, firstMatch - 50);
+          const contextEnd = Math.min(messageContent.length, firstMatch + 100);
 
-          const contextBefore = messageContent.substring(contextStart, firstMatch)
-          const contextAfter = messageContent.substring(
-            firstMatch + query.length,
-            contextEnd
-          )
+          const contextBefore = messageContent.substring(contextStart, firstMatch);
+          const contextAfter = messageContent.substring(firstMatch + query.length, contextEnd);
 
           results.push({
             conversationId: data.id,
@@ -188,15 +185,15 @@ export class SearchService {
             messageTimestamp: message.timestamp,
             matchCount,
             contextBefore: contextBefore.trim(),
-            contextAfter: contextAfter.trim()
-          })
+            contextAfter: contextAfter.trim(),
+          });
         }
-      })
+      });
 
-      return results
+      return results;
     } catch (err) {
-      console.error(`Failed to search file ${filePath}:`, err)
-      return []
+      console.error(`Failed to search file ${filePath}:`, err);
+      return [];
     }
   }
 
@@ -206,136 +203,147 @@ export class SearchService {
   private getFilesToSearch(
     scope: 'conversation' | 'space' | 'global',
     conversationId?: string,
-    spaceId?: string
+    spaceId?: string,
   ): string[] {
-    const spaceDataDir = getAicoBotDir()
-    const files: string[] = []
+    const spaceDataDir = getAicoBotDir();
+    const files: string[] = [];
 
     if (scope === 'conversation' && conversationId) {
       // Search single conversation
-      const file = this.findConversationFile(conversationId, spaceId)
-      return file ? [file] : []
+      const file = this.findConversationFile(conversationId, spaceId);
+      return file ? [file] : [];
     }
 
     if (scope === 'space' && spaceId) {
       // Search all conversations in a space
       if (spaceId === 'aico-bot-temp') {
-        const tempPath = getTempSpacePath()
-        return this.scanConversationFiles(join(tempPath, 'conversations'))
+        const tempPath = getTempSpacePath();
+        return this.scanConversationFiles(join(tempPath, 'conversations'));
       } else {
         try {
-          const space = getSpace(spaceId)
+          const space = getSpace(spaceId);
           if (space) {
-            return this.scanConversationFiles(join(space.path, '.aico-bot', 'conversations'))
+            return this.scanConversationFiles(join(space.path, '.aico-bot', 'conversations'));
           }
         } catch (e) {
-          console.error(`Failed to get space ${spaceId}:`, e)
+          console.error(`Failed to get space ${spaceId}:`, e);
         }
       }
-      return []
+      return [];
     }
 
     if (scope === 'global') {
       // Search all conversations across all spaces
       // Scan temp space
-      const tempPath = getTempSpacePath()
-      const tempConvDir = join(tempPath, 'conversations')
+      const tempPath = getTempSpacePath();
+      const tempConvDir = join(tempPath, 'conversations');
       if (existsSync(tempConvDir)) {
-        files.push(...this.scanConversationFiles(tempConvDir))
+        files.push(...this.scanConversationFiles(tempConvDir));
       }
 
       // Scan all custom spaces
-      const spacesDir = join(spaceDataDir, 'spaces')
+      const spacesDir = join(spaceDataDir, 'spaces');
       if (existsSync(spacesDir)) {
-        const spaceNames = readdirSync(spacesDir)
-        spaceNames.forEach(spaceName => {
+        const spaceNames = readdirSync(spacesDir);
+        spaceNames.forEach((spaceName) => {
           try {
-            const convDir = join(spacesDir, spaceName, '.aico-bot', 'conversations')
+            const convDir = join(spacesDir, spaceName, '.aico-bot', 'conversations');
             if (existsSync(convDir)) {
-              files.push(...this.scanConversationFiles(convDir))
+              files.push(...this.scanConversationFiles(convDir));
             }
           } catch (e) {
-            console.error(`Error scanning space ${spaceName}:`, e)
+            console.error(`Error scanning space ${spaceName}:`, e);
           }
-        })
+        });
       }
 
-      return files
+      return files;
     }
 
-    return files
+    return files;
   }
 
   /**
    * Scan directory for conversation JSON files
    */
   private scanConversationFiles(dirPath: string): string[] {
-    const files: string[] = []
+    const files: string[] = [];
 
     if (!existsSync(dirPath)) {
-      return files
+      return files;
     }
 
     try {
-      const entries = readdirSync(dirPath)
-      entries.forEach(entry => {
+      const entries = readdirSync(dirPath);
+      entries.forEach((entry) => {
         if (entry.endsWith('.json') && entry !== 'index.json') {
-          files.push(join(dirPath, entry))
+          files.push(join(dirPath, entry));
         }
-      })
+      });
     } catch (err) {
-      console.error(`Failed to scan directory ${dirPath}:`, err)
+      console.error(`Failed to scan directory ${dirPath}:`, err);
     }
 
-    return files
+    return files;
   }
 
   /**
    * Find conversation file in filesystem
    */
   private findConversationFile(conversationId: string, spaceId?: string): string | null {
-    const spaceDataDir = getAicoBotDir()
+    const spaceDataDir = getAicoBotDir();
 
     // If spaceId is provided, search in that space first
     if (spaceId) {
       if (spaceId === 'aico-bot-temp') {
-        const tempPath = getTempSpacePath()
-        const filePath = join(tempPath, 'conversations', `${conversationId}.json`)
+        const tempPath = getTempSpacePath();
+        const filePath = join(tempPath, 'conversations', `${conversationId}.json`);
         if (existsSync(filePath)) {
-          return filePath
+          return filePath;
         }
       } else {
         try {
-          const space = getSpace(spaceId)
+          const space = getSpace(spaceId);
           if (space) {
-            const filePath = join(space.path, '.aico-bot', 'conversations', `${conversationId}.json`)
+            const filePath = join(
+              space.path,
+              '.aico-bot',
+              'conversations',
+              `${conversationId}.json`,
+            );
             if (existsSync(filePath)) {
-              return filePath
+              return filePath;
             }
           }
         } catch (e) {
-          console.error(`Failed to find conversation in space ${spaceId}:`, e)
+          console.error(`Failed to find conversation in space ${spaceId}:`, e);
         }
       }
     }
 
     // Fallback: search in all spaces
     // Search temp space
-    const tempPath = getTempSpacePath()
-    let filePath = join(tempPath, 'conversations', `${conversationId}.json`)
+    const tempPath = getTempSpacePath();
+    let filePath = join(tempPath, 'conversations', `${conversationId}.json`);
     if (existsSync(filePath)) {
-      return filePath
+      return filePath;
     }
 
     // Search custom spaces
-    const spacesDir = join(spaceDataDir, 'spaces')
+    const spacesDir = join(spaceDataDir, 'spaces');
     if (existsSync(spacesDir)) {
-      const spaceNames = readdirSync(spacesDir)
+      const spaceNames = readdirSync(spacesDir);
       for (const spaceName of spaceNames) {
         try {
-          filePath = join(spacesDir, spaceName, '.aico-bot', 'conversations', `${conversationId}.json`)
+          filePath = join(
+            spacesDir,
+            spaceName,
+            '.aico-bot',
+            'conversations',
+            `${conversationId}.json`,
+          );
           if (existsSync(filePath)) {
-            return filePath
+            return filePath;
           }
         } catch (e) {
           // Continue searching
@@ -343,9 +351,9 @@ export class SearchService {
       }
     }
 
-    return null
+    return null;
   }
 }
 
 // Export singleton instance
-export const searchService = new SearchService()
+export const searchService = new SearchService();

@@ -21,10 +21,14 @@
  */
 
 // Import SDK MCP server creator
-import { createGhSearchMcpServer, getGhSearchSdkToolNames, getGhBinaryPath } from './sdk-mcp-server'
+import {
+  createGhSearchMcpServer,
+  getGhSearchSdkToolNames,
+  getGhBinaryPath,
+} from './sdk-mcp-server';
 
 // Re-export SDK MCP server functions
-export { createGhSearchMcpServer, getGhSearchSdkToolNames }
+export { createGhSearchMcpServer, getGhSearchSdkToolNames };
 
 // ============================================
 // Module Status Check
@@ -35,61 +39,61 @@ export { createGhSearchMcpServer, getGhSearchSdkToolNames }
  * Returns an object with status and optional error message.
  */
 export async function checkGhCliStatus(): Promise<{
-  available: boolean
-  authenticated: boolean
-  error?: string
-  user?: string
+  available: boolean;
+  authenticated: boolean;
+  error?: string;
+  user?: string;
 }> {
-  const { exec } = require('child_process')
-  const { promisify } = require('util')
-  const execAsync = promisify(exec)
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
 
-  const ghBin = getGhBinaryPath()
+  const ghBin = getGhBinaryPath();
 
   try {
     // Check if gh is available (bundled or system)
-    await execAsync(`"${ghBin}" --version`)
+    await execAsync(`"${ghBin}" --version`);
   } catch {
     return {
       available: false,
       authenticated: false,
-      error: 'GitHub CLI (gh) is not installed. Install from https://cli.github.com/'
-    }
+      error: 'GitHub CLI (gh) is not installed. Install from https://cli.github.com/',
+    };
   }
 
   try {
     // Check authentication status
-    const { stdout } = await execAsync(`"${ghBin}" auth status --hostname github.com 2>&1 || true`)
+    const { stdout } = await execAsync(`"${ghBin}" auth status --hostname github.com 2>&1 || true`);
 
     // Parse the output to check if logged in
     if (stdout.includes('not logged in')) {
       return {
         available: true,
         authenticated: false,
-        error: 'GitHub CLI is not authenticated. Run `gh auth login` to authenticate.'
-      }
+        error: 'GitHub CLI is not authenticated. Run `gh auth login` to authenticate.',
+      };
     }
 
     // Try to get the logged in user
     try {
-      const { stdout: userOut } = await execAsync(`"${ghBin}" api user --jq ".login"`)
+      const { stdout: userOut } = await execAsync(`"${ghBin}" api user --jq ".login"`);
       return {
         available: true,
         authenticated: true,
-        user: userOut.trim()
-      }
+        user: userOut.trim(),
+      };
     } catch {
       return {
         available: true,
-        authenticated: true
-      }
+        authenticated: true,
+      };
     }
   } catch (error: any) {
     return {
       available: true,
       authenticated: false,
-      error: error.message
-    }
+      error: error.message,
+    };
   }
 }
 
@@ -101,14 +105,14 @@ export async function checkGhCliStatus(): Promise<{
  * Get all GitHub Search tool names for SDK allowedTools
  */
 export function getGhSearchToolNames(): string[] {
-  return getGhSearchSdkToolNames()
+  return getGhSearchSdkToolNames();
 }
 
 /**
  * Check if a tool name is a GitHub Search tool
  */
 export function isGhSearchTool(toolName: string): boolean {
-  return toolName.startsWith('gh_search_')
+  return toolName.startsWith('gh_search_');
 }
 
 // ============================================
@@ -191,7 +195,15 @@ You have access to GitHub search and view capabilities via the MCP server "gh-se
 4. Default limit is 30 results, max is 100
 5. Use view tools to get detailed info after finding items via search
 6. For commit searches, always specify \`repo:owner/repo\` to avoid timeout or scope errors
-`
+`;
 
 // Re-export types
-export type { GhRepoResult, GhIssueResult, GhPrResult, GhCodeResult, GhCommitResult, GhSearchOptions, GhToolResult } from './types'
+export type {
+  GhRepoResult,
+  GhIssueResult,
+  GhPrResult,
+  GhCodeResult,
+  GhCommitResult,
+  GhSearchOptions,
+  GhToolResult,
+} from './types';

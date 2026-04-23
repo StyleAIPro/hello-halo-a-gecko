@@ -15,89 +15,86 @@
  * - Toasts stack from bottom-right, newest at the bottom
  */
 
-import { create } from 'zustand'
+import { create } from 'zustand';
 
 // ============================================
 // Types
 // ============================================
 
-export type ToastVariant = 'default' | 'success' | 'warning' | 'error'
+export type ToastVariant = 'default' | 'success' | 'warning' | 'error';
 
 export interface ToastAction {
-  label: string
-  onClick: () => void
+  label: string;
+  onClick: () => void;
 }
 
 export interface ToastItem {
   /** Unique ID for this toast instance */
-  id: string
+  id: string;
   /** Notification title (short, bold) */
-  title: string
+  title: string;
   /** Notification body text */
-  body?: string
+  body?: string;
   /** Visual variant — controls icon and accent color */
-  variant: ToastVariant
+  variant: ToastVariant;
   /** Primary action button (e.g. "Restart now", "View") */
-  action?: ToastAction
+  action?: ToastAction;
   /** Secondary action button (e.g. "Later") */
-  secondaryAction?: ToastAction
+  secondaryAction?: ToastAction;
   /** Auto-dismiss duration in ms. 0 = sticky (manual dismiss only). Default: 6000 */
-  duration: number
+  duration: number;
   /** When this toast was created (for ordering) */
-  createdAt: number
+  createdAt: number;
 }
 
 /** Payload accepted by the `show` action — id and createdAt are auto-generated */
 export type ToastInput = Omit<ToastItem, 'id' | 'createdAt'> & {
-  id?: string
-}
+  id?: string;
+};
 
 // ============================================
 // Store Interface
 // ============================================
 
 interface NotificationState {
-  toasts: ToastItem[]
-  show: (input: ToastInput) => string
-  dismiss: (id: string) => void
-  clear: () => void
+  toasts: ToastItem[];
+  show: (input: ToastInput) => string;
+  dismiss: (id: string) => void;
+  clear: () => void;
 }
 
 // ============================================
 // Store
 // ============================================
 
-let toastCounter = 0
+let toastCounter = 0;
 
 export const useNotificationStore = create<NotificationState>((set) => ({
   toasts: [],
 
   show: (input) => {
-    const id = input.id ?? `toast-${++toastCounter}-${Date.now()}`
+    const id = input.id ?? `toast-${++toastCounter}-${Date.now()}`;
     const toast: ToastItem = {
       ...input,
       id,
       createdAt: Date.now(),
-    }
+    };
 
     set((state) => ({
       // Replace existing toast with same id, or append
-      toasts: [
-        ...state.toasts.filter((t) => t.id !== id),
-        toast,
-      ],
-    }))
+      toasts: [...state.toasts.filter((t) => t.id !== id), toast],
+    }));
 
-    return id
+    return id;
   },
 
   dismiss: (id) => {
     set((state) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
-    }))
+    }));
   },
 
   clear: () => {
-    set({ toasts: [] })
+    set({ toasts: [] });
   },
-}))
+}));

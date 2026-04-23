@@ -9,10 +9,10 @@
  *   // isMobile is true when viewport width < 640px
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react';
 
 /** Mobile breakpoint matching Tailwind's sm: 640px */
-export const MOBILE_BREAKPOINT = 640
+export const MOBILE_BREAKPOINT = 640;
 
 /**
  * Hook to detect if viewport is mobile-sized
@@ -20,18 +20,18 @@ export const MOBILE_BREAKPOINT = 640
  */
 export function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.innerWidth < MOBILE_BREAKPOINT
-  })
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < MOBILE_BREAKPOINT;
+  });
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
 
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  return isMobile
+  return isMobile;
 }

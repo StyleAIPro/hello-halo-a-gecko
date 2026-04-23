@@ -16,11 +16,11 @@
  * - Depend on any other platform/ or apps/ modules
  */
 
-import { parseYamlString, normalizeRawSpec } from './parse'
-import { validateAppSpec, validateAppSpecSafe } from './validate'
-import type { AppSpec } from './schema'
-import { AppSpecParseError, AppSpecValidationError } from './errors'
-import type { ValidationIssue } from './errors'
+import { parseYamlString, normalizeRawSpec } from './parse';
+import { validateAppSpec, validateAppSpecSafe } from './validate';
+import type { AppSpec } from './schema';
+import { AppSpecParseError, AppSpecValidationError } from './errors';
+import type { ValidationIssue } from './errors';
 
 // ============================================
 // Initialization
@@ -52,8 +52,8 @@ export function initAppSpec(): void {
  * @throws AppSpecParseError on malformed YAML
  */
 function parseAppSpec(yamlString: string): Record<string, unknown> {
-  const raw = parseYamlString(yamlString)
-  return normalizeRawSpec(raw as Record<string, unknown>)
+  const raw = parseYamlString(yamlString);
+  return normalizeRawSpec(raw as Record<string, unknown>);
 }
 
 /**
@@ -65,8 +65,8 @@ function parseAppSpec(yamlString: string): Record<string, unknown> {
  * @throws AppSpecValidationError on schema validation failure
  */
 function parseAndValidateAppSpec(yamlString: string): AppSpec {
-  const normalized = parseAppSpec(yamlString)
-  return validateAppSpec(normalized)
+  const normalized = parseAppSpec(yamlString);
+  return validateAppSpec(normalized);
 }
 
 // ============================================
@@ -74,16 +74,11 @@ function parseAndValidateAppSpec(yamlString: string): AppSpec {
 // ============================================
 
 // Core functions
-export {
-  parseAppSpec,
-  parseAndValidateAppSpec,
-  validateAppSpec,
-  validateAppSpecSafe
-}
+export { parseAppSpec, parseAndValidateAppSpec, validateAppSpec, validateAppSpecSafe };
 
 // Error types
-export { AppSpecParseError, AppSpecValidationError }
-export type { ValidationIssue }
+export { AppSpecParseError, AppSpecValidationError };
+export type { ValidationIssue };
 
 // Zod schemas (for advanced consumers who need schema introspection)
 export {
@@ -109,8 +104,8 @@ export {
   MemorySchemaSchema,
   MemoryFieldSchema,
   EscalationConfigSchema,
-  FrequencyDefSchema
-} from './schema'
+  FrequencyDefSchema,
+} from './schema';
 
 // TypeScript types (derived from Zod via z.infer<>)
 export type {
@@ -129,5 +124,5 @@ export type {
   McpServerConfig,
   OutputConfig,
   Requires,
-  EscalationConfig
-} from './schema'
+  EscalationConfig,
+} from './schema';

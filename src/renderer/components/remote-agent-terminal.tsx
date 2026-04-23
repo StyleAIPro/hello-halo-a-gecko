@@ -3,26 +3,26 @@
  * Displays command output from remote server operations
  */
 
-import React from 'react'
-import { Terminal, Minimize2, CheckCircle2, XCircle } from 'lucide-react'
+import React from 'react';
+import { Terminal, Minimize2, CheckCircle2, XCircle } from 'lucide-react';
 
 interface TerminalEntry {
-  id: string
-  timestamp: number
-  type: 'command' | 'output' | 'error' | 'success'
-  content: string
+  id: string;
+  timestamp: number;
+  type: 'command' | 'output' | 'error' | 'success';
+  content: string;
 }
 
 export function RemoteAgentTerminal({
   entries,
   isOpen,
-  onClose
+  onClose,
 }: {
-  entries: TerminalEntry[]
-  isOpen: boolean
-  onClose: () => void
+  entries: TerminalEntry[];
+  isOpen: boolean;
+  onClose: () => void;
 }) {
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-4 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -79,5 +79,5 @@ export function RemoteAgentTerminal({
         </div>
       </div>
     </div>
-  )
+  );
 }

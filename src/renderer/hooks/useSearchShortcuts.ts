@@ -7,39 +7,36 @@
  * - Cmd+Shift+F / Ctrl+Shift+F: Space search
  */
 
-import { useEffect } from 'react'
-import { SearchScope } from '@/components/search'
+import { useEffect } from 'react';
+import type { SearchScope } from '@/components/search';
 
 interface UseSearchShortcutsOptions {
-  enabled?: boolean
-  onSearch?: (scope: SearchScope) => void
+  enabled?: boolean;
+  onSearch?: (scope: SearchScope) => void;
 }
 
-export function useSearchShortcuts({
-  enabled = true,
-  onSearch
-}: UseSearchShortcutsOptions = {}) {
+export function useSearchShortcuts({ enabled = true, onSearch }: UseSearchShortcutsOptions = {}) {
   useEffect(() => {
-    if (!enabled || !onSearch) return
+    if (!enabled || !onSearch) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = typeof navigator !== 'undefined' &&
-        navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const isMac =
+        typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
-      const metaKey = isMac ? e.metaKey : e.ctrlKey
+      const metaKey = isMac ? e.metaKey : e.ctrlKey;
 
       // Cmd+K / Ctrl+K - Global search
       if (metaKey && e.key === 'k' && !e.shiftKey) {
-        e.preventDefault()
-        onSearch('global')
-        return
+        e.preventDefault();
+        onSearch('global');
+        return;
       }
 
       // Cmd+Shift+F / Ctrl+Shift+F - Space search
       if (metaKey && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
-        e.preventDefault()
-        onSearch('space')
-        return
+        e.preventDefault();
+        onSearch('space');
+        return;
       }
 
       // Cmd+F / Ctrl+F - Conversation search
@@ -48,14 +45,14 @@ export function useSearchShortcuts({
       if (metaKey && (e.key === 'f' || e.key === 'F') && !e.shiftKey) {
         // Only handle in Electron mode to avoid browser Find conflict
         if (typeof window !== 'undefined' && 'aicoBot' in window) {
-          e.preventDefault()
-          onSearch('conversation')
+          e.preventDefault();
+          onSearch('conversation');
         }
-        return
+        return;
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [enabled, onSearch])
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [enabled, onSearch]);
 }

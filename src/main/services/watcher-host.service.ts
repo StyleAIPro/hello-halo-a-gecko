@@ -8,43 +8,49 @@
  * - Provide async request/response API for scan operations
  */
 
-import { fork, type ChildProcess } from 'child_process'
-import { join } from 'path'
+import { fork, type ChildProcess } from 'child_process';
+import { join } from 'path';
 import type {
   MainToWorkerMessage,
   WorkerToMainMessage,
-  ProcessedFsEvent
-} from '../../shared/protocol/file-watcher.protocol'
-import type { CachedTreeNode, CachedArtifact } from '../../shared/types/artifact'
+  ProcessedFsEvent,
+} from '../../shared/protocol/file-watcher.protocol';
+import type { CachedTreeNode, CachedArtifact } from '../../shared/types/artifact';
 
 // --- Worker process management ---
 
-let workerProcess: ChildProcess | null = null
-let isShuttingDown = false
+let workerProcess: ChildProcess | null = null;
+let isShuttingDown = false;
 
 // Track active spaces for crash recovery (re-init after restart)
-const activeSpaces = new Map<string, string>() // spaceId -> rootPath
+const activeSpaces = new Map<string, string>(); // spaceId -> rootPath
 
 // Pending scan requests: requestId -> { resolve, reject, timer }
-const pendingScans = new Map<string, {
-  resolve: (msg: WorkerToMainMessage & { type: 'scan-result' }) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}>()
+const pendingScans = new Map<
+  string,
+  {
+    resolve: (msg: WorkerToMainMessage & { type: 'scan-result' }) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 // Pending destroy requests: spaceId -> { resolve, timer }
-const pendingDestroys = new Map<string, {
-  resolve: () => void
-  timer: ReturnType<typeof setTimeout>
-}>()
+const pendingDestroys = new Map<
+  string,
+  {
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 // Callbacks for events from worker
 // fsEventsCallbacks supports multiple subscribers (artifact-cache + event-bus FileWatcherSource)
-const onFsEventsCallbacks = new Set<(spaceId: string, events: ProcessedFsEvent[]) => void>()
-let onSpaceReadyCallback: ((spaceId: string) => void) | null = null
-let onSpaceErrorCallback: ((spaceId: string, error: string) => void) | null = null
+const onFsEventsCallbacks = new Set<(spaceId: string, events: ProcessedFsEvent[]) => void>();
+let onSpaceReadyCallback: ((spaceId: string) => void) | null = null;
+let onSpaceErrorCallback: ((spaceId: string, error: string) => void) | null = null;
 
-const SCAN_TIMEOUT_MS = 30000
+const SCAN_TIMEOUT_MS = 30000;
 
 /**
  * Get worker entry file path.
@@ -54,93 +60,93 @@ const SCAN_TIMEOUT_MS = 30000
 function getWorkerEntryPath(): string {
   // electron-vite puts worker output under out/main/worker/file-watcher/index.cjs
   // __dirname at runtime is out/main/, so the relative path is ./worker/...
-  return join(__dirname, 'worker/file-watcher/index.mjs')
+  return join(__dirname, 'worker/file-watcher/index.mjs');
 }
 
 /**
  * Fork the file-watcher worker process using child_process.fork().
  */
 function forkWorker(): ChildProcess {
-  const workerPath = getWorkerEntryPath()
-  console.log(`[WatcherHost] Forking worker: ${workerPath}`)
+  const workerPath = getWorkerEntryPath();
+  console.log(`[WatcherHost] Forking worker: ${workerPath}`);
 
   const child = fork(workerPath, [], {
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env },
-  })
+  });
 
   // Handle messages from worker
   child.on('message', (msg: WorkerToMainMessage) => {
-    handleWorkerMessage(msg)
-  })
+    handleWorkerMessage(msg);
+  });
 
   // Pipe worker stdout/stderr to main process log
   child.stdout?.on('data', (data: Buffer) => {
-    console.log(`[WatcherWorker] ${data.toString().trim()}`)
-  })
+    console.log(`[WatcherWorker] ${data.toString().trim()}`);
+  });
   child.stderr?.on('data', (data: Buffer) => {
-    console.error(`[WatcherWorker] ${data.toString().trim()}`)
-  })
+    console.error(`[WatcherWorker] ${data.toString().trim()}`);
+  });
 
   // Handle worker exit
   child.on('exit', (code, signal) => {
-    console.warn(`[WatcherHost] Worker exited: code=${code}, signal=${signal}`)
-    workerProcess = null
+    console.warn(`[WatcherHost] Worker exited: code=${code}, signal=${signal}`);
+    workerProcess = null;
 
     // Reject all pending scans
     for (const [requestId, pending] of Array.from(pendingScans.entries())) {
-      clearTimeout(pending.timer)
-      pending.reject(new Error(`Worker exited unexpectedly (code=${code})`))
-      pendingScans.delete(requestId)
+      clearTimeout(pending.timer);
+      pending.reject(new Error(`Worker exited unexpectedly (code=${code})`));
+      pendingScans.delete(requestId);
     }
 
     // Resolve all pending destroys (worker gone = handles released)
     for (const [, pending] of Array.from(pendingDestroys.entries())) {
-      clearTimeout(pending.timer)
-      pending.resolve()
+      clearTimeout(pending.timer);
+      pending.resolve();
     }
-    pendingDestroys.clear()
+    pendingDestroys.clear();
 
     // Auto-restart unless shutting down
     if (!isShuttingDown && code !== 0) {
-      console.log('[WatcherHost] Auto-restarting worker in 1s...')
+      console.log('[WatcherHost] Auto-restarting worker in 1s...');
       setTimeout(() => {
         if (!isShuttingDown) {
-          restartWithActiveSpaces()
+          restartWithActiveSpaces();
         }
-      }, 1000)
+      }, 1000);
     }
-  })
+  });
 
   child.on('error', (error) => {
-    console.error('[WatcherHost] Worker error:', error)
-  })
+    console.error('[WatcherHost] Worker error:', error);
+  });
 
-  return child
+  return child;
 }
 
 /**
  * Restart worker and re-initialize all previously active spaces.
  */
 function restartWithActiveSpaces(): void {
-  const worker = ensureWorker()
+  const worker = ensureWorker();
   // Re-init all active spaces
   for (const [spaceId, rootPath] of Array.from(activeSpaces.entries())) {
-    console.log(`[WatcherHost] Re-initializing space after restart: ${spaceId}`)
-    worker.send({ type: 'init-space', spaceId, rootPath } satisfies MainToWorkerMessage)
+    console.log(`[WatcherHost] Re-initializing space after restart: ${spaceId}`);
+    worker.send({ type: 'init-space', spaceId, rootPath } satisfies MainToWorkerMessage);
   }
 }
 
 function ensureWorker(): ChildProcess {
   if (!workerProcess) {
-    workerProcess = forkWorker()
+    workerProcess = forkWorker();
   }
-  return workerProcess
+  return workerProcess;
 }
 
 function sendToWorker(msg: MainToWorkerMessage): void {
-  const worker = ensureWorker()
-  worker.send(msg)
+  const worker = ensureWorker();
+  worker.send(msg);
 }
 
 // --- Worker message handler ---
@@ -148,78 +154,80 @@ function sendToWorker(msg: MainToWorkerMessage): void {
 function handleWorkerMessage(msg: WorkerToMainMessage): void {
   switch (msg.type) {
     case 'space-ready':
-      console.log(`[WatcherHost] Space ready: ${msg.spaceId}`)
-      onSpaceReadyCallback?.(msg.spaceId)
-      break
+      console.log(`[WatcherHost] Space ready: ${msg.spaceId}`);
+      onSpaceReadyCallback?.(msg.spaceId);
+      break;
 
     case 'space-error':
-      console.error(`[WatcherHost] Space error: ${msg.spaceId} - ${msg.error}`)
-      onSpaceErrorCallback?.(msg.spaceId, msg.error)
-      break
+      console.error(`[WatcherHost] Space error: ${msg.spaceId} - ${msg.error}`);
+      onSpaceErrorCallback?.(msg.spaceId, msg.error);
+      break;
 
     case 'scan-result': {
-      const pending = pendingScans.get(msg.requestId)
+      const pending = pendingScans.get(msg.requestId);
       if (pending) {
-        clearTimeout(pending.timer)
-        pending.resolve(msg as WorkerToMainMessage & { type: 'scan-result' })
-        pendingScans.delete(msg.requestId)
+        clearTimeout(pending.timer);
+        pending.resolve(msg as WorkerToMainMessage & { type: 'scan-result' });
+        pendingScans.delete(msg.requestId);
       }
-      break
+      break;
     }
 
     case 'scan-error': {
-      const pending = pendingScans.get(msg.requestId)
+      const pending = pendingScans.get(msg.requestId);
       if (pending) {
-        clearTimeout(pending.timer)
-        pending.reject(new Error(msg.error))
-        pendingScans.delete(msg.requestId)
+        clearTimeout(pending.timer);
+        pending.reject(new Error(msg.error));
+        pendingScans.delete(msg.requestId);
       }
-      break
+      break;
     }
 
     case 'fs-events':
       for (const cb of Array.from(onFsEventsCallbacks)) {
-        try { cb(msg.spaceId, msg.events) } catch (err) {
-          console.error('[WatcherHost] fs-events callback error:', err)
+        try {
+          cb(msg.spaceId, msg.events);
+        } catch (err) {
+          console.error('[WatcherHost] fs-events callback error:', err);
         }
       }
-      break
+      break;
 
     case 'space-destroyed': {
-      const pending = pendingDestroys.get(msg.spaceId)
+      const pending = pendingDestroys.get(msg.spaceId);
       if (pending) {
-        clearTimeout(pending.timer)
-        pending.resolve()
-        pendingDestroys.delete(msg.spaceId)
+        clearTimeout(pending.timer);
+        pending.resolve();
+        pendingDestroys.delete(msg.spaceId);
       }
-      break
+      break;
     }
 
     case 'log':
       if (msg.level === 'error') {
-        console.error(`[WatcherWorker] ${msg.message}`)
+        console.error(`[WatcherWorker] ${msg.message}`);
       } else if (msg.level === 'warn') {
-        console.warn(`[WatcherWorker] ${msg.message}`)
+        console.warn(`[WatcherWorker] ${msg.message}`);
       } else {
-        console.log(`[WatcherWorker] ${msg.message}`)
+        console.log(`[WatcherWorker] ${msg.message}`);
       }
-      break
+      break;
   }
 }
 
 // --- Public API ---
 
-let scanIdCounter = 0
+let scanIdCounter = 0;
 function nextScanId(): string {
-  return `scan-${++scanIdCounter}-${Date.now()}`
+  return `scan-${++scanIdCounter}-${Date.now()}`;
 }
 
 /**
  * Initialize watcher for a space (non-blocking, returns immediately)
  */
 export function initSpaceWatcher(spaceId: string, rootPath: string): void {
-  activeSpaces.set(spaceId, rootPath)
-  sendToWorker({ type: 'init-space', spaceId, rootPath })
+  activeSpaces.set(spaceId, rootPath);
+  sendToWorker({ type: 'init-space', spaceId, rootPath });
 }
 
 /**
@@ -227,20 +235,20 @@ export function initSpaceWatcher(spaceId: string, rootPath: string): void {
  * has confirmed the watcher is closed (file handles released).
  */
 export function destroySpaceWatcher(spaceId: string): Promise<void> {
-  activeSpaces.delete(spaceId)
+  activeSpaces.delete(spaceId);
 
   return new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       // If worker doesn't respond within timeout, resolve anyway
       // (file handles may already be released or space may have no watcher)
-      console.warn(`[WatcherHost] destroy-space timeout for ${spaceId}, proceeding`)
-      pendingDestroys.delete(spaceId)
-      resolve()
-    }, 5000)
+      console.warn(`[WatcherHost] destroy-space timeout for ${spaceId}, proceeding`);
+      pendingDestroys.delete(spaceId);
+      resolve();
+    }, 5000);
 
-    pendingDestroys.set(spaceId, { resolve, timer })
-    sendToWorker({ type: 'destroy-space', spaceId })
-  })
+    pendingDestroys.set(spaceId, { resolve, timer });
+    sendToWorker({ type: 'destroy-space', spaceId });
+  });
 }
 
 /**
@@ -250,25 +258,25 @@ export async function scanTreeViaWorker(
   spaceId: string,
   dirPath: string,
   rootPath: string,
-  depth: number
+  depth: number,
 ): Promise<CachedTreeNode[]> {
-  const requestId = nextScanId()
+  const requestId = nextScanId();
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingScans.delete(requestId)
-      reject(new Error(`Scan timeout: ${dirPath}`))
-    }, SCAN_TIMEOUT_MS)
+      pendingScans.delete(requestId);
+      reject(new Error(`Scan timeout: ${dirPath}`));
+    }, SCAN_TIMEOUT_MS);
 
     pendingScans.set(requestId, {
       resolve: (msg) => {
-        resolve(msg.nodes || [])
+        resolve(msg.nodes || []);
       },
       reject: (error) => {
-        reject(error)
+        reject(error);
       },
-      timer
-    })
+      timer,
+    });
 
     sendToWorker({
       type: 'scan-dir',
@@ -277,9 +285,9 @@ export async function scanTreeViaWorker(
       dirPath,
       rootPath,
       depth,
-      mode: 'tree'
-    })
-  })
+      mode: 'tree',
+    });
+  });
 }
 
 /**
@@ -289,25 +297,25 @@ export async function scanFlatViaWorker(
   spaceId: string,
   dirPath: string,
   rootPath: string,
-  maxDepth: number
+  maxDepth: number,
 ): Promise<CachedArtifact[]> {
-  const requestId = nextScanId()
+  const requestId = nextScanId();
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingScans.delete(requestId)
-      reject(new Error(`Scan timeout: ${dirPath}`))
-    }, SCAN_TIMEOUT_MS)
+      pendingScans.delete(requestId);
+      reject(new Error(`Scan timeout: ${dirPath}`));
+    }, SCAN_TIMEOUT_MS);
 
     pendingScans.set(requestId, {
       resolve: (msg) => {
-        resolve(msg.artifacts || [])
+        resolve(msg.artifacts || []);
       },
       reject: (error) => {
-        reject(error)
+        reject(error);
       },
-      timer
-    })
+      timer,
+    });
 
     sendToWorker({
       type: 'scan-dir',
@@ -317,16 +325,16 @@ export async function scanFlatViaWorker(
       rootPath,
       depth: 0,
       mode: 'flat',
-      maxDepth
-    })
-  })
+      maxDepth,
+    });
+  });
 }
 
 /**
  * Reload .gitignore rules for a space
  */
 export function refreshIgnoreRules(spaceId: string, rootPath: string): void {
-  sendToWorker({ type: 'refresh-ignore', spaceId, rootPath })
+  sendToWorker({ type: 'refresh-ignore', spaceId, rootPath });
 }
 
 /**
@@ -335,10 +343,12 @@ export function refreshIgnoreRules(spaceId: string, rootPath: string): void {
  * Returns an unsubscribe function that removes this specific handler.
  */
 export function addFsEventsHandler(
-  cb: (spaceId: string, events: ProcessedFsEvent[]) => void
+  cb: (spaceId: string, events: ProcessedFsEvent[]) => void,
 ): () => void {
-  onFsEventsCallbacks.add(cb)
-  return () => { onFsEventsCallbacks.delete(cb) }
+  onFsEventsCallbacks.add(cb);
+  return () => {
+    onFsEventsCallbacks.delete(cb);
+  };
 }
 
 /**
@@ -346,9 +356,9 @@ export function addFsEventsHandler(
  * Kept for backward compatibility; adds to the handler set (does not replace).
  */
 export function setFsEventsHandler(
-  cb: (spaceId: string, events: ProcessedFsEvent[]) => void
+  cb: (spaceId: string, events: ProcessedFsEvent[]) => void,
 ): void {
-  onFsEventsCallbacks.add(cb)
+  onFsEventsCallbacks.add(cb);
 }
 
 /**
@@ -357,9 +367,9 @@ export function setFsEventsHandler(
  */
 export function setSpaceReadyHandler(cb: (spaceId: string) => void): void {
   if (onSpaceReadyCallback) {
-    console.warn('[WatcherHost] Overwriting existing SpaceReady handler')
+    console.warn('[WatcherHost] Overwriting existing SpaceReady handler');
   }
-  onSpaceReadyCallback = cb
+  onSpaceReadyCallback = cb;
 }
 
 /**
@@ -368,52 +378,52 @@ export function setSpaceReadyHandler(cb: (spaceId: string) => void): void {
  */
 export function setSpaceErrorHandler(cb: (spaceId: string, error: string) => void): void {
   if (onSpaceErrorCallback) {
-    console.warn('[WatcherHost] Overwriting existing SpaceError handler')
+    console.warn('[WatcherHost] Overwriting existing SpaceError handler');
   }
-  onSpaceErrorCallback = cb
+  onSpaceErrorCallback = cb;
 }
 
 /**
  * Shutdown the worker process gracefully
  */
 export async function shutdown(): Promise<void> {
-  isShuttingDown = true
-  activeSpaces.clear()
+  isShuttingDown = true;
+  activeSpaces.clear();
 
   // Reject all pending scans
   for (const [requestId, pending] of Array.from(pendingScans.entries())) {
-    clearTimeout(pending.timer)
-    pending.reject(new Error('Worker shutting down'))
-    pendingScans.delete(requestId)
+    clearTimeout(pending.timer);
+    pending.reject(new Error('Worker shutting down'));
+    pendingScans.delete(requestId);
   }
 
   // Resolve all pending destroys
   for (const [, pending] of Array.from(pendingDestroys.entries())) {
-    clearTimeout(pending.timer)
-    pending.resolve()
+    clearTimeout(pending.timer);
+    pending.resolve();
   }
-  pendingDestroys.clear()
+  pendingDestroys.clear();
 
   if (workerProcess) {
-    console.log('[WatcherHost] Shutting down worker...')
+    console.log('[WatcherHost] Shutting down worker...');
 
-    workerProcess.kill('SIGTERM')
+    workerProcess.kill('SIGTERM');
 
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (workerProcess) {
-          console.warn('[WatcherHost] Force killing worker after timeout')
-          workerProcess.kill('SIGKILL')
+          console.warn('[WatcherHost] Force killing worker after timeout');
+          workerProcess.kill('SIGKILL');
         }
-        resolve()
-      }, 3000)
+        resolve();
+      }, 3000);
 
       workerProcess!.on('exit', () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+        clearTimeout(timer);
+        resolve();
+      });
+    });
 
-    workerProcess = null
+    workerProcess = null;
   }
 }

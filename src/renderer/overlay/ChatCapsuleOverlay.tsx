@@ -15,15 +15,15 @@
  * - Hover preview of recent messages
  */
 
-import { MessageCircle } from 'lucide-react'
-import { useTranslation } from '../i18n'
+import { MessageCircle } from 'lucide-react';
+import { useTranslation } from '../i18n';
 
 interface ChatCapsuleOverlayProps {
-  onClick: () => void
+  onClick: () => void;
 }
 
 export function ChatCapsuleOverlay({ onClick }: ChatCapsuleOverlayProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   return (
     <button
@@ -50,18 +50,20 @@ export function ChatCapsuleOverlay({ onClick }: ChatCapsuleOverlayProps) {
         pointerEvents: 'auto',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)'
-        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.3)'
+        e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
+        e.currentTarget.style.boxShadow =
+          '0 6px 16px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.3)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(-50%) scale(1)'
-        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.2)'
+        e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+        e.currentTarget.style.boxShadow =
+          '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.2)';
       }}
       onMouseDown={(e) => {
-        e.currentTarget.style.transform = 'translateY(-50%) scale(0.95)'
+        e.currentTarget.style.transform = 'translateY(-50%) scale(0.95)';
       }}
       onMouseUp={(e) => {
-        e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)'
+        e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
       }}
       title={t('Return to conversation')}
       aria-label={t('Exit fullscreen and return to chat')}
@@ -75,5 +77,5 @@ export function ChatCapsuleOverlay({ onClick }: ChatCapsuleOverlayProps) {
         }}
       />
     </button>
-  )
+  );
 }

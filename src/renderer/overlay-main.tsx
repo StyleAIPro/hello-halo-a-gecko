@@ -17,17 +17,17 @@
  * - Sends user interactions back via IPC
  */
 
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { OverlayApp } from './overlay/OverlayApp'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { OverlayApp } from './overlay/OverlayApp';
 // Initialize shared i18n for the overlay experience
-import './i18n'
+import './i18n';
 // NOTE: Don't import globals.css here - it sets body background color
 // which breaks transparency. Overlay needs transparent background.
-import './overlay/overlay.css'
+import './overlay/overlay.css';
 
-const rootElement = document.getElementById('root')
+const rootElement = document.getElementById('root');
 
 if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(<OverlayApp />)
+  ReactDOM.createRoot(rootElement).render(<OverlayApp />);
 }

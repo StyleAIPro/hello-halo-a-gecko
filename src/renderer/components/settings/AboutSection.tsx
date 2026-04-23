@@ -3,59 +3,68 @@
  * Displays version info and update status
  */
 
-import { useState, useEffect } from 'react'
-import { Loader2 } from 'lucide-react'
-import { useTranslation } from '../../i18n'
-import { api } from '../../api'
-import type { UpdateStatus } from './types'
+import { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { api } from '../../api';
+import type { UpdateStatus } from './types';
 
-declare const __BUILD_TIME__: string
+declare const __BUILD_TIME__: string;
 
 export function AboutSection() {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // App version state
-  const [appVersion, setAppVersion] = useState<string>('')
+  const [appVersion, setAppVersion] = useState<string>('');
 
   // Update check state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     checking: false,
     hasUpdate: false,
-    upToDate: false
-  })
+    upToDate: false,
+  });
 
   // Load app version
   useEffect(() => {
     api.getVersion().then((result) => {
       if (result.success && result.data) {
-        setAppVersion(result.data)
+        setAppVersion(result.data);
       }
-    })
-  }, [])
+    });
+  }, []);
 
   // Listen for update status
   useEffect(() => {
     const unsubscribe = api.onUpdaterStatus((data) => {
       if (data.status === 'checking') {
-        setUpdateStatus({ checking: true, hasUpdate: false, upToDate: false })
+        setUpdateStatus({ checking: true, hasUpdate: false, upToDate: false });
       } else if (data.status === 'not-available') {
-        setUpdateStatus({ checking: false, hasUpdate: false, upToDate: true })
-      } else if (data.status === 'manual-download' || data.status === 'available' || data.status === 'downloaded') {
-        setUpdateStatus({ checking: false, hasUpdate: true, upToDate: false, version: data.version })
+        setUpdateStatus({ checking: false, hasUpdate: false, upToDate: true });
+      } else if (
+        data.status === 'manual-download' ||
+        data.status === 'available' ||
+        data.status === 'downloaded'
+      ) {
+        setUpdateStatus({
+          checking: false,
+          hasUpdate: true,
+          upToDate: false,
+          version: data.version,
+        });
       } else if (data.status === 'error') {
-        setUpdateStatus({ checking: false, hasUpdate: false, upToDate: false })
+        setUpdateStatus({ checking: false, hasUpdate: false, upToDate: false });
       } else {
-        setUpdateStatus(prev => ({ ...prev, checking: false }))
+        setUpdateStatus((prev) => ({ ...prev, checking: false }));
       }
-    })
-    return () => unsubscribe()
-  }, [])
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Handle check for updates
   const handleCheckForUpdates = async () => {
-    setUpdateStatus({ checking: true, hasUpdate: false, upToDate: false })
-    await api.checkForUpdates()
-  }
+    setUpdateStatus({ checking: true, hasUpdate: false, upToDate: false });
+    await api.checkForUpdates();
+  };
 
   return (
     <section id="about" className="bg-card rounded-xl border border-border p-6">
@@ -65,7 +74,11 @@ export function AboutSection() {
         <div className="flex justify-between items-center">
           <span className="text-muted-foreground">{t('Version')}</span>
           <div className="flex items-center gap-3">
-            <span>{appVersion ? `${appVersion} (${__BUILD_TIME__.replace(/T(\d{2}):(\d{2}).*/, '-$1$2')})` : '-'}</span>
+            <span>
+              {appVersion
+                ? `${appVersion} (${__BUILD_TIME__.replace(/T(\d{2}):(\d{2}).*/, '-$1$2')})`
+                : '-'}
+            </span>
             <button
               onClick={handleCheckForUpdates}
               disabled={updateStatus.checking}
@@ -77,7 +90,9 @@ export function AboutSection() {
                   {t('Checking...')}
                 </span>
               ) : updateStatus.hasUpdate ? (
-                <span className="text-emerald-500">{t('New version available')}: {updateStatus.version}</span>
+                <span className="text-emerald-500">
+                  {t('New version available')}: {updateStatus.version}
+                </span>
               ) : updateStatus.upToDate ? (
                 <span className="text-muted-foreground">{t('Already up to date')}</span>
               ) : (
@@ -92,5 +107,5 @@ export function AboutSection() {
         </div>
       </div>
     </section>
-  )
+  );
 }

@@ -5,7 +5,7 @@
  * Ported from puppeteer-extra-plugin-stealth (MIT License).
  */
 
-import chromeRuntimeData from '../data/chrome-runtime.json'
+import chromeRuntimeData from '../data/chrome-runtime.json';
 
 export const chromeRuntimeEvasion = `
 (function() {

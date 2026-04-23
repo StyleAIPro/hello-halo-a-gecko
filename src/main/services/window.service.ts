@@ -11,16 +11,16 @@
  * - Supports renderer recovery (window recreation) seamlessly
  */
 
-import { BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron';
 
 // Callback type for window change listeners
-type WindowChangeCallback = (window: BrowserWindow | null) => void
+type WindowChangeCallback = (window: BrowserWindow | null) => void;
 
 // Listener registry (same pattern as artifact-cache.service.ts)
-const windowChangeListeners: WindowChangeCallback[] = []
+const windowChangeListeners: WindowChangeCallback[] = [];
 
 // Current main window reference
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null;
 
 /**
  * Get the current main window
@@ -28,9 +28,9 @@ let mainWindow: BrowserWindow | null = null
  */
 export function getMainWindow(): BrowserWindow | null {
   if (mainWindow && mainWindow.isDestroyed()) {
-    mainWindow = null
+    mainWindow = null;
   }
-  return mainWindow
+  return mainWindow;
 }
 
 /**
@@ -43,19 +43,19 @@ export function getMainWindow(): BrowserWindow | null {
  * - recoverRenderer() when recreating window
  */
 export function setMainWindow(window: BrowserWindow | null): void {
-  const previousWindow = mainWindow
-  mainWindow = window
+  const previousWindow = mainWindow;
+  mainWindow = window;
 
   // Only notify if window actually changed
   if (previousWindow !== window) {
-    console.log(`[WindowService] Main window ${window ? 'set' : 'cleared'}`)
+    console.log(`[WindowService] Main window ${window ? 'set' : 'cleared'}`);
 
     // Notify all listeners
     for (const listener of windowChangeListeners) {
       try {
-        listener(window)
+        listener(window);
       } catch (error) {
-        console.error('[WindowService] Listener error:', error)
+        console.error('[WindowService] Listener error:', error);
       }
     }
   }
@@ -77,25 +77,25 @@ export function setMainWindow(window: BrowserWindow | null): void {
  * ```
  */
 export function onMainWindowChange(callback: WindowChangeCallback): () => void {
-  windowChangeListeners.push(callback)
+  windowChangeListeners.push(callback);
 
   // Immediately call with current window (if exists)
   // This ensures modules get the reference even if they subscribe after window creation
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
-      callback(mainWindow)
+      callback(mainWindow);
     } catch (error) {
-      console.error('[WindowService] Initial callback error:', error)
+      console.error('[WindowService] Initial callback error:', error);
     }
   }
 
   // Return unsubscribe function
   return () => {
-    const index = windowChangeListeners.indexOf(callback)
+    const index = windowChangeListeners.indexOf(callback);
     if (index > -1) {
-      windowChangeListeners.splice(index, 1)
+      windowChangeListeners.splice(index, 1);
     }
-  }
+  };
 }
 
 /**
@@ -107,14 +107,14 @@ export function onMainWindowChange(callback: WindowChangeCallback): () => void {
  * @returns true if message was sent, false otherwise
  */
 export function sendToRenderer(channel: string, ...args: unknown[]): boolean {
-  const window = getMainWindow()
+  const window = getMainWindow();
   if (window && !window.isDestroyed()) {
     try {
-      window.webContents.send(channel, ...args)
-      return true
+      window.webContents.send(channel, ...args);
+      return true;
     } catch (error) {
-      console.error(`[WindowService] Failed to send '${channel}':`, error)
+      console.error(`[WindowService] Failed to send '${channel}':`, error);
     }
   }
-  return false
+  return false;
 }

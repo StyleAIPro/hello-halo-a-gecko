@@ -637,6 +637,8 @@ export class ClaudeManager {
   private interruptedSessions: Set<string> = new Set()  // Sessions marked for interrupt
   // Track active stream iterators for forceful interruption
   private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
+  // Pending messages queue — stores messages for sessions with active streams
+  private pendingMessages: Map<string, Array<{content: string, options?: any}>> = new Map()
 
   // Configuration
   private apiKey?: string
@@ -906,7 +908,12 @@ export class ClaudeManager {
     const options: any = {
       model: effectiveModel || 'claude-sonnet-4-6',
       cwd: effectiveWorkDir,
-      systemPrompt,
+      // Use SDK's 'preset' type so built-in skill injection works,
+      // then append AICO-Bot custom system prompt (mirrors local sdk-config.ts)
+      systemPrompt: {
+        type: 'preset',
+        append: systemPrompt,
+      },
       permissionMode: 'bypassPermissions',
       extraArgs: {
         'dangerously-skip-permissions': null
@@ -1012,21 +1019,115 @@ export class ClaudeManager {
       options.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(effectiveContextWindow)
     }
 
-    // Use ~/.agents/claude-config/ for SDK config (consistent with local AICO-Bot)
+    // Merge skills from ~/.agents/skills/ and ~/.claude/skills/ into configSkillsDir
+    // (mirrors local sdk-config.ts mergeSkillsDirs logic, adapted for Linux 'dir' symlinks)
     const agentsDir = path.join(os.homedir(), '.agents')
     const configDir = path.join(agentsDir, 'claude-config')
     const skillsDir = path.join(agentsDir, 'skills')
+    const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills')
     const configSkillsDir = path.join(configDir, 'skills')
 
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true })
     }
-    if (fs.existsSync(skillsDir) && !fs.existsSync(configSkillsDir)) {
-      fs.symlinkSync(skillsDir, configSkillsDir)
+
+    // Replace legacy single-dir symlink with a real directory
+    try {
+      const configSkillsLstat = fs.lstatSync(configSkillsDir)
+      if (configSkillsLstat.isSymbolicLink()) {
+        fs.unlinkSync(configSkillsDir)
+        fs.mkdirSync(configSkillsDir, { recursive: true })
+      }
+    } catch {
+      // configSkillsDir does not exist yet — create it
+      fs.mkdirSync(configSkillsDir, { recursive: true })
+    }
+
+    // Collect candidates: skillName -> { sourcePath, mtime } (dedup by newest mtime)
+    const candidates = new Map<string, { sourcePath: string; mtime: number }>()
+    for (const sourceDir of [skillsDir, claudeSkillsDir]) {
+      try {
+        if (!fs.existsSync(sourceDir)) continue
+        const entries = fs.readdirSync(sourceDir, { withFileTypes: true })
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          const sourcePath = path.join(sourceDir, entry.name)
+          try {
+            // Skip disabled skills (META.json.enabled === false)
+            const metaPath = path.join(sourcePath, 'META.json')
+            try {
+              const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+              if (meta.enabled === false) continue
+            } catch {
+              // META.json missing or invalid — proceed
+            }
+
+            const stat = fs.statSync(sourcePath)
+            const existing = candidates.get(entry.name)
+            if (!existing || stat.mtimeMs > existing.mtime) {
+              candidates.set(entry.name, { sourcePath, mtime: stat.mtimeMs })
+            }
+          } catch {
+            // stat failed, skip
+          }
+        }
+      } catch (err) {
+        console.warn('[ClaudeManager] Failed to read source dir:', sourceDir, err)
+      }
+    }
+
+    // Clean up stale symlinks in configSkillsDir
+    try {
+      const existingEntries = fs.readdirSync(configSkillsDir, { withFileTypes: true })
+      for (const entry of existingEntries) {
+        if (!entry.isDirectory()) continue
+        if (!candidates.has(entry.name)) {
+          try {
+            fs.unlinkSync(path.join(configSkillsDir, entry.name))
+            console.log(`[ClaudeManager] Removed stale skill link: ${entry.name}`)
+          } catch {
+            // ignore
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Create per-skill symlinks (use 'dir' type on Linux)
+    for (const [name, { sourcePath }] of candidates) {
+      const targetPath = path.join(configSkillsDir, name)
+      try {
+        fs.unlinkSync(targetPath)
+      } catch {
+        /* doesn't exist, proceed */
+      }
+      try {
+        fs.symlinkSync(sourcePath, targetPath, 'dir')
+      } catch (err) {
+        console.warn(`[ClaudeManager] Failed to link skill ${name}:`, err)
+      }
+    }
+
+    // Create .claude/skills symlink for SDK project-level discovery
+    const dotClaudeDir = path.join(configDir, '.claude')
+    const dotClaudeSkillsDir = path.join(dotClaudeDir, 'skills')
+    if (!fs.existsSync(dotClaudeDir)) {
+      fs.mkdirSync(dotClaudeDir, { recursive: true })
+    }
+    if (!fs.existsSync(dotClaudeSkillsDir)) {
+      try {
+        fs.symlinkSync(configSkillsDir, dotClaudeSkillsDir, 'dir')
+      } catch (err) {
+        console.warn('[ClaudeManager] Failed to create .claude/skills symlink:', err)
+      }
     }
 
     options.env.CLAUDE_CONFIG_DIR = configDir
-    options.settingSources = ['user']
+    options.settingSources = ['user', 'project']
+    // Tell SDK to also scan configDir for project-level skill discovery
+    // (.claude/skills/ inside configDir), mirrors local sdk-config.ts
+    options.additionalDirectories = [configDir]
 
     // CRITICAL: IS_SANDBOX=1 is required for bypass-permissions mode when running as root
     options.env.IS_SANDBOX = '1'
@@ -1416,6 +1517,53 @@ export class ClaudeManager {
    */
   unregisterActiveSession(conversationId: string): void {
     this.activeSessions.delete(conversationId)
+  }
+
+  /**
+   * Check if a session has an active stream (i.e., SDK is currently processing)
+   */
+  isActive(conversationId: string): boolean {
+    return this.activeSessions.has(conversationId)
+  }
+
+  /**
+   * Queue a message for a session that has an active stream.
+   * Simply stores the message — does NOT interrupt or inject via SDK patch.
+   * The caller (server.ts) will process pending messages after the stream completes naturally.
+   */
+  queueMessage(conversationId: string, content: string, options?: any): boolean {
+    if (!this.activeSessions.has(conversationId)) return false
+
+    const pending = this.pendingMessages.get(conversationId) || []
+    pending.push({ content, options })
+    this.pendingMessages.set(conversationId, pending)
+    console.log(`[ClaudeManager][${conversationId}] Message queued (${pending.length} pending)`)
+    return true
+  }
+
+  /**
+   * Check if a session has pending messages in the queue
+   */
+  hasPendingMessages(conversationId: string): boolean {
+    const pending = this.pendingMessages.get(conversationId)
+    return !!pending && pending.length > 0
+  }
+
+  /**
+   * Consume all pending messages for a session (get and clear)
+   */
+  consumePendingMessages(conversationId: string): Array<{content: string, options?: any}> {
+    const pending = this.pendingMessages.get(conversationId)
+    if (!pending) return []
+    this.pendingMessages.delete(conversationId)
+    return pending
+  }
+
+  /**
+   * Clear pending messages for a session (e.g., on error or disconnect)
+   */
+  clearPendingMessages(conversationId: string): void {
+    this.pendingMessages.delete(conversationId)
   }
 
   /**

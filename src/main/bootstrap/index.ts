@@ -50,7 +50,7 @@
  *
  */
 
-export { initializeEssentialServices } from './essential'
-export { initializeExtendedServices, cleanupExtendedServices } from './extended'
-export { getBootstrapStatus } from './state'
-export type { BootstrapStatus } from './state'
+export { initializeEssentialServices } from './essential';
+export { initializeExtendedServices, cleanupExtendedServices } from './extended';
+export { getBootstrapStatus } from './state';
+export type { BootstrapStatus } from './state';

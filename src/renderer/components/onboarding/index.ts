@@ -4,8 +4,8 @@
  * First-time user guided tour system
  */
 
-export { Spotlight } from './Spotlight'
-export { OnboardingOverlay } from './OnboardingOverlay'
+export { Spotlight } from './Spotlight';
+export { OnboardingOverlay } from './OnboardingOverlay';
 export {
   ONBOARDING_ARTIFACT_NAME,
   ONBOARDING_ARTIFACT_TYPE,
@@ -13,4 +13,4 @@ export {
   getOnboardingAiResponse,
   getOnboardingHtmlArtifact,
   getOnboardingConversationTitle,
-} from './onboardingData'
+} from './onboardingData';

@@ -5,24 +5,24 @@
  * This module manages process survival, system tray, and the daemon browser.
  */
 
-import type { BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron';
 
 /**
  * Background service operational status.
  * - online: Automation tasks are allowed to run.
  * - offline: Automation tasks should be paused.
  */
-export type BackgroundStatus = 'online' | 'offline'
+export type BackgroundStatus = 'online' | 'offline';
 
 /**
  * Callback for status change events.
  */
-export type StatusChangeHandler = (status: BackgroundStatus) => void
+export type StatusChangeHandler = (status: BackgroundStatus) => void;
 
 /**
  * Function to unsubscribe from an event or unregister a resource.
  */
-export type Unsubscribe = () => void
+export type Unsubscribe = () => void;
 
 /**
  * BackgroundService -- The public contract consumed by apps/runtime and bootstrap.
@@ -39,7 +39,7 @@ export interface BackgroundService {
    * Initialize the system tray icon and context menu.
    * Safe to call multiple times (idempotent).
    */
-  initTray(): void
+  initTray(): void;
 
   // ──────────────────────────────────────────────
   // Keep-Alive
@@ -49,7 +49,7 @@ export interface BackgroundService {
    * Check whether any keep-alive reasons are currently registered.
    * If true, the Electron process should NOT quit when all windows close.
    */
-  shouldKeepAlive(): boolean
+  shouldKeepAlive(): boolean;
 
   /**
    * Register a reason to keep the process alive.
@@ -61,7 +61,7 @@ export interface BackgroundService {
    * @param reason - A unique identifier for this keep-alive reason (e.g. "app:jd-price-monitor")
    * @returns Unsubscribe function to remove this reason
    */
-  registerKeepAliveReason(reason: string): Unsubscribe
+  registerKeepAliveReason(reason: string): Unsubscribe;
 
   // ──────────────────────────────────────────────
   // Daemon Browser Window
@@ -82,13 +82,13 @@ export interface BackgroundService {
    * @param url - The target URL (used to derive the partition)
    * @returns The shared hidden BrowserWindow
    */
-  getDaemonBrowserWindow(url: string): Promise<BrowserWindow>
+  getDaemonBrowserWindow(url: string): Promise<BrowserWindow>;
 
   /**
    * Release the daemon BrowserWindow after use.
    * This allows the next queued caller to proceed.
    */
-  releaseDaemonBrowserWindow(): void
+  releaseDaemonBrowserWindow(): void;
 
   // ──────────────────────────────────────────────
   // Online / Offline Status
@@ -97,21 +97,21 @@ export interface BackgroundService {
   /**
    * Get the current operational status.
    */
-  getStatus(): BackgroundStatus
+  getStatus(): BackgroundStatus;
 
   /**
    * Set the status to online (automation tasks may run).
    */
-  goOnline(): void
+  goOnline(): void;
 
   /**
    * Set the status to offline (automation tasks should pause).
    */
-  goOffline(): void
+  goOffline(): void;
 
   /**
    * Subscribe to status change events.
    * @returns Unsubscribe function
    */
-  onStatusChange(handler: StatusChangeHandler): Unsubscribe
+  onStatusChange(handler: StatusChangeHandler): Unsubscribe;
 }

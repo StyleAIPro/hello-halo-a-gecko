@@ -6,7 +6,7 @@
  * Ported from puppeteer-extra-plugin-stealth (MIT License).
  */
 
-import pluginsData from '../data/plugins.json'
+import pluginsData from '../data/plugins.json';
 
 export const navigatorPluginsEvasion = `
 (function() {

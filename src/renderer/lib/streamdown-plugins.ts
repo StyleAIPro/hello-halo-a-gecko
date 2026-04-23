@@ -6,26 +6,26 @@
  * use and caches the result for subsequent renders.
  */
 
-import { useState, useEffect } from 'react'
-import type { CodeHighlighterPlugin } from 'streamdown'
+import { useState, useEffect } from 'react';
+import type { CodeHighlighterPlugin } from 'streamdown';
 
-let cachedPlugin: CodeHighlighterPlugin | null = null
-let loadPromise: Promise<CodeHighlighterPlugin> | null = null
+let cachedPlugin: CodeHighlighterPlugin | null = null;
+let loadPromise: Promise<CodeHighlighterPlugin> | null = null;
 
 function loadCodePlugin(): Promise<CodeHighlighterPlugin> {
   if (!loadPromise) {
-    loadPromise = import('@streamdown/code').then(m => {
+    loadPromise = import('@streamdown/code').then((m) => {
       // Dark theme first: inline `color` uses the first theme's values,
       // which must be readable on dark backgrounds (our default).
       // The second theme goes into --shiki-dark CSS var for light mode.
       const plugin = m.createCodePlugin({
         themes: ['github-dark', 'github-light'],
-      })
-      cachedPlugin = plugin
-      return plugin
-    })
+      });
+      cachedPlugin = plugin;
+      return plugin;
+    });
   }
-  return loadPromise
+  return loadPromise;
 }
 
 /**
@@ -33,15 +33,17 @@ function loadCodePlugin(): Promise<CodeHighlighterPlugin> {
  * Returns undefined until the plugin is loaded, then the cached instance.
  */
 export function useCodePlugin(): CodeHighlighterPlugin | undefined {
-  const [plugin, setPlugin] = useState<CodeHighlighterPlugin | undefined>(cachedPlugin ?? undefined)
+  const [plugin, setPlugin] = useState<CodeHighlighterPlugin | undefined>(
+    cachedPlugin ?? undefined,
+  );
 
   useEffect(() => {
     if (cachedPlugin) {
-      setPlugin(cachedPlugin)
-      return
+      setPlugin(cachedPlugin);
+      return;
     }
-    loadCodePlugin().then(setPlugin)
-  }, [])
+    loadCodePlugin().then(setPlugin);
+  }, []);
 
-  return plugin
+  return plugin;
 }

@@ -1,22 +1,22 @@
-import { TerminalOutputData } from '../types'
-import { useTranslation } from '../i18n'
-import { Terminal, ChevronDown, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import type { TerminalOutputData } from '../types';
+import { useTranslation } from '../i18n';
+import { Terminal, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 
 interface TerminalOutputProps {
-  outputs: TerminalOutputData[]
+  outputs: TerminalOutputData[];
 }
 
 /**
  * Component to display terminal output with expand/collapse functionality
  */
 export function TerminalOutput({ outputs }: TerminalOutputProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  if (!outputs || outputs.length === 0) return null
+  if (!outputs || outputs.length === 0) return null;
 
-  const combinedOutput = outputs.map(o => o.content).join('')
+  const combinedOutput = outputs.map((o) => o.content).join('');
 
   return (
     <div className="mt-4 border rounded-lg border-border/30 bg-muted/30 overflow-hidden">
@@ -30,11 +30,7 @@ export function TerminalOutput({ outputs }: TerminalOutputProps) {
           ({outputs.length} {outputs.length === 1 ? t('line_one') : t('line_other')})
         </span>
         <div className="ml-auto">
-          {isExpanded ? (
-            <ChevronDown size={14} />
-          ) : (
-            <ChevronRight size={14} />
-          )}
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </div>
       </button>
 
@@ -42,21 +38,16 @@ export function TerminalOutput({ outputs }: TerminalOutputProps) {
         <div className="border-t border-border/30">
           <div className="bg-black text-green-400 font-mono text-xs p-4 overflow-auto max-h-96 leading-relaxed">
             {outputs.map((output, index) => (
-              <div
-                key={index}
-                className={output.type === 'stderr' ? 'text-red-400' : ''}
-              >
+              <div key={index} className={output.type === 'stderr' ? 'text-red-400' : ''}>
                 {output.content}
               </div>
             ))}
             {!combinedOutput && (
-              <div className="text-muted-foreground/50 italic">
-                {t('No output')}
-              </div>
+              <div className="text-muted-foreground/50 italic">{t('No output')}</div>
             )}
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

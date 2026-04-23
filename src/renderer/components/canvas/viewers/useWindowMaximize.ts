@@ -7,36 +7,36 @@
  * - Listens for external maximize changes
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { api } from '../../../api'
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '../../../api';
 
 export function useWindowMaximize() {
-  const [isMaximized, setIsMaximized] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(false);
 
   // Check initial state and subscribe to changes
   useEffect(() => {
     // Get initial state
     api.isWindowMaximized().then((res) => {
       if (res.success && res.data !== undefined) {
-        setIsMaximized(res.data)
+        setIsMaximized(res.data);
       }
-    })
+    });
 
     // Listen for changes from main process
     const cleanup = api.onWindowMaximizeChange((maximized) => {
-      setIsMaximized(maximized)
-    })
+      setIsMaximized(maximized);
+    });
 
-    return cleanup
-  }, [])
+    return cleanup;
+  }, []);
 
   // Toggle maximize state
   const toggleMaximize = useCallback(async () => {
-    await api.toggleMaximizeWindow()
-  }, [])
+    await api.toggleMaximizeWindow();
+  }, []);
 
   return {
     isMaximized,
-    toggleMaximize
-  }
+    toggleMaximize,
+  };
 }

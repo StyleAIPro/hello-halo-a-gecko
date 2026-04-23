@@ -10,9 +10,9 @@
  * - Listens for IPC events from main process when AI creates/selects views
  */
 
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import { api } from '../api'
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { api } from '../api';
 
 // ============================================
 // Types
@@ -20,31 +20,31 @@ import { api } from '../api'
 
 interface AIBrowserState {
   // Whether AI Browser mode is enabled for current conversation
-  enabled: boolean
+  enabled: boolean;
 
   // Persistent preference: default state for new conversations
-  defaultEnabled: boolean
+  defaultEnabled: boolean;
 
   // Current active browser view ID (if any)
-  activeViewId: string | null
+  activeViewId: string | null;
 
   // Current URL being operated on by AI
-  activeUrl: string | null
+  activeUrl: string | null;
 
   // Loading state for browser operations
-  isOperating: boolean
+  isOperating: boolean;
 
   // Last error from browser operations
-  lastError: string | null
+  lastError: string | null;
 
   // Actions
-  setEnabled: (enabled: boolean) => void
-  setDefaultEnabled: (enabled: boolean) => void
-  setActiveViewId: (viewId: string | null) => void
-  setActiveUrl: (url: string | null) => void
-  setOperating: (isOperating: boolean) => void
-  setError: (error: string | null) => void
-  reset: () => void
+  setEnabled: (enabled: boolean) => void;
+  setDefaultEnabled: (enabled: boolean) => void;
+  setActiveViewId: (viewId: string | null) => void;
+  setActiveUrl: (url: string | null) => void;
+  setOperating: (isOperating: boolean) => void;
+  setError: (error: string | null) => void;
+  reset: () => void;
 }
 
 // ============================================
@@ -64,34 +64,34 @@ export const useAIBrowserStore = create<AIBrowserState>()(
 
       // Toggle AI Browser for current session
       setEnabled: (enabled: boolean) => {
-        set({ enabled, lastError: null })
-        console.log(`[AI Browser Store] Enabled: ${enabled}`)
+        set({ enabled, lastError: null });
+        console.log(`[AI Browser Store] Enabled: ${enabled}`);
       },
 
       // Set default preference (persisted)
       setDefaultEnabled: (defaultEnabled: boolean) => {
-        set({ defaultEnabled })
-        console.log(`[AI Browser Store] Default enabled: ${defaultEnabled}`)
+        set({ defaultEnabled });
+        console.log(`[AI Browser Store] Default enabled: ${defaultEnabled}`);
       },
 
       // Track active browser view
       setActiveViewId: (activeViewId: string | null) => {
-        set({ activeViewId })
+        set({ activeViewId });
       },
 
       // Track active URL
       setActiveUrl: (activeUrl: string | null) => {
-        set({ activeUrl })
+        set({ activeUrl });
       },
 
       // Track operation state
       setOperating: (isOperating: boolean) => {
-        set({ isOperating })
+        set({ isOperating });
       },
 
       // Set error state
       setError: (lastError: string | null) => {
-        set({ lastError })
+        set({ lastError });
       },
 
       // Reset state (e.g., on conversation change)
@@ -102,7 +102,7 @@ export const useAIBrowserStore = create<AIBrowserState>()(
           activeUrl: null,
           isOperating: false,
           lastError: null,
-        }))
+        }));
       },
     }),
     {
@@ -111,9 +111,9 @@ export const useAIBrowserStore = create<AIBrowserState>()(
       partialize: (state) => ({
         defaultEnabled: state.defaultEnabled,
       }),
-    }
-  )
-)
+    },
+  ),
+);
 
 // ============================================
 // Selectors
@@ -123,35 +123,35 @@ export const useAIBrowserStore = create<AIBrowserState>()(
  * Check if AI Browser is enabled
  */
 export function useIsAIBrowserEnabled(): boolean {
-  return useAIBrowserStore((state) => state.enabled)
+  return useAIBrowserStore((state) => state.enabled);
 }
 
 /**
  * Check if browser is currently operating
  */
 export function useIsAIBrowserOperating(): boolean {
-  return useAIBrowserStore((state) => state.isOperating)
+  return useAIBrowserStore((state) => state.isOperating);
 }
 
 /**
  * Get last error
  */
 export function useAIBrowserError(): string | null {
-  return useAIBrowserStore((state) => state.lastError)
+  return useAIBrowserStore((state) => state.lastError);
 }
 
 /**
  * Get active view ID for "View Live" functionality
  */
 export function useAIBrowserActiveViewId(): string | null {
-  return useAIBrowserStore((state) => state.activeViewId)
+  return useAIBrowserStore((state) => state.activeViewId);
 }
 
 /**
  * Get active URL being operated by AI
  */
 export function useAIBrowserActiveUrl(): string | null {
-  return useAIBrowserStore((state) => state.activeUrl)
+  return useAIBrowserStore((state) => state.activeUrl);
 }
 
 // ============================================
@@ -169,13 +169,15 @@ export function initAIBrowserStoreListeners(): () => void {
   // Listen for active view changes from main process
   // This is triggered when AI Browser tools create or select a view
   const unsubscribe = api.onAIBrowserActiveViewChanged((data) => {
-    const store = useAIBrowserStore.getState()
-    store.setActiveViewId(data.viewId)
+    const store = useAIBrowserStore.getState();
+    store.setActiveViewId(data.viewId);
     if (data.url) {
-      store.setActiveUrl(data.url)
+      store.setActiveUrl(data.url);
     }
-    console.log(`[AI Browser Store] Active view updated from main: ${data.viewId}, url: ${data.url}`)
-  })
+    console.log(
+      `[AI Browser Store] Active view updated from main: ${data.viewId}, url: ${data.url}`,
+    );
+  });
 
-  return unsubscribe
+  return unsubscribe;
 }

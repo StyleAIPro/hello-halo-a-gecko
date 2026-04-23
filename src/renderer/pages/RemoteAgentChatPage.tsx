@@ -3,112 +3,121 @@
  * With integrated Shared Terminal for human-agent collaboration
  */
 
-import React, { useState, useEffect } from 'react'
-import { ArrowLeft, Server, LayoutGrid, Paperclip, X, Terminal as TerminalIcon } from 'lucide-react'
-import { Header } from '../components/layout/Header'
-import { SharedTerminalPanel } from '../components/layout/SharedTerminalPanel'
-import { RemoteFileBrowser, type RemoteFile } from '../components/remote-file-browser'
-import { RemoteAgentChat, type RemoteFileAttachment } from '../components/remote-agent-chat'
-import { useAppStore } from '../stores/app.store'
-import { useTranslation } from '../i18n'
-import { api } from '../api'
+import React, { useState, useEffect } from 'react';
+import {
+  ArrowLeft,
+  Server,
+  LayoutGrid,
+  Paperclip,
+  X,
+  Terminal as TerminalIcon,
+} from 'lucide-react';
+import { Header } from '../components/layout/Header';
+import { SharedTerminalPanel } from '../components/layout/SharedTerminalPanel';
+import { RemoteFileBrowser, type RemoteFile } from '../components/remote-file-browser';
+import { RemoteAgentChat, type RemoteFileAttachment } from '../components/remote-agent-chat';
+import { useAppStore } from '../stores/app.store';
+import { useTranslation } from '../i18n';
+import { api } from '../api';
 
 interface RemoteAgentChatPageProps {
-  serverId?: string
+  serverId?: string;
 }
 
 export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChatPageProps = {}) {
-  const { t } = useTranslation()
-  const { goBack, remoteServerId } = useAppStore()
-  const serverId = propsServerId || remoteServerId
-  const [selectedFile, setSelectedFile] = useState<RemoteFile | null>(null)
-  const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([])
-  const [sessionId, setSessionId] = useState<string | undefined>()
-  const [conversationId, setConversationId] = useState<string | undefined>()
-  const [spaceId, setSpaceId] = useState<string | undefined>()
-  const [showFileBrowser, setShowFileBrowser] = useState(true)
-  const [serverName, setServerName] = useState<string>('')
-  const [showTerminal, setShowTerminal] = useState(false)
+  const { t } = useTranslation();
+  const { goBack, remoteServerId } = useAppStore();
+  const serverId = propsServerId || remoteServerId;
+  const [selectedFile, setSelectedFile] = useState<RemoteFile | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([]);
+  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [spaceId, setSpaceId] = useState<string | undefined>();
+  const [showFileBrowser, setShowFileBrowser] = useState(true);
+  const [serverName, setServerName] = useState<string>('');
+  const [showTerminal, setShowTerminal] = useState(false);
 
   const handleFileSelect = (file: RemoteFile) => {
-    setSelectedFile(file)
-  }
+    setSelectedFile(file);
+  };
 
   const handleAttachSelectedFile = () => {
     if (selectedFile) {
       const attachment: RemoteFileAttachment = {
         path: selectedFile.path,
         name: selectedFile.name,
-        type: selectedFile.type
-      }
-      setAttachedFiles(prev => {
+        type: selectedFile.type,
+      };
+      setAttachedFiles((prev) => {
         // Check if file is already attached
-        if (prev.some(f => f.path === attachment.path)) {
-          return prev
+        if (prev.some((f) => f.path === attachment.path)) {
+          return prev;
         }
-        return [...prev, attachment]
-      })
+        return [...prev, attachment];
+      });
     }
-  }
+  };
 
   const handleRemoveAttachedFile = (path: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.path === path))
+    setAttachedFiles((prev) => prev.filter((f) => f.path === path));
     if (selectedFile?.path === path) {
-      setSelectedFile(null)
+      setSelectedFile(null);
     }
-  }
+  };
 
   // Load server info on mount
   useEffect(() => {
     if (serverId) {
-      loadServerInfo(serverId)
+      loadServerInfo(serverId);
     }
-  }, [serverId])
+  }, [serverId]);
 
   const loadServerInfo = async (id: string) => {
     try {
-      const result = await api.getRemoteServer(id)
+      const result = await api.getRemoteServer(id);
       if (result.success && result.data) {
-        const server = result.data as { name: string }
-        setServerName(server.name)
+        const server = result.data as { name: string };
+        setServerName(server.name);
       }
     } catch (err) {
-      console.error('[RemoteAgentChatPage] Failed to load server info:', err)
+      console.error('[RemoteAgentChatPage] Failed to load server info:', err);
     }
-  }
+  };
 
   const handleBack = () => {
-    goBack()
-  }
+    goBack();
+  };
 
   // Handle session change from chat component
   const handleSessionChange = (newSessionId: string | undefined) => {
-    setSessionId(newSessionId)
-  }
+    setSessionId(newSessionId);
+  };
 
   // Handle conversation change (for terminal integration)
   const handleConversationChange = (newConversationId: string, newSpaceId: string) => {
-    setConversationId(newConversationId)
-    setSpaceId(newSpaceId)
-  }
+    setConversationId(newConversationId);
+    setSpaceId(newSpaceId);
+  };
 
   // Handle Skill generation
   const handleGenerateSkill = async () => {
     if (!spaceId || !conversationId) {
-      console.warn('[RemoteAgentChatPage] Cannot generate skill: missing spaceId or conversationId')
-      return
+      console.warn(
+        '[RemoteAgentChatPage] Cannot generate skill: missing spaceId or conversationId',
+      );
+      return;
     }
 
     try {
-      const result = await api.generateSkillFromTerminal(spaceId, conversationId)
+      const result = await api.generateSkillFromTerminal(spaceId, conversationId);
       if (result.success && result.data) {
-        console.log('[RemoteAgentChatPage] Skill generated:', result.data)
+        console.log('[RemoteAgentChatPage] Skill generated:', result.data);
         // TODO: Show skill preview modal or save to skill library
       }
     } catch (error) {
-      console.error('[RemoteAgentChatPage] Failed to generate skill:', error)
+      console.error('[RemoteAgentChatPage] Failed to generate skill:', error);
     }
-  }
+  };
 
   return (
     <div className="h-full w-full flex flex-col">
@@ -157,19 +166,21 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
 
       {/* Content */}
       <main className="flex-1 overflow-hidden p-4 flex flex-col">
-        <div className={`flex gap-4 h-full transition-all ${
-          showFileBrowser ? 'flex-row' : 'flex-row'
-        }`}>
+        <div
+          className={`flex gap-4 h-full transition-all ${
+            showFileBrowser ? 'flex-row' : 'flex-row'
+          }`}
+        >
           {/* File Browser Panel */}
-          <div className={`transition-all duration-300 ${
-            showFileBrowser ? 'w-80 flex-shrink-0' : 'w-0 overflow-hidden'
-          }`}>
+          <div
+            className={`transition-all duration-300 ${
+              showFileBrowser ? 'w-80 flex-shrink-0' : 'w-0 overflow-hidden'
+            }`}
+          >
             {showFileBrowser && serverId && (
               <div className="h-full flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    {t('File Browser')}
-                  </h3>
+                  <h3 className="text-sm font-medium text-muted-foreground">{t('File Browser')}</h3>
                   {selectedFile && (
                     <button
                       onClick={handleAttachSelectedFile}
@@ -190,9 +201,11 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
           </div>
 
           {/* Chat Panel */}
-          <div className={`flex-1 transition-all duration-300 flex flex-col ${
-            showFileBrowser ? '' : ''
-          }`}>
+          <div
+            className={`flex-1 transition-all duration-300 flex flex-col ${
+              showFileBrowser ? '' : ''
+            }`}
+          >
             {/* Attached files */}
             {attachedFiles.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2 p-2 bg-secondary rounded-lg">
@@ -214,9 +227,7 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
               </div>
             )}
 
-            <h3 className="text-sm font-medium text-muted-foreground mb-2">
-              {t('Agent Chat')}
-            </h3>
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">{t('Agent Chat')}</h3>
             {serverId && (
               <div className="flex-1 min-h-0">
                 <RemoteAgentChat
@@ -225,12 +236,12 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
                   onSessionChange={handleSessionChange}
                   onConversationChange={handleConversationChange}
                   onFileAttachment={(file) => {
-                    setAttachedFiles(prev => {
-                      if (prev.some(f => f.path === file.path)) {
-                        return prev
+                    setAttachedFiles((prev) => {
+                      if (prev.some((f) => f.path === file.path)) {
+                        return prev;
                       }
-                      return [...prev, file]
-                    })
+                      return [...prev, file];
+                    });
                   }}
                 />
               </div>
@@ -248,5 +259,5 @@ export function RemoteAgentChatPage({ serverId: propsServerId }: RemoteAgentChat
         )}
       </main>
     </div>
-  )
+  );
 }

@@ -8,18 +8,18 @@
  * Defense in depth - ensures no orphan processes survive.
  */
 
-import type { CleanupResult, ProcessEntry, ProcessType } from '../types'
+import type { CleanupResult, ProcessEntry, ProcessType } from '../types';
 import {
   getCurrentInstanceId,
   getOrphanProcesses,
   clearOrphanEntries,
-  loadRegistry
-} from './registry'
-import { getPlatformOps } from './platform'
+  loadRegistry,
+} from './registry';
+import { getPlatformOps } from './platform';
 
 // Command-line argument patterns for AICO-Bot-managed processes
-const AICO_BOT_MANAGED_FLAG = 'aico-bot-managed'
-const AICO_BOT_INSTANCE_PREFIX = 'aico-bot-instance='
+const AICO_BOT_MANAGED_FLAG = 'aico-bot-managed';
+const AICO_BOT_INSTANCE_PREFIX = 'aico-bot-instance=';
 
 /**
  * Clean up orphan processes from previous app instances
@@ -34,44 +34,44 @@ export async function cleanupOrphans(): Promise<CleanupResult> {
   const result: CleanupResult = {
     cleaned: 0,
     failed: 0,
-    details: []
-  }
+    details: [],
+  };
 
-  const currentInstanceId = getCurrentInstanceId()
+  const currentInstanceId = getCurrentInstanceId();
   if (!currentInstanceId) {
-    console.warn('[Health][Cleaner] Cannot cleanup - no current instance ID')
-    return result
+    console.warn('[Health][Cleaner] Cannot cleanup - no current instance ID');
+    return result;
   }
 
-  const platformOps = getPlatformOps()
+  const platformOps = getPlatformOps();
 
   // ====================================
   // Step 1: Kill by PID (registry-based)
   // ====================================
 
-  const orphanEntries = getOrphanProcesses()
-  console.log(`[Health][Cleaner] Found ${orphanEntries.length} orphan entries in registry`)
+  const orphanEntries = getOrphanProcesses();
+  console.log(`[Health][Cleaner] Found ${orphanEntries.length} orphan entries in registry`);
 
   for (const entry of orphanEntries) {
     if (!entry.pid) {
       // No PID recorded - will rely on args-based cleanup
-      continue
+      continue;
     }
 
     try {
       if (platformOps.isProcessAlive(entry.pid)) {
-        await platformOps.killProcess(entry.pid, 'SIGTERM')
-        result.cleaned++
+        await platformOps.killProcess(entry.pid, 'SIGTERM');
+        result.cleaned++;
         result.details.push({
           pid: entry.pid,
           type: entry.type,
-          method: 'pid'
-        })
-        console.log(`[Health][Cleaner] Killed orphan by PID: ${entry.pid} (${entry.type})`)
+          method: 'pid',
+        });
+        console.log(`[Health][Cleaner] Killed orphan by PID: ${entry.pid} (${entry.type})`);
       }
     } catch (error) {
-      console.error(`[Health][Cleaner] Failed to kill PID ${entry.pid}:`, error)
-      result.failed++
+      console.error(`[Health][Cleaner] Failed to kill PID ${entry.pid}:`, error);
+      result.failed++;
     }
   }
 
@@ -81,53 +81,57 @@ export async function cleanupOrphans(): Promise<CleanupResult> {
 
   try {
     // Find all processes with --aico-bot-managed flag
-    const managedProcesses = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG)
-    console.log(`[Health][Cleaner] Found ${managedProcesses.length} AICO-Bot-managed processes by args scan`)
+    const managedProcesses = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG);
+    console.log(
+      `[Health][Cleaner] Found ${managedProcesses.length} AICO-Bot-managed processes by args scan`,
+    );
 
     for (const proc of managedProcesses) {
       // Only kill if NOT current instance
       if (proc.commandLine.includes(`${AICO_BOT_INSTANCE_PREFIX}${currentInstanceId}`)) {
         // This is a current instance process - skip
-        continue
+        continue;
       }
 
       // Check if we already killed this by PID
-      const alreadyKilled = result.details.some(d => d.pid === proc.pid)
+      const alreadyKilled = result.details.some((d) => d.pid === proc.pid);
       if (alreadyKilled) {
-        continue
+        continue;
       }
 
       // Check if process is still alive before attempting to kill
       if (!platformOps.isProcessAlive(proc.pid)) {
-        continue
+        continue;
       }
 
       try {
-        await platformOps.killProcess(proc.pid, 'SIGTERM')
-        result.cleaned++
+        await platformOps.killProcess(proc.pid, 'SIGTERM');
+        result.cleaned++;
         result.details.push({
           pid: proc.pid,
           type: inferProcessType(proc.commandLine),
-          method: 'args'
-        })
-        console.log(`[Health][Cleaner] Killed orphan by args: ${proc.pid}`)
+          method: 'args',
+        });
+        console.log(`[Health][Cleaner] Killed orphan by args: ${proc.pid}`);
       } catch (error) {
-        console.error(`[Health][Cleaner] Failed to kill PID ${proc.pid} (args):`, error)
-        result.failed++
+        console.error(`[Health][Cleaner] Failed to kill PID ${proc.pid} (args):`, error);
+        result.failed++;
       }
     }
   } catch (error) {
-    console.error('[Health][Cleaner] Args-based scan failed:', error)
+    console.error('[Health][Cleaner] Args-based scan failed:', error);
   }
 
   // ====================================
   // Step 3: Clean up registry entries
   // ====================================
 
-  clearOrphanEntries()
+  clearOrphanEntries();
 
-  console.log(`[Health][Cleaner] Cleanup complete: ${result.cleaned} cleaned, ${result.failed} failed`)
-  return result
+  console.log(
+    `[Health][Cleaner] Cleanup complete: ${result.cleaned} cleaned, ${result.failed} failed`,
+  );
+  return result;
 }
 
 /**
@@ -135,19 +139,19 @@ export async function cleanupOrphans(): Promise<CleanupResult> {
  * Used when SIGTERM doesn't work within timeout
  */
 export async function forceKillProcess(pid: number): Promise<boolean> {
-  const platformOps = getPlatformOps()
+  const platformOps = getPlatformOps();
 
   try {
     if (!platformOps.isProcessAlive(pid)) {
-      return true  // Already dead
+      return true; // Already dead
     }
 
-    await platformOps.killProcess(pid, 'SIGKILL')
-    console.log(`[Health][Cleaner] Force killed PID: ${pid}`)
-    return true
+    await platformOps.killProcess(pid, 'SIGKILL');
+    console.log(`[Health][Cleaner] Force killed PID: ${pid}`);
+    return true;
   } catch (error) {
-    console.error(`[Health][Cleaner] Force kill failed for PID ${pid}:`, error)
-    return false
+    console.error(`[Health][Cleaner] Force kill failed for PID ${pid}:`, error);
+    return false;
   }
 }
 
@@ -155,41 +159,45 @@ export async function forceKillProcess(pid: number): Promise<boolean> {
  * Check if a specific process is an AICO-Bot-managed process
  */
 export async function isAicoBotManagedProcess(pid: number): Promise<boolean> {
-  const platformOps = getPlatformOps()
+  const platformOps = getPlatformOps();
 
   try {
-    const processes = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG)
-    return processes.some(p => p.pid === pid)
+    const processes = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG);
+    return processes.some((p) => p.pid === pid);
   } catch {
-    return false
+    return false;
   }
 }
 
 /**
  * Get all running AICO-Bot-managed processes
  */
-export async function getRunningAicoBotProcesses(): Promise<Array<{
-  pid: number
-  instanceId: string | null
-  commandLine: string
-}>> {
-  const platformOps = getPlatformOps()
+export async function getRunningAicoBotProcesses(): Promise<
+  Array<{
+    pid: number;
+    instanceId: string | null;
+    commandLine: string;
+  }>
+> {
+  const platformOps = getPlatformOps();
 
   try {
-    const processes = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG)
+    const processes = await platformOps.findByArgs(AICO_BOT_MANAGED_FLAG);
 
-    return processes.map(proc => {
+    return processes.map((proc) => {
       // Extract instance ID from command line
-      const instanceMatch = proc.commandLine.match(new RegExp(`${AICO_BOT_INSTANCE_PREFIX}([a-f0-9-]+)`))
+      const instanceMatch = proc.commandLine.match(
+        new RegExp(`${AICO_BOT_INSTANCE_PREFIX}([a-f0-9-]+)`),
+      );
 
       return {
         pid: proc.pid,
         instanceId: instanceMatch ? instanceMatch[1] : null,
-        commandLine: proc.commandLine
-      }
-    })
+        commandLine: proc.commandLine,
+      };
+    });
   } catch {
-    return []
+    return [];
   }
 }
 
@@ -199,34 +207,32 @@ export async function getRunningAicoBotProcesses(): Promise<Array<{
 function inferProcessType(commandLine: string): ProcessType {
   // V2 sessions typically run via claude-agent-sdk
   if (commandLine.includes('claude') || commandLine.includes('cli.js')) {
-    return 'v2-session'
+    return 'v2-session';
   }
 
   // Tunnel processes
   if (commandLine.includes('tunnel') || commandLine.includes('cloudflared')) {
-    return 'tunnel'
+    return 'tunnel';
   }
 
   // Default to v2-session as that's the most common
-  return 'v2-session'
+  return 'v2-session';
 }
 
 /**
  * Verify cleanup was successful
  */
 export async function verifyCleanup(): Promise<boolean> {
-  const currentInstanceId = getCurrentInstanceId()
-  const runningProcesses = await getRunningAicoBotProcesses()
+  const currentInstanceId = getCurrentInstanceId();
+  const runningProcesses = await getRunningAicoBotProcesses();
 
   // Check if any non-current instance processes are still running
-  const orphansRemaining = runningProcesses.filter(p =>
-    p.instanceId !== currentInstanceId
-  )
+  const orphansRemaining = runningProcesses.filter((p) => p.instanceId !== currentInstanceId);
 
   if (orphansRemaining.length > 0) {
-    console.warn(`[Health][Cleaner] ${orphansRemaining.length} orphan processes still running`)
-    return false
+    console.warn(`[Health][Cleaner] ${orphansRemaining.length} orphan processes still running`);
+    return false;
   }
 
-  return true
+  return true;
 }

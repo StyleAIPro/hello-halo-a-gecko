@@ -12,41 +12,42 @@
  * - Automatic cleanup on disconnect
  */
 
-import { Client, ConnectConfig } from 'ssh2'
-import { EventEmitter } from 'events'
-import * as net from 'net'
-import { execSync } from 'child_process'
+import type { ConnectConfig } from 'ssh2';
+import { Client } from 'ssh2';
+import { EventEmitter } from 'events';
+import * as net from 'net';
+import { execSync } from 'child_process';
 
 export interface SshTunnelConfig {
-  spaceId: string
-  serverId: string
-  host: string
-  port: number
-  username: string
-  password?: string
-  privateKey?: string
-  localPort: number
-  remotePort: number
+  spaceId: string;
+  serverId: string;
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  localPort: number;
+  remotePort: number;
 }
 
 export interface TunnelStatus {
-  spaceId: string
-  serverId: string
-  host: string
-  active: boolean
-  localPort: number
-  remotePort: number
-  error?: string
+  spaceId: string;
+  serverId: string;
+  host: string;
+  active: boolean;
+  localPort: number;
+  remotePort: number;
+  error?: string;
 }
 
 // Default port range for dynamic allocation
-const DEFAULT_BASE_PORT = 8080
-const MAX_PORT_ATTEMPTS = 100
+const DEFAULT_BASE_PORT = 8080;
+const MAX_PORT_ATTEMPTS = 100;
 
 // Add isConnected check helper
 function isClientConnected(client: Client): boolean {
   // ssh2 Client doesn't have isConnected method, check stream state
-  return (client as any)._sock && (client as any)._sock.writable !== false
+  return (client as any)._sock && (client as any)._sock.writable !== false;
 }
 
 /**
@@ -60,21 +61,21 @@ function isPortAvailableSync(port: number): boolean {
       const result = execSync(`netstat -ano | findstr ":${port} " | findstr "LISTENING"`, {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 2000
-      })
-      return result.trim() === ''
+        timeout: 2000,
+      });
+      return result.trim() === '';
     } else {
       // macOS/Linux: use lsof
       const result = execSync(`lsof -i :${port} -t 2>/dev/null || echo ""`, {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 1000
-      })
-      return result.trim() === ''
+        timeout: 1000,
+      });
+      return result.trim() === '';
     }
   } catch {
     // Command error → assume port is available
-    return true
+    return true;
   }
 }
 
@@ -84,10 +85,10 @@ function isPortAvailableSync(port: number): boolean {
 function findAvailablePort(startPort: number): number {
   for (let port = startPort; port < startPort + MAX_PORT_ATTEMPTS; port++) {
     if (isPortAvailableSync(port)) {
-      return port
+      return port;
     }
   }
-  throw new Error(`No available port found in range ${startPort}-${startPort + MAX_PORT_ATTEMPTS}`)
+  throw new Error(`No available port found in range ${startPort}-${startPort + MAX_PORT_ATTEMPTS}`);
 }
 
 /**
@@ -95,28 +96,28 @@ function findAvailablePort(startPort: number): number {
  */
 function killPort(port: number): void {
   try {
-    console.log(`[SshTunnel] Checking and killing process(es) using port ${port}...`)
+    console.log(`[SshTunnel] Checking and killing process(es) using port ${port}...`);
     if (process.platform === 'win32') {
       // Windows: use netstat to find PID, then taskkill
       const result = execSync(`netstat -ano | findstr ":${port} " | findstr "LISTENING"`, {
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore']
-      })
-      const pids = new Set<string>()
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const pids = new Set<string>();
       for (const line of result.trim().split('\n')) {
-        const parts = line.trim().split(/\s+/)
-        const pid = parts[parts.length - 1]
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
         if (pid && /^\d+$/.test(pid)) {
-          pids.add(pid)
+          pids.add(pid);
         }
       }
       for (const pid of pids) {
         try {
           execSync(`taskkill /F /PID ${pid}`, {
             encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore']
-          })
-          console.log(`[SshTunnel] Killed process ${pid} using port ${port}`)
+            stdio: ['ignore', 'pipe', 'ignore'],
+          });
+          console.log(`[SshTunnel] Killed process ${pid} using port ${port}`);
         } catch {
           // PID may have already exited
         }
@@ -125,31 +126,34 @@ function killPort(port: number): void {
       // macOS/Linux: use lsof to find and kill the process
       const result = execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore']
-      })
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
       if (result) {
-        console.log(`[SshTunnel] Killed process(es) using port ${port}: ${result.trim()}`)
+        console.log(`[SshTunnel] Killed process(es) using port ${port}: ${result.trim()}`);
       }
     }
-    console.log(`[SshTunnel] Port cleanup completed (port ${port})`)
+    console.log(`[SshTunnel] Port cleanup completed (port ${port})`);
   } catch (error) {
     // Ignore errors - port might be free already
-    console.log(`[SshTunnel] Port cleanup completed (port ${port})`)
+    console.log(`[SshTunnel] Port cleanup completed (port ${port})`);
   }
 }
 
 class SshTunnelService extends EventEmitter {
-  private tunnels = new Map<string, {
-    client: Client
-    config: SshTunnelConfig
-    server: net.Server
-    spaces: Set<string>  // Track which spaces are using this tunnel
-  }>()
+  private tunnels = new Map<
+    string,
+    {
+      client: Client;
+      config: SshTunnelConfig;
+      server: net.Server;
+      spaces: Set<string>; // Track which spaces are using this tunnel
+    }
+  >();
 
   // Map serverId -> localPort for consistent port assignment per server
-  private serverPortMap = new Map<string, number>()
+  private serverPortMap = new Map<string, number>();
   // Set of used local ports
-  private usedPorts = new Set<number>()
+  private usedPorts = new Set<number>();
 
   /**
    * Get or assign a local port for a server
@@ -157,34 +161,34 @@ class SshTunnelService extends EventEmitter {
    */
   private getOrAssignLocalPort(serverId: string, remotePort: number): number {
     // Check if this server already has an assigned port
-    const existingPort = this.serverPortMap.get(serverId)
+    const existingPort = this.serverPortMap.get(serverId);
     if (existingPort && !this.usedPorts.has(existingPort)) {
-      return existingPort
+      return existingPort;
     }
 
     // Find an available port starting from remotePort (usually 8080)
     // This keeps ports consistent when possible
-    const basePort = remotePort || DEFAULT_BASE_PORT
-    let assignedPort = findAvailablePort(basePort)
+    const basePort = remotePort || DEFAULT_BASE_PORT;
+    let assignedPort = findAvailablePort(basePort);
 
     // If base port is already in use, try to find next available
     while (this.usedPorts.has(assignedPort)) {
-      assignedPort = findAvailablePort(assignedPort + 1)
+      assignedPort = findAvailablePort(assignedPort + 1);
     }
 
     // Record the assignment
-    this.serverPortMap.set(serverId, assignedPort)
-    this.usedPorts.add(assignedPort)
-    console.log(`[SshTunnel] Assigned local port ${assignedPort} for server ${serverId}`)
+    this.serverPortMap.set(serverId, assignedPort);
+    this.usedPorts.add(assignedPort);
+    console.log(`[SshTunnel] Assigned local port ${assignedPort} for server ${serverId}`);
 
-    return assignedPort
+    return assignedPort;
   }
 
   /**
    * Get the local port for an existing tunnel
    */
   getTunnelLocalPort(serverId: string): number | undefined {
-    return this.serverPortMap.get(serverId)
+    return this.serverPortMap.get(serverId);
   }
 
   /**
@@ -196,49 +200,53 @@ class SshTunnelService extends EventEmitter {
    */
   async establishTunnel(config: SshTunnelConfig): Promise<number> {
     // Use serverId as tunnel key to allow tunnel sharing across spaces
-    const tunnelKey = config.serverId
+    const tunnelKey = config.serverId;
 
     // Check if tunnel already exists for this server
     if (this.tunnels.has(tunnelKey)) {
-      const existing = this.tunnels.get(tunnelKey)!
+      const existing = this.tunnels.get(tunnelKey)!;
       if (existing.client && isClientConnected(existing.client)) {
-        console.log(`[SshTunnel] Reusing existing tunnel for server ${tunnelKey} on port ${existing.config.localPort}`)
+        console.log(
+          `[SshTunnel] Reusing existing tunnel for server ${tunnelKey} on port ${existing.config.localPort}`,
+        );
         // Track that this space is using the tunnel
-        existing.spaces.add(config.spaceId)
-        return existing.config.localPort
+        existing.spaces.add(config.spaceId);
+        return existing.config.localPort;
       }
       // Remove inactive tunnel
-      this.cleanupTunnel(tunnelKey)
+      this.cleanupTunnel(tunnelKey);
     }
 
     // Auto-assign local port if not specified or if specified port is in use
-    const localPort = this.getOrAssignLocalPort(config.serverId, config.remotePort)
-    config.localPort = localPort
+    const localPort = this.getOrAssignLocalPort(config.serverId, config.remotePort);
+    config.localPort = localPort;
 
-    console.log(`[SshTunnel] Establishing tunnel for ${tunnelKey}: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`)
+    console.log(
+      `[SshTunnel] Establishing tunnel for ${tunnelKey}: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`,
+    );
 
     return new Promise<number>((resolve, reject) => {
-      const client = new Client()
+      const client = new Client();
 
       // SSH connection config
       const sshConfig: ConnectConfig = {
         host: config.host,
         port: config.port,
         username: config.username,
-        readyTimeout: 30000,  // 30 seconds timeout
-        keepaliveInterval: 30000,  // Send keepalive every 30 seconds
-        keepaliveCountMax: 3
-      }
+        readyTimeout: 30000, // 30 seconds timeout
+        keepaliveInterval: 30000, // Send keepalive every 30 seconds
+        keepaliveCountMax: 3,
+      };
 
       // Use password or private key for authentication
       if (config.privateKey) {
-        sshConfig.privateKey = config.privateKey
+        sshConfig.privateKey = config.privateKey;
       } else if (config.password) {
-        sshConfig.password = config.password
+        sshConfig.password = config.password;
       }
 
       client.on('ready', () => {
-        console.log(`[SshTunnel] SSH connected to ${config.host}`)
+        console.log(`[SshTunnel] SSH connected to ${config.host}`);
 
         // Note: We don't need to kill existing processes on the port because:
         // 1. getOrAssignLocalPort() ensures we get a unique port per server
@@ -248,45 +256,47 @@ class SshTunnelService extends EventEmitter {
         // Create a local TCP server that forwards connections through SSH
         const server = net.createServer((socket) => {
           if (!isClientConnected(client)) {
-            console.error(`[SshTunnel] SSH client not connected, destroying socket`)
-            socket.destroy()
-            return
+            console.error(`[SshTunnel] SSH client not connected, destroying socket`);
+            socket.destroy();
+            return;
           }
 
           // Forward the connection through SSH using forwardOut
           client.forwardOut(
-            '127.0.0.1', config.localPort,
-            'localhost', config.remotePort,
+            '127.0.0.1',
+            config.localPort,
+            'localhost',
+            config.remotePort,
             (err, stream) => {
               if (err) {
-                console.error(`[SshTunnel] forwardOut error:`, err)
-                socket.destroy()
-                return
+                console.error(`[SshTunnel] forwardOut error:`, err);
+                socket.destroy();
+                return;
               }
 
               // Pipe data between local socket and SSH stream
-              socket.pipe(stream).pipe(socket)
+              socket.pipe(stream).pipe(socket);
 
               socket.on('error', (err) => {
-                console.error(`[SshTunnel] Socket error:`, err)
-                stream.destroy()
-              })
+                console.error(`[SshTunnel] Socket error:`, err);
+                stream.destroy();
+              });
 
               stream.on('error', (err) => {
-                console.error(`[SshTunnel] Stream error:`, err)
-                socket.destroy()
-              })
+                console.error(`[SshTunnel] Stream error:`, err);
+                socket.destroy();
+              });
 
               socket.on('close', () => {
-                stream.destroy()
-              })
+                stream.destroy();
+              });
 
               stream.on('close', () => {
-                socket.destroy()
-              })
-            }
-          )
-        })
+                socket.destroy();
+              });
+            },
+          );
+        });
 
         // Start listening on local port
         server.listen(config.localPort, '127.0.0.1', () => {
@@ -295,36 +305,38 @@ class SshTunnelService extends EventEmitter {
             client,
             config,
             server,
-            spaces: new Set([config.spaceId])  // Track spaces using this tunnel
-          })
+            spaces: new Set([config.spaceId]), // Track spaces using this tunnel
+          });
 
-          console.log(`[SshTunnel] Tunnel established: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`)
-          this.emit('tunnel:established', { tunnelKey, localPort: config.localPort })
-          resolve(config.localPort)
-        })
+          console.log(
+            `[SshTunnel] Tunnel established: localhost:${config.localPort} -> ${config.host}:localhost:${config.remotePort}`,
+          );
+          this.emit('tunnel:established', { tunnelKey, localPort: config.localPort });
+          resolve(config.localPort);
+        });
 
         server.on('error', (err) => {
-          console.error(`[SshTunnel] Local server error for ${tunnelKey}:`, err)
-          this.cleanupTunnel(tunnelKey)
-          reject(err)
-        })
-      })
+          console.error(`[SshTunnel] Local server error for ${tunnelKey}:`, err);
+          this.cleanupTunnel(tunnelKey);
+          reject(err);
+        });
+      });
 
       client.on('error', (err) => {
-        console.error(`[SshTunnel] SSH connection error for ${tunnelKey}:`, err)
-        this.emit('tunnel:error', { tunnelKey, error: err.message || String(err) })
-        reject(err)
-      })
+        console.error(`[SshTunnel] SSH connection error for ${tunnelKey}:`, err);
+        this.emit('tunnel:error', { tunnelKey, error: err.message || String(err) });
+        reject(err);
+      });
 
       client.on('close', () => {
-        console.log(`[SshTunnel] SSH connection closed for ${tunnelKey}`)
-        this.cleanupTunnel(tunnelKey)
-        this.emit('tunnel:closed', tunnelKey)
-      })
+        console.log(`[SshTunnel] SSH connection closed for ${tunnelKey}`);
+        this.cleanupTunnel(tunnelKey);
+        this.emit('tunnel:closed', tunnelKey);
+      });
 
       // Connect to SSH server
-      client.connect(sshConfig)
-    })
+      client.connect(sshConfig);
+    });
   }
 
   /**
@@ -332,44 +344,46 @@ class SshTunnelService extends EventEmitter {
    * Uses reference counting - only closes tunnel when last space disconnects
    */
   closeTunnel(spaceId: string, serverId: string): boolean {
-    const tunnelKey = serverId
-    const tunnel = this.tunnels.get(tunnelKey)
+    const tunnelKey = serverId;
+    const tunnel = this.tunnels.get(tunnelKey);
 
     if (!tunnel) {
-      console.log(`[SshTunnel] No tunnel found for server ${serverId}`)
-      return false
+      console.log(`[SshTunnel] No tunnel found for server ${serverId}`);
+      return false;
     }
 
     // Remove this space from the tunnel's users
     if (tunnel.spaces.has(spaceId)) {
-      tunnel.spaces.delete(spaceId)
-      console.log(`[SshTunnel] Space ${spaceId} released tunnel for server ${serverId}, ${tunnel.spaces.size} spaces still using it`)
+      tunnel.spaces.delete(spaceId);
+      console.log(
+        `[SshTunnel] Space ${spaceId} released tunnel for server ${serverId}, ${tunnel.spaces.size} spaces still using it`,
+      );
     }
 
     // Only cleanup tunnel when no spaces are using it
     if (tunnel.spaces.size === 0) {
-      console.log(`[SshTunnel] No more spaces using tunnel for server ${serverId}, closing tunnel`)
-      return this.cleanupTunnel(tunnelKey)
+      console.log(`[SshTunnel] No more spaces using tunnel for server ${serverId}, closing tunnel`);
+      return this.cleanupTunnel(tunnelKey);
     }
 
-    return true
+    return true;
   }
 
   /**
    * Check if tunnel is active for a server
    */
   isTunnelActive(spaceId: string, serverId: string): boolean {
-    const tunnelKey = serverId
-    const tunnel = this.tunnels.get(tunnelKey)
+    const tunnelKey = serverId;
+    const tunnel = this.tunnels.get(tunnelKey);
     // Check if tunnel exists and this space is using it
-    return tunnel !== undefined && isClientConnected(tunnel.client) && tunnel.spaces.has(spaceId)
+    return tunnel !== undefined && isClientConnected(tunnel.client) && tunnel.spaces.has(spaceId);
   }
 
   /**
    * Get all active tunnel statuses
    */
   getTunnelStatuses(): TunnelStatus[] {
-    const statuses: TunnelStatus[] = []
+    const statuses: TunnelStatus[] = [];
     for (const [serverId, tunnel] of this.tunnels) {
       // Create a status entry for each space using this tunnel
       for (const spaceId of tunnel.spaces) {
@@ -379,11 +393,11 @@ class SshTunnelService extends EventEmitter {
           host: tunnel.config.host,
           active: isClientConnected(tunnel.client),
           localPort: tunnel.config.localPort,
-          remotePort: tunnel.config.remotePort
-        })
+          remotePort: tunnel.config.remotePort,
+        });
       }
     }
-    return statuses
+    return statuses;
   }
 
   /**
@@ -391,7 +405,7 @@ class SshTunnelService extends EventEmitter {
    */
   closeAllTunnels(): void {
     for (const tunnelKey of this.tunnels.keys()) {
-      this.cleanupTunnel(tunnelKey)
+      this.cleanupTunnel(tunnelKey);
     }
   }
 
@@ -405,95 +419,109 @@ class SshTunnelService extends EventEmitter {
    *
    * @returns The actual remote port bound (useful if remotePort was 0)
    */
-  async createReverseTunnel(config: SshTunnelConfig & { remoteListenPort: number; localTargetPort: number }): Promise<number> {
-    const tunnelKey = config.serverId
-    const tunnel = this.tunnels.get(tunnelKey)
+  async createReverseTunnel(
+    config: SshTunnelConfig & { remoteListenPort: number; localTargetPort: number },
+  ): Promise<number> {
+    const tunnelKey = config.serverId;
+    const tunnel = this.tunnels.get(tunnelKey);
 
     if (!tunnel || !isClientConnected(tunnel.client)) {
-      throw new Error(`[SshTunnel] No active tunnel for server ${tunnelKey}. Call establishTunnel first.`)
+      throw new Error(
+        `[SshTunnel] No active tunnel for server ${tunnelKey}. Call establishTunnel first.`,
+      );
     }
 
-    const client = tunnel.client
-    const { remoteListenPort, localTargetPort } = config
+    const client = tunnel.client;
+    const { remoteListenPort, localTargetPort } = config;
 
     return new Promise((resolve, reject) => {
       client.forwardIn('127.0.0.1', remoteListenPort, (err, actualRemotePort) => {
         if (err) {
-          console.error(`[SshTunnel] forwardIn failed for remote port ${remoteListenPort}:`, err)
-          reject(err)
-          return
+          console.error(`[SshTunnel] forwardIn failed for remote port ${remoteListenPort}:`, err);
+          reject(err);
+          return;
         }
 
-        console.log(`[SshTunnel] Reverse tunnel established: remote:${actualRemotePort} -> 127.0.0.1:${localTargetPort}`)
+        console.log(
+          `[SshTunnel] Reverse tunnel established: remote:${actualRemotePort} -> 127.0.0.1:${localTargetPort}`,
+        );
 
         // Handle incoming connections from the remote side
-        const handler = (info: { destPort: number; destIP: string; srcPort: number; srcIP: string }, accept: () => any, rejectConn: () => any) => {
-          if (info.destPort !== actualRemotePort) return
+        const handler = (
+          info: { destPort: number; destIP: string; srcPort: number; srcIP: string },
+          accept: () => any,
+          rejectConn: () => any,
+        ) => {
+          if (info.destPort !== actualRemotePort) return;
 
           try {
-            const channel = accept()
+            const channel = accept();
             const socket = net.connect(localTargetPort, '127.0.0.1', () => {
               // Connection established
-            })
+            });
 
-            channel.pipe(socket).pipe(channel)
+            channel.pipe(socket).pipe(channel);
 
-            socket.on('error', () => channel.close())
-            channel.on('error', () => socket.destroy())
-            socket.on('close', () => channel.close())
-            channel.on('close', () => socket.destroy())
+            socket.on('error', () => channel.close());
+            channel.on('error', () => socket.destroy());
+            socket.on('close', () => channel.close());
+            channel.on('close', () => socket.destroy());
           } catch {
-            try { rejectConn() } catch { /* ignore */ }
+            try {
+              rejectConn();
+            } catch {
+              /* ignore */
+            }
           }
-        }
+        };
 
         // Store handler reference for cleanup
-        client.on('tcpip', handler)
-        ;(tunnel as any).reverseTunnelHandler = handler
-        ;(tunnel as any).reverseTunnelPort = actualRemotePort
+        client.on('tcpip', handler);
+        (tunnel as any).reverseTunnelHandler = handler;
+        (tunnel as any).reverseTunnelPort = actualRemotePort;
 
-        resolve(actualRemotePort)
-      })
-    })
+        resolve(actualRemotePort);
+      });
+    });
   }
 
   /**
    * Internal: Clean up a tunnel
    */
   private cleanupTunnel(tunnelKey: string): boolean {
-    const tunnel = this.tunnels.get(tunnelKey)
-    if (!tunnel) return false
+    const tunnel = this.tunnels.get(tunnelKey);
+    if (!tunnel) return false;
 
     // Release the port from used set
-    this.usedPorts.delete(tunnel.config.localPort)
+    this.usedPorts.delete(tunnel.config.localPort);
 
     // Close local server first
     if (tunnel.server) {
       try {
-        tunnel.server.close()
-        console.log(`[SshTunnel] Local server closed for ${tunnelKey}`)
+        tunnel.server.close();
+        console.log(`[SshTunnel] Local server closed for ${tunnelKey}`);
       } catch (err) {
-        console.error(`[SshTunnel] Error closing local server for ${tunnelKey}:`, err)
+        console.error(`[SshTunnel] Error closing local server for ${tunnelKey}:`, err);
       }
     }
 
     // Close SSH client
     try {
-      tunnel.client.end()
-      tunnel.client.destroy()
+      tunnel.client.end();
+      tunnel.client.destroy();
     } catch (err) {
-      console.error(`[SshTunnel] Error closing tunnel ${tunnelKey}:`, err)
+      console.error(`[SshTunnel] Error closing tunnel ${tunnelKey}:`, err);
     }
 
     // Remove from map
-    this.tunnels.delete(tunnelKey)
-    console.log(`[SshTunnel] Tunnel ${tunnelKey} closed and removed`)
-    return true
+    this.tunnels.delete(tunnelKey);
+    console.log(`[SshTunnel] Tunnel ${tunnelKey} closed and removed`);
+    return true;
   }
 }
 
 // Singleton instance
-const sshTunnelService = new SshTunnelService()
+const sshTunnelService = new SshTunnelService();
 
-export default sshTunnelService
-export { SshTunnelService }
+export default sshTunnelService;
+export { SshTunnelService };

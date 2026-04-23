@@ -24,9 +24,9 @@ import {
   useCallback,
   useMemo,
   memo,
-} from 'react'
-import { EditorView } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+} from 'react';
+import { EditorView } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
 import {
   createEditorState,
   setReadOnly,
@@ -34,7 +34,7 @@ import {
   getContent,
   setContent,
   hasChanges,
-} from '../../../lib/codemirror-setup'
+} from '../../../lib/codemirror-setup';
 
 // ============================================
 // Types
@@ -42,38 +42,38 @@ import {
 
 export interface CodeMirrorEditorProps {
   /** Document content */
-  content: string
+  content: string;
   /** Programming language for syntax highlighting */
-  language?: string
+  language?: string;
   /** Read-only mode (default: true) */
-  readOnly?: boolean
+  readOnly?: boolean;
   /** Called when content changes (only in edit mode) */
-  onChange?: (content: string) => void
+  onChange?: (content: string) => void;
   /** Called when scroll position changes */
-  onScroll?: (position: number) => void
+  onScroll?: (position: number) => void;
   /** Initial scroll position to restore */
-  scrollPosition?: number
+  scrollPosition?: number;
   /** CSS class name for the container */
-  className?: string
+  className?: string;
 }
 
 export interface CodeMirrorEditorRef {
   /** Get the current document content */
-  getContent: () => string
+  getContent: () => string;
   /** Set the document content */
-  setContent: (content: string) => void
+  setContent: (content: string) => void;
   /** Check if content has been modified */
-  hasChanges: () => boolean
+  hasChanges: () => boolean;
   /** Set read-only mode */
-  setReadOnly: (readOnly: boolean) => void
+  setReadOnly: (readOnly: boolean) => void;
   /** Focus the editor */
-  focus: () => void
+  focus: () => void;
   /** Get the scroll position */
-  getScrollPosition: () => number
+  getScrollPosition: () => number;
   /** Set the scroll position */
-  setScrollPosition: (position: number) => void
+  setScrollPosition: (position: number) => void;
   /** Get the EditorView instance */
-  getView: () => EditorView | null
+  getView: () => EditorView | null;
 }
 
 // ============================================
@@ -82,33 +82,25 @@ export interface CodeMirrorEditorRef {
 
 export const CodeMirrorEditor = memo(
   forwardRef<CodeMirrorEditorRef, CodeMirrorEditorProps>(function CodeMirrorEditor(
-    {
-      content,
-      language,
-      readOnly = true,
-      onChange,
-      onScroll,
-      scrollPosition,
-      className = '',
-    },
-    ref
+    { content, language, readOnly = true, onChange, onScroll, scrollPosition, className = '' },
+    ref,
   ) {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const viewRef = useRef<EditorView | null>(null)
-    const originalContentRef = useRef<string>(content)
-    const lastScrollPositionRef = useRef<number>(0)
+    const containerRef = useRef<HTMLDivElement>(null);
+    const viewRef = useRef<EditorView | null>(null);
+    const originalContentRef = useRef<string>(content);
+    const lastScrollPositionRef = useRef<number>(0);
 
     // Keep refs up to date with latest callbacks
-    const onChangeRef = useRef(onChange)
-    const onScrollRef = useRef(onScroll)
+    const onChangeRef = useRef(onChange);
+    const onScrollRef = useRef(onScroll);
 
     useEffect(() => {
-      onChangeRef.current = onChange
-    }, [onChange])
+      onChangeRef.current = onChange;
+    }, [onChange]);
 
     useEffect(() => {
-      onScrollRef.current = onScroll
-    }, [onScroll])
+      onScrollRef.current = onScroll;
+    }, [onScroll]);
 
     // Build extensions array - stable across re-renders using refs
     const extensions = useMemo(
@@ -116,28 +108,28 @@ export const CodeMirrorEditor = memo(
         // Update listener for content changes
         EditorView.updateListener.of((update) => {
           if (update.docChanged && onChangeRef.current) {
-            onChangeRef.current(update.state.doc.toString())
+            onChangeRef.current(update.state.doc.toString());
           }
         }),
 
         // Scroll listener
         EditorView.domEventHandlers({
           scroll: (event, view) => {
-            const scrollTop = view.scrollDOM.scrollTop
-            lastScrollPositionRef.current = scrollTop
+            const scrollTop = view.scrollDOM.scrollTop;
+            lastScrollPositionRef.current = scrollTop;
             if (onScrollRef.current) {
-              onScrollRef.current(scrollTop)
+              onScrollRef.current(scrollTop);
             }
-            return false
+            return false;
           },
         }),
       ],
-      [] // Stable - uses refs for callbacks
-    )
+      [], // Stable - uses refs for callbacks
+    );
 
     // Initialize editor once on mount
     useEffect(() => {
-      if (!containerRef.current) return
+      if (!containerRef.current) return;
 
       // Create initial state
       const state = createEditorState({
@@ -145,127 +137,127 @@ export const CodeMirrorEditor = memo(
         language,
         readOnly,
         extensions,
-      })
+      });
 
       // Create view
       const view = new EditorView({
         state,
         parent: containerRef.current,
-      })
+      });
 
-      viewRef.current = view
-      originalContentRef.current = content
+      viewRef.current = view;
+      originalContentRef.current = content;
 
       // Restore scroll position if provided
       if (scrollPosition !== undefined && scrollPosition > 0) {
         // Use requestAnimationFrame to ensure DOM is ready
         requestAnimationFrame(() => {
-          view.scrollDOM.scrollTop = scrollPosition
-        })
+          view.scrollDOM.scrollTop = scrollPosition;
+        });
       }
 
       return () => {
-        view.destroy()
-        viewRef.current = null
-      }
+        view.destroy();
+        viewRef.current = null;
+      };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []) // Intentionally empty - initialize once, update via separate effects
+    }, []); // Intentionally empty - initialize once, update via separate effects
 
     // Update content when prop changes
     useEffect(() => {
-      const view = viewRef.current
-      if (!view) return
+      const view = viewRef.current;
+      if (!view) return;
 
-      const currentContent = view.state.doc.toString()
+      const currentContent = view.state.doc.toString();
       if (currentContent !== content) {
-        setContent(view, content)
-        originalContentRef.current = content
+        setContent(view, content);
+        originalContentRef.current = content;
       }
-    }, [content])
+    }, [content]);
 
     // Update language when prop changes
     useEffect(() => {
-      const view = viewRef.current
-      if (!view) return
+      const view = viewRef.current;
+      if (!view) return;
 
-      setLanguage(view, language)
-    }, [language])
+      setLanguage(view, language);
+    }, [language]);
 
     // Update read-only mode when prop changes
     useEffect(() => {
-      const view = viewRef.current
-      if (!view) return
+      const view = viewRef.current;
+      if (!view) return;
 
-      setReadOnly(view, readOnly)
+      setReadOnly(view, readOnly);
 
       // If switching to read-only, update original content reference
       if (readOnly) {
-        originalContentRef.current = view.state.doc.toString()
+        originalContentRef.current = view.state.doc.toString();
       }
-    }, [readOnly])
+    }, [readOnly]);
 
     // Expose methods via ref
     useImperativeHandle(
       ref,
       () => ({
         getContent: () => {
-          const view = viewRef.current
-          return view ? getContent(view) : content
+          const view = viewRef.current;
+          return view ? getContent(view) : content;
         },
 
         setContent: (newContent: string) => {
-          const view = viewRef.current
+          const view = viewRef.current;
           if (view) {
-            setContent(view, newContent)
+            setContent(view, newContent);
           }
         },
 
         hasChanges: () => {
-          const view = viewRef.current
-          return view ? hasChanges(view, originalContentRef.current) : false
+          const view = viewRef.current;
+          return view ? hasChanges(view, originalContentRef.current) : false;
         },
 
         setReadOnly: (isReadOnly: boolean) => {
-          const view = viewRef.current
+          const view = viewRef.current;
           if (view) {
-            setReadOnly(view, isReadOnly)
+            setReadOnly(view, isReadOnly);
             if (isReadOnly) {
-              originalContentRef.current = view.state.doc.toString()
+              originalContentRef.current = view.state.doc.toString();
             }
           }
         },
 
         focus: () => {
-          const view = viewRef.current
+          const view = viewRef.current;
           if (view) {
-            view.focus()
+            view.focus();
           }
         },
 
         getScrollPosition: () => {
-          const view = viewRef.current
-          return view ? view.scrollDOM.scrollTop : lastScrollPositionRef.current
+          const view = viewRef.current;
+          return view ? view.scrollDOM.scrollTop : lastScrollPositionRef.current;
         },
 
         setScrollPosition: (position: number) => {
-          const view = viewRef.current
+          const view = viewRef.current;
           if (view) {
-            view.scrollDOM.scrollTop = position
+            view.scrollDOM.scrollTop = position;
           }
         },
 
         getView: () => viewRef.current,
       }),
-      [content]
-    )
+      [content],
+    );
 
     return (
       <div
         ref={containerRef}
         className={`codemirror-container h-full w-full overflow-hidden ${className}`}
       />
-    )
-  })
-)
+    );
+  }),
+);
 
-CodeMirrorEditor.displayName = 'CodeMirrorEditor'
+CodeMirrorEditor.displayName = 'CodeMirrorEditor';

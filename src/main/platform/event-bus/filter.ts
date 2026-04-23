@@ -12,7 +12,7 @@
  * - All filter criteria use AND logic. types/sources use OR within their arrays.
  */
 
-import type { AicoBotEvent, EventFilter, FilterRule } from './types'
+import type { AicoBotEvent, EventFilter, FilterRule } from './types';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -31,23 +31,23 @@ import type { AicoBotEvent, EventFilter, FilterRule } from './types'
 export function matchesFilter(event: AicoBotEvent, filter: EventFilter): boolean {
   // Type matching (OR logic within the array)
   if (filter.types && filter.types.length > 0) {
-    const typeMatched = filter.types.some(pattern => matchTypeGlob(event.type, pattern))
-    if (!typeMatched) return false
+    const typeMatched = filter.types.some((pattern) => matchTypeGlob(event.type, pattern));
+    if (!typeMatched) return false;
   }
 
   // Source matching (OR logic within the array)
   if (filter.sources && filter.sources.length > 0) {
-    if (!filter.sources.includes(event.source)) return false
+    if (!filter.sources.includes(event.source)) return false;
   }
 
   // Rule matching (AND logic -- every rule must pass)
   if (filter.rules && filter.rules.length > 0) {
     for (const rule of filter.rules) {
-      if (!evaluateRule(event, rule)) return false
+      if (!evaluateRule(event, rule)) return false;
     }
   }
 
-  return true
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,12 +63,12 @@ export function matchesFilter(event: AicoBotEvent, filter: EventFilter): boolean
  * - `"*"` -- matches everything
  */
 export function matchTypeGlob(type: string, pattern: string): boolean {
-  if (pattern === '*') return true
+  if (pattern === '*') return true;
   if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1) // "file." from "file.*"
-    return type.startsWith(prefix)
+    const prefix = pattern.slice(0, -1); // "file." from "file.*"
+    return type.startsWith(prefix);
   }
-  return type === pattern
+  return type === pattern;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,8 +81,8 @@ export function matchTypeGlob(type: string, pattern: string): boolean {
  * Resolves the field path, then applies the operator.
  */
 export function evaluateRule(event: AicoBotEvent, rule: FilterRule): boolean {
-  const fieldValue = getByPath(event as unknown as Record<string, unknown>, rule.field)
-  return applyOperator(fieldValue, rule.op, rule.value)
+  const fieldValue = getByPath(event as unknown as Record<string, unknown>, rule.field);
+  return applyOperator(fieldValue, rule.op, rule.value);
 }
 
 /**
@@ -98,61 +98,65 @@ export function evaluateRule(event: AicoBotEvent, rule: FilterRule): boolean {
  * - in: field value is in the provided array
  * - nin: field value is NOT in the provided array
  */
-export function applyOperator(fieldValue: unknown, op: FilterRule['op'], ruleValue: unknown): boolean {
+export function applyOperator(
+  fieldValue: unknown,
+  op: FilterRule['op'],
+  ruleValue: unknown,
+): boolean {
   switch (op) {
     case 'eq':
-      return fieldValue === ruleValue
+      return fieldValue === ruleValue;
 
     case 'neq':
-      return fieldValue !== ruleValue
+      return fieldValue !== ruleValue;
 
     case 'contains':
       if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
-        return fieldValue.includes(ruleValue)
+        return fieldValue.includes(ruleValue);
       }
       if (Array.isArray(fieldValue)) {
-        return fieldValue.includes(ruleValue)
+        return fieldValue.includes(ruleValue);
       }
-      return false
+      return false;
 
     case 'matches':
       if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
         try {
-          const regex = new RegExp(ruleValue)
-          return regex.test(fieldValue)
+          const regex = new RegExp(ruleValue);
+          return regex.test(fieldValue);
         } catch {
           // Invalid regex pattern -- treat as no match
-          return false
+          return false;
         }
       }
-      return false
+      return false;
 
     case 'gt':
       if (typeof fieldValue === 'number' && typeof ruleValue === 'number') {
-        return fieldValue > ruleValue
+        return fieldValue > ruleValue;
       }
-      return false
+      return false;
 
     case 'lt':
       if (typeof fieldValue === 'number' && typeof ruleValue === 'number') {
-        return fieldValue < ruleValue
+        return fieldValue < ruleValue;
       }
-      return false
+      return false;
 
     case 'in':
       if (Array.isArray(ruleValue)) {
-        return ruleValue.includes(fieldValue)
+        return ruleValue.includes(fieldValue);
       }
-      return false
+      return false;
 
     case 'nin':
       if (Array.isArray(ruleValue)) {
-        return !ruleValue.includes(fieldValue)
+        return !ruleValue.includes(fieldValue);
       }
-      return false
+      return false;
 
     default:
-      return false
+      return false;
   }
 }
 
@@ -171,31 +175,31 @@ export function applyOperator(fieldValue: unknown, op: FilterRule['op'], ruleVal
  * Returns `undefined` for any unresolvable path segment.
  */
 export function getByPath(obj: Record<string, unknown>, path: string): unknown {
-  if (!path) return undefined
+  if (!path) return undefined;
 
-  const parts: Array<string | number> = []
+  const parts: Array<string | number> = [];
   // Parse path segments: property names and array indices
-  const re = /([^.[\]]+)|\[(\d+)\]/g
-  let match = re.exec(path)
+  const re = /([^.[\]]+)|\[(\d+)\]/g;
+  let match = re.exec(path);
   while (match) {
     if (match[1] !== undefined) {
-      parts.push(match[1])
+      parts.push(match[1]);
     } else if (match[2] !== undefined) {
-      parts.push(Number(match[2]))
+      parts.push(Number(match[2]));
     }
-    match = re.exec(path)
+    match = re.exec(path);
   }
 
-  let current: unknown = obj
+  let current: unknown = obj;
   for (const part of parts) {
-    if (current === null || current === undefined) return undefined
+    if (current === null || current === undefined) return undefined;
     if (typeof part === 'number') {
-      if (!Array.isArray(current)) return undefined
-      current = (current as unknown[])[part]
+      if (!Array.isArray(current)) return undefined;
+      current = (current as unknown[])[part];
     } else {
-      if (typeof current !== 'object') return undefined
-      current = (current as Record<string, unknown>)[part]
+      if (typeof current !== 'object') return undefined;
+      current = (current as Record<string, unknown>)[part];
     }
   }
-  return current
+  return current;
 }

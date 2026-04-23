@@ -4,7 +4,7 @@
  * Provides a type-safe abstraction for writing Anthropic SSE events
  */
 
-import type { Response as ExpressResponse } from 'express'
+import type { Response as ExpressResponse } from 'express';
 import type {
   AnthropicStreamEvent,
   AnthropicMessageStartEvent,
@@ -13,55 +13,58 @@ import type {
   AnthropicContentBlockStopEvent,
   AnthropicMessageDeltaEvent,
   AnthropicMessageStopEvent,
-  AnthropicStopReason
-} from '../types'
+  AnthropicStopReason,
+} from '../types';
 
 export interface SSEWriterOptions {
-  debug?: boolean
+  debug?: boolean;
 }
 
 /**
  * Type-safe SSE writer for Anthropic streaming format
  */
 export class SSEWriter {
-  private res: ExpressResponse
-  private debug: boolean
-  private closed: boolean = false
+  private res: ExpressResponse;
+  private debug: boolean;
+  private closed: boolean = false;
 
   constructor(res: ExpressResponse, options: SSEWriterOptions = {}) {
-    this.res = res
-    this.debug = options.debug ?? false
+    this.res = res;
+    this.debug = options.debug ?? false;
   }
 
   /**
    * Check if the writer is closed
    */
   get isClosed(): boolean {
-    return this.closed
+    return this.closed;
   }
 
   /**
    * Write a raw SSE event
    */
   private writeEvent(event: string, data: unknown): boolean {
-    if (this.closed) return false
+    if (this.closed) return false;
 
     try {
-      const jsonData = JSON.stringify(data)
-      this.res.write(`event: ${event}\ndata: ${jsonData}\n\n`)
+      const jsonData = JSON.stringify(data);
+      this.res.write(`event: ${event}\ndata: ${jsonData}\n\n`);
 
       if (this.debug) {
-        console.log(`[SSEWriter] Send: ${event}`, jsonData.slice(0, 200))
+        console.log(`[SSEWriter] Send: ${event}`, jsonData.slice(0, 200));
       }
 
-      return true
+      return true;
     } catch (e: unknown) {
-      if (e instanceof TypeError && String((e as Error).message).includes('Controller is already closed')) {
-        this.closed = true
+      if (
+        e instanceof TypeError &&
+        String((e as Error).message).includes('Controller is already closed')
+      ) {
+        this.closed = true;
       } else if (this.debug) {
-        console.error('[SSEWriter] Error writing event:', e)
+        console.error('[SSEWriter] Error writing event:', e);
       }
-      return false
+      return false;
     }
   }
 
@@ -79,10 +82,10 @@ export class SSEWriter {
         model,
         stop_reason: null,
         stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 }
-      }
-    }
-    return this.writeEvent('message_start', event)
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    };
+    return this.writeEvent('message_start', event);
   }
 
   /**
@@ -92,9 +95,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockStartEvent = {
       type: 'content_block_start',
       index,
-      content_block: { type: 'text', text: '' }
-    }
-    return this.writeEvent('content_block_start', event)
+      content_block: { type: 'text', text: '' },
+    };
+    return this.writeEvent('content_block_start', event);
   }
 
   /**
@@ -104,9 +107,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockStartEvent = {
       type: 'content_block_start',
       index,
-      content_block: { type: 'tool_use', id, name, input: {} }
-    }
-    return this.writeEvent('content_block_start', event)
+      content_block: { type: 'tool_use', id, name, input: {} },
+    };
+    return this.writeEvent('content_block_start', event);
   }
 
   /**
@@ -116,9 +119,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockStartEvent = {
       type: 'content_block_start',
       index,
-      content_block: { type: 'thinking', thinking: '' }
-    }
-    return this.writeEvent('content_block_start', event)
+      content_block: { type: 'thinking', thinking: '' },
+    };
+    return this.writeEvent('content_block_start', event);
   }
 
   /**
@@ -127,7 +130,7 @@ export class SSEWriter {
   writeWebSearchBlockStart(
     index: number,
     toolUseId: string,
-    results: Array<{ type: string; url?: string; title?: string }>
+    results: Array<{ type: string; url?: string; title?: string }>,
   ): boolean {
     const event: AnthropicContentBlockStartEvent = {
       type: 'content_block_start',
@@ -135,10 +138,10 @@ export class SSEWriter {
       content_block: {
         type: 'web_search_tool_result',
         tool_use_id: toolUseId,
-        content: results
-      }
-    }
-    return this.writeEvent('content_block_start', event)
+        content: results,
+      },
+    };
+    return this.writeEvent('content_block_start', event);
   }
 
   /**
@@ -148,9 +151,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockDeltaEvent = {
       type: 'content_block_delta',
       index,
-      delta: { type: 'text_delta', text }
-    }
-    return this.writeEvent('content_block_delta', event)
+      delta: { type: 'text_delta', text },
+    };
+    return this.writeEvent('content_block_delta', event);
   }
 
   /**
@@ -160,9 +163,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockDeltaEvent = {
       type: 'content_block_delta',
       index,
-      delta: { type: 'input_json_delta', partial_json: partialJson }
-    }
-    return this.writeEvent('content_block_delta', event)
+      delta: { type: 'input_json_delta', partial_json: partialJson },
+    };
+    return this.writeEvent('content_block_delta', event);
   }
 
   /**
@@ -172,9 +175,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockDeltaEvent = {
       type: 'content_block_delta',
       index,
-      delta: { type: 'thinking_delta', thinking }
-    }
-    return this.writeEvent('content_block_delta', event)
+      delta: { type: 'thinking_delta', thinking },
+    };
+    return this.writeEvent('content_block_delta', event);
   }
 
   /**
@@ -184,9 +187,9 @@ export class SSEWriter {
     const event: AnthropicContentBlockDeltaEvent = {
       type: 'content_block_delta',
       index,
-      delta: { type: 'signature_delta', signature }
-    }
-    return this.writeEvent('content_block_delta', event)
+      delta: { type: 'signature_delta', signature },
+    };
+    return this.writeEvent('content_block_delta', event);
   }
 
   /**
@@ -195,9 +198,9 @@ export class SSEWriter {
   writeBlockStop(index: number): boolean {
     const event: AnthropicContentBlockStopEvent = {
       type: 'content_block_stop',
-      index
-    }
-    return this.writeEvent('content_block_stop', event)
+      index,
+    };
+    return this.writeEvent('content_block_stop', event);
   }
 
   /**
@@ -205,26 +208,26 @@ export class SSEWriter {
    */
   writeMessageDelta(
     stopReason: AnthropicStopReason,
-    usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number }
+    usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number },
   ): boolean {
     const event: AnthropicMessageDeltaEvent = {
       type: 'message_delta',
       delta: { stop_reason: stopReason, stop_sequence: null },
       usage: {
-        output_tokens: usage.outputTokens ?? 0
-      }
-    }
+        output_tokens: usage.outputTokens ?? 0,
+      },
+    };
 
     // Add additional usage fields if present
-    const eventData = event as any
+    const eventData = event as any;
     if (usage.inputTokens !== undefined) {
-      eventData.usage.input_tokens = usage.inputTokens
+      eventData.usage.input_tokens = usage.inputTokens;
     }
     if (usage.cacheReadTokens !== undefined) {
-      eventData.usage.cache_read_input_tokens = usage.cacheReadTokens
+      eventData.usage.cache_read_input_tokens = usage.cacheReadTokens;
     }
 
-    return this.writeEvent('message_delta', event)
+    return this.writeEvent('message_delta', event);
   }
 
   /**
@@ -232,9 +235,9 @@ export class SSEWriter {
    */
   writeMessageStop(): boolean {
     const event: AnthropicMessageStopEvent = {
-      type: 'message_stop'
-    }
-    return this.writeEvent('message_stop', event)
+      type: 'message_stop',
+    };
+    return this.writeEvent('message_stop', event);
   }
 
   /**
@@ -243,8 +246,8 @@ export class SSEWriter {
   writeError(message: string): boolean {
     return this.writeEvent('error', {
       type: 'error',
-      message: { type: 'api_error', message }
-    })
+      message: { type: 'api_error', message },
+    });
   }
 
   /**
@@ -252,8 +255,8 @@ export class SSEWriter {
    */
   end(): void {
     if (!this.closed) {
-      this.res.end()
-      this.closed = true
+      this.res.end();
+      this.closed = true;
     }
   }
 
@@ -264,9 +267,9 @@ export class SSEWriter {
     if (!this.closed) {
       this.res.status(statusCode).json({
         type: 'error',
-        error: { type: errorType, message }
-      })
-      this.closed = true
+        error: { type: errorType, message },
+      });
+      this.closed = true;
     }
   }
 }

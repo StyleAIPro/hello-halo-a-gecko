@@ -15,13 +15,13 @@
  * - The remote proxy reconstructs in-process MCP servers using these definitions
  */
 
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
-import { buildAllTools as buildAiBrowserTools } from '../ai-browser/sdk-mcp-server'
-import { createLogger } from '../../utils/logger'
+import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import { buildAllTools as buildAiBrowserTools } from '../ai-browser/sdk-mcp-server';
+import { createLogger } from '../../utils/logger';
 
-const log = createLogger('mcp-bridge')
-import { browserContext } from '../ai-browser/context'
-import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server'
+const log = createLogger('mcp-bridge');
+import { browserContext } from '../ai-browser/context';
+import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server';
 
 // ============================================
 // Types
@@ -29,19 +29,19 @@ import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server
 
 /** Serialized MCP tool definition for WebSocket transmission */
 export interface AicoBotMcpToolDef {
-  name: string
-  description: string
+  name: string;
+  description: string;
   /** Zod raw shape, serialized as plain object */
-  inputSchema: Record<string, any>
+  inputSchema: Record<string, any>;
   /** Source MCP server name */
-  serverName: string
+  serverName: string;
 }
 
 /** Capability flags advertised to the remote proxy */
 export interface AicoBotMcpCapabilities {
-  aiBrowser: boolean
-  ghSearch: boolean
-  version: number
+  aiBrowser: boolean;
+  ghSearch: boolean;
+  version: number;
 }
 
 // ============================================
@@ -54,7 +54,10 @@ export class AicoBotMcpBridge {
    * Handlers are closure-captured functions from the original MCP tool definitions.
    * They are never serialized — only used for local execution.
    */
-  private tools = new Map<string, { handler: (args: any, extra: any) => Promise<any>; serverName: string }>()
+  private tools = new Map<
+    string,
+    { handler: (args: any, extra: any) => Promise<any>; serverName: string }
+  >();
 
   /**
    * Collect tool definitions from local PC resource MCP servers and build the handler map.
@@ -67,59 +70,59 @@ export class AicoBotMcpBridge {
    * @returns Serialized tool definitions for WebSocket transmission
    */
   collectTools(spaceId: string, includeAiBrowser = true): AicoBotMcpToolDef[] {
-    this.tools.clear()
+    this.tools.clear();
 
-    const allDefs: AicoBotMcpToolDef[] = []
+    const allDefs: AicoBotMcpToolDef[] = [];
 
     // 1. AI Browser tools (26 tools) — PC resource, bridged
     if (includeAiBrowser) {
       try {
-        const aiBrowserTools = buildAiBrowserTools(browserContext)
+        const aiBrowserTools = buildAiBrowserTools(browserContext);
         for (const toolDef of aiBrowserTools) {
-          const def = toolDef as SdkMcpToolDefinition
+          const def = toolDef as SdkMcpToolDefinition;
           this.tools.set(def.name, {
             handler: def.handler,
-            serverName: 'ai-browser'
-          })
+            serverName: 'ai-browser',
+          });
           allDefs.push({
             name: def.name,
             description: def.description,
             inputSchema: def.inputSchema as Record<string, any>,
-            serverName: 'ai-browser'
-          })
+            serverName: 'ai-browser',
+          });
         }
-        log.debug(`Collected ${aiBrowserTools.length} ai-browser tools`)
+        log.debug(`Collected ${aiBrowserTools.length} ai-browser tools`);
       } catch (error) {
-        log.warn(`Failed to collect ai-browser tools:`, error)
+        log.warn(`Failed to collect ai-browser tools:`, error);
       }
     }
 
     // 2. GitHub Search tools (8 tools) — PC resource, bridged
     try {
-      const ghSearchTools = buildGhSearchTools()
+      const ghSearchTools = buildGhSearchTools();
       for (const toolDef of ghSearchTools) {
-        const def = toolDef as SdkMcpToolDefinition
+        const def = toolDef as SdkMcpToolDefinition;
         this.tools.set(def.name, {
           handler: def.handler,
-          serverName: 'gh-search'
-        })
+          serverName: 'gh-search',
+        });
         allDefs.push({
           name: def.name,
           description: def.description,
           inputSchema: def.inputSchema as Record<string, any>,
-          serverName: 'gh-search'
-        })
+          serverName: 'gh-search',
+        });
       }
-      log.debug(`Collected ${ghSearchTools.length} gh-search tools`)
+      log.debug(`Collected ${ghSearchTools.length} gh-search tools`);
     } catch (error) {
-      log.warn(`Failed to collect gh-search tools:`, error)
+      log.warn(`Failed to collect gh-search tools:`, error);
     }
 
     // Note: aico-bot-apps tools are NOT bridged. The remote proxy has its own
     // independent AppManager + AppRuntime (Phase 3).
 
-    log.info(`Total: ${allDefs.length} tools collected`)
-    return allDefs
+    log.info(`Total: ${allDefs.length} tools collected`);
+    return allDefs;
   }
 
   /**
@@ -136,14 +139,16 @@ export class AicoBotMcpBridge {
         // a generic MCP client connection in a future phase
         this.tools.set(toolDef.name, {
           handler: async () => ({
-            content: [{ type: 'text', text: 'User MCP tool execution not yet implemented in bridge mode' }],
-            isError: true
+            content: [
+              { type: 'text', text: 'User MCP tool execution not yet implemented in bridge mode' },
+            ],
+            isError: true,
           }),
-          serverName: toolDef.serverName
-        })
+          serverName: toolDef.serverName,
+        });
       }
     }
-    log.debug(`Added ${tools.length} user MCP tool definitions (handlers pending future phase)`)
+    log.debug(`Added ${tools.length} user MCP tool definitions (handlers pending future phase)`);
   }
 
   /**
@@ -155,30 +160,30 @@ export class AicoBotMcpBridge {
    * @returns CallToolResult shape: { content: [...], isError?: boolean }
    */
   async handleToolCall(toolName: string, args: Record<string, unknown>): Promise<any> {
-    const entry = this.tools.get(toolName)
+    const entry = this.tools.get(toolName);
     if (!entry) {
       return {
         content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
-        isError: true
-      }
+        isError: true,
+      };
     }
 
-    log.info(`Executing tool: ${entry.serverName}:${toolName}`)
+    log.info(`Executing tool: ${entry.serverName}:${toolName}`);
 
     try {
-      const result = await entry.handler(args, null)
+      const result = await entry.handler(args, null);
       // Handler may return CallToolResult or a string
       if (typeof result === 'string') {
-        return { content: [{ type: 'text', text: result }] }
+        return { content: [{ type: 'text', text: result }] };
       }
-      return result
+      return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      log.error(`Tool error (${entry.serverName}:${toolName}):`, message)
+      const message = error instanceof Error ? error.message : String(error);
+      log.error(`Tool error (${entry.serverName}:${toolName}):`, message);
       return {
         content: [{ type: 'text', text: `Error executing ${toolName}: ${message}` }],
-        isError: true
-      }
+        isError: true,
+      };
     }
   }
 
@@ -186,33 +191,33 @@ export class AicoBotMcpBridge {
    * Get the number of registered tools.
    */
   getToolCount(): number {
-    return this.tools.size
+    return this.tools.size;
   }
 
   /**
    * Get the capabilities based on registered tools.
    */
   getCapabilities(): AicoBotMcpCapabilities {
-    let aiBrowser = false
-    let ghSearch = false
+    let aiBrowser = false;
+    let ghSearch = false;
 
     for (const entry of this.tools.values()) {
-      if (entry.serverName === 'ai-browser') aiBrowser = true
-      if (entry.serverName === 'gh-search') ghSearch = true
+      if (entry.serverName === 'ai-browser') aiBrowser = true;
+      if (entry.serverName === 'gh-search') ghSearch = true;
     }
 
     return {
       aiBrowser,
       ghSearch,
       version: 2,
-    }
+    };
   }
 
   /**
    * Clean up tool references.
    */
   dispose(): void {
-    this.tools.clear()
-    log.info('Disposed')
+    this.tools.clear();
+    log.info('Disposed');
   }
 }

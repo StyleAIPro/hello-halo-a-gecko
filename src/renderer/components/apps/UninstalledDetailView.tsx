@@ -5,33 +5,33 @@
  * Displays app info, uninstall date, and actions to reinstall or permanently delete.
  */
 
-import { useState } from 'react'
-import { RotateCcw, Trash2, AlertTriangle } from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
-import { appTypeLabel } from './appTypeUtils'
+import { useState } from 'react';
+import { RotateCcw, Trash2, AlertTriangle } from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
+import { appTypeLabel } from './appTypeUtils';
 
 interface UninstalledDetailViewProps {
-  appId: string
+  appId: string;
   /** Space name to display */
-  spaceName?: string
+  spaceName?: string;
 }
 
 export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailViewProps) {
-  const { t } = useTranslation()
-  const { apps, reinstallApp, deleteApp } = useAppsStore()
-  const { selectApp, clearSelection } = useAppsPageStore()
-  const app = apps.find(a => a.id === appId)
+  const { t } = useTranslation();
+  const { apps, reinstallApp, deleteApp } = useAppsStore();
+  const { selectApp, clearSelection } = useAppsPageStore();
+  const app = apps.find((a) => a.id === appId);
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [isReinstalling, setIsReinstalling] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isReinstalling, setIsReinstalling] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  if (!app) return null
+  if (!app) return null;
 
-  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage());
 
   // Format the uninstalled date
   const uninstalledDate = app.uninstalledAt
@@ -42,26 +42,26 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
         hour: '2-digit',
         minute: '2-digit',
       })
-    : null
+    : null;
 
   const handleReinstall = async () => {
-    setIsReinstalling(true)
-    const success = await reinstallApp(appId)
-    setIsReinstalling(false)
+    setIsReinstalling(true);
+    const success = await reinstallApp(appId);
+    setIsReinstalling(false);
     if (success) {
       // Navigate to the app's activity thread after reinstall
-      selectApp(appId, app.spec.type)
+      selectApp(appId, app.spec.type);
     }
-  }
+  };
 
   const handleDelete = async () => {
-    setIsDeleting(true)
-    const success = await deleteApp(appId)
-    setIsDeleting(false)
+    setIsDeleting(true);
+    const success = await deleteApp(appId);
+    setIsDeleting(false);
     if (success) {
-      clearSelection()
+      clearSelection();
     }
-  }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -78,9 +78,7 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
               {t(appTypeLabel(app.spec.type))}
             </span>
           </div>
-          {spaceName && (
-            <p className="text-xs text-muted-foreground/70 mt-1">{spaceName}</p>
-          )}
+          {spaceName && <p className="text-xs text-muted-foreground/70 mt-1">{spaceName}</p>}
         </div>
 
         {/* Status banner */}
@@ -113,7 +111,9 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-muted-foreground">
-                  {t('This will permanently delete the app and all its data. This action cannot be undone.')}
+                  {t(
+                    'This will permanently delete the app and all its data. This action cannot be undone.',
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -144,5 +144,5 @@ export function UninstalledDetailView({ appId, spaceName }: UninstalledDetailVie
         </div>
       </div>
     </div>
-  )
+  );
 }

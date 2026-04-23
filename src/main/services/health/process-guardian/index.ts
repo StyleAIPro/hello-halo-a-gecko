@@ -19,8 +19,8 @@ export {
   clearOrphanEntries,
   markCleanExit,
   wasLastExitClean,
-  getRegistryStats
-} from './registry'
+  getRegistryStats,
+} from './registry';
 
 // Re-export cleaner functions
 export {
@@ -28,11 +28,11 @@ export {
   forceKillProcess,
   isAicoBotManagedProcess,
   getRunningAicoBotProcesses,
-  verifyCleanup
-} from './cleaner'
+  verifyCleanup,
+} from './cleaner';
 
 // Re-export platform operations
-export { getPlatformOps } from './platform'
+export { getPlatformOps } from './platform';
 
 // Re-export types
-export type { ProcessEntry, ProcessType, CleanupResult } from '../types'
+export type { ProcessEntry, ProcessType, CleanupResult } from '../types';

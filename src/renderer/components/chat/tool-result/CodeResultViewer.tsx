@@ -8,77 +8,78 @@
  * - Error state styling
  */
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react'
-import { useAsyncHighlight } from '../../../hooks/useAsyncHighlight'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { countLines, truncateToLines, removeLineNumberPrefix } from './detection'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { useAsyncHighlight } from '../../../hooks/useAsyncHighlight';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { countLines, truncateToLines, removeLineNumberPrefix } from './detection';
 
-const PREVIEW_LINES = 8
-const MAX_EXPANDED_HEIGHT = 400
+const PREVIEW_LINES = 8;
+const MAX_EXPANDED_HEIGHT = 400;
 
 interface CodeResultViewerProps extends ViewerBaseProps {
-  language?: string
+  language?: string;
 }
 
 export function CodeResultViewer({
   output,
   isError,
   language = 'text',
-  toolInput
+  toolInput,
 }: CodeResultViewerProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const contentRef = useRef<HTMLDivElement>(null)
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Clean output: remove line number prefixes from tool output (cat -n format)
   const cleanedOutput = useMemo(() => {
-    return removeLineNumberPrefix(output)
-  }, [output])
+    return removeLineNumberPrefix(output);
+  }, [output]);
 
   // Parse content
-  const { content: previewContent, totalLines, truncated } = useMemo(() => {
-    return truncateToLines(cleanedOutput, PREVIEW_LINES)
-  }, [cleanedOutput])
+  const {
+    content: previewContent,
+    totalLines,
+    truncated,
+  } = useMemo(() => {
+    return truncateToLines(cleanedOutput, PREVIEW_LINES);
+  }, [cleanedOutput]);
 
-  const displayContent = isExpanded ? cleanedOutput : previewContent
+  const displayContent = isExpanded ? cleanedOutput : previewContent;
 
   // Async highlight: shows plain text instantly, then swaps in highlighted HTML
-  const highlightedCode = useAsyncHighlight(displayContent, language)
+  const highlightedCode = useAsyncHighlight(displayContent, language);
 
   // Copy handler - copy cleaned content
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(cleanedOutput)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(cleanedOutput);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [cleanedOutput])
+  }, [cleanedOutput]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   // Scroll to top when collapsing
   useEffect(() => {
     if (!isExpanded && contentRef.current) {
-      contentRef.current.scrollTop = 0
+      contentRef.current.scrollTop = 0;
     }
-  }, [isExpanded])
+  }, [isExpanded]);
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border transition-colors
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* Code content */}
@@ -99,9 +100,7 @@ export function CodeResultViewer({
             className={`hljs ${language ? `language-${language}` : ''}`}
             dangerouslySetInnerHTML={{ __html: highlightedCode }}
           />
-          {truncated && !isExpanded && (
-            <span className="text-muted-foreground/30 block">⋯</span>
-          )}
+          {truncated && !isExpanded && <span className="text-muted-foreground/30 block">⋯</span>}
         </pre>
       </div>
 
@@ -111,9 +110,10 @@ export function CodeResultViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -182,5 +182,5 @@ export function CodeResultViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -2,107 +2,124 @@
  * Remote Agent Chat - Chat interface for remote AI agents
  */
 
-import React, { useState, useEffect, useRef } from 'react'
-import { Send, Loader2, Terminal, FileText, Image as ImageIcon, Copy, Check, CheckCircle, AlertCircle, Paperclip, X } from 'lucide-react'
-import { api } from '../api'
-import { useTranslation } from '../i18n'
-import { TokenUsageIndicator } from './chat/TokenUsageIndicator'
-import type { TokenUsage } from '../types'
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Send,
+  Loader2,
+  Terminal,
+  FileText,
+  Image as ImageIcon,
+  Copy,
+  Check,
+  CheckCircle,
+  AlertCircle,
+  Paperclip,
+  X,
+} from 'lucide-react';
+import { api } from '../api';
+import { useTranslation } from '../i18n';
+import { TokenUsageIndicator } from './chat/TokenUsageIndicator';
+import type { TokenUsage } from '../types';
 
 export interface RemoteFileAttachment {
-  path: string
-  name: string
-  type: 'file' | 'directory'
+  path: string;
+  name: string;
+  type: 'file' | 'directory';
 }
 
 export interface RemoteAgentMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: string
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
   attachments?: Array<{
-    type: 'image' | 'file'
-    name: string
-    url: string
-    path?: string
-  }>
-  status?: 'sending' | 'sent' | 'error'
-  tokenUsage?: TokenUsage
+    type: 'image' | 'file';
+    name: string;
+    url: string;
+    path?: string;
+  }>;
+  status?: 'sending' | 'sent' | 'error';
+  tokenUsage?: TokenUsage;
 }
 
 export interface RemoteAgentChatProps {
-  serverId: string
-  sessionId?: string
-  onSessionChange?: (sessionId: string) => void
-  onFileAttachment?: (file: RemoteFileAttachment) => void
+  serverId: string;
+  sessionId?: string;
+  onSessionChange?: (sessionId: string) => void;
+  onFileAttachment?: (file: RemoteFileAttachment) => void;
 }
 
-export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAttachment }: RemoteAgentChatProps) {
-  const { t } = useTranslation()
-  const [messages, setMessages] = useState<RemoteAgentMessage[]>([])
-  const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const [connected, setConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([])
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+export function RemoteAgentChat({
+  serverId,
+  sessionId,
+  onSessionChange,
+  onFileAttachment,
+}: RemoteAgentChatProps) {
+  const { t } = useTranslation();
+  const [messages, setMessages] = useState<RemoteAgentMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<RemoteFileAttachment[]>([]);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // Load initial session state
   useEffect(() => {
     if (sessionId) {
-      loadSessionMessages(sessionId)
+      loadSessionMessages(sessionId);
     }
-  }, [sessionId, serverId])
+  }, [sessionId, serverId]);
 
   // Check connection status
   useEffect(() => {
-    checkConnection()
-    const interval = setInterval(checkConnection, 30000) // Check every 30s
-    return () => clearInterval(interval)
-  }, [serverId])
+    checkConnection();
+    const interval = setInterval(checkConnection, 30000); // Check every 30s
+    return () => clearInterval(interval);
+  }, [serverId]);
 
   const checkConnection = async () => {
     try {
-      const result = await api.checkRemoteAgentConnection(serverId)
-      setConnected(result.success)
+      const result = await api.checkRemoteAgentConnection(serverId);
+      setConnected(result.success);
       if (!result.success) {
-        setError(result.error || t('Connection lost'))
+        setError(result.error || t('Connection lost'));
       } else {
-        setError(null)
+        setError(null);
       }
     } catch (err) {
-      console.error('[RemoteAgentChat] Connection check failed:', err)
-      setConnected(false)
+      console.error('[RemoteAgentChat] Connection check failed:', err);
+      setConnected(false);
     }
-  }
+  };
 
   const loadSessionMessages = async (sessionId: string) => {
     try {
-      const result = await api.getRemoteAgentMessages(serverId, sessionId)
+      const result = await api.getRemoteAgentMessages(serverId, sessionId);
       if (result.success && result.data) {
-        setMessages(result.data as RemoteAgentMessage[])
+        setMessages(result.data as RemoteAgentMessage[]);
       }
     } catch (err) {
-      console.error('[RemoteAgentChat] Failed to load messages:', err)
+      console.error('[RemoteAgentChat] Failed to load messages:', err);
     }
-  }
+  };
 
   const handleSend = async () => {
-    if ((!input.trim() && attachedFiles.length === 0) || sending) return
+    if ((!input.trim() && attachedFiles.length === 0) || sending) return;
 
     // Build attachments from attached files
-    const attachments = attachedFiles.map(file => ({
+    const attachments = attachedFiles.map((file) => ({
       type: 'file' as const,
       name: file.name,
-      path: file.path
-    }))
+      path: file.path,
+    }));
 
     const userMessage: RemoteAgentMessage = {
       id: `msg-${Date.now()}`,
@@ -110,32 +127,30 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
       content: input.trim(),
       timestamp: new Date().toISOString(),
       status: 'sending',
-      attachments: attachments.length > 0 ? attachments : undefined
-    }
+      attachments: attachments.length > 0 ? attachments : undefined,
+    };
 
-    setMessages(prev => [...prev, userMessage])
-    setInput('')
-    setAttachedFiles([])
-    setSending(true)
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setAttachedFiles([]);
+    setSending(true);
 
     try {
       const result = await api.sendRemoteAgentMessage(serverId, {
         sessionId,
         content: userMessage.content,
-        attachments
-      })
+        attachments,
+      });
 
       if (result.success) {
         // Update user message status
-        setMessages(prev => prev.map(msg =>
-          msg.id === userMessage.id
-            ? { ...msg, status: 'sent' }
-            : msg
-        ))
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg)),
+        );
 
         // If new session was created, update it
         if (result.data?.sessionId && onSessionChange) {
-          onSessionChange(result.data.sessionId)
+          onSessionChange(result.data.sessionId);
         }
 
         // Add assistant response if available
@@ -145,86 +160,78 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
             role: 'assistant',
             content: result.data.response,
             timestamp: new Date().toISOString(),
-            tokenUsage: result.data.tokenUsage || undefined
-          }
-          setMessages(prev => [...prev, assistantMessage])
+            tokenUsage: result.data.tokenUsage || undefined,
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
         }
       } else {
-        setMessages(prev => prev.map(msg =>
-          msg.id === userMessage.id
-            ? { ...msg, status: 'error' }
-            : msg
-        ))
-        setError(result.error || t('Failed to send message'))
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === userMessage.id ? { ...msg, status: 'error' } : msg)),
+        );
+        setError(result.error || t('Failed to send message'));
       }
     } catch (err) {
-      console.error('[RemoteAgentChat] Failed to send message:', err)
-      setMessages(prev => prev.map(msg =>
-        msg.id === userMessage.id
-          ? { ...msg, status: 'error' }
-          : msg
-      ))
-      setError(t('Failed to send message'))
+      console.error('[RemoteAgentChat] Failed to send message:', err);
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === userMessage.id ? { ...msg, status: 'error' } : msg)),
+      );
+      setError(t('Failed to send message'));
     } finally {
-      setSending(false)
-      inputRef.current?.focus()
+      setSending(false);
+      inputRef.current?.focus();
     }
-  }
+  };
 
   const handleAttachFile = (file: RemoteFileAttachment) => {
-    setAttachedFiles(prev => {
+    setAttachedFiles((prev) => {
       // Check if file is already attached
-      if (prev.some(f => f.path === file.path)) {
-        return prev
+      if (prev.some((f) => f.path === file.path)) {
+        return prev;
       }
-      return [...prev, file]
-    })
-    onFileAttachment?.(file)
-  }
+      return [...prev, file];
+    });
+    onFileAttachment?.(file);
+  };
 
   const handleRemoveAttachment = (path: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.path !== path))
-  }
+    setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+      e.preventDefault();
+      handleSend();
     }
-  }
+  };
 
   const handleRetry = (messageId: string) => {
-    const message = messages.find(m => m.id === messageId)
+    const message = messages.find((m) => m.id === messageId);
     if (message && message.role === 'user') {
-      setInput(message.content)
-      setMessages(prev => prev.filter(m => m.id !== messageId))
+      setInput(message.content);
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
     }
-  }
+  };
 
   const copyMessage = (messageId: string, content: string) => {
-    navigator.clipboard.writeText(content)
-    setCopiedMessageId(messageId)
-    setTimeout(() => setCopiedMessageId(null), 2000)
-  }
+    navigator.clipboard.writeText(content);
+    setCopiedMessageId(messageId);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  };
 
   return (
     <div className="flex flex-col h-full bg-card border border-border rounded-lg overflow-hidden">
       {/* Connection status bar */}
-      <div className={`flex items-center gap-2 px-4 py-2 text-sm ${
-        connected ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
-      }`}>
-        {connected ? (
-          <CheckCircle className="w-4 h-4" />
-        ) : (
-          <AlertCircle className="w-4 h-4" />
-        )}
+      <div
+        className={`flex items-center gap-2 px-4 py-2 text-sm ${
+          connected ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+        }`}
+      >
+        {connected ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
         <span className="flex-1">
           {connected ? t('Connected to remote agent') : t('Disconnected from remote agent')}
         </span>
         {sessionId && (
-          <span className="text-xs opacity-70 font-mono">
-            {sessionId.slice(0, 8)}...
-          </span>
+          <span className="text-xs opacity-70 font-mono">{sessionId.slice(0, 8)}...</span>
         )}
       </div>
 
@@ -232,10 +239,7 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
       {error && (
         <div className="px-4 py-3 bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button
-            onClick={() => setError(null)}
-            className="ml-2 p-1 hover:bg-red-500/20 rounded"
-          >
+          <button onClick={() => setError(null)} className="ml-2 p-1 hover:bg-red-500/20 rounded">
             ×
           </button>
         </div>
@@ -256,11 +260,13 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
                 key={message.id}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                  message.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
-                }`}>
+                <div
+                  className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                    message.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
                   {/* Message content */}
                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
 
@@ -360,7 +366,7 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
             <textarea
               ref={inputRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={t('Type a message...')}
               disabled={!connected || sending}
@@ -383,11 +389,7 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
             disabled={(!input.trim() && attachedFiles.length === 0) || !connected || sending}
             className="px-4 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground rounded-lg transition-colors flex items-center gap-2"
           >
-            {sending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
+            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             <span className="hidden sm:inline">{t('Send')}</span>
           </button>
         </div>
@@ -397,12 +399,10 @@ export function RemoteAgentChat({ serverId, sessionId, onSessionChange, onFileAt
             {attachedFiles.length > 0 && (
               <span>{t('{{count}} file(s) attached', { count: attachedFiles.length })}</span>
             )}
-            {!connected && (
-              <span className="text-red-500">{t('Reconnecting...')}</span>
-            )}
+            {!connected && <span className="text-red-500">{t('Reconnecting...')}</span>}
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

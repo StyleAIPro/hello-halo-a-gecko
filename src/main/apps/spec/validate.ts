@@ -5,11 +5,11 @@
  * Converts ZodError into AppSpecValidationError with structured issues.
  */
 
-import { ZodError } from 'zod'
-import { AppSpecSchema } from './schema'
-import type { AppSpec } from './schema'
-import { AppSpecValidationError } from './errors'
-import type { ValidationIssue } from './errors'
+import { ZodError } from 'zod';
+import { AppSpecSchema } from './schema';
+import type { AppSpec } from './schema';
+import { AppSpecValidationError } from './errors';
+import type { ValidationIssue } from './errors';
 
 /**
  * Validate a parsed (and normalized) JS object against the AppSpec Zod schema.
@@ -20,15 +20,15 @@ import type { ValidationIssue } from './errors'
  */
 export function validateAppSpec(parsed: unknown): AppSpec {
   try {
-    return AppSpecSchema.parse(parsed)
+    return AppSpecSchema.parse(parsed);
   } catch (err) {
     if (err instanceof ZodError) {
-      const issues = formatZodIssues(err)
-      const summary = buildErrorSummary(issues)
-      throw new AppSpecValidationError(summary, issues)
+      const issues = formatZodIssues(err);
+      const summary = buildErrorSummary(issues);
+      throw new AppSpecValidationError(summary, issues);
     }
     // Unexpected error -- re-throw as-is
-    throw err
+    throw err;
   }
 }
 
@@ -36,24 +36,23 @@ export function validateAppSpec(parsed: unknown): AppSpec {
  * Same as validateAppSpec but returns a result object instead of throwing.
  * Useful for UI contexts where you want to display all errors at once.
  */
-export function validateAppSpecSafe(parsed: unknown):
-  | { success: true; data: AppSpec }
-  | { success: false; error: AppSpecValidationError } {
+export function validateAppSpecSafe(
+  parsed: unknown,
+): { success: true; data: AppSpec } | { success: false; error: AppSpecValidationError } {
   try {
-    const data = validateAppSpec(parsed)
-    return { success: true, data }
+    const data = validateAppSpec(parsed);
+    return { success: true, data };
   } catch (err) {
     if (err instanceof AppSpecValidationError) {
-      return { success: false, error: err }
+      return { success: false, error: err };
     }
     // Wrap unexpected errors
     return {
       success: false,
-      error: new AppSpecValidationError(
-        err instanceof Error ? err.message : String(err),
-        [{ path: '', message: String(err) }]
-      )
-    }
+      error: new AppSpecValidationError(err instanceof Error ? err.message : String(err), [
+        { path: '', message: String(err) },
+      ]),
+    };
   }
 }
 
@@ -62,22 +61,23 @@ export function validateAppSpecSafe(parsed: unknown):
  */
 function formatZodIssues(zodError: ZodError): ValidationIssue[] {
   return zodError.issues.map((issue) => {
-    const path = issue.path.map(String).join('.')
-    let message = issue.message
+    const path = issue.path.map(String).join('.');
+    let message = issue.message;
 
     // Enrich message for common cases
     if (issue.code === 'invalid_type') {
-      message = `Expected ${issue.expected}, received ${issue.received}`
+      message = `Expected ${issue.expected}, received ${issue.received}`;
     } else if (issue.code === 'invalid_enum_value') {
-      message = `Invalid value. Expected one of: ${issue.options.join(', ')}`
+      message = `Invalid value. Expected one of: ${issue.options.join(', ')}`;
     }
 
     return {
       path,
       message,
-      received: 'received' in issue ? (issue as unknown as Record<string, unknown>).received : undefined
-    }
-  })
+      received:
+        'received' in issue ? (issue as unknown as Record<string, unknown>).received : undefined,
+    };
+  });
 }
 
 /**
@@ -85,19 +85,19 @@ function formatZodIssues(zodError: ZodError): ValidationIssue[] {
  */
 function buildErrorSummary(issues: ValidationIssue[]): string {
   if (issues.length === 0) {
-    return 'App spec validation failed'
+    return 'App spec validation failed';
   }
 
   if (issues.length === 1) {
-    const issue = issues[0]
-    const location = issue.path ? ` at "${issue.path}"` : ''
-    return `App spec validation failed${location}: ${issue.message}`
+    const issue = issues[0];
+    const location = issue.path ? ` at "${issue.path}"` : '';
+    return `App spec validation failed${location}: ${issue.message}`;
   }
 
   const lines = issues.map((issue) => {
-    const location = issue.path ? `  [${issue.path}]` : ''
-    return `${location} ${issue.message}`
-  })
+    const location = issue.path ? `  [${issue.path}]` : '';
+    return `${location} ${issue.message}`;
+  });
 
-  return `App spec validation failed with ${issues.length} issues:\n${lines.join('\n')}`
+  return `App spec validation failed with ${issues.length} issues:\n${lines.join('\n')}`;
 }

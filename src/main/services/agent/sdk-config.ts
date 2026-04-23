@@ -6,16 +6,26 @@
  * between send-message.ts and session-manager.ts.
  */
 
-import path from 'path'
-import os from 'os'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync, lstatSync, unlinkSync, readdirSync, statSync } from 'fs'
-import { app } from 'electron'
-import { ensureOpenAICompatRouter, encodeBackendConfig } from '../../openai-compat-router'
-import type { ApiCredentials } from './types'
-import { inferOpenAIWireApi } from './helpers'
-import { buildSystemPrompt, DEFAULT_ALLOWED_TOOLS } from './system-prompt'
-import { createCanUseTool } from './permission-handler'
-import { sendToRenderer } from './helpers'
+import path from 'path';
+import os from 'os';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  symlinkSync,
+  lstatSync,
+  unlinkSync,
+  readdirSync,
+  statSync,
+} from 'fs';
+import { app } from 'electron';
+import { ensureOpenAICompatRouter, encodeBackendConfig } from '../../openai-compat-router';
+import type { ApiCredentials } from './types';
+import { inferOpenAIWireApi } from './helpers';
+import { buildSystemPrompt, DEFAULT_ALLOWED_TOOLS } from './system-prompt';
+import { createCanUseTool } from './permission-handler';
+import { sendToRenderer } from './helpers';
 
 // ============================================
 // Configuration
@@ -30,7 +40,7 @@ import { sendToRenderer } from './helpers'
  * Toggle this to A/B test proxy overhead vs direct SDK performance.
  * OpenAI/OAuth providers always route through the router regardless of this flag.
  */
-const PROXY_ANTHROPIC = true
+const PROXY_ANTHROPIC = true;
 
 // ============================================
 // Types
@@ -42,30 +52,30 @@ const PROXY_ANTHROPIC = true
  */
 export interface ResolvedSdkCredentials {
   /** Base URL for Anthropic API (may be OpenAI compat router) */
-  anthropicBaseUrl: string
+  anthropicBaseUrl: string;
   /** API key for Anthropic API (may be encoded backend config) */
-  anthropicApiKey: string
+  anthropicApiKey: string;
   /** Model to pass to SDK (may be fake Claude model for compat) */
-  sdkModel: string
+  sdkModel: string;
   /** User's actual configured model name (for display) */
-  displayModel: string
+  displayModel: string;
   /** Context window size in tokens (for compression threshold calculation) */
-  contextWindow?: number
+  contextWindow?: number;
 }
 
 /**
  * Parameters for building SDK environment variables
  */
 export interface SdkEnvParams {
-  anthropicApiKey: string
-  anthropicBaseUrl: string
+  anthropicApiKey: string;
+  anthropicBaseUrl: string;
   /** User-configured context window size (tokens). Passed as CLAUDE_CODE_AUTO_COMPACT_WINDOW
    *  to the CLI subprocess so its autocompact threshold matches the displayed context. */
-  contextWindow?: number
+  contextWindow?: number;
   /** Display model name for sub-agent model override */
-  displayModel?: string
+  displayModel?: string;
   /** SDK model name for sub-agent model override */
-  sdkModel?: string
+  sdkModel?: string;
 }
 
 /**
@@ -73,29 +83,29 @@ export interface SdkEnvParams {
  */
 export interface BaseSdkOptionsParams {
   /** Resolved SDK credentials */
-  credentials: ResolvedSdkCredentials
+  credentials: ResolvedSdkCredentials;
   /** Working directory for the agent */
-  workDir: string
+  workDir: string;
   /** Path to headless Electron binary */
-  electronPath: string
+  electronPath: string;
   /** Space ID */
-  spaceId: string
+  spaceId: string;
   /** Conversation ID */
-  conversationId: string
+  conversationId: string;
   /** Abort controller for cancellation */
-  abortController: AbortController
+  abortController: AbortController;
   /** Optional stderr handler (for error accumulation) */
-  stderrHandler?: (data: string) => void
+  stderrHandler?: (data: string) => void;
   /** Optional MCP servers configuration */
-  mcpServers?: Record<string, any> | null
+  mcpServers?: Record<string, any> | null;
   /** Maximum tool call turns per message (from config) */
-  maxTurns?: number
+  maxTurns?: number;
   /** Context window size in tokens (for compression threshold calculation) */
-  contextWindow?: number
+  contextWindow?: number;
   /** Optional agent ID for Hyper Space worker routing */
-  agentId?: string
+  agentId?: string;
   /** Optional agent name for Hyper Space worker routing */
-  agentName?: string
+  agentName?: string;
 }
 
 // ============================================
@@ -117,28 +127,31 @@ export interface BaseSdkOptionsParams {
  * @returns Resolved credentials ready for SDK
  */
 export async function resolveCredentialsForSdk(
-  credentials: ApiCredentials
+  credentials: ApiCredentials,
 ): Promise<ResolvedSdkCredentials> {
   // Experimental: route Anthropic through local router for interceptor coverage
   if (PROXY_ANTHROPIC && credentials.provider === 'anthropic') {
-    return resolveAnthropicPassthrough(credentials)
+    return resolveAnthropicPassthrough(credentials);
   }
 
   // ── Original logic (identical to pre-optimization code) ──
   // Start with direct values
-  let anthropicBaseUrl = credentials.baseUrl
-  let anthropicApiKey = credentials.apiKey
-  let sdkModel = credentials.model || 'claude-opus-4-5-20251101'
-  const displayModel = credentials.displayModel || credentials.model
+  let anthropicBaseUrl = credentials.baseUrl;
+  let anthropicApiKey = credentials.apiKey;
+  let sdkModel = credentials.model || 'claude-opus-4-5-20251101';
+  const displayModel = credentials.displayModel || credentials.model;
 
   // For non-Anthropic providers (openai or OAuth), use the OpenAI compat router
   if (credentials.provider !== 'anthropic') {
-    const router = await ensureOpenAICompatRouter({ debug: false })
-    anthropicBaseUrl = router.baseUrl
+    const router = await ensureOpenAICompatRouter({ debug: false });
+    anthropicBaseUrl = router.baseUrl;
 
     // Use apiType from credentials (set by provider), fallback to inference
-    const apiType = credentials.apiType
-      || (credentials.provider === 'oauth' ? 'chat_completions' : inferOpenAIWireApi(credentials.baseUrl))
+    const apiType =
+      credentials.apiType ||
+      (credentials.provider === 'oauth'
+        ? 'chat_completions'
+        : inferOpenAIWireApi(credentials.baseUrl));
 
     anthropicApiKey = encodeBackendConfig({
       url: credentials.baseUrl,
@@ -147,13 +160,15 @@ export async function resolveCredentialsForSdk(
       headers: credentials.customHeaders,
       apiType,
       forceStream: credentials.forceStream,
-      filterContent: credentials.filterContent
-    })
+      filterContent: credentials.filterContent,
+    });
 
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-6'
+    sdkModel = 'claude-sonnet-4-6';
 
-    console.log(`[SDK Config] ${credentials.provider} provider: routing via ${anthropicBaseUrl}, apiType=${apiType}`)
+    console.log(
+      `[SDK Config] ${credentials.provider} provider: routing via ${anthropicBaseUrl}, apiType=${apiType}`,
+    );
   }
 
   return {
@@ -161,8 +176,8 @@ export async function resolveCredentialsForSdk(
     anthropicApiKey,
     sdkModel,
     displayModel,
-    contextWindow: credentials.contextWindow
-  }
+    contextWindow: credentials.contextWindow,
+  };
 }
 
 /**
@@ -170,13 +185,13 @@ export async function resolveCredentialsForSdk(
  * Isolated from the main path — only called when PROXY_ANTHROPIC = true.
  */
 async function resolveAnthropicPassthrough(
-  credentials: ApiCredentials
+  credentials: ApiCredentials,
 ): Promise<ResolvedSdkCredentials> {
-  const router = await ensureOpenAICompatRouter({ debug: false })
+  const router = await ensureOpenAICompatRouter({ debug: false });
 
   // 确保 baseUrl 存在，如果不存在则使用默认值
-  const baseUrl = credentials.baseUrl || 'https://api.anthropic.com'
-  const configUrl = baseUrl.replace(/\/+$/, '') + '/v1/messages'
+  const baseUrl = credentials.baseUrl || 'https://api.anthropic.com';
+  const configUrl = baseUrl.replace(/\/+$/, '') + '/v1/messages';
 
   const anthropicApiKey = encodeBackendConfig({
     url: configUrl,
@@ -185,18 +200,18 @@ async function resolveAnthropicPassthrough(
     headers: credentials.customHeaders,
     apiType: 'anthropic_passthrough',
     forceStream: credentials.forceStream,
-    filterContent: credentials.filterContent
-  })
+    filterContent: credentials.filterContent,
+  });
 
-  console.log(`[SDK Config] Anthropic passthrough: routing via ${router.baseUrl}`)
+  console.log(`[SDK Config] Anthropic passthrough: routing via ${router.baseUrl}`);
 
   return {
     anthropicBaseUrl: router.baseUrl,
     anthropicApiKey,
     sdkModel: credentials.model || 'claude-opus-4-5-20251101',
     displayModel: credentials.displayModel || credentials.model,
-    contextWindow: credentials.contextWindow
-  }
+    contextWindow: credentials.contextWindow,
+  };
 }
 
 // ============================================
@@ -223,8 +238,8 @@ const SANDBOX_CONFIG = {
   enabled: false,
   autoAllowBashIfSandboxed: true,
   // No network config → proxy servers won't start → no performance overhead
-}
-let sandboxSettingsWritten = false
+};
+let sandboxSettingsWritten = false;
 
 /**
  * Merge skill directories from multiple sourceDirs into targetDir.
@@ -233,42 +248,51 @@ let sandboxSettingsWritten = false
  */
 function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
   // Collect candidates: skillName -> { sourcePath, mtime }
-  const candidates = new Map<string, { sourcePath: string; mtime: number }>()
+  const candidates = new Map<string, { sourcePath: string; mtime: number }>();
 
   for (const sourceDir of sourceDirs) {
     try {
-      if (!existsSync(sourceDir)) continue
-      const entries = readdirSync(sourceDir, { withFileTypes: true })
+      if (!existsSync(sourceDir)) continue;
+      const entries = readdirSync(sourceDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const sourcePath = path.join(sourceDir, entry.name)
+        if (!entry.isDirectory()) continue;
+        const sourcePath = path.join(sourceDir, entry.name);
         try {
-          const stat = statSync(sourcePath)
-          const mtime = stat.mtimeMs
-          const existing = candidates.get(entry.name)
+          // Skip disabled skills (META.json.enabled === false)
+          const metaPath = path.join(sourcePath, 'META.json');
+          try {
+            const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+            if (meta.enabled === false) continue;
+          } catch {
+            // META.json missing or invalid — not a fatal error, proceed
+          }
+
+          const stat = statSync(sourcePath);
+          const mtime = stat.mtimeMs;
+          const existing = candidates.get(entry.name);
           if (!existing || mtime > existing.mtime) {
-            candidates.set(entry.name, { sourcePath, mtime })
+            candidates.set(entry.name, { sourcePath, mtime });
           }
         } catch {
           // stat failed, skip
         }
       }
     } catch (err) {
-      console.warn('[SDK Config] Failed to read source dir:', sourceDir, err)
+      console.warn('[SDK Config] Failed to read source dir:', sourceDir, err);
     }
   }
 
   // Clean up existing junctions in targetDir that no longer have a source
   try {
     if (existsSync(targetDir)) {
-      const existingEntries = readdirSync(targetDir, { withFileTypes: true })
+      const existingEntries = readdirSync(targetDir, { withFileTypes: true });
       for (const entry of existingEntries) {
-        if (!entry.isDirectory()) continue
+        if (!entry.isDirectory()) continue;
         if (!candidates.has(entry.name)) {
-          const targetPath = path.join(targetDir, entry.name)
+          const targetPath = path.join(targetDir, entry.name);
           try {
-            unlinkSync(targetPath)
-            console.log(`[SDK Config] Removed stale skill link: ${entry.name}`)
+            unlinkSync(targetPath);
+            console.log(`[SDK Config] Removed stale skill link: ${entry.name}`);
           } catch {
             // ignore
           }
@@ -281,18 +305,18 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
 
   // Create/update junctions for all winning candidates
   for (const [name, { sourcePath }] of candidates) {
-    const targetPath = path.join(targetDir, name)
+    const targetPath = path.join(targetDir, name);
     // Remove existing link/dir to recreate with the winning source
     try {
-      unlinkSync(targetPath)
+      unlinkSync(targetPath);
     } catch {
       // doesn't exist, proceed to create
     }
     try {
-      symlinkSync(sourcePath, targetPath, 'junction')
-      console.log(`[SDK Config] Linked skill: ${name} -> ${sourcePath}`)
+      symlinkSync(sourcePath, targetPath, 'junction');
+      console.log(`[SDK Config] Linked skill: ${name} -> ${sourcePath}`);
     } catch (err) {
-      console.warn(`[SDK Config] Failed to link skill ${name}:`, err)
+      console.warn(`[SDK Config] Failed to link skill ${name}:`, err);
     }
   }
 }
@@ -308,30 +332,30 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
  * Runs once per process lifetime — subsequent calls are no-ops.
  */
 function ensureSandboxSettings(configDir: string): void {
-  if (sandboxSettingsWritten) return
-  mkdirSync(configDir, { recursive: true })
-  const settingsPath = path.join(configDir, 'settings.json')
+  if (sandboxSettingsWritten) return;
+  mkdirSync(configDir, { recursive: true });
+  const settingsPath = path.join(configDir, 'settings.json');
   try {
-    let settings: Record<string, any> = {}
+    let settings: Record<string, any> = {};
     if (existsSync(settingsPath)) {
-      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
     }
-    let dirty = false
+    let dirty = false;
     if (JSON.stringify(settings.sandbox) !== JSON.stringify(SANDBOX_CONFIG)) {
-      settings.sandbox = SANDBOX_CONFIG
-      dirty = true
+      settings.sandbox = SANDBOX_CONFIG;
+      dirty = true;
     }
     if (settings.skipWebFetchPreflight !== true) {
-      settings.skipWebFetchPreflight = true
-      dirty = true
+      settings.skipWebFetchPreflight = true;
+      dirty = true;
     }
     if (dirty) {
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     }
   } catch (err) {
-    console.error('[SDK Config] Failed to write sandbox settings:', err)
+    console.error('[SDK Config] Failed to write sandbox settings:', err);
   }
-  sandboxSettingsWritten = true
+  sandboxSettingsWritten = true;
 }
 
 // ============================================
@@ -343,29 +367,29 @@ function ensureSandboxSettings(configDir: string): void {
  * Prevents leaked vars (ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY, CLAUDE_CODE_SSE_PORT, etc.)
  * from overriding AICO-Bot's explicit configuration.
  */
-const AI_SDK_ENV_PREFIXES = ['ANTHROPIC_', 'OPENAI_', 'CLAUDE_']
+const AI_SDK_ENV_PREFIXES = ['ANTHROPIC_', 'OPENAI_', 'CLAUDE_'];
 
 /**
  * Specific env vars to strip from inherited env before spawning CC subprocess.
  * These are vars that don't match the prefix patterns but should still be removed.
  */
-const AI_SDK_ENV_VARS_TO_STRIP = ['CLAUDECODE']
+const AI_SDK_ENV_VARS_TO_STRIP = ['CLAUDECODE'];
 
 /**
  * Copy of process.env with all AI SDK variables removed.
  */
 export function getCleanUserEnv(): Record<string, string | undefined> {
-  const env = { ...process.env }
+  const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (AI_SDK_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {
-      delete env[key]
+    if (AI_SDK_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete env[key];
     }
     // Also strip specific vars that don't match prefixes
     if (AI_SDK_ENV_VARS_TO_STRIP.includes(key)) {
-      delete env[key]
+      delete env[key];
     }
   }
-  return env
+  return env;
 }
 
 /**
@@ -389,24 +413,24 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     // Skills are stored in ~/.agents/skills/ and ~/.claude/skills/
     // SDK config in ~/.agents/claude-config/
     CLAUDE_CONFIG_DIR: (() => {
-      const agentsDir = path.join(os.homedir(), '.agents')
-      const configDir = path.join(agentsDir, 'claude-config')
-      const skillsDir = path.join(agentsDir, 'skills')
-      const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills')
-      const configSkillsDir = path.join(configDir, 'skills')
+      const agentsDir = path.join(os.homedir(), '.agents');
+      const configDir = path.join(agentsDir, 'claude-config');
+      const skillsDir = path.join(agentsDir, 'skills');
+      const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
+      const configSkillsDir = path.join(configDir, 'skills');
 
       // Ensure directories exist
       if (!existsSync(agentsDir)) {
-        mkdirSync(agentsDir, { recursive: true })
+        mkdirSync(agentsDir, { recursive: true });
       }
       if (!existsSync(configDir)) {
-        mkdirSync(configDir, { recursive: true })
+        mkdirSync(configDir, { recursive: true });
       }
       if (!existsSync(skillsDir)) {
-        mkdirSync(skillsDir, { recursive: true })
+        mkdirSync(skillsDir, { recursive: true });
       }
       if (!existsSync(claudeSkillsDir)) {
-        mkdirSync(claudeSkillsDir, { recursive: true })
+        mkdirSync(claudeSkillsDir, { recursive: true });
       }
 
       // Setup configSkillsDir to merge skills from both source directories
@@ -414,46 +438,46 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
       // We need to make both ~/.agents/skills/ and ~/.claude/skills/ visible
       if (!existsSync(configSkillsDir)) {
         // First time: create a real directory and link each skill individually
-        mkdirSync(configSkillsDir, { recursive: true })
-        console.log('[SDK Config] Created skills directory:', configSkillsDir)
+        mkdirSync(configSkillsDir, { recursive: true });
+        console.log('[SDK Config] Created skills directory:', configSkillsDir);
       }
 
       // If configSkillsDir is a junction (legacy), remove it and recreate as real dir
-      const configSkillsStat = existsSync(configSkillsDir) ? lstatSync(configSkillsDir) : null
+      const configSkillsStat = existsSync(configSkillsDir) ? lstatSync(configSkillsDir) : null;
       if (configSkillsStat && configSkillsStat.isSymbolicLink()) {
         try {
-          unlinkSync(configSkillsDir)
-          mkdirSync(configSkillsDir, { recursive: true })
-          console.log('[SDK Config] Replaced legacy junction with directory:', configSkillsDir)
+          unlinkSync(configSkillsDir);
+          mkdirSync(configSkillsDir, { recursive: true });
+          console.log('[SDK Config] Replaced legacy junction with directory:', configSkillsDir);
         } catch (err) {
-          console.warn('[SDK Config] Failed to replace legacy junction:', err)
+          console.warn('[SDK Config] Failed to replace legacy junction:', err);
         }
       }
 
       // Merge skills from both directories into configSkillsDir
       // For duplicates, the one with the most recent modification time wins
-      mergeSkillsDirs([skillsDir, claudeSkillsDir], configSkillsDir)
+      mergeSkillsDirs([skillsDir, claudeSkillsDir], configSkillsDir);
 
       // Create .claude/skills junction inside configDir for SDK project-level skill discovery.
       // The SDK in "bare" mode (SDK subprocess) only loads skills from <add-dir>/.claude/skills/,
       // NOT from the user-level configDir/skills/. By creating this junction and passing configDir
       // as an additionalDirectory, the CLI discovers our merged skills through the project path.
-      const dotClaudeDir = path.join(configDir, '.claude')
-      const dotClaudeSkillsDir = path.join(dotClaudeDir, 'skills')
+      const dotClaudeDir = path.join(configDir, '.claude');
+      const dotClaudeSkillsDir = path.join(dotClaudeDir, 'skills');
       if (!existsSync(dotClaudeDir)) {
-        mkdirSync(dotClaudeDir, { recursive: true })
+        mkdirSync(dotClaudeDir, { recursive: true });
       }
       if (!existsSync(dotClaudeSkillsDir)) {
         try {
-          symlinkSync(configSkillsDir, dotClaudeSkillsDir, 'junction')
-          console.log('[SDK Config] Created .claude/skills junction ->', configSkillsDir)
+          symlinkSync(configSkillsDir, dotClaudeSkillsDir, 'junction');
+          console.log('[SDK Config] Created .claude/skills junction ->', configSkillsDir);
         } catch (err) {
-          console.warn('[SDK Config] Failed to create .claude/skills junction:', err)
+          console.warn('[SDK Config] Failed to create .claude/skills junction:', err);
         }
       }
 
-      ensureSandboxSettings(configDir)
-      return configDir
+      ensureSandboxSettings(configDir);
+      return configDir;
     })(),
 
     // Localhost bypasses proxy (for OpenAI compat router)
@@ -482,7 +506,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
     ...(process.env.CLAUDE_CODE_GIT_BASH_PATH
       ? { CLAUDE_CODE_GIT_BASH_PATH: process.env.CLAUDE_CODE_GIT_BASH_PATH }
       : {}),
-  }
+  };
 
   // Override sub-agent model to inherit parent session model.
   // Built-in agents like "Explore" hardcode model: "haiku", which the SDK resolves
@@ -490,12 +514,12 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
   // BackendConfig.model (request-handler.ts:375), but setting this env var explicitly
   // ensures consistency and avoids unnecessary round-trips through the router for model
   // substitution. Highest priority in SDK's Ik6() model resolution function.
-  const subagentModel = params.displayModel || params.sdkModel
+  const subagentModel = params.displayModel || params.sdkModel;
   if (subagentModel) {
-    env.CLAUDE_CODE_SUBAGENT_MODEL = subagentModel
+    env.CLAUDE_CODE_SUBAGENT_MODEL = subagentModel;
   }
 
-  return env as Record<string, string | number>
+  return env as Record<string, string | number>;
 }
 
 // ============================================
@@ -523,10 +547,12 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     mcpServers,
     contextWindow,
     agentId,
-    agentName
-  } = params
+    agentName,
+  } = params;
 
-  console.log(`[SDK Config] buildBaseSdkOptions: workDir="${workDir}", spaceId="${spaceId}", contextWindow=${contextWindow || 'default'}`)
+  console.log(
+    `[SDK Config] buildBaseSdkOptions: workDir="${workDir}", spaceId="${spaceId}", contextWindow=${contextWindow || 'default'}`,
+  );
 
   // Build environment variables
   const env = buildSdkEnv({
@@ -535,7 +561,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     contextWindow,
     displayModel: credentials.displayModel,
     sdkModel: credentials.sdkModel,
-  })
+  });
 
   // Build base options
   const sdkOptions: Record<string, any> = {
@@ -544,15 +570,17 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     abortController,
     env,
     extraArgs: {
-      'dangerously-skip-permissions': null
+      'dangerously-skip-permissions': null,
     },
-    stderr: stderrHandler || ((data: string) => {
-      console.error(`[Agent][${conversationId}] CLI stderr:`, data)
-    }),
+    stderr:
+      stderrHandler ||
+      ((data: string) => {
+        console.error(`[Agent][${conversationId}] CLI stderr:`, data);
+      }),
     // Use SDK's 'claude_code' preset (includes skills injection) with AICO-Bot customizations appended
     systemPrompt: {
       type: 'preset' as const,
-      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel })
+      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
     },
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
@@ -570,7 +598,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
       spaceId,
       conversationId,
       agentId,
-      agentName
+      agentName,
     }),
     // Requires SDK patch: enable token-level streaming (stream_event)
     includePartialMessages: true,
@@ -583,7 +611,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // Context compaction is controlled via CLAUDE_CODE_AUTO_COMPACT_WINDOW env var
     // (set in buildSdkEnv). The SDK's compactThreshold/modelContextWindow options are
     // NOT part of SDKSessionOptions and are silently ignored.
-  }
+  };
 
   // Add MCP servers if provided
   if (mcpServers && Object.keys(mcpServers).length > 0) {
@@ -592,18 +620,20 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // options during initialization. Add a toJSON method to each config so
     // serialization skips the non-serializable instance.
     for (const config of Object.values(mcpServers)) {
-      const obj = config as any
+      const obj = config as any;
       if (obj.instance != null && typeof obj.toJSON !== 'function') {
         obj.toJSON = () => {
-          const { instance, ...rest } = obj
-          return rest
-        }
+          const { instance, ...rest } = obj;
+          return rest;
+        };
       }
     }
-    sdkOptions.mcpServers = mcpServers
+    sdkOptions.mcpServers = mcpServers;
   }
 
-  console.log(`[SDK Config] SDK options: systemPrompt=${JSON.stringify(sdkOptions.systemPrompt)?.slice(0,80)}, settingSources=${JSON.stringify(sdkOptions.settingSources)}, additionalDirs=${JSON.stringify(sdkOptions.additionalDirectories)}, CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}`)
+  console.log(
+    `[SDK Config] SDK options: systemPrompt=${JSON.stringify(sdkOptions.systemPrompt)?.slice(0, 80)}, settingSources=${JSON.stringify(sdkOptions.settingSources)}, additionalDirs=${JSON.stringify(sdkOptions.additionalDirectories)}, CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}`,
+  );
 
-  return sdkOptions
+  return sdkOptions;
 }
