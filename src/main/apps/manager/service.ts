@@ -11,12 +11,12 @@
  * in index.ts and returned as the AppManagerService interface.
  */
 
-import { existsSync, mkdirSync, rmSync } from 'fs'
-import { join } from 'path'
-import { v4 as uuidv4 } from 'uuid'
+import { existsSync, mkdirSync, rmSync } from 'fs';
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
-import type { AppSpec } from '../spec'
-import { validateAppSpec } from '../spec'
+import type { AppSpec } from '../spec';
+import { validateAppSpec } from '../spec';
 import type {
   AppManagerService,
   InstalledApp,
@@ -26,14 +26,14 @@ import type {
   StatusChangeHandler,
   Unsubscribe,
   UninstallOptions,
-} from './types'
-import { AppManagerStore } from './store'
+} from './types';
+import type { AppManagerStore } from './store';
 import {
   AppNotFoundError,
   AppAlreadyInstalledError,
   InvalidStatusTransitionError,
   SpaceNotFoundError,
-} from './errors'
+} from './errors';
 
 // ============================================
 // State Machine
@@ -52,13 +52,13 @@ const VALID_TRANSITIONS: Record<AppStatus, ReadonlySet<AppStatus>> = {
   needs_login: new Set<AppStatus>(['active', 'paused', 'uninstalled']),
   waiting_user: new Set<AppStatus>(['active', 'paused', 'error', 'uninstalled']),
   uninstalled: new Set<AppStatus>(['active']),
-}
+};
 
 /**
  * Check if a status transition is legal according to the state machine.
  */
 function isValidTransition(from: AppStatus, to: AppStatus): boolean {
-  return VALID_TRANSITIONS[from]?.has(to) ?? false
+  return VALID_TRANSITIONS[from]?.has(to) ?? false;
 }
 
 // ============================================
@@ -68,13 +68,13 @@ function isValidTransition(from: AppStatus, to: AppStatus): boolean {
 /** Dependencies injected from the outside */
 export interface AppManagerDeps {
   /** SQLite store for installed_apps CRUD */
-  store: AppManagerStore
+  store: AppManagerStore;
 
   /**
    * Resolve a space ID to its filesystem path.
    * Returns null if the space does not exist.
    */
-  getSpacePath: (spaceId: string) => string | null
+  getSpacePath: (spaceId: string) => string | null;
 }
 
 /**
@@ -84,10 +84,10 @@ export interface AppManagerDeps {
  * @returns A fully functional AppManagerService
  */
 export function createAppManagerService(deps: AppManagerDeps): AppManagerService {
-  const { store, getSpacePath } = deps
+  const { store, getSpacePath } = deps;
 
   // Status change event listeners
-  const statusChangeHandlers: StatusChangeHandler[] = []
+  const statusChangeHandlers: StatusChangeHandler[] = [];
 
   /**
    * Notify all registered status change handlers.
@@ -96,9 +96,9 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
   function notifyStatusChange(appId: string, oldStatus: AppStatus, newStatus: AppStatus): void {
     for (const handler of statusChangeHandlers) {
       try {
-        handler(appId, oldStatus, newStatus)
+        handler(appId, oldStatus, newStatus);
       } catch (error) {
-        console.error('[AppManager] Status change handler error:', error)
+        console.error('[AppManager] Status change handler error:', error);
       }
     }
   }
@@ -108,11 +108,11 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
    * Internal helper used by most methods.
    */
   function requireApp(appId: string): InstalledApp {
-    const app = store.getById(appId)
+    const app = store.getById(appId);
     if (!app) {
-      throw new AppNotFoundError(appId)
+      throw new AppNotFoundError(appId);
     }
-    return app
+    return app;
   }
 
   /**
@@ -120,7 +120,7 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
    * Format: {spacePath}/.aico-bot/apps/{appId}/
    */
   function resolveWorkDir(spacePath: string, appId: string): string {
-    return join(spacePath, '.aico-bot', 'apps', appId)
+    return join(spacePath, '.aico-bot', 'apps', appId);
   }
 
   /**
@@ -128,7 +128,7 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
    */
   function ensureDir(dirPath: string): void {
     if (!existsSync(dirPath)) {
-      mkdirSync(dirPath, { recursive: true })
+      mkdirSync(dirPath, { recursive: true });
     }
   }
 
@@ -140,26 +140,26 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
     async install(
       spaceId: string,
       spec: AppSpec,
-      userConfig?: Record<string, unknown>
+      userConfig?: Record<string, unknown>,
     ): Promise<string> {
       // Validate space exists
-      const spacePath = getSpacePath(spaceId)
+      const spacePath = getSpacePath(spaceId);
       if (!spacePath) {
-        throw new SpaceNotFoundError(spaceId)
+        throw new SpaceNotFoundError(spaceId);
       }
 
       // Validate spec before any DB operations
-      validateAppSpec(spec)
+      validateAppSpec(spec);
 
       // Check for duplicate installation
-      const specId = spec.name // Use spec name as the canonical spec identifier
-      const existing = store.getBySpecAndSpace(specId, spaceId)
+      const specId = spec.name; // Use spec name as the canonical spec identifier
+      const existing = store.getBySpecAndSpace(specId, spaceId);
       if (existing) {
-        throw new AppAlreadyInstalledError(specId, spaceId)
+        throw new AppAlreadyInstalledError(specId, spaceId);
       }
 
       // Generate unique ID
-      const appId = uuidv4()
+      const appId = uuidv4();
 
       // Build the InstalledApp record
       const app: InstalledApp = {
@@ -175,151 +175,151 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
           denied: [],
         },
         installedAt: Date.now(),
-      }
+      };
 
       // Persist to SQLite first (atomic: if this fails, no filesystem side effects).
       // Catch UNIQUE constraint violations from concurrent installs and convert to
       // the domain error, so callers receive AppAlreadyInstalledError regardless of
       // whether the duplicate was detected by the pre-check or by the DB constraint.
       try {
-        store.insert(app)
+        store.insert(app);
       } catch (dbError: unknown) {
-        const sqliteCode = (dbError as { code?: string })?.code
+        const sqliteCode = (dbError as { code?: string })?.code;
         if (sqliteCode === 'SQLITE_CONSTRAINT_UNIQUE' || sqliteCode === 'SQLITE_CONSTRAINT') {
-          throw new AppAlreadyInstalledError(specId, spaceId)
+          throw new AppAlreadyInstalledError(specId, spaceId);
         }
-        throw dbError
+        throw dbError;
       }
 
       // Create work directories after the DB record is committed.
       // If directory creation fails, roll back the DB record to avoid orphaned rows.
-      const workDir = resolveWorkDir(spacePath, appId)
-      const memoryDir = join(workDir, 'memory')
+      const workDir = resolveWorkDir(spacePath, appId);
+      const memoryDir = join(workDir, 'memory');
 
       try {
-        ensureDir(workDir)
-        ensureDir(memoryDir)
+        ensureDir(workDir);
+        ensureDir(memoryDir);
       } catch (dirError) {
         // Roll back the DB record to keep the install atomic
-        try { store.delete(appId) } catch { /* best-effort rollback */ }
-        throw dirError
+        try {
+          store.delete(appId);
+        } catch {
+          /* best-effort rollback */
+        }
+        throw dirError;
       }
 
-      console.log(
-        `[AppManager] Installed app '${spec.name}' (${appId}) in space ${spaceId}`
-      )
+      console.log(`[AppManager] Installed app '${spec.name}' (${appId}) in space ${spaceId}`);
 
-      return appId
+      return appId;
     },
 
     async uninstall(appId: string, _options?: UninstallOptions): Promise<void> {
-      const app = requireApp(appId)
+      const app = requireApp(appId);
 
       // Soft-delete: transition to 'uninstalled' status and record timestamp
-      const oldStatus = app.status
-      const newStatus: AppStatus = 'uninstalled'
+      const oldStatus = app.status;
+      const newStatus: AppStatus = 'uninstalled';
 
       if (!isValidTransition(oldStatus, newStatus)) {
-        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus)
+        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus);
       }
 
-      store.updateStatus(appId, newStatus, null, null)
-      store.updateUninstalledAt(appId, Date.now())
-      notifyStatusChange(appId, oldStatus, newStatus)
+      store.updateStatus(appId, newStatus, null, null);
+      store.updateUninstalledAt(appId, Date.now());
+      notifyStatusChange(appId, oldStatus, newStatus);
 
-      console.log(
-        `[AppManager] Soft-deleted app ${appId} (was: ${oldStatus})`
-      )
+      console.log(`[AppManager] Soft-deleted app ${appId} (was: ${oldStatus})`);
     },
 
     reinstall(appId: string): void {
-      const app = requireApp(appId)
-      const oldStatus = app.status
-      const newStatus: AppStatus = 'active'
+      const app = requireApp(appId);
+      const oldStatus = app.status;
+      const newStatus: AppStatus = 'active';
 
       if (oldStatus !== 'uninstalled') {
-        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus)
+        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus);
       }
 
-      store.updateStatus(appId, newStatus, null, null)
-      store.updateUninstalledAt(appId, null)
-      notifyStatusChange(appId, oldStatus, newStatus)
+      store.updateStatus(appId, newStatus, null, null);
+      store.updateUninstalledAt(appId, null);
+      notifyStatusChange(appId, oldStatus, newStatus);
 
-      console.log(`[AppManager] Reinstalled app ${appId}`)
+      console.log(`[AppManager] Reinstalled app ${appId}`);
     },
 
     async deleteApp(appId: string): Promise<void> {
-      const app = requireApp(appId)
+      const app = requireApp(appId);
 
       if (app.status !== 'uninstalled') {
         throw new InvalidStatusTransitionError(
           appId,
           app.status,
           'uninstalled' as AppStatus,
-          'App must be uninstalled before permanent deletion'
-        )
+          'App must be uninstalled before permanent deletion',
+        );
       }
 
       // Hard-delete the database record
-      store.delete(appId)
+      store.delete(appId);
 
       // Purge the work directory
-      const spacePath = getSpacePath(app.spaceId)
+      const spacePath = getSpacePath(app.spaceId);
       if (spacePath) {
-        const workDir = resolveWorkDir(spacePath, appId)
+        const workDir = resolveWorkDir(spacePath, appId);
         if (existsSync(workDir)) {
           try {
-            rmSync(workDir, { recursive: true, force: true })
-            console.log(`[AppManager] Purged work directory: ${workDir}`)
+            rmSync(workDir, { recursive: true, force: true });
+            console.log(`[AppManager] Purged work directory: ${workDir}`);
           } catch (error) {
-            console.error(`[AppManager] Failed to purge work directory ${workDir}:`, error)
+            console.error(`[AppManager] Failed to purge work directory ${workDir}:`, error);
           }
         }
       }
 
-      console.log(`[AppManager] Permanently deleted app ${appId}`)
+      console.log(`[AppManager] Permanently deleted app ${appId}`);
     },
 
     // ── Status Management ─────────────────────
 
     pause(appId: string): void {
-      const app = requireApp(appId)
-      const oldStatus = app.status
-      const newStatus: AppStatus = 'paused'
+      const app = requireApp(appId);
+      const oldStatus = app.status;
+      const newStatus: AppStatus = 'paused';
 
       if (!isValidTransition(oldStatus, newStatus)) {
-        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus)
+        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus);
       }
 
-      store.updateStatus(appId, newStatus, null, null)
-      notifyStatusChange(appId, oldStatus, newStatus)
+      store.updateStatus(appId, newStatus, null, null);
+      notifyStatusChange(appId, oldStatus, newStatus);
 
-      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${newStatus}`)
+      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${newStatus}`);
     },
 
     resume(appId: string): void {
-      const app = requireApp(appId)
-      const oldStatus = app.status
-      const newStatus: AppStatus = 'active'
+      const app = requireApp(appId);
+      const oldStatus = app.status;
+      const newStatus: AppStatus = 'active';
 
       if (!isValidTransition(oldStatus, newStatus)) {
-        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus)
+        throw new InvalidStatusTransitionError(appId, oldStatus, newStatus);
       }
 
       // Clear error-related fields on resume
-      store.updateStatus(appId, newStatus, null, null)
-      notifyStatusChange(appId, oldStatus, newStatus)
+      store.updateStatus(appId, newStatus, null, null);
+      notifyStatusChange(appId, oldStatus, newStatus);
 
-      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${newStatus}`)
+      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${newStatus}`);
     },
 
     updateStatus(
       appId: string,
       status: AppStatus,
-      extra?: { errorMessage?: string; pendingEscalationId?: string }
+      extra?: { errorMessage?: string; pendingEscalationId?: string },
     ): void {
-      const app = requireApp(appId)
-      const oldStatus = app.status
+      const app = requireApp(appId);
+      const oldStatus = app.status;
 
       if (oldStatus === status) {
         // No-op: already in the target status.
@@ -328,157 +328,157 @@ export function createAppManagerService(deps: AppManagerDeps): AppManagerService
           appId,
           status,
           extra?.pendingEscalationId ?? app.pendingEscalationId ?? null,
-          extra?.errorMessage ?? app.errorMessage ?? null
-        )
-        return
+          extra?.errorMessage ?? app.errorMessage ?? null,
+        );
+        return;
       }
 
       if (!isValidTransition(oldStatus, status)) {
-        throw new InvalidStatusTransitionError(appId, oldStatus, status)
+        throw new InvalidStatusTransitionError(appId, oldStatus, status);
       }
 
       store.updateStatus(
         appId,
         status,
         extra?.pendingEscalationId ?? null,
-        extra?.errorMessage ?? null
-      )
+        extra?.errorMessage ?? null,
+      );
 
-      notifyStatusChange(appId, oldStatus, status)
+      notifyStatusChange(appId, oldStatus, status);
 
-      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${status}`)
+      console.log(`[AppManager] App ${appId}: ${oldStatus} -> ${status}`);
     },
 
     // ── Configuration ─────────────────────────
 
     updateConfig(appId: string, config: Record<string, unknown>): void {
-      requireApp(appId) // Throws if not found
-      store.updateConfig(appId, config)
+      requireApp(appId); // Throws if not found
+      store.updateConfig(appId, config);
     },
 
     updateFrequency(appId: string, subscriptionId: string, frequency: string): void {
-      const app = requireApp(appId)
-      const overrides = { ...app.userOverrides }
+      const app = requireApp(appId);
+      const overrides = { ...app.userOverrides };
       if (!overrides.frequency) {
-        overrides.frequency = {}
+        overrides.frequency = {};
       }
-      overrides.frequency[subscriptionId] = frequency
-      store.updateOverrides(appId, overrides)
+      overrides.frequency[subscriptionId] = frequency;
+      store.updateOverrides(appId, overrides);
     },
 
     updateOverrides(appId: string, partial: Partial<InstalledApp['userOverrides']>): void {
-      const app = requireApp(appId)
-      const merged = { ...app.userOverrides, ...partial }
-      store.updateOverrides(appId, merged)
+      const app = requireApp(appId);
+      const merged = { ...app.userOverrides, ...partial };
+      store.updateOverrides(appId, merged);
     },
 
     updateSpec(appId: string, specPatch: Record<string, unknown>): void {
-      const app = requireApp(appId)
+      const app = requireApp(appId);
 
       // JSON Merge Patch: merge top-level fields, null = delete
-      const currentSpec = app.spec as unknown as Record<string, unknown>
-      const merged: Record<string, unknown> = { ...currentSpec }
+      const currentSpec = app.spec as unknown as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...currentSpec };
 
       for (const [key, value] of Object.entries(specPatch)) {
         if (value === null) {
-          delete merged[key]
+          delete merged[key];
         } else {
-          merged[key] = value
+          merged[key] = value;
         }
       }
 
       // Re-validate the merged spec through Zod
-      const validatedSpec = validateAppSpec(merged)
+      const validatedSpec = validateAppSpec(merged);
 
       // Persist
-      store.updateSpec(appId, validatedSpec)
+      store.updateSpec(appId, validatedSpec);
 
-      console.log(`[AppManager] Updated spec for app ${appId}`)
+      console.log(`[AppManager] Updated spec for app ${appId}`);
     },
 
     // ── Run Tracking ──────────────────────────
 
     updateLastRun(appId: string, outcome: RunOutcome, errorMessage?: string): void {
-      requireApp(appId) // Throws if not found
-      store.updateLastRun(appId, Date.now(), outcome, errorMessage ?? null)
+      requireApp(appId); // Throws if not found
+      store.updateLastRun(appId, Date.now(), outcome, errorMessage ?? null);
     },
 
     // ── Queries ───────────────────────────────
 
     getApp(appId: string): InstalledApp | null {
-      return store.getById(appId)
+      return store.getById(appId);
     },
 
     listApps(filter?: AppListFilter): InstalledApp[] {
-      return store.list(filter)
+      return store.list(filter);
     },
 
     // ── Permissions ───────────────────────────
 
     grantPermission(appId: string, permission: string): void {
-      const app = requireApp(appId)
-      const permissions = { ...app.permissions }
+      const app = requireApp(appId);
+      const permissions = { ...app.permissions };
 
       // Add to granted if not already there
       if (!permissions.granted.includes(permission)) {
-        permissions.granted = [...permissions.granted, permission]
+        permissions.granted = [...permissions.granted, permission];
       }
 
       // Remove from denied if present
-      permissions.denied = permissions.denied.filter(p => p !== permission)
+      permissions.denied = permissions.denied.filter((p) => p !== permission);
 
-      store.updatePermissions(appId, permissions)
+      store.updatePermissions(appId, permissions);
     },
 
     revokePermission(appId: string, permission: string): void {
-      const app = requireApp(appId)
-      const permissions = { ...app.permissions }
+      const app = requireApp(appId);
+      const permissions = { ...app.permissions };
 
       // Remove from granted
-      permissions.granted = permissions.granted.filter(p => p !== permission)
+      permissions.granted = permissions.granted.filter((p) => p !== permission);
 
       // Add to denied if not already there
       if (!permissions.denied.includes(permission)) {
-        permissions.denied = [...permissions.denied, permission]
+        permissions.denied = [...permissions.denied, permission];
       }
 
-      store.updatePermissions(appId, permissions)
+      store.updatePermissions(appId, permissions);
     },
 
     // ── File System ───────────────────────────
 
     getAppWorkDir(appId: string): string {
-      const app = requireApp(appId)
-      const spacePath = getSpacePath(app.spaceId)
+      const app = requireApp(appId);
+      const spacePath = getSpacePath(app.spaceId);
 
       if (!spacePath) {
-        throw new SpaceNotFoundError(app.spaceId)
+        throw new SpaceNotFoundError(app.spaceId);
       }
 
-      const workDir = resolveWorkDir(spacePath, appId)
+      const workDir = resolveWorkDir(spacePath, appId);
 
       // Auto-create if missing (contract: returned path always exists)
-      ensureDir(workDir)
+      ensureDir(workDir);
 
       // Also ensure the memory subdirectory exists
-      ensureDir(join(workDir, 'memory'))
+      ensureDir(join(workDir, 'memory'));
 
-      return workDir
+      return workDir;
     },
 
     // ── Events ────────────────────────────────
 
     onAppStatusChange(handler: StatusChangeHandler): Unsubscribe {
-      statusChangeHandlers.push(handler)
+      statusChangeHandlers.push(handler);
 
       return () => {
-        const index = statusChangeHandlers.indexOf(handler)
+        const index = statusChangeHandlers.indexOf(handler);
         if (index > -1) {
-          statusChangeHandlers.splice(index, 1)
+          statusChangeHandlers.splice(index, 1);
         }
-      }
+      };
     },
-  }
+  };
 
-  return service
+  return service;
 }

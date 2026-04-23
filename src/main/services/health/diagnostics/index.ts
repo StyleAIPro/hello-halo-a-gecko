@@ -5,18 +5,10 @@
  */
 
 // Collector
-export { collectDiagnosticReport } from './collector'
+export { collectDiagnosticReport } from './collector';
 
 // Sanitizer
-export {
-  sanitizeReport,
-  sanitizeString,
-  sanitizeUrl
-} from './sanitizer'
+export { sanitizeReport, sanitizeString, sanitizeUrl } from './sanitizer';
 
 // Reporter
-export {
-  generateReport,
-  exportReport,
-  formatReportAsText
-} from './reporter'
+export { generateReport, exportReport, formatReportAsText } from './reporter';

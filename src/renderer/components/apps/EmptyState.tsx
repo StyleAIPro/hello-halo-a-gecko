@@ -5,16 +5,16 @@
  * or when there are no installed apps.
  */
 
-import { Blocks, Plus } from 'lucide-react'
-import { useTranslation } from '../../i18n'
+import { Blocks, Plus } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface EmptyStateProps {
-  hasApps: boolean
-  onInstall: () => void
+  hasApps: boolean;
+  onInstall: () => void;
 }
 
 export function EmptyState({ hasApps, onInstall }: EmptyStateProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -25,15 +25,21 @@ export function EmptyState({ hasApps, onInstall }: EmptyStateProps) {
       {hasApps ? (
         <>
           <div>
-            <p className="text-sm font-medium text-foreground">{t('Select a digital human to view details')}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t('Choose a digital human from the list on the left')}</p>
+            <p className="text-sm font-medium text-foreground">
+              {t('Select a digital human to view details')}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('Choose a digital human from the list on the left')}
+            </p>
           </div>
         </>
       ) : (
         <>
           <div>
             <p className="text-sm font-medium text-foreground">{t('No digital humans yet')}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t('Create your first digital human from a conversation')}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('Create your first digital human from a conversation')}
+            </p>
           </div>
           <button
             onClick={onInstall}
@@ -45,5 +51,5 @@ export function EmptyState({ hasApps, onInstall }: EmptyStateProps) {
         </>
       )}
     </div>
-  )
+  );
 }

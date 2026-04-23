@@ -16,7 +16,7 @@
  * - 'space': Per-space knowledge, stored at {spacePath}/.aico-bot/memory.md
  * - 'app':   Per-app private memory, stored at {spacePath}/.aico-bot/apps/{appId}/memory.md
  */
-export type MemoryScopeType = 'user' | 'space' | 'app'
+export type MemoryScopeType = 'user' | 'space' | 'app';
 
 /**
  * Identity of the caller requesting memory operations.
@@ -26,13 +26,13 @@ export type MemoryScopeType = 'user' | 'space' | 'app'
  */
 export interface MemoryCallerScope {
   /** 'user' for direct user sessions, 'app' for app-initiated sessions */
-  type: 'user' | 'app'
+  type: 'user' | 'app';
   /** Space ID (used for logging / identification) */
-  spaceId: string
+  spaceId: string;
   /** Absolute path to the space data directory */
-  spacePath: string
+  spacePath: string;
   /** App identifier (required when type === 'app') */
-  appId?: string
+  appId?: string;
 }
 
 // ============================================================================
@@ -47,33 +47,33 @@ export interface MemoryCallerScope {
  * - 'section':  Return a specific section matched by heading text
  * - 'tail':     Return the last N lines of the file
  */
-export type MemoryReadMode = 'full' | 'headers' | 'section' | 'tail'
+export type MemoryReadMode = 'full' | 'headers' | 'section' | 'tail';
 
 export interface MemoryReadParams {
   /** Which memory scope to read from */
-  scope: MemoryScopeType
+  scope: MemoryScopeType;
   /** Optional: specific file path within the memory/ subdirectory */
-  path?: string
+  path?: string;
   /** Read mode. Defaults to 'full' for backward compatibility. */
-  mode?: MemoryReadMode
+  mode?: MemoryReadMode;
   /** Heading text to match when mode='section'. Case-insensitive substring match. */
-  section?: string
+  section?: string;
   /** Number of lines to return when mode='tail'. Defaults to 50. */
-  limit?: number
+  limit?: number;
 }
 
 export interface MemoryWriteParams {
   /** Which memory scope to write to */
-  scope: MemoryScopeType
+  scope: MemoryScopeType;
   /** Content to write */
-  content: string
+  content: string;
   /** Write mode: 'append' adds to end, 'replace' overwrites entire file */
-  mode: 'append' | 'replace'
+  mode: 'append' | 'replace';
 }
 
 export interface MemoryListParams {
   /** Which memory scope to list files from */
-  scope: MemoryScopeType
+  scope: MemoryScopeType;
 }
 
 // ============================================================================
@@ -82,9 +82,9 @@ export interface MemoryListParams {
 
 export interface SessionSummaryParams {
   /** Markdown summary content */
-  content: string
+  content: string;
   /** Optional slug for the filename (e.g., 'debug-api-timeout'). If omitted, timestamp-based. */
-  slug?: string
+  slug?: string;
 }
 
 // ============================================================================
@@ -92,7 +92,7 @@ export interface SessionSummaryParams {
 // ============================================================================
 
 /** Size threshold in bytes before compaction is triggered (100KB) */
-export const COMPACTION_THRESHOLD_BYTES = 100 * 1024
+export const COMPACTION_THRESHOLD_BYTES = 100 * 1024;
 
 // ============================================================================
 // MemoryService Interface
@@ -115,7 +115,7 @@ export interface MemoryService {
    * @returns Content string, or null if file does not exist
    * @throws If the caller lacks permission to read the requested scope
    */
-  read(caller: MemoryCallerScope, params: MemoryReadParams): Promise<string | null>
+  read(caller: MemoryCallerScope, params: MemoryReadParams): Promise<string | null>;
 
   /**
    * Write memory content.
@@ -124,7 +124,7 @@ export interface MemoryService {
    * @param params - What to write (scope, content, mode)
    * @throws If the caller lacks permission or violates isolation rules
    */
-  write(caller: MemoryCallerScope, params: MemoryWriteParams): Promise<void>
+  write(caller: MemoryCallerScope, params: MemoryWriteParams): Promise<void>;
 
   /**
    * List files in the memory/ subdirectory for a given scope.
@@ -133,7 +133,7 @@ export interface MemoryService {
    * @param params - Which scope to list
    * @returns Array of relative file paths, or empty array if directory doesn't exist
    */
-  list(caller: MemoryCallerScope, params: MemoryListParams): Promise<string[]>
+  list(caller: MemoryCallerScope, params: MemoryListParams): Promise<string[]>;
 
   /**
    * Flush in-progress memory before context compaction.
@@ -142,7 +142,7 @@ export interface MemoryService {
    * The implementation appends any pending notes from the current session.
    * In V1 this is a no-op placeholder (no in-memory buffer to flush).
    */
-  flushBeforeCompaction(caller: MemoryCallerScope): Promise<void>
+  flushBeforeCompaction(caller: MemoryCallerScope): Promise<void>;
 
   /**
    * Compact a memory.md file that has grown too large.
@@ -155,7 +155,10 @@ export interface MemoryService {
    * @param scope - Which scope to compact
    * @returns Object with { archived: string (archive path), needsSummary: boolean }
    */
-  compact(caller: MemoryCallerScope, scope: MemoryScopeType): Promise<{ archived: string; needsSummary: boolean }>
+  compact(
+    caller: MemoryCallerScope,
+    scope: MemoryScopeType,
+  ): Promise<{ archived: string; needsSummary: boolean }>;
 
   /**
    * Save a session summary to the memory/ archive directory.
@@ -170,8 +173,8 @@ export interface MemoryService {
   saveSessionSummary(
     caller: MemoryCallerScope,
     scope: MemoryScopeType,
-    params: SessionSummaryParams
-  ): Promise<void>
+    params: SessionSummaryParams,
+  ): Promise<void>;
 
   /**
    * Get system prompt instructions for memory usage.
@@ -181,7 +184,7 @@ export interface MemoryService {
    *
    * @returns Prompt fragment string
    */
-  getPromptInstructions(): string
+  getPromptInstructions(): string;
 
   /**
    * Check if a memory file exceeds the compaction threshold.
@@ -190,5 +193,5 @@ export interface MemoryService {
    * @param scope - Which scope to check
    * @returns true if the file size exceeds COMPACTION_THRESHOLD_BYTES
    */
-  needsCompaction(caller: MemoryCallerScope, scope: MemoryScopeType): Promise<boolean>
+  needsCompaction(caller: MemoryCallerScope, scope: MemoryScopeType): Promise<boolean>;
 }

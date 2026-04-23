@@ -1,14 +1,10 @@
-// ============================================		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+// ============================================
 // AICO-Bot Type Definitions
 // ============================================
 
 // Import values needed in this file's scope
-import {
-  AISourcesConfig,
-  DEFAULT_MODEL,
-  getCurrentModelName,
-  hasAnyAISource
-} from '../../shared/types/ai-sources';
+import type { AISourcesConfig } from '../../shared/types/ai-sources';
+import { DEFAULT_MODEL, getCurrentModelName, hasAnyAISource } from '../../shared/types/ai-sources';
 // Re-export them
 export { DEFAULT_MODEL, getCurrentModelName, hasAnyAISource };
 
@@ -31,7 +27,7 @@ export type {
   // Legacy types for backward compatibility
   LegacyAISourcesConfig,
   OAuthSourceConfig,
-  CustomSourceConfig
+  CustomSourceConfig,
 } from '../../shared/types/ai-sources';
 
 // Re-export other values
@@ -47,7 +43,7 @@ export {
   deleteSource,
   setCurrentSource,
   setCurrentModel,
-  getAvailableModels
+  getAvailableModels,
 } from '../../shared/types/ai-sources';
 
 // Re-export provider constants
@@ -63,7 +59,7 @@ export {
   isOAuthProvider,
   isAnthropicProvider,
   getAllProviderIds,
-  type BuiltinProvider
+  type BuiltinProvider,
 } from '../../shared/constants/providers';
 
 // Permission Level
@@ -104,12 +100,12 @@ export interface AppearanceConfig {
 
 // System configuration for auto-launch behavior
 export interface SystemConfig {
-  autoLaunch: boolean;      // Launch on system startup
+  autoLaunch: boolean; // Launch on system startup
 }
 
 // Agent behavior configuration
 export interface AgentConfig {
-  maxTurns: number;         // Maximum tool call turns per message
+  maxTurns: number; // Maximum tool call turns per message
 }
 
 // Remote access configuration
@@ -127,12 +123,12 @@ export interface RemoteAccessConfig {
 
 // MCP stdio server (command-based, most common)
 export interface McpStdioServerConfig {
-  type?: 'stdio';  // Optional, defaults to stdio
+  type?: 'stdio'; // Optional, defaults to stdio
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  timeout?: number;  // milliseconds
-  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
+  timeout?: number; // milliseconds
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 // MCP HTTP server (REST API)
@@ -140,7 +136,7 @@ export interface McpHttpServerConfig {
   type: 'http';
   url: string;
   headers?: Record<string, string>;
-  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 // MCP SSE server (Server-Sent Events)
@@ -148,7 +144,7 @@ export interface McpSseServerConfig {
   type: 'sse';
   url: string;
   headers?: Record<string, string>;
-  disabled?: boolean;  // AICO-Bot extension: temporarily disable this server
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 // Union type for all MCP server configs
@@ -171,27 +167,27 @@ export interface McpServerStatus {
 }
 
 export interface NotificationConfig {
-  taskComplete: boolean;  // System notification when a task completes
+  taskComplete: boolean; // System notification when a task completes
 }
 
 // Global layout preferences (panel sizes and visibility)
 export interface LayoutConfig {
-  sidebarOpen?: boolean;          // Whether conversation list sidebar is open
-  sidebarWidth?: number;          // Conversation list sidebar width (px)
-  artifactRailWidth?: number;     // Artifact rail panel width (px)
+  sidebarOpen?: boolean; // Whether conversation list sidebar is open
+  sidebarWidth?: number; // Conversation list sidebar width (px)
+  artifactRailWidth?: number; // Artifact rail panel width (px)
 }
 
 export interface AicoBotConfig {
-  api: ApiConfig;  // Legacy, kept for backward compatibility
-  aiSources: AISourcesConfig;  // v2 format: { version: 2, currentId, sources: [] }
+  api: ApiConfig; // Legacy, kept for backward compatibility
+  aiSources: AISourcesConfig; // v2 format: { version: 2, currentId, sources: [] }
   permissions: PermissionConfig;
   appearance: AppearanceConfig;
   system: SystemConfig;
   remoteAccess: RemoteAccessConfig;
-  mcpServers: McpServersConfig;  // MCP servers configuration
-  notifications?: NotificationConfig;  // Notification preferences
-  agent?: AgentConfig;  // Agent behavior settings
-  layout?: LayoutConfig;  // Global layout preferences (panel sizes and visibility)
+  mcpServers: McpServersConfig; // MCP servers configuration
+  notifications?: NotificationConfig; // Notification preferences
+  agent?: AgentConfig; // Agent behavior settings
+  layout?: LayoutConfig; // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;
 }
 
@@ -201,8 +197,8 @@ export interface AicoBotConfig {
 
 // Layout preferences for a space (persisted to meta.json)
 export interface SpaceLayoutPreferences {
-  artifactRailExpanded?: boolean;  // Whether rail stays expanded when canvas is open
-  chatWidth?: number;              // Custom chat panel width when canvas is open
+  artifactRailExpanded?: boolean; // Whether rail stays expanded when canvas is open
+  chatWidth?: number; // Custom chat panel width when canvas is open
 }
 
 // All space preferences (extensible for future features)
@@ -218,13 +214,13 @@ export interface Space {
   isTemp: boolean;
   createdAt: string;
   updatedAt: string;
-  preferences?: SpacePreferences;  // User preferences for this space
-  workingDir?: string;  // Project directory for custom spaces (agent cwd, artifacts, file explorer)
+  preferences?: SpacePreferences; // User preferences for this space
+  workingDir?: string; // Project directory for custom spaces (agent cwd, artifacts, file explorer)
   claudeSource?: 'local' | 'remote';
   remoteServerId?: string;
   remotePath?: string;
-  useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
-  systemPrompt?: string;  // Custom system prompt for remote spaces
+  useSshTunnel?: boolean; // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string; // Custom system prompt for remote spaces
   // Hyper Space support
   spaceType?: 'local' | 'remote' | 'hyper';
   agents?: Array<{
@@ -259,8 +255,8 @@ export interface CreateSpaceInput {
   claudeSource?: 'local' | 'remote';
   remoteServerId?: string;
   remotePath?: string;
-  useSshTunnel?: boolean;  // Use SSH port forwarding instead of direct WebSocket connection
-  systemPrompt?: string;  // Custom system prompt for remote spaces
+  useSshTunnel?: boolean; // Use SSH port forwarding instead of direct WebSocket connection
+  systemPrompt?: string; // Custom system prompt for remote spaces
 }
 
 // ============================================
@@ -276,7 +272,7 @@ export interface ConversationMeta {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
-  preview?: string;  // Last message preview (truncated)
+  preview?: string; // Last message preview (truncated)
   starred?: boolean; // Pinned conversation for quick access
 }
 
@@ -311,14 +307,14 @@ export interface PulseItem {
 }
 
 /** Grace period for read pulse items before removal (milliseconds) */
-export const PULSE_READ_GRACE_PERIOD_MS = 60_000
+export const PULSE_READ_GRACE_PERIOD_MS = 60_000;
 
 // Full conversation with messages
 // Loaded on-demand when selecting a conversation
 export interface Conversation extends ConversationMeta {
   messages: Message[];
   sessionId?: string;
-  version?: number;  // Format version: 2 = thoughts separated into .thoughts.json
+  version?: number; // Format version: 2 = thoughts separated into .thoughts.json
 }
 
 // ============================================
@@ -335,7 +331,7 @@ export interface ToolCall {
   progress?: number;
   requiresApproval?: boolean;
   description?: string;
-  timestamp?: number;  // When the tool call was made
+  timestamp?: number; // When the tool call was made
 }
 
 // ============================================
@@ -349,9 +345,9 @@ export interface ImageAttachment {
   id: string;
   type: 'image';
   mediaType: ImageMediaType;
-  data: string;  // Base64 encoded image data
-  name?: string;  // Optional filename
-  size?: number;  // File size in bytes
+  data: string; // Base64 encoded image data
+  name?: string; // Optional filename
+  size?: number; // File size in bytes
 }
 
 // Content block types for multi-modal messages (matches Claude API)
@@ -375,7 +371,7 @@ export type MessageContentBlock = TextContentBlock | ImageContentBlock;
 export interface ThoughtsSummary {
   count: number;
   types: Partial<Record<ThoughtType, number>>;
-  duration?: number;  // seconds, from first to last thought timestamp
+  duration?: number; // seconds, from first to last thought timestamp
 }
 
 /**
@@ -395,21 +391,21 @@ export interface TerminalOutputData {
 export interface Message {
   id: string;
   role: MessageRole;
-  content: string;  // Text content (for backward compatibility)
+  content: string; // Text content (for backward compatibility)
   timestamp: string;
   toolCalls?: ToolCall[];
-  terminalOutputs?: TerminalOutputData[];  // Terminal output from remote execution
-  thoughts?: Thought[] | null;  // null = stored separately (not loaded), undefined = none, Array = loaded
-  thoughtsSummary?: ThoughtsSummary;  // Present when thoughts are stored separately
+  terminalOutputs?: TerminalOutputData[]; // Terminal output from remote execution
+  thoughts?: Thought[] | null; // null = stored separately (not loaded), undefined = none, Array = loaded
+  thoughtsSummary?: ThoughtsSummary; // Present when thoughts are stored separately
   isStreaming?: boolean;
-  images?: ImageAttachment[];  // Attached images
-  tokenUsage?: TokenUsage;  // Token usage for this assistant message
+  images?: ImageAttachment[]; // Attached images
+  tokenUsage?: TokenUsage; // Token usage for this assistant message
   // Hyper Space: Agent identification
-  agentId?: string;        // The agent who sent this message
-  agentName?: string;      // Display name of the agent
-  agentRole?: 'leader' | 'worker';  // Agent role in Hyper Space
+  agentId?: string; // The agent who sent this message
+  agentName?: string; // Display name of the agent
+  agentRole?: 'leader' | 'worker'; // Agent role in Hyper Space
   metadata?: {
-    fileChanges?: FileChangesSummary;  // Lightweight file changes for immediate display
+    fileChanges?: FileChangesSummary; // Lightweight file changes for immediate display
     /** 技能生成器：选中的会话信息（用于折叠卡片显示） */
     selectedConversations?: Array<{
       id: string;
@@ -439,7 +435,7 @@ export interface Message {
     requestingAgentName?: string;
     toolName?: string;
   };
-  error?: string;  // Error message when assistant response failed (e.g., 429 rate limit)
+  error?: string; // Error message when assistant response failed (e.g., 429 rate limit)
 }
 
 // ============================================
@@ -501,7 +497,14 @@ export type ArtifactViewMode = 'card' | 'tree';
 // Thought Process Types (Agent's real-time reasoning)
 // ============================================
 
-export type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error';
+export type ThoughtType =
+  | 'thinking'
+  | 'text'
+  | 'tool_use'
+  | 'tool_result'
+  | 'system'
+  | 'result'
+  | 'error';
 
 export interface Thought {
   id: string;
@@ -516,8 +519,8 @@ export interface Thought {
   // For result thoughts
   duration?: number;
   // For streaming state (real-time updates)
-  isStreaming?: boolean;  // True while content is being streamed
-  isReady?: boolean;      // True when tool params are complete (for tool_use)
+  isStreaming?: boolean; // True while content is being streamed
+  isReady?: boolean; // True when tool params are complete (for tool_use)
   // For merged tool result display (tool_use contains its result)
   toolResult?: {
     output: string;
@@ -549,10 +552,10 @@ export interface CanvasContext {
   isOpen: boolean;
   tabCount: number;
   activeTab: {
-    type: string;  // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
+    type: string; // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
     title: string;
-    url?: string;   // For browser/pdf tabs
-    path?: string;  // For file tabs
+    url?: string; // For browser/pdf tabs
+    path?: string; // For file tabs
   } | null;
   tabs: Array<{
     type: string;
@@ -604,7 +607,7 @@ export type AgentErrorType = 'interrupted';
 export interface AgentErrorEvent extends AgentEventBase {
   type: 'error';
   error: string;
-  errorType?: AgentErrorType;  // Special error type for custom UI handling
+  errorType?: AgentErrorType; // Special error type for custom UI handling
 }
 
 // Token usage statistics from SDK result message
@@ -651,19 +654,19 @@ export interface QuestionOption {
 }
 
 export interface Question {
-  question: string;        // Question text
-  header: string;          // Short label chip (max 12 chars)
+  question: string; // Question text
+  header: string; // Short label chip (max 12 chars)
   options: QuestionOption[]; // 2-4 options
-  multiSelect: boolean;    // Whether multiple selections allowed
+  multiSelect: boolean; // Whether multiple selections allowed
 }
 
 export type AskQuestionStatus = 'active' | 'answered' | 'cancelled';
 
 export interface PendingQuestion {
-  id: string;                        // Unique ID (toolUseId or timestamp)
-  questions: Question[];             // 1-4 questions
+  id: string; // Unique ID (toolUseId or timestamp)
+  questions: Question[]; // 1-4 questions
   status: AskQuestionStatus;
-  answers?: Record<string, string>;  // User answers {"0": "JWT Tokens", "1": "PostgreSQL"}
+  answers?: Record<string, string>; // User answers {"0": "JWT Tokens", "1": "PostgreSQL"}
 }
 
 export interface AgentCompactEvent extends AgentEventBase {
@@ -684,7 +687,17 @@ export type AgentEvent =
 // App State Types
 // ============================================
 
-export type AppView = 'splash' | 'gitBashSetup' | 'setup' | 'home' | 'space' | 'settings' | 'apps' | 'skill' | 'remoteServers' | 'remoteChat';
+export type AppView =
+  | 'splash'
+  | 'gitBashSetup'
+  | 'setup'
+  | 'home'
+  | 'space'
+  | 'settings'
+  | 'apps'
+  | 'skill'
+  | 'remoteServers'
+  | 'remoteChat';
 
 export interface AppState {
   view: AppView;
@@ -719,32 +732,32 @@ export const DEFAULT_CONFIG: AicoBotConfig = {
     provider: 'anthropic',
     apiKey: '',
     apiUrl: 'https://api.anthropic.com',
-    model: DEFAULT_MODEL
+    model: DEFAULT_MODEL,
   },
   aiSources: {
     version: 2,
     currentId: null,
-    sources: []
+    sources: [],
   },
   permissions: {
     fileAccess: 'allow',
     commandExecution: 'ask',
     networkAccess: 'allow',
-    trustMode: false
+    trustMode: false,
   },
   appearance: {
-    theme: 'system'
+    theme: 'system',
   },
   system: {
-    autoLaunch: false
+    autoLaunch: false,
   },
   remoteAccess: {
     enabled: false,
-    port: 3456
+    port: 3456,
   },
-  mcpServers: {},  // Empty by default
-  agent: { maxTurns: 999 },  // Agent defaults
-  isFirstLaunch: true
+  mcpServers: {}, // Empty by default
+  agent: { maxTurns: 999 }, // Agent defaults
+  isFirstLaunch: true,
 };
 
 // Helper functions hasAnyAISource and getCurrentModelName are now imported from shared module
@@ -761,11 +774,21 @@ export function getConfigCurrentModelName(config: AicoBotConfig): string {
 
 // Icon options for spaces (using icon IDs that map to Lucide icons)
 export const SPACE_ICONS = [
-  'folder', 'code', 'globe', 'chart', 'file-text', 'palette',
-  'gamepad', 'wrench', 'smartphone', 'lightbulb', 'rocket', 'star'
+  'folder',
+  'code',
+  'globe',
+  'chart',
+  'file-text',
+  'palette',
+  'gamepad',
+  'wrench',
+  'smartphone',
+  'lightbulb',
+  'rocket',
+  'star',
 ] as const;
 
-export type SpaceIconId = typeof SPACE_ICONS[number];
+export type SpaceIconId = (typeof SPACE_ICONS)[number];
 
 // Default space icon
 export const DEFAULT_SPACE_ICON: SpaceIconId = 'folder';
@@ -818,7 +841,7 @@ export const FILE_ICON_IDS: Record<string, string> = {
   tar: 'package',
   gz: 'package',
   rar: 'package',
-  default: 'file-text'
+  default: 'file-text',
 };
 
 export function getFileIconId(extension: string): string {

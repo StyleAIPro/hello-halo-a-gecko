@@ -10,35 +10,35 @@
  * the Activity Thread without losing left-sidebar selection.
  */
 
-import { useEffect, useMemo } from 'react'
-import { useAppStore } from '../stores/app.store'
-import { useSpaceStore } from '../stores/space.store'
-import { useAppsStore } from '../stores/apps.store'
-import { useAppsPageStore } from '../stores/apps-page.store'
-import { Header } from '../components/layout/Header'
-import { AppList } from '../components/apps/AppList'
-import { AutomationHeader } from '../components/apps/AutomationHeader'
-import { ActivityThread } from '../components/apps/ActivityThread'
-import { SessionDetailView } from '../components/apps/SessionDetailView'
-import { AppChatView } from '../components/apps/AppChatView'
-import { AppConfigPanel } from '../components/apps/AppConfigPanel'
-import { McpStatusCard } from '../components/apps/McpStatusCard'
-import { SkillInfoCard } from '../components/apps/SkillInfoCard'
-import { EmptyState } from '../components/apps/EmptyState'
-import { AppInstallDialog } from '../components/apps/AppInstallDialog'
-import { UninstalledDetailView } from '../components/apps/UninstalledDetailView'
-import { StoreView } from '../components/store/StoreView'
-import { useTranslation, getCurrentLanguage } from '../i18n'
-import { resolveSpecI18n } from '../utils/spec-i18n'
-import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import { useEffect, useMemo } from 'react';
+import { useAppStore } from '../stores/app.store';
+import { useSpaceStore } from '../stores/space.store';
+import { useAppsStore } from '../stores/apps.store';
+import { useAppsPageStore } from '../stores/apps-page.store';
+import { Header } from '../components/layout/Header';
+import { AppList } from '../components/apps/AppList';
+import { AutomationHeader } from '../components/apps/AutomationHeader';
+import { ActivityThread } from '../components/apps/ActivityThread';
+import { SessionDetailView } from '../components/apps/SessionDetailView';
+import { AppChatView } from '../components/apps/AppChatView';
+import { AppConfigPanel } from '../components/apps/AppConfigPanel';
+import { McpStatusCard } from '../components/apps/McpStatusCard';
+import { SkillInfoCard } from '../components/apps/SkillInfoCard';
+import { EmptyState } from '../components/apps/EmptyState';
+import { AppInstallDialog } from '../components/apps/AppInstallDialog';
+import { UninstalledDetailView } from '../components/apps/UninstalledDetailView';
+import { StoreView } from '../components/store/StoreView';
+import { useTranslation, getCurrentLanguage } from '../i18n';
+import { resolveSpecI18n } from '../utils/spec-i18n';
+import { ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 
 export function AppsPage() {
-  const { t } = useTranslation()
-  const { setView, previousView } = useAppStore()
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const defaultSpace = useSpaceStore(state => state.defaultSpace)
-  const spaces = useSpaceStore(state => state.spaces)
-  const { apps, loadApps } = useAppsStore()
+  const { t } = useTranslation();
+  const { setView, previousView } = useAppStore();
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const defaultSpace = useSpaceStore((state) => state.defaultSpace);
+  const spaces = useSpaceStore((state) => state.spaces);
+  const { apps, loadApps } = useAppsStore();
   const {
     currentTab,
     setCurrentTab,
@@ -50,98 +50,103 @@ export function AppsPage() {
     openActivityThread,
     setInitialAppId,
     setShowInstallDialog,
-  } = useAppsPageStore()
+  } = useAppsPageStore();
 
   // Load all apps globally (across all spaces) on mount
   useEffect(() => {
-    loadApps()
-  }, [loadApps])
+    loadApps();
+  }, [loadApps]);
 
   // Build spaceId -> space name map for display
   // Always populate from both defaultSpace and dedicated spaces
   const spaceMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    if (defaultSpace) map[defaultSpace.id] = defaultSpace.name
+    const map: Record<string, string> = {};
+    if (defaultSpace) map[defaultSpace.id] = defaultSpace.name;
     for (const s of spaces) {
-      map[s.id] = s.name
+      map[s.id] = s.name;
     }
-    return map
-  }, [spaces, defaultSpace])
+    return map;
+  }, [spaces, defaultSpace]);
 
   // Auto-select initial app (from notification/badge navigation)
   useEffect(() => {
     if (initialAppId && apps.length > 0) {
-      const app = apps.find(a => a.id === initialAppId)
+      const app = apps.find((a) => a.id === initialAppId);
       if (app) {
-        selectApp(app.id, app.status === 'uninstalled' ? 'uninstalled' : app.spec.type)
-        setInitialAppId(null)
+        selectApp(app.id, app.status === 'uninstalled' ? 'uninstalled' : app.spec.type);
+        setInitialAppId(null);
       }
     }
-  }, [apps, initialAppId, selectApp, setInitialAppId])
+  }, [apps, initialAppId, selectApp, setInitialAppId]);
 
   // Auto-select first app if nothing selected
   useEffect(() => {
     if (!selectedAppId && apps.length > 0) {
       // Prefer apps waiting for user, skip uninstalled for auto-select
-      const activeApps = apps.filter(a => a.status !== 'uninstalled')
-      const waitingApp = activeApps.find(a => a.status === 'waiting_user')
-      const firstApp = waitingApp ?? activeApps[0] ?? apps[0]
-      selectApp(firstApp.id, firstApp.status === 'uninstalled' ? 'uninstalled' : firstApp.spec.type)
+      const activeApps = apps.filter((a) => a.status !== 'uninstalled');
+      const waitingApp = activeApps.find((a) => a.status === 'waiting_user');
+      const firstApp = waitingApp ?? activeApps[0] ?? apps[0];
+      selectApp(
+        firstApp.id,
+        firstApp.status === 'uninstalled' ? 'uninstalled' : firstApp.spec.type,
+      );
     }
-  }, [apps, selectedAppId, selectApp])
+  }, [apps, selectedAppId, selectApp]);
 
   // Resolve the selected app (for breadcrumb and detail panel)
   const selectedApp = useMemo(
-    () => apps.find(a => a.id === selectedAppId),
-    [apps, selectedAppId]
-  )
+    () => apps.find((a) => a.id === selectedAppId),
+    [apps, selectedAppId],
+  );
 
   // Locale-resolved display name for breadcrumbs
   const selectedAppName = useMemo(
-    () => selectedApp ? resolveSpecI18n(selectedApp.spec, getCurrentLanguage()).name : undefined,
-    [selectedApp]
-  )
+    () => (selectedApp ? resolveSpecI18n(selectedApp.spec, getCurrentLanguage()).name : undefined),
+    [selectedApp],
+  );
 
-  const isSessionDetail = detailView?.type === 'session-detail'
-  const isAppChat = detailView?.type === 'app-chat'
-  const isAppConfig = detailView?.type === 'app-config'
-  const isUninstalledDetail = detailView?.type === 'uninstalled-detail'
+  const isSessionDetail = detailView?.type === 'session-detail';
+  const isAppChat = detailView?.type === 'app-chat';
+  const isAppConfig = detailView?.type === 'app-config';
+  const isUninstalledDetail = detailView?.type === 'uninstalled-detail';
 
   // Render the right-side detail panel
   const renderDetail = () => {
     if (!detailView) {
-      return <EmptyState hasApps={apps.length > 0} onInstall={() => setShowInstallDialog(true)} />
+      return <EmptyState hasApps={apps.length > 0} onInstall={() => setShowInstallDialog(true)} />;
     }
 
     switch (detailView.type) {
       case 'activity-thread':
-        return <ActivityThread appId={detailView.appId} />
+        return <ActivityThread appId={detailView.appId} />;
       case 'session-detail':
-        return (
-          <SessionDetailView
-            appId={detailView.appId}
-            runId={detailView.runId}
-          />
-        )
+        return <SessionDetailView appId={detailView.appId} runId={detailView.runId} />;
       case 'app-chat':
-        return (
-          <AppChatView
-            appId={detailView.appId}
-            spaceId={detailView.spaceId}
-          />
-        )
+        return <AppChatView appId={detailView.appId} spaceId={detailView.spaceId} />;
       case 'app-config':
-        return <AppConfigPanel appId={detailView.appId} spaceName={spaceMap[selectedApp?.spaceId ?? '']} />
+        return (
+          <AppConfigPanel
+            appId={detailView.appId}
+            spaceName={spaceMap[selectedApp?.spaceId ?? '']}
+          />
+        );
       case 'mcp-status':
-        return <McpStatusCard appId={detailView.appId} />
+        return <McpStatusCard appId={detailView.appId} />;
       case 'skill-info':
-        return <SkillInfoCard appId={detailView.appId} />
+        return <SkillInfoCard appId={detailView.appId} />;
       case 'uninstalled-detail':
-        return <UninstalledDetailView appId={detailView.appId} spaceName={spaceMap[selectedApp?.spaceId ?? '']} />
+        return (
+          <UninstalledDetailView
+            appId={detailView.appId}
+            spaceName={spaceMap[selectedApp?.spaceId ?? '']}
+          />
+        );
       default:
-        return <EmptyState hasApps={apps.length > 0} onInstall={() => setShowInstallDialog(true)} />
+        return (
+          <EmptyState hasApps={apps.length > 0} onInstall={() => setShowInstallDialog(true)} />
+        );
     }
-  }
+  };
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -149,7 +154,7 @@ export function AppsPage() {
       <Header
         left={
           <button
-            onClick={() => setView(currentSpace ? 'space' : (previousView || 'home'))}
+            onClick={() => setView(currentSpace ? 'space' : previousView || 'home')}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -237,9 +242,17 @@ export function AppsPage() {
             )}
 
             {/* App header bar — for automation apps (activity thread only) */}
-            {!isSessionDetail && !isAppChat && !isAppConfig && !isUninstalledDetail && selectedAppId && detailView?.type === 'activity-thread' && (
-              <AutomationHeader appId={selectedAppId} spaceName={spaceMap[selectedApp?.spaceId ?? '']} />
-            )}
+            {!isSessionDetail &&
+              !isAppChat &&
+              !isAppConfig &&
+              !isUninstalledDetail &&
+              selectedAppId &&
+              detailView?.type === 'activity-thread' && (
+                <AutomationHeader
+                  appId={selectedAppId}
+                  spaceName={spaceMap[selectedApp?.spaceId ?? '']}
+                />
+              )}
 
             {/* Detail content — app-chat manages its own scroll + flex layout */}
             <div className={`flex-1 ${isAppChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
@@ -252,13 +265,9 @@ export function AppsPage() {
       )}
 
       {/* Install dialog */}
-      {showInstallDialog && (
-        <AppInstallDialog
-          onClose={() => setShowInstallDialog(false)}
-        />
-      )}
+      {showInstallDialog && <AppInstallDialog onClose={() => setShowInstallDialog(false)} />}
     </div>
-  )
+  );
 }
 
 // ──────────────────────────────────────────────
@@ -266,17 +275,17 @@ export function AppsPage() {
 // ──────────────────────────────────────────────
 
 interface SessionBreadcrumbProps {
-  appName: string
-  runId?: string
-  label?: string
-  onBack: () => void
+  appName: string;
+  runId?: string;
+  label?: string;
+  onBack: () => void;
 }
 
 function SessionBreadcrumb({ appName, runId, label, onBack }: SessionBreadcrumbProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   // Show abbreviated run ID (first 8 chars)
-  const shortRunId = runId ? (runId.length > 8 ? runId.slice(0, 8) : runId) : ''
-  const displayLabel = label || (shortRunId ? `${t('Run')} ${shortRunId}` : '')
+  const shortRunId = runId ? (runId.length > 8 ? runId.slice(0, 8) : runId) : '';
+  const displayLabel = label || (shortRunId ? `${t('Run')} ${shortRunId}` : '');
 
   return (
     <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-border bg-muted/30 flex-shrink-0">
@@ -290,11 +299,9 @@ function SessionBreadcrumb({ appName, runId, label, onBack }: SessionBreadcrumbP
       {displayLabel && (
         <>
           <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
-          <span className="text-sm text-muted-foreground">
-            {displayLabel}
-          </span>
+          <span className="text-sm text-muted-foreground">{displayLabel}</span>
         </>
       )}
     </div>
-  )
+  );
 }

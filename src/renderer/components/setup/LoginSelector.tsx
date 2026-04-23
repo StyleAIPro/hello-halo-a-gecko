@@ -3,32 +3,54 @@
  * Dynamically renders login options based on available providers from product.json
  */
 
-import { useState, useEffect } from 'react'
-import { Globe, ChevronDown, ChevronRight, MessageSquare, Wrench, Key, Cloud, Server, Shield, Lock, Zap, LogIn, User, Github, type LucideIcon } from 'lucide-react'
-import { useTranslation, setLanguage, getCurrentLanguage, SUPPORTED_LOCALES, type LocaleCode } from '../../i18n'
-import { api } from '../../api'
-import { resolveLocalizedText, type LocalizedText } from '../../../shared/types'
+import { useState, useEffect } from 'react';
+import {
+  Globe,
+  ChevronDown,
+  ChevronRight,
+  MessageSquare,
+  Wrench,
+  Key,
+  Cloud,
+  Server,
+  Shield,
+  Lock,
+  Zap,
+  LogIn,
+  User,
+  Github,
+  type LucideIcon,
+} from 'lucide-react';
+import {
+  useTranslation,
+  setLanguage,
+  getCurrentLanguage,
+  SUPPORTED_LOCALES,
+  type LocaleCode,
+} from '../../i18n';
+import { api } from '../../api';
+import { resolveLocalizedText, type LocalizedText } from '../../../shared/types';
 
 /**
  * Provider configuration from backend
  */
 interface AuthProviderConfig {
-  type: string
-  displayName: LocalizedText
-  description: LocalizedText
-  icon: string
-  iconBgColor: string  // Hex color like #24292e
-  recommended: boolean
-  enabled: boolean
+  type: string;
+  displayName: LocalizedText;
+  description: LocalizedText;
+  icon: string;
+  iconBgColor: string; // Hex color like #24292e
+  recommended: boolean;
+  enabled: boolean;
 }
 
 function getLocalizedText(value: LocalizedText): string {
-  return resolveLocalizedText(value, getCurrentLanguage())
+  return resolveLocalizedText(value, getCurrentLanguage());
 }
 
 interface LoginSelectorProps {
-  onSelectProvider: (providerType: string) => void
-  onSelectCustom: () => void
+  onSelectProvider: (providerType: string) => void;
+  onSelectCustom: () => void;
 }
 
 /**
@@ -37,46 +59,46 @@ interface LoginSelectorProps {
  */
 const iconMap: Record<string, LucideIcon> = {
   'log-in': LogIn,
-  'user': User,
-  'globe': Globe,
-  'key': Key,
-  'cloud': Cloud,
-  'server': Server,
-  'shield': Shield,
-  'lock': Lock,
-  'zap': Zap,
+  user: User,
+  globe: Globe,
+  key: Key,
+  cloud: Cloud,
+  server: Server,
+  shield: Shield,
+  lock: Lock,
+  zap: Zap,
   'message-square': MessageSquare,
-  'wrench': Wrench,
-  'github': Github
-}
+  wrench: Wrench,
+  github: Github,
+};
 
 /**
  * Convert hex color to RGBA with opacity
  */
 function hexToRgba(hex: string, alpha: number = 0.15): string {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return `rgba(128, 128, 128, ${alpha})`
-  return `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${alpha})`
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return `rgba(128, 128, 128, ${alpha})`;
+  return `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${alpha})`;
 }
 
 export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelectorProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Language selector state
-  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false)
-  const [currentLang, setCurrentLang] = useState<LocaleCode>(getCurrentLanguage())
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const [currentLang, setCurrentLang] = useState<LocaleCode>(getCurrentLanguage());
 
   // Providers state
-  const [providers, setProviders] = useState<AuthProviderConfig[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [providers, setProviders] = useState<AuthProviderConfig[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch available providers on mount
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        const result = await api.authGetProviders()
+        const result = await api.authGetProviders();
         if (result.success && result.data) {
-          setProviders(result.data as AuthProviderConfig[])
+          setProviders(result.data as AuthProviderConfig[]);
         } else {
           // Fallback to default providers if fetch fails
           setProviders([
@@ -87,12 +109,12 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
               icon: 'wrench',
               iconBgColor: '#da7756',
               recommended: true,
-              enabled: true
-            }
-          ])
+              enabled: true,
+            },
+          ]);
         }
       } catch (error) {
-        console.error('[LoginSelector] Failed to fetch providers:', error)
+        console.error('[LoginSelector] Failed to fetch providers:', error);
         // Fallback
         setProviders([
           {
@@ -102,37 +124,37 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
             icon: 'wrench',
             iconBgColor: '#da7756',
             recommended: true,
-            enabled: true
-          }
-        ])
+            enabled: true,
+          },
+        ]);
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
 
-    fetchProviders()
-  }, [])
+    fetchProviders();
+  }, []);
 
   // Handle language change
   const handleLanguageChange = (lang: LocaleCode) => {
-    setLanguage(lang)
-    setCurrentLang(lang)
-    setIsLangDropdownOpen(false)
-  }
+    setLanguage(lang);
+    setCurrentLang(lang);
+    setIsLangDropdownOpen(false);
+  };
 
   // Handle provider selection
   const handleProviderSelect = (provider: AuthProviderConfig) => {
     if (provider.type === 'custom') {
-      onSelectCustom()
+      onSelectCustom();
     } else {
-      onSelectProvider(provider.type)
+      onSelectProvider(provider.type);
     }
-  }
+  };
 
   // Get icon component for a provider
   const getIcon = (iconName: string): LucideIcon => {
-    return iconMap[iconName] || Wrench
-  }
+    return iconMap[iconName] || Wrench;
+  };
 
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-background p-8 relative">
@@ -145,17 +167,16 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
           >
             <Globe className="w-4 h-4" />
             <span>{SUPPORTED_LOCALES[currentLang]}</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''}`}
+            />
           </button>
 
           {/* Dropdown */}
           {isLangDropdownOpen && (
             <>
               {/* Backdrop to close dropdown */}
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setIsLangDropdownOpen(false)}
-              />
+              <div className="fixed inset-0 z-10" onClick={() => setIsLangDropdownOpen(false)} />
               <div className="absolute right-0 mt-1 py-1 w-40 bg-card border border-border rounded-lg shadow-lg z-20">
                 {Object.entries(SUPPORTED_LOCALES).map(([code, name]) => (
                   <button
@@ -195,7 +216,10 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
             // Loading skeleton
             <div className="space-y-4">
               {[1, 2].map((i) => (
-                <div key={i} className="w-full p-5 bg-card rounded-xl border border-border animate-pulse">
+                <div
+                  key={i}
+                  className="w-full p-5 bg-card rounded-xl border border-border animate-pulse"
+                >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-lg bg-secondary" />
                     <div className="flex-1">
@@ -209,9 +233,9 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
           ) : (
             // Dynamic provider cards
             providers.map((provider) => {
-              const IconComponent = getIcon(provider.icon)
-              const bgColor = hexToRgba(provider.iconBgColor, 0.15)
-              const textColor = provider.iconBgColor
+              const IconComponent = getIcon(provider.icon);
+              const bgColor = hexToRgba(provider.iconBgColor, 0.15);
+              const textColor = provider.iconBgColor;
 
               return (
                 <button
@@ -229,7 +253,9 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{getLocalizedText(provider.displayName)}</span>
+                          <span className="font-medium">
+                            {getLocalizedText(provider.displayName)}
+                          </span>
                           {provider.recommended && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">
                               {t('Recommended')}
@@ -244,11 +270,11 @@ export function LoginSelector({ onSelectProvider, onSelectCustom }: LoginSelecto
                     <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                   </div>
                 </button>
-              )
+              );
             })
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }

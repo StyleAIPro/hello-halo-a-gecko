@@ -5,25 +5,25 @@
  * Shows connection info, provided tools, and uninstall action.
  */
 
-import { Wrench, Unplug } from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { AppStatusDot } from './AppStatusDot'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
+import { Wrench, Unplug } from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { AppStatusDot } from './AppStatusDot';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
 
 interface McpStatusCardProps {
-  appId: string
+  appId: string;
 }
 
 export function McpStatusCard({ appId }: McpStatusCardProps) {
-  const { t } = useTranslation()
-  const { apps, uninstallApp } = useAppsStore()
-  const app = apps.find(a => a.id === appId)
+  const { t } = useTranslation();
+  const { apps, uninstallApp } = useAppsStore();
+  const app = apps.find((a) => a.id === appId);
 
-  if (!app) return null
+  if (!app) return null;
 
-  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
-  const mcpServer = app.spec.mcp_server
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage());
+  const mcpServer = app.spec.mcp_server;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -42,7 +42,9 @@ export function McpStatusCard({ appId }: McpStatusCardProps) {
       {/* Connection info */}
       {mcpServer && (
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('Connection')}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('Connection')}
+          </h3>
           <div className="bg-secondary rounded-lg p-3 text-xs font-mono space-y-1">
             <div className="flex gap-2">
               <span className="text-muted-foreground w-20 flex-shrink-0">{t('Command')}</span>
@@ -80,5 +82,5 @@ export function McpStatusCard({ appId }: McpStatusCardProps) {
         </button>
       </div>
     </div>
-  )
+  );
 }

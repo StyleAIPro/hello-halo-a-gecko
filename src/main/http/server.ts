@@ -1,115 +1,123 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * HTTP Server - Remote access server for AICO-Bot
  * Exposes REST API and serves the frontend for remote access
  */
 
-import express, { Express, Request, Response } from 'express'
-import { createServer, Server, request as httpRequest, IncomingMessage } from 'http'
-import { join } from 'path'
-import { BrowserWindow } from 'electron'
-import { is } from '@electron-toolkit/utils'
-import { createConnection, createServer as createNetServer } from 'net'
+import type { Express, Request, Response } from 'express';
+import express from 'express';
+import type { Server } from 'http';
+import { createServer, request as httpRequest, IncomingMessage } from 'http';
+import { join } from 'path';
+import type { BrowserWindow } from 'electron';
+import { is } from '@electron-toolkit/utils';
+import { createConnection, createServer as createNetServer } from 'net';
 
-import { authMiddleware, generateAccessToken, getAccessToken, clearAccessToken, validateToken } from './auth'
-import { initWebSocket, shutdownWebSocket, getClientCount } from './websocket'
-import { registerApiRoutes } from './routes'
-import { getMainWindow as getMainWindowFromService } from '../services/window.service'
+import {
+  authMiddleware,
+  generateAccessToken,
+  getAccessToken,
+  clearAccessToken,
+  validateToken,
+} from './auth';
+import { initWebSocket, shutdownWebSocket, getClientCount } from './websocket';
+import { registerApiRoutes } from './routes';
+import { getMainWindow as getMainWindowFromService } from '../services/window.service';
 
 // Vite dev server URL
-const VITE_DEV_SERVER = 'http://localhost:5173'
-const VITE_DEV_HOST = 'localhost'
-const VITE_DEV_PORT = 5173
+const VITE_DEV_SERVER = 'http://localhost:5173';
+const VITE_DEV_HOST = 'localhost';
+const VITE_DEV_PORT = 5173;
 
 // Server state
-let httpServer: Server | null = null
-let expressApp: Express | null = null
-let serverPort: number = 0
+let httpServer: Server | null = null;
+let expressApp: Express | null = null;
+let serverPort: number = 0;
 
 // Default port
-const DEFAULT_PORT = 3847
-const MAX_PORT_SEARCH_ATTEMPTS = 20
+const DEFAULT_PORT = 3847;
+const MAX_PORT_SEARCH_ATTEMPTS = 20;
 
 async function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const tester = createNetServer()
+    const tester = createNetServer();
     tester.once('error', () => {
-      tester.close(() => resolve(false))
-    })
+      tester.close(() => resolve(false));
+    });
     tester.once('listening', () => {
-      tester.close(() => resolve(true))
-    })
-    tester.listen(port, '0.0.0.0')
-  })
+      tester.close(() => resolve(true));
+    });
+    tester.listen(port, '0.0.0.0');
+  });
 }
 
 async function findAvailablePort(startPort: number): Promise<number> {
   for (let i = 0; i < MAX_PORT_SEARCH_ATTEMPTS; i++) {
-    const portToTry = startPort + i
-    // eslint-disable-next-line no-await-in-loop
-    const available = await isPortAvailable(portToTry)
+    const portToTry = startPort + i;
+
+    const available = await isPortAvailable(portToTry);
     if (available) {
       if (i > 0) {
-        console.warn(`[HTTP] Port ${startPort} is in use, falling back to ${portToTry}`)
+        console.warn(`[HTTP] Port ${startPort} is in use, falling back to ${portToTry}`);
       }
-      return portToTry
+      return portToTry;
     }
   }
-  throw new Error(`Unable to find available port near ${startPort}`)
+  throw new Error(`Unable to find available port near ${startPort}`);
 }
 
 function cleanupServerOnError(): void {
-  shutdownWebSocket()
+  shutdownWebSocket();
   if (httpServer) {
     try {
-      httpServer.removeAllListeners('error')
-      httpServer.close()
+      httpServer.removeAllListeners('error');
+      httpServer.close();
     } catch (err) {
-      console.warn('[HTTP] Error closing server after failure:', (err as Error).message)
+      console.warn('[HTTP] Error closing server after failure:', (err as Error).message);
     }
-    httpServer = null
+    httpServer = null;
   }
-  expressApp = null
-  serverPort = 0
-  clearAccessToken()
+  expressApp = null;
+  serverPort = 0;
+  clearAccessToken();
 }
 
 /**
  * Start the HTTP server
  */
 export async function startHttpServer(
-  port: number = DEFAULT_PORT
+  port: number = DEFAULT_PORT,
 ): Promise<{ port: number; token: string }> {
-  const listenPort = await findAvailablePort(port)
+  const listenPort = await findAvailablePort(port);
 
   // Create Express app
-  expressApp = express()
+  expressApp = express();
 
   // Middleware
-  expressApp.use(express.json())
-  expressApp.use(express.urlencoded({ extended: true }))
+  expressApp.use(express.json());
+  expressApp.use(express.urlencoded({ extended: true }));
 
   // CORS for remote access
   expressApp.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*')
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(200)
+      return res.sendStatus(200);
     }
-    next()
-  })
+    next();
+  });
 
   // Login endpoint (before auth middleware)
   expressApp.post('/api/remote/login', (req: Request, res: Response) => {
-    const { token } = req.body
+    const { token } = req.body;
 
     if (validateToken(token)) {
-      res.json({ success: true })
+      res.json({ success: true });
     } else {
-      res.status(401).json({ success: false, error: 'Invalid token' })
+      res.status(401).json({ success: false, error: 'Invalid token' });
     }
-  })
+  });
 
   // Status endpoint (public)
   expressApp.get('/api/remote/status', (req: Request, res: Response) => {
@@ -118,70 +126,74 @@ export async function startHttpServer(
       data: {
         active: true,
         clients: getClientCount(),
-        version: '1.0.0'
-      }
-    })
-  })
+        version: '1.0.0',
+      },
+    });
+  });
 
   // Auth middleware for API routes
-  expressApp.use('/api', authMiddleware)
+  expressApp.use('/api', authMiddleware);
 
   // Register API routes
-  registerApiRoutes(expressApp, getMainWindowFromService())
+  registerApiRoutes(expressApp, getMainWindowFromService());
 
   // Serve static files (frontend)
   if (is.dev) {
     // In development, proxy to Vite dev server
     expressApp.use('/{*path}', (req, res) => {
       // Check if authenticated (has valid token in query or localStorage check via cookie)
-      const urlToken = req.query.token as string
-      const authHeader = req.headers.authorization
-      const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : authHeader
+      const urlToken = req.query.token as string;
+      const authHeader = req.headers.authorization;
+      const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
 
       // If accessing root without auth, show login page
       if (req.path === '/' && !urlToken && !headerToken) {
         // Check cookie for token
-        const cookies = req.headers.cookie || ''
-        const hasToken = cookies.includes('aico-bot_authenticated=true')
+        const cookies = req.headers.cookie || '';
+        const hasToken = cookies.includes('aico-bot_authenticated=true');
         if (!hasToken) {
-          return res.send(getRemoteLoginPage())
+          return res.send(getRemoteLoginPage());
         }
       }
 
       // Proxy to Vite dev server
-      const viteUrl = new URL(req.originalUrl, VITE_DEV_SERVER)
+      const viteUrl = new URL(req.originalUrl, VITE_DEV_SERVER);
 
-      const proxyReq = httpRequest(viteUrl, {
-        method: req.method,
-        headers: {
-          ...req.headers,
-          host: new URL(VITE_DEV_SERVER).host
-        }
-      }, (proxyRes) => {
-        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
-        proxyRes.pipe(res)
-      })
+      const proxyReq = httpRequest(
+        viteUrl,
+        {
+          method: req.method,
+          headers: {
+            ...req.headers,
+            host: new URL(VITE_DEV_SERVER).host,
+          },
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res);
+        },
+      );
 
       proxyReq.on('error', (err) => {
-        console.error('[HTTP] Proxy error:', err)
-        res.status(502).send('Vite dev server not available')
-      })
+        console.error('[HTTP] Proxy error:', err);
+        res.status(502).send('Vite dev server not available');
+      });
 
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        req.pipe(proxyReq)
+        req.pipe(proxyReq);
       } else {
-        proxyReq.end()
+        proxyReq.end();
       }
-    })
+    });
   } else {
     // In production, serve built files
-    const staticPath = join(__dirname, '../renderer')
+    const staticPath = join(__dirname, '../renderer');
 
     // Authentication check middleware for production
     expressApp.use((req, res, next) => {
       // Skip for API routes (handled by authMiddleware)
       if (req.path.startsWith('/api')) {
-        return next()
+        return next();
       }
 
       // Skip for static assets
@@ -195,49 +207,49 @@ export async function startHttpServer(
         req.path.endsWith('.woff') ||
         req.path.endsWith('.woff2')
       ) {
-        return next()
+        return next();
       }
 
       // Check if authenticated via cookie
-      const cookies = req.headers.cookie || ''
-      const hasToken = cookies.includes('aico-bot_authenticated=true')
+      const cookies = req.headers.cookie || '';
+      const hasToken = cookies.includes('aico-bot_authenticated=true');
 
       // If not authenticated, show login page
       if (!hasToken) {
-        return res.send(getRemoteLoginPage())
+        return res.send(getRemoteLoginPage());
       }
 
-      next()
-    })
+      next();
+    });
 
-    expressApp.use(express.static(staticPath))
+    expressApp.use(express.static(staticPath));
 
     // SPA fallback - Express 5.x requires named wildcard parameters
     expressApp.get('/{*path}', (req, res) => {
       // Auth already checked by middleware above
-      res.sendFile(join(staticPath, 'index.html'))
-    })
+      res.sendFile(join(staticPath, 'index.html'));
+    });
   }
 
   // Create HTTP server
-  httpServer = createServer(expressApp)
+  httpServer = createServer(expressApp);
 
   // Initialize WebSocket (for AICO-Bot communication on /ws path)
-  initWebSocket(httpServer)
+  initWebSocket(httpServer);
 
   // In dev mode, proxy Vite HMR WebSocket connections
   if (is.dev) {
     httpServer.on('upgrade', (req, socket, head) => {
-      const url = new URL(req.url || '/', `http://${req.headers.host}`)
+      const url = new URL(req.url || '/', `http://${req.headers.host}`);
 
       // Don't intercept AICO-Bot's WebSocket connections
       if (url.pathname === '/ws') {
         // Let the wss server handle it (already done by initWebSocket)
-        return
+        return;
       }
 
       // Proxy other WebSocket connections to Vite dev server
-      console.log(`[HTTP] Proxying WebSocket upgrade: ${url.pathname}`)
+      console.log(`[HTTP] Proxying WebSocket upgrade: ${url.pathname}`);
 
       const viteSocket = createConnection(VITE_DEV_PORT, VITE_DEV_HOST, () => {
         // Forward the upgrade request to Vite
@@ -249,53 +261,53 @@ export async function startHttpServer(
           `Sec-WebSocket-Key: ${req.headers['sec-websocket-key']}`,
           `Sec-WebSocket-Version: ${req.headers['sec-websocket-version']}`,
           '',
-          ''
-        ].join('\r\n')
+          '',
+        ].join('\r\n');
 
-        viteSocket.write(upgradeRequest)
-        viteSocket.write(head)
+        viteSocket.write(upgradeRequest);
+        viteSocket.write(head);
 
         // Pipe data between client and Vite
-        socket.pipe(viteSocket)
-        viteSocket.pipe(socket)
-      })
+        socket.pipe(viteSocket);
+        viteSocket.pipe(socket);
+      });
 
       viteSocket.on('error', (err) => {
-        console.error('[HTTP] Vite WebSocket proxy error:', err.message)
-        socket.end()
-      })
+        console.error('[HTTP] Vite WebSocket proxy error:', err.message);
+        socket.end();
+      });
 
       socket.on('error', (err) => {
-        console.error('[HTTP] Client WebSocket error:', err.message)
-        viteSocket.end()
-      })
-    })
+        console.error('[HTTP] Client WebSocket error:', err.message);
+        viteSocket.end();
+      });
+    });
   }
 
   // Generate access token
-  const token = generateAccessToken()
+  const token = generateAccessToken();
 
   // Start listening
   return new Promise((resolve, reject) => {
     httpServer!.listen(listenPort, '0.0.0.0', () => {
-      serverPort = listenPort
-      console.log(`[HTTP] Server started on port ${listenPort}`)
-      console.log(`[HTTP] Access token: ${token}`)
-      resolve({ port: listenPort, token })
-    })
+      serverPort = listenPort;
+      console.log(`[HTTP] Server started on port ${listenPort}`);
+      console.log(`[HTTP] Access token: ${token}`);
+      resolve({ port: listenPort, token });
+    });
 
     httpServer!.on('error', (error: NodeJS.ErrnoException) => {
-      console.error('[HTTP] Server error:', error.message)
-      cleanupServerOnError()
+      console.error('[HTTP] Server error:', error.message);
+      cleanupServerOnError();
       if (error.code === 'EADDRINUSE') {
-        const nextPort = listenPort + 1
-        console.log(`[HTTP] Port ${listenPort} still in use, trying ${nextPort}`)
-        startHttpServer(nextPort).then(resolve).catch(reject)
+        const nextPort = listenPort + 1;
+        console.log(`[HTTP] Port ${listenPort} still in use, trying ${nextPort}`);
+        startHttpServer(nextPort).then(resolve).catch(reject);
       } else {
-        reject(error)
+        reject(error);
       }
-    })
-  })
+    });
+  });
 }
 
 /**
@@ -303,13 +315,13 @@ export async function startHttpServer(
  */
 export function stopHttpServer(): void {
   if (httpServer) {
-    shutdownWebSocket()
-    httpServer.close()
-    httpServer = null
-    expressApp = null
-    serverPort = 0
-    clearAccessToken()
-    console.log('[HTTP] Server stopped')
+    shutdownWebSocket();
+    httpServer.close();
+    httpServer = null;
+    expressApp = null;
+    serverPort = 0;
+    clearAccessToken();
+    console.log('[HTTP] Server stopped');
   }
 }
 
@@ -317,31 +329,31 @@ export function stopHttpServer(): void {
  * Check if server is running
  */
 export function isServerRunning(): boolean {
-  return httpServer !== null
+  return httpServer !== null;
 }
 
 /**
  * Get server info
  */
 export function getServerInfo(): {
-  running: boolean
-  port: number
-  token: string | null
-  clients: number
+  running: boolean;
+  port: number;
+  token: string | null;
+  clients: number;
 } {
   return {
     running: isServerRunning(),
     port: serverPort,
     token: getAccessToken(),
-    clients: getClientCount()
-  }
+    clients: getClientCount(),
+  };
 }
 
 /**
  * Get main window reference (for agent controller)
  */
 export function getMainWindow(): BrowserWindow | null {
-  return getMainWindowFromService()
+  return getMainWindowFromService();
 }
 
 /**
@@ -349,7 +361,7 @@ export function getMainWindow(): BrowserWindow | null {
  * Returns null if the HTTP server is not running.
  */
 export function getExpressApp(): Express | null {
-  return expressApp
+  return expressApp;
 }
 
 /**
@@ -483,5 +495,5 @@ function getRemoteLoginPage(): string {
   </script>
 </body>
 </html>
-  `
+  `;
 }

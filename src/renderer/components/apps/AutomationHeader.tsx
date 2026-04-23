@@ -6,79 +6,87 @@
  * appropriate to the current app state.
  */
 
-import { Play, Pause, RotateCcw, Settings } from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { AppStatusDot } from './AppStatusDot'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
-import { appTypeLabel } from './appTypeUtils'
+import { Play, Pause, RotateCcw, Settings } from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { AppStatusDot } from './AppStatusDot';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
+import { appTypeLabel } from './appTypeUtils';
 
 interface AutomationHeaderProps {
-  appId: string
+  appId: string;
   /** Space name to display in the header subtitle */
-  spaceName?: string
+  spaceName?: string;
 }
 
 // Friendly label for AutomationAppState.status
 function statusLabel(s: string): string {
   switch (s) {
-    case 'running': return 'Running'
-    case 'queued': return 'Queued'
-    case 'idle': return 'Idle'
-    case 'waiting_user': return 'Waiting for you'
-    case 'paused': return 'Paused'
-    case 'error': return 'Error'
-    default: return s
+    case 'running':
+      return 'Running';
+    case 'queued':
+      return 'Queued';
+    case 'idle':
+      return 'Idle';
+    case 'waiting_user':
+      return 'Waiting for you';
+    case 'paused':
+      return 'Paused';
+    case 'error':
+      return 'Error';
+    default:
+      return s;
   }
 }
 
 export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
-  const { t } = useTranslation()
-  const { apps, appStates, pauseApp, resumeApp, triggerApp } = useAppsStore()
-  const { openAppConfig } = useAppsPageStore()
-  const app = apps.find(a => a.id === appId)
-  const runtimeState = appStates[appId]
+  const { t } = useTranslation();
+  const { apps, appStates, pauseApp, resumeApp, triggerApp } = useAppsStore();
+  const { openAppConfig } = useAppsPageStore();
+  const app = apps.find((a) => a.id === appId);
+  const runtimeState = appStates[appId];
 
-  if (!app) return null
+  if (!app) return null;
 
-  const { name } = resolveSpecI18n(app.spec, getCurrentLanguage())
-  const status = app.status
-  const runtimeStatus = runtimeState?.status
-  const effectiveStatus = runtimeStatus ?? (status === 'active' ? 'idle' : status)
-  const appType = app.spec.type
-  const isAutomation = appType === 'automation'
+  const { name } = resolveSpecI18n(app.spec, getCurrentLanguage());
+  const status = app.status;
+  const runtimeStatus = runtimeState?.status;
+  const effectiveStatus = runtimeStatus ?? (status === 'active' ? 'idle' : status);
+  const appType = app.spec.type;
+  const isAutomation = appType === 'automation';
 
-  const isWaiting = status === 'waiting_user'
-  const isPaused = status === 'paused'
-  const isRunning = effectiveStatus === 'running'
-  const isQueued = effectiveStatus === 'queued'
+  const isWaiting = status === 'waiting_user';
+  const isPaused = status === 'paused';
+  const isRunning = effectiveStatus === 'running';
+  const isQueued = effectiveStatus === 'queued';
 
   // Format next run time
-  let nextRunLabel: string | null = null
+  let nextRunLabel: string | null = null;
   if (isAutomation && runtimeState?.nextRunAtMs) {
-    const diff = runtimeState.nextRunAtMs - Date.now()
+    const diff = runtimeState.nextRunAtMs - Date.now();
     if (diff > 0) {
-      const mins = Math.floor(diff / 60_000)
-      const hrs = Math.floor(mins / 60)
-      nextRunLabel = hrs > 0
-        ? t('Next run in {{count}}h', { count: hrs })
-        : t('Next run in {{count}}m', { count: mins })
+      const mins = Math.floor(diff / 60_000);
+      const hrs = Math.floor(mins / 60);
+      nextRunLabel =
+        hrs > 0
+          ? t('Next run in {{count}}h', { count: hrs })
+          : t('Next run in {{count}}m', { count: mins });
     }
   }
 
   // Subscription frequency label (effective: user override > frequency.default > source config)
-  const sub = app.spec.subscriptions?.[0]
-  let freqLabel: string | null = null
+  const sub = app.spec.subscriptions?.[0];
+  let freqLabel: string | null = null;
   if (sub) {
-    const subId = sub.id ?? '0'
-    const userOverride = app.userOverrides?.frequency?.[subId]
+    const subId = sub.id ?? '0';
+    const userOverride = app.userOverrides?.frequency?.[subId];
     if (userOverride) {
-      freqLabel = userOverride
+      freqLabel = userOverride;
     } else if (sub.frequency?.default) {
-      freqLabel = sub.frequency.default
+      freqLabel = sub.frequency.default;
     } else if (sub.source.type === 'schedule') {
-      freqLabel = sub.source.config.every ?? sub.source.config.cron ?? null
+      freqLabel = sub.source.config.every ?? sub.source.config.cron ?? null;
     }
   }
 
@@ -169,5 +177,5 @@ export function AutomationHeader({ appId, spaceName }: AutomationHeaderProps) {
         )}
       </div>
     </div>
-  )
+  );
 }

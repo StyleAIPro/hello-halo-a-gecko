@@ -15,12 +15,12 @@
  * posted -> claimed -> in_progress -> completed
  *                                -> failed -> (retry) -> claimed
  */
-export type TaskBoardTaskStatus = 'posted' | 'claimed' | 'in_progress' | 'completed' | 'failed'
+export type TaskBoardTaskStatus = 'posted' | 'claimed' | 'in_progress' | 'completed' | 'failed';
 
 /**
  * Task priority levels.
  */
-export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 // ============================================
 // Task Board Task
@@ -32,64 +32,64 @@ export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
  */
 export interface TaskBoardTask {
   /** Unique task ID */
-  id: string
+  id: string;
 
   /** Short title for display */
-  title: string
+  title: string;
 
   /** Detailed description of what needs to be done */
-  description: string
+  description: string;
 
   /** Current status in the task lifecycle */
-  status: TaskBoardTaskStatus
+  status: TaskBoardTaskStatus;
 
   /** Task priority */
-  priority: TaskPriority
+  priority: TaskPriority;
 
   /** Capabilities required to complete this task (e.g., ['NPU操作', '模型训练']) */
-  requiredCapabilities: string[]
+  requiredCapabilities: string[];
 
   /** Agent ID or 'user' that posted the task */
-  postedBy: string
+  postedBy: string;
 
   /** Agent ID that claimed the task (null when unclaimed) */
-  claimedBy?: string
+  claimedBy?: string;
 
   /** Name of the agent that claimed the task */
-  claimedByName?: string
+  claimedByName?: string;
 
   /** When the task was claimed */
-  claimedAt?: number
+  claimedAt?: number;
 
   /** When the task was completed or failed */
-  completedAt?: number
+  completedAt?: number;
 
   /** Task result (for completed tasks) */
-  result?: string
+  result?: string;
 
   /** Error message (for failed tasks) */
-  error?: string
+  error?: string;
 
   /** When the task was created */
-  createdAt: number
+  createdAt: number;
 
   /** When the task was last updated */
-  updatedAt: number
+  updatedAt: number;
 
   /** Target server ID for NPU cluster routing */
-  targetServerId?: string
+  targetServerId?: string;
 
   /** Number of times this task has been retried */
-  retryCount: number
+  retryCount: number;
 
   /** Maximum retries before marking as permanently failed */
-  maxRetries: number
+  maxRetries: number;
 
   /** Parent conversation ID (links to the orchestrator's SubagentTask) */
-  parentConversationId?: string
+  parentConversationId?: string;
 
   /** Corresponding SubagentTask ID in the orchestrator (when claimed and executing) */
-  subagentTaskId?: string
+  subagentTaskId?: string;
 }
 
 // ============================================
@@ -102,16 +102,16 @@ export interface TaskBoardTask {
  */
 export interface TaskBoardFile {
   /** Team ID this board belongs to */
-  teamId: string
+  teamId: string;
 
   /** Space ID this board belongs to */
-  spaceId: string
+  spaceId: string;
 
   /** All tasks on the board */
-  tasks: TaskBoardTask[]
+  tasks: TaskBoardTask[];
 
   /** Last modification timestamp */
-  lastModified: number
+  lastModified: number;
 }
 
 // ============================================
@@ -123,23 +123,23 @@ export interface TaskBoardFile {
  * Auto-generated fields (id, status, timestamps, retryCount) are omitted.
  */
 export interface PostTaskInput {
-  title: string
-  description: string
-  priority?: TaskPriority
-  requiredCapabilities?: string[]
-  targetServerId?: string
-  maxRetries?: number
-  postedBy?: string
-  parentConversationId?: string
+  title: string;
+  description: string;
+  priority?: TaskPriority;
+  requiredCapabilities?: string[];
+  targetServerId?: string;
+  maxRetries?: number;
+  postedBy?: string;
+  parentConversationId?: string;
 }
 
 /**
  * Filter options for querying the TaskBoard.
  */
 export interface TaskBoardFilter {
-  status?: TaskBoardTaskStatus | TaskBoardTaskStatus[]
-  assignedTo?: string  // Agent ID
-  postedBy?: string
-  priority?: TaskPriority | TaskPriority[]
-  capabilities?: string[]
+  status?: TaskBoardTaskStatus | TaskBoardTaskStatus[];
+  assignedTo?: string; // Agent ID
+  postedBy?: string;
+  priority?: TaskPriority | TaskPriority[];
+  capabilities?: string[];
 }

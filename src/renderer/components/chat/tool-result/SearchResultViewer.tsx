@@ -9,86 +9,82 @@
  * - Preview mode with expand
  */
 
-import { useState, useCallback, useMemo } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, Search, FileText, Folder } from 'lucide-react'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { parseGrepOutput } from './detection'
+import { useState, useCallback, useMemo } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, Search, FileText, Folder } from 'lucide-react';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { parseGrepOutput } from './detection';
 
-const PREVIEW_MATCHES = 5
+const PREVIEW_MATCHES = 5;
 
-export function SearchResultViewer({
-  output,
-  isError,
-  toolInput
-}: ViewerBaseProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
+export function SearchResultViewer({ output, isError, toolInput }: ViewerBaseProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Extract search pattern from tool input
-  const pattern = (toolInput?.pattern as string) || ''
+  const pattern = (toolInput?.pattern as string) || '';
 
   // Parse grep output
   const { matches, fileCount, matchCount } = useMemo(() => {
-    return parseGrepOutput(output)
-  }, [output])
+    return parseGrepOutput(output);
+  }, [output]);
 
   // Group matches by file
   const groupedMatches = useMemo(() => {
-    const groups = new Map<string, typeof matches>()
+    const groups = new Map<string, typeof matches>();
     for (const match of matches) {
-      const existing = groups.get(match.filePath) || []
-      existing.push(match)
-      groups.set(match.filePath, existing)
+      const existing = groups.get(match.filePath) || [];
+      existing.push(match);
+      groups.set(match.filePath, existing);
     }
-    return Array.from(groups.entries())
-  }, [matches])
+    return Array.from(groups.entries());
+  }, [matches]);
 
   // Determine what to display
-  const displayMatches = isExpanded ? matches : matches.slice(0, PREVIEW_MATCHES)
+  const displayMatches = isExpanded ? matches : matches.slice(0, PREVIEW_MATCHES);
   const displayGroups = useMemo(() => {
-    if (isExpanded) return groupedMatches
+    if (isExpanded) return groupedMatches;
 
     // In preview mode, limit total matches shown
-    const result: typeof groupedMatches = []
-    let count = 0
+    const result: typeof groupedMatches = [];
+    let count = 0;
     for (const [file, fileMatches] of groupedMatches) {
-      if (count >= PREVIEW_MATCHES) break
-      const remaining = PREVIEW_MATCHES - count
-      result.push([file, fileMatches.slice(0, remaining)])
-      count += Math.min(fileMatches.length, remaining)
+      if (count >= PREVIEW_MATCHES) break;
+      const remaining = PREVIEW_MATCHES - count;
+      result.push([file, fileMatches.slice(0, remaining)]);
+      count += Math.min(fileMatches.length, remaining);
     }
-    return result
-  }, [groupedMatches, isExpanded])
+    return result;
+  }, [groupedMatches, isExpanded]);
 
-  const hasMore = matches.length > PREVIEW_MATCHES
+  const hasMore = matches.length > PREVIEW_MATCHES;
 
   // Copy handler
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(output)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [output])
+  }, [output]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   // Highlight match in content
   const highlightMatch = (content: string, pattern: string) => {
-    if (!pattern || !content) return content
+    if (!pattern || !content) return content;
 
     try {
       // Escape special regex characters for literal matching
-      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const regex = new RegExp(`(${escaped})`, 'gi')
-      const parts = content.split(regex)
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      const parts = content.split(regex);
 
       return parts.map((part, i) => {
         if (regex.test(part)) {
@@ -99,14 +95,14 @@ export function SearchResultViewer({
             >
               {part}
             </span>
-          )
+          );
         }
-        return part
-      })
+        return part;
+      });
     } catch {
-      return content
+      return content;
     }
-  }
+  };
 
   // If no matches, show simple message
   if (matches.length === 0) {
@@ -114,27 +110,21 @@ export function SearchResultViewer({
       <div
         className={`
           mt-1.5 rounded-lg overflow-hidden border
-          ${isError
-            ? 'border-amber-500/30 bg-amber-500/5'
-            : 'border-border/30 bg-muted/20'
-          }
+          ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
         `}
       >
         <div className="px-3 py-2 text-[11px] text-muted-foreground/60">
           {t('No matches found')}
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* Results content */}
@@ -154,21 +144,23 @@ export function SearchResultViewer({
               </div>
 
               {/* Matches in this file */}
-              {fileMatches.filter(m => m.content).map((match, i) => (
-                <div
-                  key={`${match.filePath}-${match.lineNumber}-${i}`}
-                  className="flex gap-2 pl-4 text-[11px] font-mono"
-                >
-                  {/* Line number */}
-                  <span className="flex-shrink-0 text-muted-foreground/40 w-8 text-right">
-                    {match.lineNumber}
-                  </span>
-                  {/* Content with highlight */}
-                  <span className="text-foreground/80 truncate">
-                    {highlightMatch(match.content, pattern)}
-                  </span>
-                </div>
-              ))}
+              {fileMatches
+                .filter((m) => m.content)
+                .map((match, i) => (
+                  <div
+                    key={`${match.filePath}-${match.lineNumber}-${i}`}
+                    className="flex gap-2 pl-4 text-[11px] font-mono"
+                  >
+                    {/* Line number */}
+                    <span className="flex-shrink-0 text-muted-foreground/40 w-8 text-right">
+                      {match.lineNumber}
+                    </span>
+                    {/* Content with highlight */}
+                    <span className="text-foreground/80 truncate">
+                      {highlightMatch(match.content, pattern)}
+                    </span>
+                  </div>
+                ))}
             </div>
           ))}
 
@@ -187,9 +179,10 @@ export function SearchResultViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -257,5 +250,5 @@ export function SearchResultViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

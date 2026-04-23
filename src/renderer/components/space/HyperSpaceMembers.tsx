@@ -5,69 +5,69 @@
  * Allows viewing, adding, and removing agents.
  */
 
-import { useState, useEffect, useCallback, memo } from 'react'
-import { useTranslation } from '../../i18n'
-import { useSpaceStore } from '../../stores/space.store'
-import { api } from '../../api'
-import { Plus, Trash2, Cloud, Monitor, Crown, Wrench, Users } from 'lucide-react'
-import type { AgentConfig } from '../../../shared/types/hyper-space'
-import type { RemoteServer, Space } from '../../../shared/types'
+import { useState, useEffect, useCallback, memo } from 'react';
+import { useTranslation } from '../../i18n';
+import { useSpaceStore } from '../../stores/space.store';
+import { api } from '../../api';
+import { Plus, Trash2, Cloud, Monitor, Crown, Wrench, Users } from 'lucide-react';
+import type { AgentConfig } from '../../../shared/types/hyper-space';
+import type { RemoteServer, Space } from '../../../shared/types';
 
 interface HyperSpaceMembersProps {
   /** Whether the section is visible */
-  visible?: boolean
+  visible?: boolean;
 }
 
 export const HyperSpaceMembers = memo(function HyperSpaceMembers({
-  visible = true
+  visible = true,
 }: HyperSpaceMembersProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   // Get current space
-  const currentSpace = useSpaceStore(state => state.currentSpace) as Space | null
+  const currentSpace = useSpaceStore((state) => state.currentSpace) as Space | null;
 
   // Check if this is a Hyper Space
-  const isHyperSpace = currentSpace?.spaceType === 'hyper'
+  const isHyperSpace = currentSpace?.spaceType === 'hyper';
 
   // Agents state
-  const [agents, setAgents] = useState<AgentConfig[]>([])
-  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
-  const [isAddingAgent, setIsAddingAgent] = useState(false)
-  const [isPersistentMode, setIsPersistentMode] = useState(false)
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([]);
+  const [isAddingAgent, setIsAddingAgent] = useState(false);
+  const [isPersistentMode, setIsPersistentMode] = useState(false);
   const [newAgent, setNewAgent] = useState<Partial<AgentConfig>>({
     name: '',
     type: 'local',
     role: 'worker',
-    capabilities: []
-  })
+    capabilities: [],
+  });
 
   // Load agents and remote servers when space changes
   useEffect(() => {
     if (isHyperSpace && currentSpace) {
       // Get agents from space
-      const spaceAgents = currentSpace.agents || []
-      console.log('[HyperSpaceMembers] Loading agents:', spaceAgents)
-      setAgents(spaceAgents as AgentConfig[])
+      const spaceAgents = currentSpace.agents || [];
+      console.log('[HyperSpaceMembers] Loading agents:', spaceAgents);
+      setAgents(spaceAgents as AgentConfig[]);
 
       // Load remote servers for adding remote agents
-      api.remoteServerList().then(result => {
+      api.remoteServerList().then((result) => {
         if (result.success && result.data) {
-          setRemoteServers(result.data)
+          setRemoteServers(result.data);
         }
-      })
+      });
     }
-  }, [isHyperSpace, currentSpace?.id])
+  }, [isHyperSpace, currentSpace?.id]);
 
   // Reset state when hidden
   useEffect(() => {
     if (!visible) {
-      setIsAddingAgent(false)
+      setIsAddingAgent(false);
     }
-  }, [visible])
+  }, [visible]);
 
   // Add agent handler
   const handleAddAgent = useCallback(async () => {
-    if (!currentSpace || !newAgent.name?.trim()) return
+    if (!currentSpace || !newAgent.name?.trim()) return;
 
     const agent: AgentConfig = {
       id: `agent-${Date.now()}`,
@@ -75,64 +75,67 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
       type: newAgent.type || 'local',
       role: newAgent.role || 'worker',
       capabilities: newAgent.capabilities || [],
-      remoteServerId: newAgent.remoteServerId
-    }
+      remoteServerId: newAgent.remoteServerId,
+    };
 
-    const result = await api.addAgentToHyperSpace(currentSpace.id, agent)
+    const result = await api.addAgentToHyperSpace(currentSpace.id, agent);
 
     if (result.success) {
-      setAgents([...agents, agent])
+      setAgents([...agents, agent]);
       setNewAgent({
         name: '',
         type: 'local',
         role: 'worker',
-        capabilities: []
-      })
-      setIsAddingAgent(false)
+        capabilities: [],
+      });
+      setIsAddingAgent(false);
     }
-  }, [currentSpace, newAgent, agents])
+  }, [currentSpace, newAgent, agents]);
 
   // Remove agent handler
-  const handleRemoveAgent = useCallback(async (agentId: string) => {
-    if (!currentSpace) return
+  const handleRemoveAgent = useCallback(
+    async (agentId: string) => {
+      if (!currentSpace) return;
 
-    // Don't allow removing the only leader
-    const agent = agents.find(a => a.id === agentId)
-    if (agent?.role === 'leader' && agents.filter(a => a.role === 'leader').length === 1) {
-      return
-    }
+      // Don't allow removing the only leader
+      const agent = agents.find((a) => a.id === agentId);
+      if (agent?.role === 'leader' && agents.filter((a) => a.role === 'leader').length === 1) {
+        return;
+      }
 
-    const result = await api.removeAgentFromHyperSpace(currentSpace.id, agentId)
+      const result = await api.removeAgentFromHyperSpace(currentSpace.id, agentId);
 
-    if (result.success) {
-      setAgents(agents.filter(a => a.id !== agentId))
-    }
-  }, [currentSpace, agents])
+      if (result.success) {
+        setAgents(agents.filter((a) => a.id !== agentId));
+      }
+    },
+    [currentSpace, agents],
+  );
 
   // Persistent mode toggle
   const togglePersistentMode = useCallback(async () => {
-    if (!currentSpace) return
+    if (!currentSpace) return;
     if (!isPersistentMode) {
-      const result = await api.setPersistentMode(currentSpace.id, true)
-      if (result.success) setIsPersistentMode(true)
+      const result = await api.setPersistentMode(currentSpace.id, true);
+      if (result.success) setIsPersistentMode(true);
     } else {
-      const result = await api.setPersistentMode(currentSpace.id, false)
-      if (result.success) setIsPersistentMode(false)
+      const result = await api.setPersistentMode(currentSpace.id, false);
+      if (result.success) setIsPersistentMode(false);
     }
-  }, [currentSpace, isPersistentMode])
+  }, [currentSpace, isPersistentMode]);
 
   // Load persistent mode state on mount
   useEffect(() => {
-    if (!currentSpace?.id || !isHyperSpace) return
-    api.getPersistentMode(currentSpace.id).then(result => {
+    if (!currentSpace?.id || !isHyperSpace) return;
+    api.getPersistentMode(currentSpace.id).then((result) => {
       if (result.success) {
-        setIsPersistentMode(result.data?.persistent ?? false)
+        setIsPersistentMode(result.data?.persistent ?? false);
       }
-    })
-  }, [currentSpace?.id, isHyperSpace])
+    });
+  }, [currentSpace?.id, isHyperSpace]);
 
   // Don't render if not a Hyper Space or not visible
-  if (!isHyperSpace || !visible) return null
+  if (!isHyperSpace || !visible) return null;
 
   return (
     <div className="border-b border-border">
@@ -156,7 +159,11 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
                 ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
                 : 'hover:bg-secondary text-muted-foreground hover:text-foreground'
             }`}
-            title={isPersistentMode ? 'Persistent Mode: ON - Workers stay alive between tasks' : 'Persistent Mode: OFF'}
+            title={
+              isPersistentMode
+                ? 'Persistent Mode: ON - Workers stay alive between tasks'
+                : 'Persistent Mode: OFF'
+            }
           >
             <Users className="w-3.5 h-3.5" />
           </button>
@@ -188,16 +195,20 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
             <span className="text-xs truncate flex-1">{agent.name}</span>
 
             {/* Role Badge */}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-              agent.role === 'leader'
-                ? 'bg-purple-500/20 text-purple-500'
-                : 'bg-blue-500/20 text-blue-500'
-            }`}>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded ${
+                agent.role === 'leader'
+                  ? 'bg-purple-500/20 text-purple-500'
+                  : 'bg-blue-500/20 text-blue-500'
+              }`}
+            >
               {t(agent.role)}
             </span>
 
             {/* Remove Button */}
-            {!(agents.filter(a => a.role === 'leader').length === 1 && agent.role === 'leader') && (
+            {!(
+              agents.filter((a) => a.role === 'leader').length === 1 && agent.role === 'leader'
+            ) && (
               <button
                 onClick={() => handleRemoveAgent(agent.id)}
                 className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-destructive/20 rounded transition-all text-muted-foreground hover:text-destructive"
@@ -228,7 +239,9 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
                   type="radio"
                   name="agent-type"
                   checked={newAgent.type === 'local'}
-                  onChange={() => setNewAgent({ ...newAgent, type: 'local', remoteServerId: undefined })}
+                  onChange={() =>
+                    setNewAgent({ ...newAgent, type: 'local', remoteServerId: undefined })
+                  }
                   className="w-3 h-3"
                 />
                 <Monitor className="w-3 h-3" />
@@ -316,5 +329,5 @@ export const HyperSpaceMembers = memo(function HyperSpaceMembers({
         )}
       </div>
     </div>
-  )
-})
+  );
+});

@@ -1,1 +1,1 @@
-export { SSHManager, SSHConfig, SSHExecuteResult } from './ssh-manager'
+export { SSHManager, SSHConfig, SSHExecuteResult } from './ssh-manager';

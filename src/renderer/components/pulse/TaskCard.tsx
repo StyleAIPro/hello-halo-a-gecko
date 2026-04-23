@@ -8,86 +8,98 @@
  * Used by PulseList to render each active task.
  */
 
-import { useState, useEffect, useCallback, memo } from 'react'
-import { Star, Square, ChevronDown, ChevronRight, Loader2, CheckCircle2 } from 'lucide-react'
-import { useTranslation } from '../../i18n'
-import { useChatStore } from '../../stores/chat.store'
-import { TaskStatusDot } from './TaskStatusDot'
-import { navigateToConversation } from './PulseList'
-import type { PulseItem, TaskStatus } from '../../types'
+import { useState, useEffect, useCallback, memo } from 'react';
+import { Star, Square, ChevronDown, ChevronRight, Loader2, CheckCircle2 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { useChatStore } from '../../stores/chat.store';
+import { TaskStatusDot } from './TaskStatusDot';
+import { navigateToConversation } from './PulseList';
+import type { PulseItem, TaskStatus } from '../../types';
 
 /** Format elapsed time from a start timestamp */
 function formatElapsed(startedAt: number): string {
-  const seconds = Math.floor((Date.now() - startedAt) / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  if (minutes < 60) return `${minutes}m ${secs}s`
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  return `${hours}h ${mins}m`
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${secs}s`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins}m`;
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
-  'generating': 'Generating...',
-  'waiting': 'Waiting for input',
+  generating: 'Generating...',
+  waiting: 'Waiting for input',
   'completed-unseen': 'Completed',
-  'error': 'Error',
-  'idle': 'Pinned',
-}
+  error: 'Error',
+  idle: 'Pinned',
+};
 
 interface TaskCardProps {
-  item: PulseItem
+  item: PulseItem;
   /** Callback after item is clicked (e.g. to close a panel) */
-  onItemClick?: () => void
+  onItemClick?: () => void;
   /** Whether to render in compact mode (smaller padding) */
-  compact?: boolean
+  compact?: boolean;
 }
 
-export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = false }: TaskCardProps) {
-  const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
-  const [elapsed, setElapsed] = useState<string>('')
+export const TaskCard = memo(function TaskCard({
+  item,
+  onItemClick,
+  compact = false,
+}: TaskCardProps) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [elapsed, setElapsed] = useState<string>('');
 
   // Update elapsed time every second when generating
   useEffect(() => {
     if (!item.generatingStartedAt || item.status !== 'generating') {
-      setElapsed('')
-      return
+      setElapsed('');
+      return;
     }
 
-    setElapsed(formatElapsed(item.generatingStartedAt))
+    setElapsed(formatElapsed(item.generatingStartedAt));
     const timer = setInterval(() => {
-      setElapsed(formatElapsed(item.generatingStartedAt!))
-    }, 1000)
+      setElapsed(formatElapsed(item.generatingStartedAt!));
+    }, 1000);
 
-    return () => clearInterval(timer)
-  }, [item.generatingStartedAt, item.status])
+    return () => clearInterval(timer);
+  }, [item.generatingStartedAt, item.status]);
 
   const handleClick = useCallback(() => {
-    navigateToConversation(item.spaceId, item.conversationId)
-    onItemClick?.()
-  }, [item.spaceId, item.conversationId, onItemClick])
+    navigateToConversation(item.spaceId, item.conversationId);
+    onItemClick?.();
+  }, [item.spaceId, item.conversationId, onItemClick]);
 
-  const handleTogglePin = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    useChatStore.getState().toggleStarConversation(item.spaceId, item.conversationId, !item.starred)
-  }, [item.spaceId, item.conversationId, item.starred])
+  const handleTogglePin = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      useChatStore
+        .getState()
+        .toggleStarConversation(item.spaceId, item.conversationId, !item.starred);
+    },
+    [item.spaceId, item.conversationId, item.starred],
+  );
 
-  const handleStop = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    useChatStore.getState().stopGeneration(item.conversationId)
-  }, [item.conversationId])
+  const handleStop = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      useChatStore.getState().stopGeneration(item.conversationId);
+    },
+    [item.conversationId],
+  );
 
   const handleToggleExpand = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setExpanded(prev => !prev)
-  }, [])
+    e.stopPropagation();
+    setExpanded((prev) => !prev);
+  }, []);
 
-  const isActive = item.status === 'generating' || item.status === 'waiting'
-  const isRead = !!item.readAt
-  const hasProgressInfo = !!(item.currentAction || item.completedSteps)
-  const showSteps = expanded && item.totalSteps != null && item.totalSteps > 0
+  const isActive = item.status === 'generating' || item.status === 'waiting';
+  const isRead = !!item.readAt;
+  const hasProgressInfo = !!(item.currentAction || item.completedSteps);
+  const showSteps = expanded && item.totalSteps != null && item.totalSteps > 0;
 
   return (
     <div
@@ -101,9 +113,7 @@ export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = fa
         <TaskStatusDot status={item.status} size="md" />
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate text-foreground">
-            {item.title}
-          </p>
+          <p className="text-sm font-medium truncate text-foreground">{item.title}</p>
         </div>
 
         {/* Elapsed time */}
@@ -141,17 +151,21 @@ export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = fa
       {/* Row 2: Space name + Status + Action summary */}
       {(hasProgressInfo || item.status !== 'idle') && (
         <div className="flex items-center gap-1.5 mt-0.5 ml-5">
-          <span className="text-xs text-muted-foreground truncate">
-            {item.spaceName}
-          </span>
+          <span className="text-xs text-muted-foreground truncate">{item.spaceName}</span>
           <span className="text-muted-foreground/30 text-xs">·</span>
-          <span className={`text-xs ${
-            item.status === 'waiting' ? 'text-yellow-500' :
-            item.status === 'error' ? 'text-red-500' :
-            item.status === 'completed-unseen' ? 'text-green-500' :
-            item.status === 'generating' ? 'text-blue-500' :
-            'text-muted-foreground'
-          }`}>
+          <span
+            className={`text-xs ${
+              item.status === 'waiting'
+                ? 'text-yellow-500'
+                : item.status === 'error'
+                  ? 'text-red-500'
+                  : item.status === 'completed-unseen'
+                    ? 'text-green-500'
+                    : item.status === 'generating'
+                      ? 'text-blue-500'
+                      : 'text-muted-foreground'
+            }`}
+          >
             {t(STATUS_LABEL[item.status])}
           </span>
 
@@ -159,9 +173,7 @@ export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = fa
           {item.currentAction && (
             <>
               <span className="text-muted-foreground/30 text-xs">·</span>
-              <span className="text-xs text-muted-foreground truncate">
-                {item.currentAction}
-              </span>
+              <span className="text-xs text-muted-foreground truncate">{item.currentAction}</span>
             </>
           )}
 
@@ -173,7 +185,11 @@ export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = fa
                 onClick={handleToggleExpand}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-0.5"
               >
-                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                {expanded ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
                 {item.completedSteps}/{item.totalSteps} {t('steps')}
               </button>
             </>
@@ -197,5 +213,5 @@ export const TaskCard = memo(function TaskCard({ item, onItemClick, compact = fa
         </div>
       )}
     </div>
-  )
-})
+  );
+});

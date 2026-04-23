@@ -3,7 +3,7 @@
  * Intelligently detect the best rendering type for tool results
  */
 
-import type { ToolResultContentType } from './types'
+import type { ToolResultContentType } from './types';
 
 // Extension to language mapping for syntax highlighting
 export const EXTENSION_TO_LANGUAGE: Record<string, string> = {
@@ -100,43 +100,43 @@ export const EXTENSION_TO_LANGUAGE: Record<string, string> = {
   proto: 'protobuf',
   tex: 'latex',
   latex: 'latex',
-}
+};
 
 /**
  * Get language from file path extension
  */
 export function getLanguageFromPath(filePath: string): string | undefined {
-  if (!filePath) return undefined
+  if (!filePath) return undefined;
 
   // Extract extension from path
-  const match = filePath.match(/\.([^./\\]+)$/)
+  const match = filePath.match(/\.([^./\\]+)$/);
   if (!match) {
     // Check for special filenames
-    const fileName = filePath.split(/[/\\]/).pop()?.toLowerCase()
-    if (fileName === 'dockerfile') return 'dockerfile'
-    if (fileName === 'makefile') return 'makefile'
-    if (fileName === '.gitignore') return 'bash'
-    if (fileName === '.env') return 'bash'
-    return undefined
+    const fileName = filePath.split(/[/\\]/).pop()?.toLowerCase();
+    if (fileName === 'dockerfile') return 'dockerfile';
+    if (fileName === 'makefile') return 'makefile';
+    if (fileName === '.gitignore') return 'bash';
+    if (fileName === '.env') return 'bash';
+    return undefined;
   }
 
-  const ext = match[1].toLowerCase()
-  return EXTENSION_TO_LANGUAGE[ext]
+  const ext = match[1].toLowerCase();
+  return EXTENSION_TO_LANGUAGE[ext];
 }
 
 /**
  * Check if content looks like JSON (valid only)
  */
 export function looksLikeJson(content: string): boolean {
-  const trimmed = content.trim()
+  const trimmed = content.trim();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-    return false
+    return false;
   }
   try {
-    JSON.parse(trimmed)
-    return true
+    JSON.parse(trimmed);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
@@ -150,19 +150,19 @@ export function looksLikeJson(content: string): boolean {
  * Used as a safety gate before routing content to markdown rendering.
  */
 export function looksLikeStructuredData(content: string): boolean {
-  const trimmed = content.trim()
+  const trimmed = content.trim();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-    return false
+    return false;
   }
   // Valid JSON — definitely structured data
   try {
-    JSON.parse(trimmed)
-    return true
+    JSON.parse(trimmed);
+    return true;
   } catch {
     // Truncated/malformed JSON: [{"key": or {"key": patterns
     // Common in tool outputs that get cut off
-    const head = trimmed.slice(0, 200)
-    return /^\[?\s*\{\s*"/.test(head)
+    const head = trimmed.slice(0, 200);
+    return /^\[?\s*\{\s*"/.test(head);
   }
 }
 
@@ -170,20 +170,20 @@ export function looksLikeStructuredData(content: string): boolean {
  * Check if content looks like Markdown
  */
 export function looksLikeMarkdown(content: string): boolean {
-  const trimmed = content.trim()
+  const trimmed = content.trim();
   // Check for common markdown patterns
   const mdPatterns = [
-    /^#{1,6}\s/m,           // Headers
-    /^\s*[-*+]\s/m,         // Unordered lists
-    /^\s*\d+\.\s/m,         // Ordered lists
-    /\[.+\]\(.+\)/,         // Links
-    /`{1,3}[^`]+`{1,3}/,    // Code
-    /\*\*[^*]+\*\*/,        // Bold
-    /^\s*>/m,               // Blockquotes
-    /^\s*```/m,             // Code blocks
-  ]
+    /^#{1,6}\s/m, // Headers
+    /^\s*[-*+]\s/m, // Unordered lists
+    /^\s*\d+\.\s/m, // Ordered lists
+    /\[.+\]\(.+\)/, // Links
+    /`{1,3}[^`]+`{1,3}/, // Code
+    /\*\*[^*]+\*\*/, // Bold
+    /^\s*>/m, // Blockquotes
+    /^\s*```/m, // Code blocks
+  ];
 
-  return mdPatterns.some(pattern => pattern.test(trimmed))
+  return mdPatterns.some((pattern) => pattern.test(trimmed));
 }
 
 /**
@@ -192,10 +192,10 @@ export function looksLikeMarkdown(content: string): boolean {
 export function detectContentType(
   toolName: string,
   toolInput?: Record<string, unknown>,
-  output?: string
+  output?: string,
 ): ToolResultContentType {
   if (!output || output.trim() === '') {
-    return 'plaintext'
+    return 'plaintext';
   }
 
   // Note: Read/Bash/Grep/Glob output arrives as plain text (string content block).
@@ -205,70 +205,67 @@ export function detectContentType(
     case 'Edit':
     case 'Write':
     case 'NotebookEdit':
-      return 'code'
+      return 'code';
 
     case 'Bash':
-      return 'code' // Shell output
+      return 'code'; // Shell output
 
     case 'Grep':
-      return 'search-result'
+      return 'search-result';
 
     case 'Glob':
-      return 'file-list'
+      return 'file-list';
 
     case 'WebFetch':
     case 'WebSearch':
     case 'LSP':
-      return 'json'
+      return 'json';
 
     case 'Agent':
     case 'Task':
       // Agent/Task output varies: JSON (structured), markdown, or plain text.
       // Detect based on actual content rather than assuming JSON.
       if (looksLikeStructuredData(output)) {
-        return 'json'
+        return 'json';
       }
       if (looksLikeMarkdown(output)) {
-        return 'markdown'
+        return 'markdown';
       }
-      return 'plaintext'
+      return 'plaintext';
 
     default:
       // For unknown tools, try to detect content type
       if (looksLikeStructuredData(output)) {
-        return 'json'
+        return 'json';
       }
       if (looksLikeMarkdown(output)) {
-        return 'markdown'
+        return 'markdown';
       }
-      return 'plaintext'
+      return 'plaintext';
   }
 }
 
 /**
  * Get language for code viewer
  */
-export function getLanguageForTool(
-  toolName: string,
-  toolInput?: Record<string, unknown>
-): string {
+export function getLanguageForTool(toolName: string, toolInput?: Record<string, unknown>): string {
   switch (toolName) {
     case 'Read':
     case 'Edit':
     case 'Write':
       // Get from file_path
-      const filePath = toolInput?.file_path as string | undefined
-      return getLanguageFromPath(filePath || '') || 'text'
+      const filePath = toolInput?.file_path as string | undefined;
+      return getLanguageFromPath(filePath || '') || 'text';
 
     case 'NotebookEdit':
-      const nbPath = toolInput?.notebook_path as string | undefined
-      return getLanguageFromPath(nbPath || '') || 'python' // Notebooks are usually Python
+      const nbPath = toolInput?.notebook_path as string | undefined;
+      return getLanguageFromPath(nbPath || '') || 'python'; // Notebooks are usually Python
 
     case 'Bash':
-      return 'bash'
+      return 'bash';
 
     default:
-      return 'text'
+      return 'text';
   }
 }
 
@@ -277,42 +274,42 @@ export function getLanguageForTool(
  */
 export function parseGrepOutput(output: string): {
   matches: Array<{
-    filePath: string
-    lineNumber: number
-    content: string
-  }>
-  fileCount: number
-  matchCount: number
+    filePath: string;
+    lineNumber: number;
+    content: string;
+  }>;
+  fileCount: number;
+  matchCount: number;
 } {
-  const lines = output.split('\n').filter(line => line.trim())
+  const lines = output.split('\n').filter((line) => line.trim());
   const matches: Array<{
-    filePath: string
-    lineNumber: number
-    content: string
-  }> = []
-  const files = new Set<string>()
+    filePath: string;
+    lineNumber: number;
+    content: string;
+  }> = [];
+  const files = new Set<string>();
 
   for (const line of lines) {
     // Grep output format: file:line:content or file:line-content
     // Also handles: file-line-content (context lines)
-    const match = line.match(/^([^:]+):(\d+)[:|-](.*)$/)
+    const match = line.match(/^([^:]+):(\d+)[:|-](.*)$/);
     if (match) {
-      const [, filePath, lineNum, content] = match
-      files.add(filePath)
+      const [, filePath, lineNum, content] = match;
+      files.add(filePath);
       matches.push({
         filePath,
         lineNumber: parseInt(lineNum, 10),
-        content
-      })
+        content,
+      });
     } else {
       // Might be a simple file path (files_with_matches mode)
       if (line.includes('/') || line.includes('\\')) {
-        files.add(line)
+        files.add(line);
         matches.push({
           filePath: line,
           lineNumber: 0,
-          content: ''
-        })
+          content: '',
+        });
       }
     }
   }
@@ -320,8 +317,8 @@ export function parseGrepOutput(output: string): {
   return {
     matches,
     fileCount: files.size,
-    matchCount: matches.filter(m => m.content).length || files.size
-  }
+    matchCount: matches.filter((m) => m.content).length || files.size,
+  };
 }
 
 /**
@@ -329,52 +326,52 @@ export function parseGrepOutput(output: string): {
  */
 export function parseGlobOutput(output: string): {
   items: Array<{
-    path: string
-    name: string
-    isDirectory: boolean
-  }>
-  fileCount: number
-  folderCount: number
+    path: string;
+    name: string;
+    isDirectory: boolean;
+  }>;
+  fileCount: number;
+  folderCount: number;
 } {
-  const lines = output.split('\n').filter(line => line.trim())
+  const lines = output.split('\n').filter((line) => line.trim());
   const items: Array<{
-    path: string
-    name: string
-    isDirectory: boolean
-  }> = []
+    path: string;
+    name: string;
+    isDirectory: boolean;
+  }> = [];
 
-  let fileCount = 0
-  let folderCount = 0
+  let fileCount = 0;
+  let folderCount = 0;
 
   for (const line of lines) {
-    const path = line.trim()
-    if (!path) continue
+    const path = line.trim();
+    if (!path) continue;
 
-    const isDirectory = path.endsWith('/')
-    const name = path.split(/[/\\]/).filter(Boolean).pop() || path
+    const isDirectory = path.endsWith('/');
+    const name = path.split(/[/\\]/).filter(Boolean).pop() || path;
 
     items.push({
       path: isDirectory ? path.slice(0, -1) : path,
       name,
-      isDirectory
-    })
+      isDirectory,
+    });
 
     if (isDirectory) {
-      folderCount++
+      folderCount++;
     } else {
-      fileCount++
+      fileCount++;
     }
   }
 
-  return { items, fileCount, folderCount }
+  return { items, fileCount, folderCount };
 }
 
 /**
  * Count lines in content
  */
 export function countLines(content: string): number {
-  if (!content) return 0
-  return content.split('\n').length
+  if (!content) return 0;
+  return content.split('\n').length;
 }
 
 /**
@@ -389,58 +386,57 @@ export function countLines(content: string): number {
  * followed by numbered lines
  */
 export function removeLineNumberPrefix(content: string): string {
-  if (!content) return content
+  if (!content) return content;
 
-  const lines = content.split('\n')
+  const lines = content.split('\n');
 
   // Pattern for line number prefix: optional spaces + digits + (tab or arrow or dash)
-  const lineNumberPattern = /^\s*\d+[\t→-]/
+  const lineNumberPattern = /^\s*\d+[\t→-]/;
 
   // Check if first line has line number prefix
-  const firstLineHasPrefix = lineNumberPattern.test(lines[0])
+  const firstLineHasPrefix = lineNumberPattern.test(lines[0]);
 
   if (firstLineHasPrefix) {
     // All lines have prefixes - remove from all
-    return lines
-      .map(line => line.replace(lineNumberPattern, ''))
-      .join('\n')
+    return lines.map((line) => line.replace(lineNumberPattern, '')).join('\n');
   }
 
   // Check for Write tool format: description line followed by numbered code
   // Look for "cat -n" mention and subsequent numbered lines
-  const hasCatNMention = lines[0].includes('cat -n') || lines[0].includes('`cat -n`')
-  const secondLineHasPrefix = lines.length > 1 && lineNumberPattern.test(lines[1])
+  const hasCatNMention = lines[0].includes('cat -n') || lines[0].includes('`cat -n`');
+  const secondLineHasPrefix = lines.length > 1 && lineNumberPattern.test(lines[1]);
 
   if (hasCatNMention && secondLineHasPrefix) {
     // Write tool format: skip first line (description), process rest
-    const codeLines = lines.slice(1)
-    return codeLines
-      .map(line => line.replace(lineNumberPattern, ''))
-      .join('\n')
+    const codeLines = lines.slice(1);
+    return codeLines.map((line) => line.replace(lineNumberPattern, '')).join('\n');
   }
 
   // No line number prefixes found
-  return content
+  return content;
 }
 
 /**
  * Truncate to first N lines
  */
-export function truncateToLines(content: string, maxLines: number): {
-  content: string
-  totalLines: number
-  truncated: boolean
+export function truncateToLines(
+  content: string,
+  maxLines: number,
+): {
+  content: string;
+  totalLines: number;
+  truncated: boolean;
 } {
-  const lines = content.split('\n')
-  const totalLines = lines.length
+  const lines = content.split('\n');
+  const totalLines = lines.length;
 
   if (totalLines <= maxLines) {
-    return { content, totalLines, truncated: false }
+    return { content, totalLines, truncated: false };
   }
 
   return {
     content: lines.slice(0, maxLines).join('\n'),
     totalLines,
-    truncated: true
-  }
+    truncated: true,
+  };
 }

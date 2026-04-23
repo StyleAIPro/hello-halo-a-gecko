@@ -58,8 +58,8 @@ import {
   Cpu,
   HardDrive,
   Pencil,
-  type LucideIcon
-} from 'lucide-react'
+  type LucideIcon,
+} from 'lucide-react';
 
 // Tool name to icon mapping
 export const toolIconMap: Record<string, LucideIcon> = {
@@ -91,11 +91,11 @@ export const toolIconMap: Record<string, LucideIcon> = {
 
   // Other
   AskUserQuestion: MessageSquare,
-}
+};
 
 // Get icon component for a tool
 export function getToolIcon(toolName: string): LucideIcon {
-  return toolIconMap[toolName] || Braces
+  return toolIconMap[toolName] || Braces;
 }
 
 // Status icons
@@ -105,7 +105,7 @@ export const StatusIcons = {
   success: CheckCircle2,
   error: XCircle,
   waiting_approval: AlertCircle,
-} as const
+} as const;
 
 // Thought type icons
 export const ThoughtIcons = {
@@ -116,7 +116,7 @@ export const ThoughtIcons = {
   system: Info,
   error: XCircle,
   result: Check,
-} as const
+} as const;
 
 // Re-export commonly used icons for convenience
 export {
@@ -144,37 +144,32 @@ export {
   MessageSquare,
   Zap,
   Braces,
-}
+};
 
 // Icon wrapper component with consistent styling
 interface ToolIconProps {
-  name: string
-  className?: string
-  size?: number
+  name: string;
+  className?: string;
+  size?: number;
 }
 
 export function ToolIcon({ name, className = '', size = 16 }: ToolIconProps) {
-  const Icon = getToolIcon(name)
-  return <Icon className={className} size={size} />
+  const Icon = getToolIcon(name);
+  return <Icon className={className} size={size} />;
 }
 
 // Status icon component
 interface StatusIconProps {
-  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval'
-  className?: string
-  size?: number
+  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval';
+  className?: string;
+  size?: number;
 }
 
 export function StatusIcon({ status, className = '', size = 16 }: StatusIconProps) {
-  const Icon = StatusIcons[status]
-  const isSpinning = status === 'running'
+  const Icon = StatusIcons[status];
+  const isSpinning = status === 'running';
 
-  return (
-    <Icon
-      className={`${className} ${isSpinning ? 'animate-spin' : ''}`}
-      size={size}
-    />
-  )
+  return <Icon className={`${className} ${isSpinning ? 'animate-spin' : ''}`} size={size} />;
 }
 
 // ============================================
@@ -183,11 +178,21 @@ export function StatusIcon({ status, className = '', size = 16 }: StatusIconProp
 
 // Space icon identifiers (used in data storage)
 export const SPACE_ICON_IDS = [
-  'folder', 'code', 'globe', 'chart', 'file-text', 'palette',
-  'gamepad', 'wrench', 'smartphone', 'lightbulb', 'rocket', 'star'
-] as const
+  'folder',
+  'code',
+  'globe',
+  'chart',
+  'file-text',
+  'palette',
+  'gamepad',
+  'wrench',
+  'smartphone',
+  'lightbulb',
+  'rocket',
+  'star',
+] as const;
 
-export type SpaceIconId = typeof SPACE_ICON_IDS[number]
+export type SpaceIconId = (typeof SPACE_ICON_IDS)[number];
 
 // Map icon IDs to Lucide components
 export const spaceIconMap: Record<string, LucideIcon> = {
@@ -204,37 +209,37 @@ export const spaceIconMap: Record<string, LucideIcon> = {
   rocket: Rocket,
   star: Star,
   sparkles: Sparkles,
-}
+};
 
 // Professional color palette for space icons
 export const spaceIconColors: Record<string, string> = {
-  folder: 'text-amber-500',        // Classic folder yellow
-  code: 'text-blue-500',           // Tech/programming blue
-  globe: 'text-cyan-500',          // Internet/global cyan
-  chart: 'text-violet-500',        // Data/analytics purple
-  'file-text': 'text-slate-500',   // Document neutral
-  palette: 'text-pink-500',        // Design/art pink
-  gamepad: 'text-emerald-500',     // Gaming green
-  wrench: 'text-orange-500',       // Tools orange
-  smartphone: 'text-indigo-500',   // Mobile tech
-  lightbulb: 'text-yellow-500',    // Ideas/creativity
-  rocket: 'text-rose-500',         // Launch/speed
-  star: 'text-amber-400',          // Favorite/important
-  sparkles: 'text-primary',        // AICO-Bot brand color
-}
+  folder: 'text-amber-500', // Classic folder yellow
+  code: 'text-blue-500', // Tech/programming blue
+  globe: 'text-cyan-500', // Internet/global cyan
+  chart: 'text-violet-500', // Data/analytics purple
+  'file-text': 'text-slate-500', // Document neutral
+  palette: 'text-pink-500', // Design/art pink
+  gamepad: 'text-emerald-500', // Gaming green
+  wrench: 'text-orange-500', // Tools orange
+  smartphone: 'text-indigo-500', // Mobile tech
+  lightbulb: 'text-yellow-500', // Ideas/creativity
+  rocket: 'text-rose-500', // Launch/speed
+  star: 'text-amber-400', // Favorite/important
+  sparkles: 'text-primary', // AICO-Bot brand color
+};
 
 // Space icon component with color
 interface SpaceIconProps {
-  iconId: SpaceIconId | string
-  className?: string
-  size?: number
-  colored?: boolean  // Whether to apply default color
+  iconId: SpaceIconId | string;
+  className?: string;
+  size?: number;
+  colored?: boolean; // Whether to apply default color
 }
 
 export function SpaceIcon({ iconId, className = '', size = 20, colored = true }: SpaceIconProps) {
-  const Icon = spaceIconMap[iconId as SpaceIconId] || Folder
-  const colorClass = colored ? (spaceIconColors[iconId] || 'text-muted-foreground') : ''
-  return <Icon className={`${colorClass} ${className}`} size={size} />
+  const Icon = spaceIconMap[iconId as SpaceIconId] || Folder;
+  const colorClass = colored ? spaceIconColors[iconId] || 'text-muted-foreground' : '';
+  return <Icon className={`${colorClass} ${className}`} size={size} />;
 }
 
 // ============================================
@@ -308,54 +313,54 @@ export const fileIconMap: Record<string, LucideIcon> = {
   rar: Package,
   // Default
   default: FileText,
-}
+};
 
 // Get file icon by extension
 export function getFileTypeIcon(extension: string): LucideIcon {
-  const ext = extension.toLowerCase().replace('.', '')
-  return fileIconMap[ext] || fileIconMap.default
+  const ext = extension.toLowerCase().replace('.', '');
+  return fileIconMap[ext] || fileIconMap.default;
 }
 
 // Professional color palette for file types
 export const fileIconColors: Record<string, string> = {
   // Web - official brand colors
-  html: 'text-orange-500',         // HTML5 orange
+  html: 'text-orange-500', // HTML5 orange
   htm: 'text-orange-500',
-  css: 'text-blue-500',            // CSS3 blue
-  scss: 'text-pink-500',           // Sass pink
+  css: 'text-blue-500', // CSS3 blue
+  scss: 'text-pink-500', // Sass pink
   less: 'text-indigo-500',
   // JavaScript/TypeScript
-  js: 'text-yellow-500',           // JS yellow
-  jsx: 'text-cyan-400',            // React cyan
-  ts: 'text-blue-600',             // TypeScript blue
-  tsx: 'text-blue-500',            // React + TS
+  js: 'text-yellow-500', // JS yellow
+  jsx: 'text-cyan-400', // React cyan
+  ts: 'text-blue-600', // TypeScript blue
+  tsx: 'text-blue-500', // React + TS
   // Data
-  json: 'text-emerald-500',        // Data green
+  json: 'text-emerald-500', // Data green
   // Documentation
-  md: 'text-slate-500',            // Markdown neutral
+  md: 'text-slate-500', // Markdown neutral
   markdown: 'text-slate-500',
   txt: 'text-gray-500',
   // Python
-  py: 'text-sky-500',              // Python blue
+  py: 'text-sky-500', // Python blue
   // Rust
-  rs: 'text-orange-600',           // Rust orange
+  rs: 'text-orange-600', // Rust orange
   // Go
-  go: 'text-cyan-500',             // Go cyan
+  go: 'text-cyan-500', // Go cyan
   // Java
-  java: 'text-red-500',            // Java red
+  java: 'text-red-500', // Java red
   // C/C++
   cpp: 'text-blue-700',
   c: 'text-blue-600',
   h: 'text-violet-500',
   hpp: 'text-violet-600',
   // Ruby
-  rb: 'text-red-600',              // Ruby red
+  rb: 'text-red-600', // Ruby red
   // Swift
-  swift: 'text-orange-500',        // Swift orange
+  swift: 'text-orange-500', // Swift orange
   // SQL
-  sql: 'text-amber-600',           // Database amber
+  sql: 'text-amber-600', // Database amber
   // Shell
-  sh: 'text-green-600',            // Terminal green
+  sh: 'text-green-600', // Terminal green
   bash: 'text-green-600',
   zsh: 'text-green-500',
   // Config
@@ -371,10 +376,10 @@ export const fileIconColors: Record<string, string> = {
   webp: 'text-indigo-500',
   ico: 'text-blue-400',
   // Documents
-  pdf: 'text-red-500',             // PDF red
-  doc: 'text-blue-600',            // Word blue
+  pdf: 'text-red-500', // PDF red
+  doc: 'text-blue-600', // Word blue
   docx: 'text-blue-600',
-  xls: 'text-green-600',           // Excel green
+  xls: 'text-green-600', // Excel green
   xlsx: 'text-green-600',
   // Archives
   zip: 'text-amber-600',
@@ -384,35 +389,42 @@ export const fileIconColors: Record<string, string> = {
   // Default
   default: 'text-slate-500',
   // Folder
-  folder: 'text-amber-500',        // Classic folder yellow
-}
+  folder: 'text-amber-500', // Classic folder yellow
+};
 
 // Get file icon color
 export function getFileIconColor(extension: string, isFolder: boolean = false): string {
-  if (isFolder) return fileIconColors.folder
-  const ext = extension.toLowerCase().replace('.', '')
-  return fileIconColors[ext] || fileIconColors.default
+  if (isFolder) return fileIconColors.folder;
+  const ext = extension.toLowerCase().replace('.', '');
+  return fileIconColors[ext] || fileIconColors.default;
 }
 
 // File icon component with color
 interface FileIconProps {
-  extension: string
-  isFolder?: boolean
-  isOpen?: boolean  // For folders: show open/closed state
-  className?: string
-  size?: number
-  colored?: boolean
+  extension: string;
+  isFolder?: boolean;
+  isOpen?: boolean; // For folders: show open/closed state
+  className?: string;
+  size?: number;
+  colored?: boolean;
 }
 
-export function FileIcon({ extension, isFolder = false, isOpen = false, className = '', size = 16, colored = true }: FileIconProps) {
-  const colorClass = colored ? getFileIconColor(extension, isFolder) : ''
+export function FileIcon({
+  extension,
+  isFolder = false,
+  isOpen = false,
+  className = '',
+  size = 16,
+  colored = true,
+}: FileIconProps) {
+  const colorClass = colored ? getFileIconColor(extension, isFolder) : '';
 
   if (isFolder) {
-    const FolderIcon = isOpen ? FolderOpen : Folder
-    return <FolderIcon className={`${colorClass} ${className}`} size={size} />
+    const FolderIcon = isOpen ? FolderOpen : Folder;
+    return <FolderIcon className={`${colorClass} ${className}`} size={size} />;
   }
-  const Icon = getFileTypeIcon(extension)
-  return <Icon className={`${colorClass} ${className}`} size={size} />
+  const Icon = getFileTypeIcon(extension);
+  return <Icon className={`${colorClass} ${className}`} size={size} />;
 }
 
 // ============================================
@@ -434,7 +446,7 @@ export const UIIcons = {
   xCircle: XCircle,
   alertCircle: AlertCircle,
   lightbulb: Lightbulb,
-} as const
+} as const;
 
 // Re-export additional icons
 export {
@@ -462,4 +474,4 @@ export {
   Cpu,
   HardDrive,
   Pencil,
-}
+};

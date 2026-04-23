@@ -6,9 +6,9 @@
 import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
-import { ConversationService } from '../services/conversation.service';
+import type { ConversationService } from '../services/conversation.service';
 import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
-import { SkillGenerateOptions } from '../../shared/skill/skill-types';
+import type { SkillGenerateOptions } from '../../shared/skill/skill-types';
 import * as githubSkillSource from '../services/skill/github-skill-source.service';
 import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
 
@@ -22,14 +22,13 @@ export function initialize(conversationService: ConversationService): void {
   skillMarket = SkillMarketService.getInstance();
   skillGenerator = SkillGeneratorService.getInstance(conversationService);
 
-  initPromise = Promise.all([
-    skillManager.initialize(),
-    skillMarket.initialize()
-  ]).then(() => {
-    // explicitly return void
-  }).catch(err => {
-    console.error('[SkillController] Failed to initialize:', err);
-  });
+  initPromise = Promise.all([skillManager.initialize(), skillMarket.initialize()])
+    .then(() => {
+      // explicitly return void
+    })
+    .catch((err) => {
+      console.error('[SkillController] Failed to initialize:', err);
+    });
 }
 
 async function ensureInitialized(): Promise<void> {
@@ -42,8 +41,16 @@ async function ensureInitialized(): Promise<void> {
  * Source adapter for downloading skill files from different platforms
  */
 type SkillSourceAdapter = {
-  findSkillDirectoryPath: (repo: string, skillName: string, token?: string) => Promise<string | null>;
-  fetchSkillDirectoryContents: (repo: string, dirPath: string, token?: string) => Promise<Array<{ path: string; content: string }>>;
+  findSkillDirectoryPath: (
+    repo: string,
+    skillName: string,
+    token?: string,
+  ) => Promise<string | null>;
+  fetchSkillDirectoryContents: (
+    repo: string,
+    dirPath: string,
+    token?: string,
+  ) => Promise<Array<{ path: string; content: string }>>;
   getToken: () => string | undefined | Promise<string | undefined>;
   sourceLabel: string;
 };
@@ -69,7 +76,7 @@ async function installSkillFromSource(
   repo: string,
   skillName: string,
   adapter: SkillSourceAdapter,
-  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
   const nodePath = await import('path');
   const nodeFs = await import('fs/promises');
@@ -78,14 +85,20 @@ async function installSkillFromSource(
 
   // skillName can be a full path like "skills/category/skill-name"
   const lastSegment = skillName.split('/').pop() || skillName;
-  const skillId = lastSegment.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '-');
+  const skillId = lastSegment
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '-');
   const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
   onOutput?.({ type: 'stdout', content: `Downloading directly from ${adapter.sourceLabel}...\n` });
 
   const token = await adapter.getToken();
   if (token) {
-    onOutput?.({ type: 'stdout', content: `  Using authenticated ${adapter.sourceLabel} access\n` });
+    onOutput?.({
+      type: 'stdout',
+      content: `  Using authenticated ${adapter.sourceLabel} access\n`,
+    });
   }
 
   // Step 1: Find the skill directory
@@ -124,11 +137,15 @@ async function installSkillFromSource(
     }
 
     // Step 4: Generate META.json from SKILL.md frontmatter if present
-    const skillMdFile = files.find(f => f.path === 'SKILL.md' || f.path.toUpperCase() === 'SKILL.MD');
-    const skillYamlFile = files.find(f => f.path === 'SKILL.yaml' || f.path.toUpperCase() === 'SKILL.YAML');
+    const skillMdFile = files.find(
+      (f) => f.path === 'SKILL.md' || f.path.toUpperCase() === 'SKILL.MD',
+    );
+    const skillYamlFile = files.find(
+      (f) => f.path === 'SKILL.yaml' || f.path.toUpperCase() === 'SKILL.YAML',
+    );
 
     if (skillMdFile) {
-      const frontmatterMatch = skillMdFile.content.match(/^---\n([\s\S]*?)\n---/)
+      const frontmatterMatch = skillMdFile.content.match(/^---\n([\s\S]*?)\n---/);
       if (frontmatterMatch) {
         try {
           const meta = yamlModule.parse(frontmatterMatch[1]);
@@ -136,12 +153,12 @@ async function installSkillFromSource(
             appId: skillId,
             spec: meta,
             enabled: true,
-            installedAt: new Date().toISOString()
+            installedAt: new Date().toISOString(),
           };
           await nodeFs.writeFile(
             nodePath.join(skillDir, 'META.json'),
             JSON.stringify(metaJson, null, 2),
-            'utf-8'
+            'utf-8',
           );
         } catch {
           // frontmatter parse failed, write basic META.json
@@ -155,12 +172,12 @@ async function installSkillFromSource(
           appId: skillId,
           spec,
           enabled: true,
-          installedAt: new Date().toISOString()
+          installedAt: new Date().toISOString(),
         };
         await nodeFs.writeFile(
           nodePath.join(skillDir, 'META.json'),
           JSON.stringify(metaJson, null, 2),
-          'utf-8'
+          'utf-8',
         );
       } catch {
         // yaml parse failed
@@ -175,7 +192,7 @@ async function installSkillFromSource(
       const metaJson = {
         appId: skillId,
         enabled: true,
-        installedAt: new Date().toISOString()
+        installedAt: new Date().toISOString(),
       };
       await nodeFs.writeFile(metaPath, JSON.stringify(metaJson, null, 2), 'utf-8');
     }
@@ -183,7 +200,10 @@ async function installSkillFromSource(
     // Refresh skill list
     await skillManager.refresh();
 
-    onOutput?.({ type: 'complete', content: `✓ Skill installed successfully (${files.length} files via ${adapter.sourceLabel})!\n` });
+    onOutput?.({
+      type: 'complete',
+      content: `✓ Skill installed successfully (${files.length} files via ${adapter.sourceLabel})!\n`,
+    });
     return { success: true };
   } catch (error) {
     const err = error as Error;
@@ -198,7 +218,10 @@ export async function listInstalledSkills() {
     const skills = skillManager.getInstalledSkills();
     return { success: true, data: skills };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to list skills' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to list skills',
+    };
   }
 }
 
@@ -211,13 +234,16 @@ export async function getSkillDetail(skillId: string) {
     }
     return { success: true, data: skill };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get skill detail' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill detail',
+    };
   }
 }
 
 export async function installSkillFromMarket(
   skillId: string,
-  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await ensureInitialized();
@@ -227,19 +253,19 @@ export async function installSkillFromMarket(
     // 1. 获取技能安装信息
     const downloadResult = await skillMarket.downloadSkill(skillId);
 
-    if (!downloadResult.success || !downloadResult.githubRepo || !downloadResult.skillName) {
+    if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
       const error = downloadResult.error || 'Failed to download skill';
       onOutput?.({ type: 'error', content: error });
       return { success: false, error };
     }
 
     console.log('[SkillController] Skill info:', {
-      githubRepo: downloadResult.githubRepo,
-      skillName: downloadResult.skillName
+      remoteRepo: downloadResult.remoteRepo,
+      skillName: downloadResult.skillName,
     });
 
     // 2. 根据 sourceType 选择安装方式
-    const { githubRepo: repo, skillName, sourceType } = downloadResult;
+    const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
     // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
     if (sourceType === 'gitcode') {
@@ -258,7 +284,7 @@ export async function installSkillFromMarket(
       '--skill',
       skillName,
       '-y',
-      '--global'
+      '--global',
     ];
 
     const fullCommand = `${command} ${args.join(' ')}`;
@@ -269,7 +295,7 @@ export async function installSkillFromMarket(
       const childProcess = spawn(command, args, {
         env: { ...process.env },
         timeout: 120000, // 2 分钟超时
-        shell: true  // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
+        shell: true, // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
       });
 
       let hasError = false;
@@ -335,12 +361,17 @@ export async function installSkillFromMarket(
   }
 }
 
-export async function installSkillFromYaml(yamlContent: string): Promise<{ success: boolean; skillId?: string; error?: string }> {
+export async function installSkillFromYaml(
+  yamlContent: string,
+): Promise<{ success: boolean; skillId?: string; error?: string }> {
   try {
     const skillId = await skillManager.importSkill(yamlContent);
     return { success: true, skillId };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to install skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to install skill',
+    };
   }
 }
 
@@ -349,7 +380,10 @@ export async function uninstallSkill(skillId: string) {
     const result = await skillManager.uninstallSkill(skillId);
     return { success: result, error: result ? undefined : 'Failed to uninstall skill' };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to uninstall skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to uninstall skill',
+    };
   }
 }
 
@@ -360,19 +394,22 @@ export async function uninstallSkill(skillId: string) {
 export async function installSkillMultiTarget(
   skillId: string,
   targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>,
-  onOutput?: (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  onOutput?: (
+    targetKey: string,
+    data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string },
+  ) => void,
 ): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
   const results: Record<string, { success: boolean; error?: string }> = {};
 
   // Step 1: Get skill info from market (needed for remote install)
-  let githubRepo: string | undefined;
+  let remoteRepo: string | undefined;
   let skillName: string | undefined;
 
   try {
     await ensureInitialized();
     const downloadResult = await skillMarket.downloadSkill(skillId);
-    if (downloadResult.success && downloadResult.githubRepo && downloadResult.skillName) {
-      githubRepo = downloadResult.githubRepo;
+    if (downloadResult.success && downloadResult.remoteRepo && downloadResult.skillName) {
+      remoteRepo = downloadResult.remoteRepo;
       skillName = downloadResult.skillName;
     }
   } catch (e) {
@@ -385,26 +422,39 @@ export async function installSkillMultiTarget(
 
     if (target.type === 'local') {
       // Local install - use existing market install logic
-      const localOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
-        onOutput(key, data);
-      } : undefined;
+      const localOnOutput = onOutput
+        ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+            onOutput(key, data);
+          }
+        : undefined;
 
       const result = await installSkillFromMarket(skillId, localOnOutput);
       results[key] = result;
     } else {
       // Remote install
-      if (!githubRepo || !skillName) {
-        onOutput?.(key, { type: 'error', content: 'Failed to get skill info for remote install\n' });
+      if (!remoteRepo || !skillName) {
+        onOutput?.(key, {
+          type: 'error',
+          content: 'Failed to get skill info for remote install\n',
+        });
         results[key] = { success: false, error: 'Failed to get skill info' };
         return;
       }
 
-      const remoteOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
-        onOutput(key, data);
-      } : undefined;
+      const remoteOnOutput = onOutput
+        ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+            onOutput(key, data);
+          }
+        : undefined;
 
       try {
-        const result = await remoteDeployService.installRemoteSkill(target.serverId, skillId, githubRepo, skillName, remoteOnOutput);
+        const result = await remoteDeployService.installRemoteSkill(
+          target.serverId,
+          skillId,
+          remoteRepo,
+          skillName,
+          remoteOnOutput,
+        );
         results[key] = result;
       } catch (error) {
         const err = error instanceof Error ? error.message : 'Remote install failed';
@@ -417,7 +467,7 @@ export async function installSkillMultiTarget(
   await Promise.all(tasks);
 
   // Refresh local skills if local was a target
-  if (targets.some(t => t.type === 'local')) {
+  if (targets.some((t) => t.type === 'local')) {
     try {
       await skillManager.refresh();
     } catch (e) {
@@ -434,7 +484,10 @@ export async function installSkillMultiTarget(
 export async function uninstallSkillMultiTarget(
   appId: string,
   targets: Array<{ type: 'local' } | { type: 'remote'; serverId: string }>,
-  onOutput?: (targetKey: string, data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  onOutput?: (
+    targetKey: string,
+    data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string },
+  ) => void,
 ): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
   const results: Record<string, { success: boolean; error?: string }> = {};
 
@@ -452,12 +505,18 @@ export async function uninstallSkillMultiTarget(
         results[key] = { success: false, error: err };
       }
     } else {
-      const remoteOnOutput = onOutput ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
-        onOutput(key, data);
-      } : undefined;
+      const remoteOnOutput = onOutput
+        ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
+            onOutput(key, data);
+          }
+        : undefined;
 
       try {
-        const result = await remoteDeployService.uninstallRemoteSkill(target.serverId, appId, remoteOnOutput);
+        const result = await remoteDeployService.uninstallRemoteSkill(
+          target.serverId,
+          appId,
+          remoteOnOutput,
+        );
         results[key] = result;
       } catch (error) {
         const err = error instanceof Error ? error.message : 'Remote uninstall failed';
@@ -470,7 +529,7 @@ export async function uninstallSkillMultiTarget(
   await Promise.all(tasks);
 
   // Refresh local skills if local was a target
-  if (targets.some(t => t.type === 'local')) {
+  if (targets.some((t) => t.type === 'local')) {
     try {
       await skillManager.refresh();
     } catch (e) {
@@ -487,32 +546,87 @@ export async function uninstallSkillMultiTarget(
 export async function syncLocalSkillToRemote(
   skillId: string,
   serverId: string,
-  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await ensureInitialized()
+    await ensureInitialized();
 
     // Verify skill exists locally
-    const skill = skillManager.getSkill(skillId)
+    const skill = skillManager.getSkill(skillId);
     if (!skill) {
-      const error = `Skill "${skillId}" not found locally`
-      onOutput?.({ type: 'error', content: `${error}\n` })
-      return { success: false, error }
+      const error = `Skill "${skillId}" not found locally`;
+      onOutput?.({ type: 'error', content: `${error}\n` });
+      return { success: false, error };
     }
 
-    onOutput?.({ type: 'stdout', content: `Syncing skill "${skill.spec.name}" to remote server...\n` })
+    onOutput?.({
+      type: 'stdout',
+      content: `Syncing skill "${skill.spec.name}" to remote server...\n`,
+    });
 
-    const result = await remoteDeployService.syncLocalSkillToRemote(serverId, skillId, onOutput)
+    const result = await remoteDeployService.syncLocalSkillToRemote(serverId, skillId, onOutput);
 
     if (result.success) {
-      onOutput?.({ type: 'complete', content: `Skill "${skill.spec.name}" synced successfully!\n` })
+      onOutput?.({
+        type: 'complete',
+        content: `Skill "${skill.spec.name}" synced successfully!\n`,
+      });
     }
 
-    return result
+    return result;
   } catch (error) {
-    const err = error instanceof Error ? error.message : 'Failed to sync skill'
-    onOutput?.({ type: 'error', content: `${err}\n` })
-    return { success: false, error: err }
+    const err = error instanceof Error ? error.message : 'Failed to sync skill';
+    onOutput?.({ type: 'error', content: `${err}\n` });
+    return { success: false, error: err };
+  }
+}
+
+/**
+ * Sync a remote skill to local machine.
+ */
+export async function syncRemoteSkillToLocal(
+  skillId: string,
+  serverId: string,
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await ensureInitialized();
+
+    // Check if skill already exists locally
+    const existingSkill = skillManager.getSkill(skillId);
+    if (existingSkill) {
+      onOutput?.({
+        type: 'stdout',
+        content: `Warning: Skill "${skillId}" ("${existingSkill.spec.name}") already exists locally and will be overwritten.\n`,
+      });
+    }
+
+    onOutput?.({
+      type: 'stdout',
+      content: `Syncing skill "${skillId}" from remote server to local...\n`,
+    });
+
+    const result = await remoteDeployService.syncRemoteSkillToLocal(
+      serverId,
+      skillId,
+      { overwrite: true },
+      onOutput,
+    );
+
+    if (result.success) {
+      // Refresh local skill cache
+      await skillManager.refresh();
+      onOutput?.({
+        type: 'complete',
+        content: `Skill "${skillId}" synced to local successfully!\n`,
+      });
+    }
+
+    return result;
+  } catch (error) {
+    const err = error instanceof Error ? error.message : 'Failed to sync skill from remote';
+    onOutput?.({ type: 'error', content: `${err}\n` });
+    return { success: false, error: err };
   }
 }
 
@@ -521,7 +635,10 @@ export async function toggleSkill(skillId: string, enabled: boolean) {
     const result = await skillManager.toggleSkill(skillId, enabled);
     return { success: result, error: result ? undefined : 'Failed to toggle skill' };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to toggle skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to toggle skill',
+    };
   }
 }
 
@@ -533,7 +650,10 @@ export async function exportSkill(skillId: string) {
     }
     return { success: true, data: yamlContent };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to export skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to export skill',
+    };
   }
 }
 
@@ -542,7 +662,10 @@ export async function generateSkillFromConversation(spaceId: string, conversatio
     const result = await skillGenerator.generateFromConversation(spaceId, conversationId);
     return result;
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to generate skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate skill',
+    };
   }
 }
 
@@ -551,7 +674,10 @@ export async function generateSkillFromPrompt(options: SkillGenerateOptions) {
     const result = await skillGenerator.generateFromPrompt(options);
     return result;
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to generate skill' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate skill',
+    };
   }
 }
 
@@ -563,12 +689,15 @@ export async function listMarketSkills(page?: number, pageSize?: number) {
     console.log('[SkillController] listMarketSkills result:', {
       skillsCount: result.skills.length,
       total: result.total,
-      hasMore: result.hasMore
+      hasMore: result.hasMore,
     });
     return { success: true, data: result };
   } catch (error) {
     console.error('[SkillController] listMarketSkills error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch market skills' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch market skills',
+    };
   }
 }
 
@@ -577,7 +706,10 @@ export async function searchMarketSkills(query: string, page?: number, pageSize?
     const result = await skillMarket.searchSkills(query, page, pageSize);
     return { success: true, data: result };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to search skills' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to search skills',
+    };
   }
 }
 
@@ -591,19 +723,31 @@ export async function getMarketSources() {
   try {
     await ensureInitialized();
     const sources = skillMarket.getSources();
-    return { success: true, data: sources };
+    const activeSourceId = skillMarket.getActiveSourceId();
+    return { success: true, data: sources, activeSourceId };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get market sources' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get market sources',
+    };
   }
 }
 
-export async function addMarketSource(source: { name: string; url: string; repos?: string[]; description?: string }) {
+export async function addMarketSource(source: {
+  name: string;
+  url: string;
+  repos?: string[];
+  description?: string;
+}) {
   try {
     await ensureInitialized();
     const newSource = await skillMarket.addSource(source);
     return { success: true, data: newSource };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to add market source' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to add market source',
+    };
   }
 }
 
@@ -611,9 +755,17 @@ export async function removeMarketSource(sourceId: string) {
   try {
     await ensureInitialized();
     const result = await skillMarket.removeSource(sourceId);
-    return { success: result, error: result ? undefined : 'Failed to remove market source (only custom sources can be removed)' };
+    return {
+      success: result,
+      error: result
+        ? undefined
+        : 'Failed to remove market source (only custom sources can be removed)',
+    };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to remove market source' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to remove market source',
+    };
   }
 }
 
@@ -623,7 +775,10 @@ export async function toggleMarketSource(sourceId: string, enabled: boolean) {
     await skillMarket.toggleSource(sourceId, enabled);
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to toggle market source' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to toggle market source',
+    };
   }
 }
 
@@ -633,7 +788,10 @@ export async function setActiveMarketSource(sourceId: string) {
     await skillMarket.setActiveSource(sourceId);
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to set active market source' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to set active market source',
+    };
   }
 }
 
@@ -645,7 +803,10 @@ export async function getMarketSkillDetail(skillId: string) {
     }
     return { success: true, data: skill };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get skill detail' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill detail',
+    };
   }
 }
 
@@ -655,7 +816,10 @@ export async function getSkillConfig() {
     const config = skillManager.getConfig();
     return { success: true, data: config };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get skill config' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill config',
+    };
   }
 }
 
@@ -664,7 +828,10 @@ export async function updateSkillConfig(config: Partial<Record<string, unknown>>
     await skillManager.updateConfig(config);
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to update skill config' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update skill config',
+    };
   }
 }
 
@@ -675,7 +842,10 @@ export async function refreshSkills() {
     const skills = skillManager.getInstalledSkills();
     return { success: true, data: skills };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to refresh skills' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to refresh skills',
+    };
   }
 }
 
@@ -685,7 +855,10 @@ export async function getSkillFiles(skillId: string) {
     const files = await skillManager.getSkillFiles(skillId);
     return { success: true, data: files };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get skill files' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get skill files',
+    };
   }
 }
 
@@ -698,7 +871,10 @@ export async function getSkillFileContent(skillId: string, filePath: string) {
     }
     return { success: true, data: content };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to get file content' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get file content',
+    };
   }
 }
 
@@ -711,7 +887,10 @@ export async function saveSkillFileContent(skillId: string, filePath: string, co
     }
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to save file content' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save file content',
+    };
   }
 }
 
@@ -724,7 +903,7 @@ import {
   createTempAgentSession as createSdkTempSession,
   sendTempAgentMessage,
   closeTempAgentSession as closeSdkTempSession,
-  getTempSessionStatus
+  getTempSessionStatus,
 } from '../services/skill/temp-agent-session';
 import { findSimilarSkills } from '../services/skill/similarity-calculator';
 
@@ -745,7 +924,7 @@ export async function listSkillConversations(relatedSkillId?: string) {
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to list skill conversations'
+      error: error instanceof Error ? error.message : 'Failed to list skill conversations',
     };
   }
 }
@@ -763,7 +942,7 @@ export async function getSkillConversation(conversationId: string) {
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to get skill conversation'
+      error: error instanceof Error ? error.message : 'Failed to get skill conversation',
     };
   }
 }
@@ -780,7 +959,7 @@ export async function createSkillConversation(title?: string, relatedSkillId?: s
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to create skill conversation'
+      error: error instanceof Error ? error.message : 'Failed to create skill conversation',
     };
   }
 }
@@ -795,7 +974,7 @@ export async function deleteSkillConversation(conversationId: string) {
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to delete skill conversation'
+      error: error instanceof Error ? error.message : 'Failed to delete skill conversation',
     };
   }
 }
@@ -811,27 +990,31 @@ export async function sendSkillConversationMessage(
   message: string,
   metadata?: {
     selectedConversations?: Array<{
-      id: string
-      title: string
-      spaceName: string
-      messageCount: number
-      formattedContent?: string
-    }>
+      id: string;
+      title: string;
+      spaceName: string;
+      messageCount: number;
+      formattedContent?: string;
+    }>;
     sourceWebpages?: Array<{
-      url: string
-      title?: string
-      content?: string
-    }>
-  }
+      url: string;
+      title?: string;
+      content?: string;
+    }>;
+  },
 ) {
   try {
     // 服务现在直接使用 sendToRenderer 发送标准的 IPC 事件
-    const result = await skillConversationService.sendSkillMessage(conversationId, message, metadata);
+    const result = await skillConversationService.sendSkillMessage(
+      conversationId,
+      message,
+      metadata,
+    );
     return result;
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to send message'
+      error: error instanceof Error ? error.message : 'Failed to send message',
     };
   }
 }
@@ -846,7 +1029,7 @@ export async function stopSkillGeneration(conversationId: string) {
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to stop generation'
+      error: error instanceof Error ? error.message : 'Failed to stop generation',
     };
   }
 }
@@ -861,7 +1044,7 @@ export async function closeSkillConversation(conversationId: string) {
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to close skill conversation'
+      error: error instanceof Error ? error.message : 'Failed to close skill conversation',
     };
   }
 }
@@ -869,13 +1052,13 @@ export async function closeSkillConversation(conversationId: string) {
 /**
  * 分析对话，提取技能模式
  */
-export async function analyzeConversations(
-  spaceId: string,
-  conversationIds: string[]
-) {
+export async function analyzeConversations(spaceId: string, conversationIds: string[]) {
   try {
     // 分析对话
-    const analysisResult = await conversationAnalyzer.analyzeConversations(spaceId, conversationIds);
+    const analysisResult = await conversationAnalyzer.analyzeConversations(
+      spaceId,
+      conversationIds,
+    );
 
     // 获取已安装的技能
     await ensureInitialized();
@@ -895,32 +1078,32 @@ export async function analyzeConversations(
           userIntent: {
             taskType: analysisResult.userIntent.taskType,
             primaryGoal: analysisResult.userIntent.primaryGoal,
-            keywords: analysisResult.userIntent.keywords
+            keywords: analysisResult.userIntent.keywords,
           },
           toolPattern: {
             toolSequence: analysisResult.toolPattern.toolSequence,
-            successPattern: analysisResult.toolPattern.successPattern
+            successPattern: analysisResult.toolPattern.successPattern,
           },
           reusability: {
             score: analysisResult.reusability.score,
-            patterns: analysisResult.reusability.patterns
-          }
+            patterns: analysisResult.reusability.patterns,
+          },
         },
-        similarSkills: similarSkills.map(s => ({
+        similarSkills: similarSkills.map((s) => ({
           skill: s.skill,
           similarity: s.similarity,
           matchReasons: s.matchReasons,
-          suggestedImprovements: s.suggestedImprovements
+          suggestedImprovements: s.suggestedImprovements,
         })),
         suggestedName,
-        suggestedCommand
-      }
+        suggestedCommand,
+      },
     };
   } catch (error) {
     console.error('[SkillController] Failed to analyze conversations:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to analyze conversations'
+      error: error instanceof Error ? error.message : 'Failed to analyze conversations',
     };
   }
 }
@@ -930,26 +1113,24 @@ export async function analyzeConversations(
  * 支持直接传入 context 或通过对话分析生成 context
  * @param onChunk 可选的流式回调,用于创建会话后自动发送初始消息
  */
-export async function createTempAgentSession(
-  options: {
-    skillName: string;
-    conversationIds?: string[];
-    spaceIds?: string[];
-    context?: {
-      conversationAnalysis?: any;
-      similarSkills?: any[];
-      mode?: 'create' | 'optimize';
-      initialPrompt?: string;
-    };
-    onChunk?: (chunk: StreamChunk) => void
-  }
-) {
+export async function createTempAgentSession(options: {
+  skillName: string;
+  conversationIds?: string[];
+  spaceIds?: string[];
+  context?: {
+    conversationAnalysis?: any;
+    similarSkills?: any[];
+    mode?: 'create' | 'optimize';
+    initialPrompt?: string;
+  };
+  onChunk?: (chunk: StreamChunk) => void;
+}) {
   try {
     // 如果直接提供了 context，直接使用
     if (options.context) {
       console.log('[SkillController] Using provided context:', {
         hasInitialPrompt: !!options.context.initialPrompt,
-        mode: options.context.mode
+        mode: options.context.mode,
       });
 
       const result = await createSdkTempSession({
@@ -958,9 +1139,9 @@ export async function createTempAgentSession(
           conversationAnalysis: options.context.conversationAnalysis || null,
           similarSkills: options.context.similarSkills || [],
           mode: options.context.mode || 'create',
-          initialPrompt: options.context.initialPrompt
+          initialPrompt: options.context.initialPrompt,
         },
-        onChunk: options.onChunk
+        onChunk: options.onChunk,
       });
       return result;
     }
@@ -992,25 +1173,28 @@ export async function createTempAgentSession(
           context = {
             mode: similarSkills.length > 0 ? 'optimize' : 'create',
             conversationAnalysis: mergedAnalysis,
-            similarSkills
+            similarSkills,
           };
         }
       } catch (error) {
-        console.warn('[SkillController] Failed to analyze conversations, creating without analysis:', error);
+        console.warn(
+          '[SkillController] Failed to analyze conversations, creating without analysis:',
+          error,
+        );
       }
     }
 
     const result = await createSdkTempSession({
       skillName: options.skillName,
       context,
-      onChunk: options.onChunk
+      onChunk: options.onChunk,
     });
     return result;
   } catch (error) {
     console.error('[SkillController] Failed to create temp session:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to create temp session'
+      error: error instanceof Error ? error.message : 'Failed to create temp session',
     };
   }
 }
@@ -1025,30 +1209,33 @@ function mergeAnalysisResults(results: any[]): any {
   // 合并用户意图
   const mergedIntent = {
     taskType: results[0].userIntent.taskType,
-    primaryGoal: results.map(r => r.userIntent.primaryGoal).filter(Boolean).join('; '),
-    contextInfo: [...new Set(results.flatMap(r => r.userIntent.contextInfo || []))],
-    keywords: [...new Set(results.flatMap(r => r.userIntent.keywords || []))]
+    primaryGoal: results
+      .map((r) => r.userIntent.primaryGoal)
+      .filter(Boolean)
+      .join('; '),
+    contextInfo: [...new Set(results.flatMap((r) => r.userIntent.contextInfo || []))],
+    keywords: [...new Set(results.flatMap((r) => r.userIntent.keywords || []))],
   };
 
   // 合并工具模式
   const mergedToolPattern = {
-    toolSequence: [...new Set(results.flatMap(r => r.toolPattern.toolSequence || []))],
-    successPattern: results.map(r => r.toolPattern.successPattern).join('\n'),
-    toolStats: results.reduce((acc, r) => ({ ...acc, ...r.toolPattern.toolStats }), {})
+    toolSequence: [...new Set(results.flatMap((r) => r.toolPattern.toolSequence || []))],
+    successPattern: results.map((r) => r.toolPattern.successPattern).join('\n'),
+    toolStats: results.reduce((acc, r) => ({ ...acc, ...r.toolPattern.toolStats }), {}),
   };
 
   // 合并可复用性
   const mergedReusability = {
-    score: Math.max(...results.map(r => r.reusability.score)),
-    patterns: [...new Set(results.flatMap(r => r.reusability.patterns || []))],
-    suggestions: [...new Set(results.flatMap(r => r.reusability.suggestions || []))]
+    score: Math.max(...results.map((r) => r.reusability.score)),
+    patterns: [...new Set(results.flatMap((r) => r.reusability.patterns || []))],
+    suggestions: [...new Set(results.flatMap((r) => r.reusability.suggestions || []))],
   };
 
   return {
     userIntent: mergedIntent,
     toolPattern: mergedToolPattern,
     reusability: mergedReusability,
-    sourceConversationIds: results.flatMap(r => r.sourceConversationIds)
+    sourceConversationIds: results.flatMap((r) => r.sourceConversationIds),
   };
 }
 
@@ -1058,7 +1245,7 @@ function mergeAnalysisResults(results: any[]): any {
 export async function sendTempAgentMessageWithCallback(
   sessionId: string,
   message: string,
-  onChunk: (chunk: any) => void
+  onChunk: (chunk: any) => void,
 ) {
   try {
     const result = await sendTempAgentMessage(sessionId, message, onChunk);
@@ -1067,7 +1254,7 @@ export async function sendTempAgentMessageWithCallback(
     console.error('[SkillController] Failed to send temp message:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to send message'
+      error: error instanceof Error ? error.message : 'Failed to send message',
     };
   }
 }
@@ -1079,7 +1266,7 @@ export async function sendTempAgentMessageWithCallback(
 export async function sendTempAgentMessage(
   sessionId: string,
   message: string,
-  onChunk?: (chunk: any) => void
+  onChunk?: (chunk: any) => void,
 ) {
   return sendTempAgentMessageWithCallback(sessionId, message, onChunk || (() => {}));
 }
@@ -1095,7 +1282,7 @@ export async function closeTempAgentSession(sessionId: string) {
     console.error('[SkillController] Failed to close temp session:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to close temp session'
+      error: error instanceof Error ? error.message : 'Failed to close temp session',
     };
   }
 }
@@ -1114,18 +1301,18 @@ function generateSkillName(analysis: any): string {
   // 基于任务类型生成名称
   const typeToName: Record<string, string> = {
     'Git 操作': 'git-helper',
-    '构建编译': 'build-optimizer',
-    '运行测试': 'test-runner',
-    '部署发布': 'deploy-helper',
-    '代码审查': 'code-reviewer',
-    '代码重构': 'refactor-assistant',
-    '调试修复': 'debug-helper',
-    '创建生成': 'code-generator',
-    '搜索查询': 'search-assistant',
-    '分析解释': 'analyzer',
+    构建编译: 'build-optimizer',
+    运行测试: 'test-runner',
+    部署发布: 'deploy-helper',
+    代码审查: 'code-reviewer',
+    代码重构: 'refactor-assistant',
+    调试修复: 'debug-helper',
+    创建生成: 'code-generator',
+    搜索查询: 'search-assistant',
+    分析解释: 'analyzer',
     'UI/样式': 'ui-styler',
     'API 开发': 'api-builder',
-    '数据库操作': 'db-assistant'
+    数据库操作: 'db-assistant',
   };
 
   let baseName = typeToName[taskType] || 'custom-skill';
@@ -1213,7 +1400,7 @@ export async function fetchWebPageContent(url: string): Promise<{
 
     return {
       success: true,
-      data: { title, content }
+      data: { title, content },
     };
   } catch (error) {
     console.error('[SkillController] Failed to fetch webpage with MCP:', error);
@@ -1233,21 +1420,22 @@ async function fetchWithHttp(url: string): Promise<{
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       },
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
       return {
         success: false,
-        error: `HTTP ${response.status}: ${response.statusText}`
+        error: `HTTP ${response.status}: ${response.statusText}`,
       };
     }
 
-    let html = await response.text();
+    const html = await response.text();
 
     // 提取标题
     let title = '';
@@ -1268,14 +1456,14 @@ async function fetchWithHttp(url: string): Promise<{
       success: true,
       data: {
         title: title || new URL(url).hostname,
-        content
-      }
+        content,
+      },
     };
   } catch (error) {
     console.error('[SkillController] Failed to fetch webpage:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : '获取网页失败'
+      error: error instanceof Error ? error.message : '获取网页失败',
     };
   }
 }
@@ -1349,32 +1537,29 @@ function htmlToMarkdown(html: string): string {
 export async function pushSkillToGitHub(
   skillId: string,
   targetRepo: string,
-  targetPath?: string
+  targetPath?: string,
 ): Promise<{ success: boolean; prUrl?: string; error?: string }> {
   try {
     // Read all local skill files (not just SKILL.md)
-    const files = await githubSkillSource.readLocalSkillFiles(skillId)
+    const files = await githubSkillSource.readLocalSkillFiles(skillId);
     if (files.length === 0) {
-      return { success: false, error: `Skill "${skillId}" not found locally or has no files` }
+      return { success: false, error: `Skill "${skillId}" not found locally or has no files` };
     }
 
     // Get GitHub token
-    const token = await githubSkillSource.getGitHubToken()
+    const token = await githubSkillSource.getGitHubToken();
     if (!token) {
-      return { success: false, error: 'Not authenticated with GitHub. Please login via Settings > GitHub.' }
+      return {
+        success: false,
+        error: 'Not authenticated with GitHub. Please login via Settings > GitHub.',
+      };
     }
 
     // Push all files via PR
-    return await githubSkillSource.pushSkillAsPR(
-      targetRepo,
-      skillId,
-      files,
-      targetPath,
-      token
-    )
+    return await githubSkillSource.pushSkillAsPR(targetRepo, skillId, files, targetPath, token);
   } catch (error: any) {
-    console.error('[SkillController] pushSkillToGitHub error:', error)
-    return { success: false, error: error.message || 'Failed to push skill to GitHub' }
+    console.error('[SkillController] pushSkillToGitHub error:', error);
+    return { success: false, error: error.message || 'Failed to push skill to GitHub' };
   }
 }
 
@@ -1382,31 +1567,33 @@ export async function pushSkillToGitHub(
  * List subdirectories under skills/ in a GitHub repo
  */
 export async function listRepoDirectories(
-  repo: string
+  repo: string,
 ): Promise<{ success: boolean; data?: string[]; error?: string }> {
   try {
-    console.log(`[SkillController] listRepoDirectories for: ${repo}`)
-    const dirs = await githubSkillSource.listRepoDirectories(repo)
-    console.log(`[SkillController] listRepoDirectories result:`, dirs)
-    return { success: true, data: dirs }
+    console.log(`[SkillController] listRepoDirectories for: ${repo}`);
+    const dirs = await githubSkillSource.listRepoDirectories(repo);
+    console.log(`[SkillController] listRepoDirectories result:`, dirs);
+    return { success: true, data: dirs };
   } catch (error: any) {
-    console.error(`[SkillController] listRepoDirectories error:`, error)
-    return { success: false, error: error.message || 'Failed to list directories' }
+    console.error(`[SkillController] listRepoDirectories error:`, error);
+    return { success: false, error: error.message || 'Failed to list directories' };
   }
 }
 
 /**
  * Validate a GitHub repo for use as a skill source
  */
-export async function validateGitHubRepo(
-  repo: string
-): Promise<{ success: boolean; data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number }; error?: string }> {
+export async function validateGitHubRepo(repo: string): Promise<{
+  success: boolean;
+  data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number };
+  error?: string;
+}> {
   try {
-    const token = await githubSkillSource.getGitHubToken()
-    const result = await githubSkillSource.validateRepo(repo, token)
-    return { success: true, data: result }
+    const token = await githubSkillSource.getGitHubToken();
+    const result = await githubSkillSource.validateRepo(repo, token);
+    return { success: true, data: result };
   } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to validate repository' }
+    return { success: false, error: error.message || 'Failed to validate repository' };
   }
 }
 
@@ -1415,52 +1602,63 @@ export async function validateGitHubRepo(
 export async function pushSkillToGitCode(
   skillId: string,
   targetRepo: string,
-  targetPath?: string
-): Promise<{ success: boolean; mrUrl?: string; error?: string; warning?: string }> {
+  targetPath?: string,
+): Promise<{ success: boolean; prUrl?: string; error?: string; warning?: string }> {
   try {
-    const files = await gitcodeSkillSource.readLocalSkillFiles(skillId)
+    const files = await gitcodeSkillSource.readLocalSkillFiles(skillId);
     if (files.length === 0) {
-      return { success: false, error: `Skill "${skillId}" not found locally or has no files` }
+      return { success: false, error: `Skill "${skillId}" not found locally or has no files` };
     }
-    const token = gitcodeSkillSource.getGitCodeToken()
+    const token = gitcodeSkillSource.getGitCodeToken();
     if (!token) {
-      return { success: false, error: 'GitCode token not configured. Please set it in Settings.' }
+      return { success: false, error: 'GitCode token not configured. Please set it in Settings.' };
     }
-    return await gitcodeSkillSource.pushSkillAsMR(targetRepo, skillId, files, targetPath, token)
+    const result = await gitcodeSkillSource.pushSkillAsMR(
+      targetRepo,
+      skillId,
+      files,
+      targetPath,
+      token,
+    );
+    // Normalize mrUrl → prUrl for consistent frontend handling
+    if (result.success && result.mrUrl) {
+      return { ...result, prUrl: result.mrUrl, mrUrl: undefined };
+    }
+    return result as any;
   } catch (error: any) {
-    console.error('[SkillController] pushSkillToGitCode error:', error)
-    return { success: false, error: error.message || 'Failed to push skill to GitCode' }
+    console.error('[SkillController] pushSkillToGitCode error:', error);
+    return { success: false, error: error.message || 'Failed to push skill to GitCode' };
   }
 }
 
 export async function listGitCodeRepoDirectories(
-  repo: string
+  repo: string,
 ): Promise<{ success: boolean; data?: string[]; error?: string }> {
   try {
-    const token = gitcodeSkillSource.getGitCodeToken()
-    const dirs = await gitcodeSkillSource.listRepoDirectories(repo, undefined, token)
-    return { success: true, data: dirs }
+    const token = gitcodeSkillSource.getGitCodeToken();
+    const dirs = await gitcodeSkillSource.listRepoDirectories(repo, undefined, token);
+    return { success: true, data: dirs };
   } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to list directories' }
+    return { success: false, error: error.message || 'Failed to list directories' };
   }
 }
 
-export async function validateGitCodeRepo(
-  repo: string
-): Promise<{ success: boolean; data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number }; error?: string }> {
+export async function validateGitCodeRepo(repo: string): Promise<{
+  success: boolean;
+  data?: { valid: boolean; hasSkillsDir: boolean; skillCount: number };
+  error?: string;
+}> {
   try {
-    const token = gitcodeSkillSource.getGitCodeToken()
-    const result = await gitcodeSkillSource.validateRepo(repo, token)
-    return { success: true, data: result }
+    const token = gitcodeSkillSource.getGitCodeToken();
+    const result = await gitcodeSkillSource.validateRepo(repo, token);
+    return { success: true, data: result };
   } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to validate repository' }
+    return { success: false, error: error.message || 'Failed to validate repository' };
   }
 }
 
-export async function setGitCodeToken(
-  token: string
-): Promise<{ success: boolean }> {
-  const { setGitCodeToken: saveToken } = await import('../services/config.service')
-  saveToken(token || undefined)
-  return { success: true }
+export async function setGitCodeToken(token: string): Promise<{ success: boolean }> {
+  const { setGitCodeToken: saveToken } = await import('../services/config.service');
+  saveToken(token || undefined);
+  return { success: true };
 }

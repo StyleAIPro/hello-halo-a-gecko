@@ -10,12 +10,12 @@
  * - (Future) Dialogs, menus, tooltips, etc.
  */
 
-import { useEffect, useState } from 'react'
-import { ChatCapsuleOverlay } from './ChatCapsuleOverlay'
+import { useEffect, useState } from 'react';
+import { ChatCapsuleOverlay } from './ChatCapsuleOverlay';
 
 // Overlay state received from main process
 interface OverlayState {
-  showChatCapsule: boolean
+  showChatCapsule: boolean;
   // Future overlay states
   // showDialog: boolean
   // dialogProps: DialogProps | null
@@ -23,42 +23,40 @@ interface OverlayState {
 
 const initialState: OverlayState = {
   showChatCapsule: false,
-}
+};
 
 export function OverlayApp() {
-  const [state, setState] = useState<OverlayState>(initialState)
+  const [state, setState] = useState<OverlayState>(initialState);
 
   useEffect(() => {
     // Listen for overlay state changes from main process
     // Note: preload strips the event, so we receive newState directly as first argument
     const handleOverlayState = (newState: Partial<OverlayState>) => {
-      setState(prev => ({ ...prev, ...newState }))
-    }
+      setState((prev) => ({ ...prev, ...newState }));
+    };
 
     // Subscribe to IPC events
     if (window.electron?.ipcRenderer) {
-      window.electron.ipcRenderer.on('overlay:state-change', handleOverlayState)
+      window.electron.ipcRenderer.on('overlay:state-change', handleOverlayState);
     }
 
     // Notify main process that overlay is ready
-    window.electron?.ipcRenderer?.send('overlay:ready')
+    window.electron?.ipcRenderer?.send('overlay:ready');
 
     return () => {
-      window.electron?.ipcRenderer?.removeListener('overlay:state-change', handleOverlayState)
-    }
-  }, [])
+      window.electron?.ipcRenderer?.removeListener('overlay:state-change', handleOverlayState);
+    };
+  }, []);
 
   // Handle capsule click - notify main process
   const handleCapsuleClick = () => {
-    window.electron?.ipcRenderer?.send('overlay:exit-maximized')
-  }
+    window.electron?.ipcRenderer?.send('overlay:exit-maximized');
+  };
 
   return (
     <div className="fixed inset-0 pointer-events-none">
       {/* ChatCapsule - shown when canvas is maximized */}
-      {state.showChatCapsule && (
-        <ChatCapsuleOverlay onClick={handleCapsuleClick} />
-      )}
+      {state.showChatCapsule && <ChatCapsuleOverlay onClick={handleCapsuleClick} />}
 
       {/*
         Future overlays can be added here:
@@ -66,5 +64,5 @@ export function OverlayApp() {
         {state.showMenu && <MenuOverlay {...state.menuProps} />}
       */}
     </div>
-  )
+  );
 }

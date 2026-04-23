@@ -21,40 +21,40 @@
 // App Type
 // ============================================
 
-export type AppType = 'mcp' | 'skill' | 'automation' | 'extension'
+export type AppType = 'mcp' | 'skill' | 'automation' | 'extension';
 
 // ============================================
 // Filter Rules
 // ============================================
 
-export type FilterOp = 'eq' | 'neq' | 'contains' | 'matches' | 'gt' | 'lt' | 'gte' | 'lte'
+export type FilterOp = 'eq' | 'neq' | 'contains' | 'matches' | 'gt' | 'lt' | 'gte' | 'lte';
 
 export interface FilterRule {
-  field: string
-  op: FilterOp
-  value: unknown
+  field: string;
+  op: FilterOp;
+  value: unknown;
 }
 
 // ============================================
 // Input Definition (config_schema items)
 // ============================================
 
-export type InputType = 'url' | 'text' | 'string' | 'number' | 'select' | 'boolean' | 'email'
+export type InputType = 'url' | 'text' | 'string' | 'number' | 'select' | 'boolean' | 'email';
 
 export interface SelectOption {
-  label: string
-  value: string | number | boolean
+  label: string;
+  value: string | number | boolean;
 }
 
 export interface InputDef {
-  key: string
-  label: string
-  type: InputType
-  description?: string
-  required?: boolean
-  default?: unknown
-  placeholder?: string
-  options?: SelectOption[]
+  key: string;
+  label: string;
+  type: InputType;
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  placeholder?: string;
+  options?: SelectOption[];
 }
 
 // ============================================
@@ -62,48 +62,48 @@ export interface InputDef {
 // ============================================
 
 export interface MemoryField {
-  type: string
-  description?: string
+  type: string;
+  description?: string;
 }
 
-export type MemorySchema = Record<string, MemoryField>
+export type MemorySchema = Record<string, MemoryField>;
 
 // ============================================
 // Subscription Source Configs
 // ============================================
 
 export interface ScheduleSourceConfig {
-  every?: string
-  cron?: string
+  every?: string;
+  cron?: string;
 }
 
 export interface FileSourceConfig {
-  pattern?: string
-  path?: string
+  pattern?: string;
+  path?: string;
 }
 
 export interface WebhookSourceConfig {
-  path?: string
-  secret?: string
+  path?: string;
+  secret?: string;
 }
 
 export interface WebpageSourceConfig {
-  watch?: string
-  selector?: string
-  url?: string
+  watch?: string;
+  selector?: string;
+  url?: string;
 }
 
 export interface RssSourceConfig {
-  url?: string
+  url?: string;
 }
 
-export type CustomSourceConfig = Record<string, unknown>
+export type CustomSourceConfig = Record<string, unknown>;
 
 // ============================================
 // Subscription Source (discriminated union)
 // ============================================
 
-export type SubscriptionSourceType = 'schedule' | 'file' | 'webhook' | 'webpage' | 'rss' | 'custom'
+export type SubscriptionSourceType = 'schedule' | 'file' | 'webhook' | 'webpage' | 'rss' | 'custom';
 
 export type SubscriptionSource =
   | { type: 'schedule'; config: ScheduleSourceConfig }
@@ -111,16 +111,16 @@ export type SubscriptionSource =
   | { type: 'webhook'; config: WebhookSourceConfig }
   | { type: 'webpage'; config: WebpageSourceConfig }
   | { type: 'rss'; config: RssSourceConfig }
-  | { type: 'custom'; config: CustomSourceConfig }
+  | { type: 'custom'; config: CustomSourceConfig };
 
 // ============================================
 // Frequency Definition
 // ============================================
 
 export interface FrequencyDef {
-  default: string
-  min?: string
-  max?: string
+  default: string;
+  min?: string;
+  max?: string;
 }
 
 // ============================================
@@ -128,10 +128,10 @@ export interface FrequencyDef {
 // ============================================
 
 export interface SubscriptionDef {
-  id?: string
-  source: SubscriptionSource
-  frequency?: FrequencyDef
-  config_key?: string
+  id?: string;
+  source: SubscriptionSource;
+  frequency?: FrequencyDef;
+  config_key?: string;
 }
 
 // ============================================
@@ -139,30 +139,32 @@ export interface SubscriptionDef {
 // ============================================
 
 export interface McpDependency {
-  id: string
-  reason?: string
-  bundled?: boolean
+  id: string;
+  reason?: string;
+  bundled?: boolean;
 }
 
 // ============================================
 // Skill Dependency Declaration
 // ============================================
 
-export type SkillDependency = string | {
-  id: string
-  reason?: string
-  bundled?: boolean
-}
+export type SkillDependency =
+  | string
+  | {
+      id: string;
+      reason?: string;
+      bundled?: boolean;
+    };
 
 // ============================================
 // MCP Server Config (for type=mcp)
 // ============================================
 
 export interface McpServerConfig {
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-  cwd?: string
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
 }
 
 // ============================================
@@ -171,7 +173,7 @@ export interface McpServerConfig {
 
 export interface OutputNotifyConfig {
   /** Send system desktop notification (default: true) */
-  system?: boolean
+  system?: boolean;
 }
 
 // ============================================
@@ -179,8 +181,8 @@ export interface OutputNotifyConfig {
 // ============================================
 
 export interface OutputConfig {
-  notify?: OutputNotifyConfig
-  format?: string
+  notify?: OutputNotifyConfig;
+  format?: string;
 }
 
 // ============================================
@@ -188,8 +190,8 @@ export interface OutputConfig {
 // ============================================
 
 export interface Requires {
-  mcps?: McpDependency[]
-  skills?: SkillDependency[]
+  mcps?: McpDependency[];
+  skills?: SkillDependency[];
 }
 
 // ============================================
@@ -197,8 +199,8 @@ export interface Requires {
 // ============================================
 
 export interface EscalationConfig {
-  enabled?: boolean
-  timeout_hours?: number
+  enabled?: boolean;
+  timeout_hours?: number;
 }
 
 // ============================================
@@ -206,16 +208,16 @@ export interface EscalationConfig {
 // ============================================
 
 export interface StoreMetadata {
-  slug?: string
-  category?: string
-  tags?: string[]
-  locale?: string
-  min_app_version?: string
-  license?: string
-  homepage?: string
-  repository?: string
+  slug?: string;
+  category?: string;
+  tags?: string[];
+  locale?: string;
+  min_app_version?: string;
+  license?: string;
+  homepage?: string;
+  repository?: string;
   /** Install provenance: registry identifier used for update checks */
-  registry_id?: string
+  registry_id?: string;
 }
 
 // ============================================
@@ -228,17 +230,17 @@ export interface StoreMetadata {
  */
 export interface I18nConfigFieldOverride {
   /** Translated field label */
-  label?: string
+  label?: string;
   /** Translated help text */
-  description?: string
+  description?: string;
   /** Translated placeholder */
-  placeholder?: string
+  placeholder?: string;
   /**
    * Translated option labels, keyed by option value (as string).
    * Only values explicitly listed are overridden; others fall back to canonical labels.
    * Example: { "en-US": "English", "zh-CN": "中文" }
    */
-  options?: Record<string, string>
+  options?: Record<string, string>;
 }
 
 /**
@@ -247,14 +249,14 @@ export interface I18nConfigFieldOverride {
  */
 export interface I18nLocaleBlock {
   /** Translated app display name */
-  name?: string
+  name?: string;
   /** Translated app description */
-  description?: string
+  description?: string;
   /**
    * Per-field overrides, keyed by config_schema[].key.
    * Only fields that need translation need to be listed.
    */
-  config_schema?: Record<string, I18nConfigFieldOverride>
+  config_schema?: Record<string, I18nConfigFieldOverride>;
 }
 
 // ============================================
@@ -262,34 +264,34 @@ export interface I18nLocaleBlock {
 // ============================================
 
 export interface AppSpec {
-  spec_version: string
-  name: string
-  version: string
-  author: string
-  description: string
-  type: AppType
-  icon?: string
-  system_prompt?: string
-  requires?: Requires
-  subscriptions?: SubscriptionDef[]
-  filters?: FilterRule[]
-  memory_schema?: MemorySchema
-  config_schema?: InputDef[]
-  output?: OutputConfig
-  permissions?: string[]
-  mcp_server?: McpServerConfig
-  escalation?: EscalationConfig
+  spec_version: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  type: AppType;
+  icon?: string;
+  system_prompt?: string;
+  requires?: Requires;
+  subscriptions?: SubscriptionDef[];
+  filters?: FilterRule[];
+  memory_schema?: MemorySchema;
+  config_schema?: InputDef[];
+  output?: OutputConfig;
+  permissions?: string[];
+  mcp_server?: McpServerConfig;
+  escalation?: EscalationConfig;
   /** Optional model recommendation from the spec author (informational only, not used at runtime) */
-  recommended_model?: string
+  recommended_model?: string;
   /** Store/registry metadata (for distribution and discovery) */
-  store?: StoreMetadata
+  store?: StoreMetadata;
   /**
    * Locale-specific display text overrides.
    * Keys are BCP 47 locale tags (e.g. "zh-CN", "ja").
    * Only affects display text (name, description, config_schema labels).
    * system_prompt and runtime behavior are never overridden by i18n.
    */
-  i18n?: Record<string, I18nLocaleBlock>
+  i18n?: Record<string, I18nLocaleBlock>;
 }
 
 // ============================================
@@ -297,7 +299,7 @@ export interface AppSpec {
 // ============================================
 
 export interface ValidationIssue {
-  path: string
-  message: string
-  received?: unknown
+  path: string;
+  message: string;
+  received?: unknown;
 }

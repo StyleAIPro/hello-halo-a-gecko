@@ -1,9 +1,9 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Agent Controller - Unified business logic for agent operations
  * Used by both IPC handlers and HTTP routes
  */
 
-import { BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron';
 import {
   sendMessage as agentSendMessage,
   stopGeneration as agentStopGeneration,
@@ -12,33 +12,33 @@ import {
   getSessionState as agentGetSessionState,
   testMcpConnections as agentTestMcpConnections,
   resolveQuestion,
-  rejectQuestion as agentRejectQuestion
-} from '../services/agent'
+  rejectQuestion as agentRejectQuestion,
+} from '../services/agent';
 
 // Image attachment type for multi-modal messages
 interface ImageAttachment {
-  id: string
-  type: 'image'
-  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-  data: string  // Base64 encoded
-  name?: string
-  size?: number
+  id: string;
+  type: 'image';
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  data: string; // Base64 encoded
+  name?: string;
+  size?: number;
 }
 
 export interface SendMessageRequest {
-  spaceId: string
-  conversationId: string
-  message: string
-  resumeSessionId?: string
-  images?: ImageAttachment[]  // Optional images for multi-modal messages
-  thinkingEnabled?: boolean   // Enable extended thinking mode
-  aiBrowserEnabled?: boolean  // Enable AI Browser tools
+  spaceId: string;
+  conversationId: string;
+  message: string;
+  resumeSessionId?: string;
+  images?: ImageAttachment[]; // Optional images for multi-modal messages
+  thinkingEnabled?: boolean; // Enable extended thinking mode
+  aiBrowserEnabled?: boolean; // Enable AI Browser tools
 }
 
 export interface ControllerResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: string
+  success: boolean;
+  data?: T;
+  error?: string;
 }
 
 /**
@@ -46,14 +46,14 @@ export interface ControllerResponse<T = unknown> {
  */
 export async function sendMessage(
   mainWindow: BrowserWindow | null,
-  request: SendMessageRequest
+  request: SendMessageRequest,
 ): Promise<ControllerResponse> {
   try {
-    await agentSendMessage(mainWindow, request)
-    return { success: true }
+    await agentSendMessage(mainWindow, request);
+    return { success: true };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -62,11 +62,11 @@ export async function sendMessage(
  */
 export function stopGeneration(conversationId?: string): ControllerResponse {
   try {
-    agentStopGeneration(conversationId)
-    return { success: true }
+    agentStopGeneration(conversationId);
+    return { success: true };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -74,14 +74,14 @@ export function stopGeneration(conversationId?: string): ControllerResponse {
  * Approve tool execution - no-op (all permissions auto-allowed)
  */
 export function approveTool(_conversationId: string): ControllerResponse {
-  return { success: true }
+  return { success: true };
 }
 
 /**
  * Reject tool execution - no-op (all permissions auto-allowed)
  */
 export function rejectTool(_conversationId: string): ControllerResponse {
-  return { success: true }
+  return { success: true };
 }
 
 /**
@@ -89,10 +89,10 @@ export function rejectTool(_conversationId: string): ControllerResponse {
  */
 export function checkGenerating(conversationId: string): ControllerResponse<boolean> {
   try {
-    return { success: true, data: isGenerating(conversationId) }
+    return { success: true, data: isGenerating(conversationId) };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -101,10 +101,10 @@ export function checkGenerating(conversationId: string): ControllerResponse<bool
  */
 export function listActiveSessions(): ControllerResponse<string[]> {
   try {
-    return { success: true, data: getActiveSessions() }
+    return { success: true, data: getActiveSessions() };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -113,10 +113,10 @@ export function listActiveSessions(): ControllerResponse<string[]> {
  */
 export function getSessionState(conversationId: string): ControllerResponse {
   try {
-    return { success: true, data: agentGetSessionState(conversationId) }
+    return { success: true, data: agentGetSessionState(conversationId) };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
@@ -126,48 +126,47 @@ export function getSessionState(conversationId: string): ControllerResponse {
 export function answerQuestion(
   conversationId: string,
   id: string,
-  answers: Record<string, string>
+  answers: Record<string, string>,
 ): ControllerResponse {
   try {
-    const resolved = resolveQuestion(id, answers)
+    const resolved = resolveQuestion(id, answers);
     if (!resolved) {
-      return { success: false, error: `No pending question found for id: ${id}` }
+      return { success: false, error: `No pending question found for id: ${id}` };
     }
-    return { success: true }
+    return { success: true };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
 /**
  * Reject a pending AskUserQuestion
  */
-export function rejectPendingQuestion(
-  id: string,
-  reason?: string
-): ControllerResponse {
+export function rejectPendingQuestion(id: string, reason?: string): ControllerResponse {
   try {
-    const rejected = agentRejectQuestion(id, reason || 'Rejected by client')
+    const rejected = agentRejectQuestion(id, reason || 'Rejected by client');
     if (!rejected) {
-      return { success: false, error: `No pending question found for id: ${id}` }
+      return { success: false, error: `No pending question found for id: ${id}` };
     }
-    return { success: true }
+    return { success: true };
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }
 
 /**
  * Test MCP server connections
  */
-export async function testMcpConnections(mainWindow?: BrowserWindow | null): Promise<ControllerResponse> {
+export async function testMcpConnections(
+  mainWindow?: BrowserWindow | null,
+): Promise<ControllerResponse> {
   try {
-    const result = await agentTestMcpConnections(mainWindow)
-    return result
+    const result = await agentTestMcpConnections(mainWindow);
+    return result;
   } catch (error: unknown) {
-    const err = error as Error
-    return { success: false, error: err.message }
+    const err = error as Error;
+    return { success: false, error: err.message };
   }
 }

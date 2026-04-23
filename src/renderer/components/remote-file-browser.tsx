@@ -2,62 +2,76 @@
  * Remote File Browser - Browse files on remote SSH server
  */
 
-import React, { useState, useEffect } from 'react'
-import { FileIcon, FolderIcon, FolderOpen, ChevronRight, Home, RefreshCw, Loader2, FileText, Image, Music, Video, Archive, Code } from 'lucide-react'
-import { api } from '../api'
-import { useTranslation } from '../i18n'
+import React, { useState, useEffect } from 'react';
+import {
+  FileIcon,
+  FolderIcon,
+  FolderOpen,
+  ChevronRight,
+  Home,
+  RefreshCw,
+  Loader2,
+  FileText,
+  Image,
+  Music,
+  Video,
+  Archive,
+  Code,
+} from 'lucide-react';
+import { api } from '../api';
+import { useTranslation } from '../i18n';
 
 export interface RemoteFile {
-  name: string
-  path: string
-  type: 'file' | 'directory' | 'symlink'
-  size?: number
-  modified?: string
-  isSymlink?: boolean
-  symlinkTarget?: string
+  name: string;
+  path: string;
+  type: 'file' | 'directory' | 'symlink';
+  size?: number;
+  modified?: string;
+  isSymlink?: boolean;
+  symlinkTarget?: string;
 }
 
 export interface RemoteFileBrowserProps {
-  serverId: string
-  onFileSelect?: (file: RemoteFile) => void
-  readonly?: boolean
+  serverId: string;
+  onFileSelect?: (file: RemoteFile) => void;
+  readonly?: boolean;
 }
 
 // Get file icon based on extension
 function getFileIcon(filename: string, size = 16) {
-  const ext = filename.split('.').pop()?.toLowerCase()
-  const iconSize = `${size}px`
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const iconSize = `${size}px`;
 
-  if (!ext) return <FileIcon size={parseInt(iconSize)} />
+  if (!ext) return <FileIcon size={parseInt(iconSize)} />;
 
   switch (ext) {
     case 'txt':
     case 'md':
     case 'rst':
-      return <FileText size={parseInt(iconSize)} />
+      return <FileText size={parseInt(iconSize)} />;
     case 'png':
     case 'jpg':
     case 'jpeg':
     case 'gif':
     case 'svg':
     case 'webp':
-      return <Image size={parseInt(iconSize)} />
+      return <Image size={parseInt(iconSize)} />;
     case 'mp3':
     case 'wav':
     case 'ogg':
     case 'flac':
-      return <Music size={parseInt(iconSize)} />
+      return <Music size={parseInt(iconSize)} />;
     case 'mp4':
     case 'mkv':
     case 'webm':
     case 'avi':
-      return <Video size={parseInt(iconSize)} />
+      return <Video size={parseInt(iconSize)} />;
     case 'zip':
     case 'tar':
     case 'gz':
     case 'rar':
     case '7z':
-      return <Archive size={parseInt(iconSize)} />
+      return <Archive size={parseInt(iconSize)} />;
     case 'js':
     case 'ts':
     case 'tsx':
@@ -79,106 +93,110 @@ function getFileIcon(filename: string, size = 16) {
     case 'css':
     case 'scss':
     case 'sql':
-      return <Code size={parseInt(iconSize)} />
+      return <Code size={parseInt(iconSize)} />;
     default:
-      return <FileIcon size={parseInt(iconSize)} />
+      return <FileIcon size={parseInt(iconSize)} />;
   }
 }
 
 // Format file size
 function formatFileSize(bytes?: number): string {
-  if (!bytes) return '-'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  if (!bytes) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 // Format modified date
 function formatDate(dateStr?: string): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString()
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString();
 }
 
-export function RemoteFileBrowser({ serverId, onFileSelect, readonly = false }: RemoteFileBrowserProps) {
-  const { t } = useTranslation()
-  const [currentPath, setCurrentPath] = useState('/')
-  const [files, setFiles] = useState<RemoteFile[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedFile, setSelectedFile] = useState<RemoteFile | null>(null)
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['/']))
+export function RemoteFileBrowser({
+  serverId,
+  onFileSelect,
+  readonly = false,
+}: RemoteFileBrowserProps) {
+  const { t } = useTranslation();
+  const [currentPath, setCurrentPath] = useState('/');
+  const [files, setFiles] = useState<RemoteFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<RemoteFile | null>(null);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['/']));
 
   // Load directory contents
   const loadDirectory = async (path: string) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const result = await api.listRemoteFiles(serverId, path)
+      const result = await api.listRemoteFiles(serverId, path);
       if (result.success && result.data) {
-        setFiles(result.data as RemoteFile[])
+        setFiles(result.data as RemoteFile[]);
       } else {
-        setError(result.error || t('Failed to load directory'))
+        setError(result.error || t('Failed to load directory'));
       }
     } catch (err) {
-      console.error('[RemoteFileBrowser] Failed to load directory:', err)
-      setError(t('Failed to load directory'))
+      console.error('[RemoteFileBrowser] Failed to load directory:', err);
+      setError(t('Failed to load directory'));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // Load initial directory on mount
   useEffect(() => {
-    loadDirectory(currentPath)
-  }, [serverId, currentPath])
+    loadDirectory(currentPath);
+  }, [serverId, currentPath]);
 
   // Handle directory click
   const handleDirectoryClick = (file: RemoteFile) => {
-    const newPath = file.path
-    setCurrentPath(newPath)
-    setExpandedDirs(prev => new Set([...prev, newPath]))
-  }
+    const newPath = file.path;
+    setCurrentPath(newPath);
+    setExpandedDirs((prev) => new Set([...prev, newPath]));
+  };
 
   // Handle file click
   const handleFileClick = (file: RemoteFile) => {
-    setSelectedFile(file)
-    onFileSelect?.(file)
-  }
+    setSelectedFile(file);
+    onFileSelect?.(file);
+  };
 
   // Handle breadcrumb click
   const handleBreadcrumbClick = (index: number) => {
-    const parts = currentPath.split('/').filter(Boolean)
-    const newPath = '/' + parts.slice(0, index + 1).join('/')
-    setCurrentPath(newPath)
-  }
+    const parts = currentPath.split('/').filter(Boolean);
+    const newPath = '/' + parts.slice(0, index + 1).join('/');
+    setCurrentPath(newPath);
+  };
 
   // Handle go to parent
   const handleGoUp = () => {
-    if (currentPath === '/') return
-    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/'
-    setCurrentPath(parentPath)
-  }
+    if (currentPath === '/') return;
+    const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+    setCurrentPath(parentPath);
+  };
 
   // Handle go to home
   const handleGoHome = () => {
-    setCurrentPath('/')
-    setExpandedDirs(new Set(['/']))
-  }
+    setCurrentPath('/');
+    setExpandedDirs(new Set(['/']));
+  };
 
   // Handle refresh
   const handleRefresh = () => {
-    loadDirectory(currentPath)
-  }
+    loadDirectory(currentPath);
+  };
 
   // Generate breadcrumb parts
-  const breadcrumbParts = currentPath.split('/').filter(Boolean)
-  const canGoUp = currentPath !== '/'
+  const breadcrumbParts = currentPath.split('/').filter(Boolean);
+  const canGoUp = currentPath !== '/';
 
   // Separate directories and files
-  const directories = files.filter(f => f.type === 'directory')
-  const regularFiles = files.filter(f => f.type === 'file')
+  const directories = files.filter((f) => f.type === 'directory');
+  const regularFiles = files.filter((f) => f.type === 'file');
 
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
@@ -301,5 +319,5 @@ export function RemoteFileBrowser({ serverId, onFileSelect, readonly = false }: 
         </div>
       )}
     </div>
-  )
+  );
 }

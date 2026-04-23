@@ -18,5 +18,5 @@
  * Type guard to check if provider supports OAuth
  */
 export function isOAuthProvider(provider) {
-    return 'startLogin' in provider && 'completeLogin' in provider;
+  return 'startLogin' in provider && 'completeLogin' in provider;
 }

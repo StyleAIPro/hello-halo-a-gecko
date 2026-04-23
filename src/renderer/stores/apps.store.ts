@@ -10,17 +10,17 @@
  * (same pattern as agent events).
  */
 
-import { create } from 'zustand'
-import { api } from '../api'
-import { useNotificationStore } from './notification.store'
+import { create } from 'zustand';
+import { api } from '../api';
+import { useNotificationStore } from './notification.store';
 import type {
   InstalledApp,
   AppStatus,
   AutomationAppState,
   ActivityEntry,
   ActivityQueryOptions,
-} from '../../shared/apps/app-types'
-import type { AppSpec } from '../../shared/apps/spec-types'
+} from '../../shared/apps/app-types';
+import type { AppSpec } from '../../shared/apps/spec-types';
 
 // ============================================
 // State Interface
@@ -28,67 +28,84 @@ import type { AppSpec } from '../../shared/apps/spec-types'
 
 interface AppsState {
   // ── Data ─────────────────────────────────
-  apps: InstalledApp[]
+  apps: InstalledApp[];
   /** Real-time runtime state per app. Keyed by appId. */
-  appStates: Record<string, AutomationAppState>
+  appStates: Record<string, AutomationAppState>;
   /** Activity feed per app. Entries are newest-first. Keyed by appId. */
-  activityEntries: Record<string, ActivityEntry[]>
+  activityEntries: Record<string, ActivityEntry[]>;
   /** Tracks whether we've loaded more pages per app */
-  activityHasMore: Record<string, boolean>
-  isLoading: boolean
-  error: string | null
+  activityHasMore: Record<string, boolean>;
+  isLoading: boolean;
+  error: string | null;
 
   // ── App List Management ───────────────────
-  loadApps: (spaceId?: string) => Promise<void>
-  refreshApp: (appId: string) => Promise<void>
+  loadApps: (spaceId?: string) => Promise<void>;
+  refreshApp: (appId: string) => Promise<void>;
 
   // ── App Lifecycle ─────────────────────────
-  installApp: (spaceId: string, spec: AppSpec, userConfig?: Record<string, unknown>) => Promise<string | null>
-  uninstallApp: (appId: string) => Promise<boolean>
-  reinstallApp: (appId: string) => Promise<boolean>
-  deleteApp: (appId: string) => Promise<boolean>
-  pauseApp: (appId: string) => Promise<boolean>
-  resumeApp: (appId: string) => Promise<boolean>
-  triggerApp: (appId: string) => Promise<boolean>
+  installApp: (
+    spaceId: string,
+    spec: AppSpec,
+    userConfig?: Record<string, unknown>,
+  ) => Promise<string | null>;
+  uninstallApp: (appId: string) => Promise<boolean>;
+  reinstallApp: (appId: string) => Promise<boolean>;
+  deleteApp: (appId: string) => Promise<boolean>;
+  pauseApp: (appId: string) => Promise<boolean>;
+  resumeApp: (appId: string) => Promise<boolean>;
+  triggerApp: (appId: string) => Promise<boolean>;
 
   // ── State Queries ─────────────────────────
-  loadAppState: (appId: string) => Promise<void>
+  loadAppState: (appId: string) => Promise<void>;
 
   // ── Activity Feed ─────────────────────────
-  loadActivity: (appId: string, options?: ActivityQueryOptions) => Promise<void>
-  loadMoreActivity: (appId: string) => Promise<void>
+  loadActivity: (appId: string, options?: ActivityQueryOptions) => Promise<void>;
+  loadMoreActivity: (appId: string) => Promise<void>;
 
   // ── Escalation ───────────────────────────
-  respondToEscalation: (appId: string, escalationId: string, response: { choice?: string; text?: string }) => Promise<boolean>
+  respondToEscalation: (
+    appId: string,
+    escalationId: string,
+    response: { choice?: string; text?: string },
+  ) => Promise<boolean>;
 
   // ── Config Updates ────────────────────────
-  updateAppConfig: (appId: string, config: Record<string, unknown>) => Promise<boolean>
-  updateAppFrequency: (appId: string, subscriptionId: string, frequency: string) => Promise<boolean>
-  updateAppOverrides: (appId: string, overrides: Record<string, unknown>) => Promise<boolean>
-  updateAppSpec: (appId: string, specPatch: Record<string, unknown>) => Promise<boolean>
+  updateAppConfig: (appId: string, config: Record<string, unknown>) => Promise<boolean>;
+  updateAppFrequency: (
+    appId: string,
+    subscriptionId: string,
+    frequency: string,
+  ) => Promise<boolean>;
+  updateAppOverrides: (appId: string, overrides: Record<string, unknown>) => Promise<boolean>;
+  updateAppSpec: (appId: string, specPatch: Record<string, unknown>) => Promise<boolean>;
 
   // ── Import / Export ─────────────────────────
-  exportApp: (appId: string) => Promise<boolean>
-  importApp: (spaceId: string, yamlContent: string) => Promise<string | null>
+  exportApp: (appId: string) => Promise<boolean>;
+  importApp: (spaceId: string, yamlContent: string) => Promise<string | null>;
 
   // ── Permissions ─────────────────────────────
-  grantPermission: (appId: string, permission: string) => Promise<boolean>
-  revokePermission: (appId: string, permission: string) => Promise<boolean>
+  grantPermission: (appId: string, permission: string) => Promise<boolean>;
+  revokePermission: (appId: string, permission: string) => Promise<boolean>;
 
   // ── Real-time Event Handlers ──────────────
   /** Called by App.tsx when app:status_changed arrives */
-  handleStatusChanged: (appId: string, state: AutomationAppState) => void
+  handleStatusChanged: (appId: string, state: AutomationAppState) => void;
   /** Called by App.tsx when app:activity_entry:new arrives */
-  handleNewActivityEntry: (appId: string, entry: ActivityEntry) => void
+  handleNewActivityEntry: (appId: string, entry: ActivityEntry) => void;
   /** Called by App.tsx when app:escalation:new arrives */
-  handleNewEscalation: (appId: string, entryId: string, question: string, choices: string[]) => void
+  handleNewEscalation: (
+    appId: string,
+    entryId: string,
+    question: string,
+    choices: string[],
+  ) => void;
 }
 
 // ============================================
 // Store Implementation
 // ============================================
 
-const PAGE_SIZE = 30
+const PAGE_SIZE = 30;
 
 export const useAppsStore = create<AppsState>((set, get) => ({
   apps: [],
@@ -101,33 +118,33 @@ export const useAppsStore = create<AppsState>((set, get) => ({
   // ── App List Management ───────────────────
 
   loadApps: async (spaceId) => {
-    set({ isLoading: true, error: null })
+    set({ isLoading: true, error: null });
     try {
-      const res = await api.appList(spaceId ? { spaceId } : undefined)
+      const res = await api.appList(spaceId ? { spaceId } : undefined);
       if (res.success && res.data) {
-        set({ apps: res.data as InstalledApp[] })
+        set({ apps: res.data as InstalledApp[] });
       } else {
-        set({ error: (res.error as string) || 'Failed to load apps' })
+        set({ error: (res.error as string) || 'Failed to load apps' });
       }
     } catch (err) {
-      set({ error: 'Failed to load apps' })
-      console.error('[AppsStore] loadApps error:', err)
+      set({ error: 'Failed to load apps' });
+      console.error('[AppsStore] loadApps error:', err);
     } finally {
-      set({ isLoading: false })
+      set({ isLoading: false });
     }
   },
 
   refreshApp: async (appId) => {
     try {
-      const res = await api.appGet(appId)
+      const res = await api.appGet(appId);
       if (res.success && res.data) {
-        const updated = res.data as InstalledApp
-        set(state => ({
-          apps: state.apps.map(a => a.id === appId ? updated : a),
-        }))
+        const updated = res.data as InstalledApp;
+        set((state) => ({
+          apps: state.apps.map((a) => (a.id === appId ? updated : a)),
+        }));
       }
     } catch (err) {
-      console.error('[AppsStore] refreshApp error:', err)
+      console.error('[AppsStore] refreshApp error:', err);
     }
   },
 
@@ -135,118 +152,116 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   installApp: async (spaceId, spec, userConfig) => {
     try {
-      const res = await api.appInstall({ spaceId, spec, userConfig })
+      const res = await api.appInstall({ spaceId, spec, userConfig });
       if (res.success && (res.data as { appId?: string })?.appId) {
-        const appId = (res.data as { appId: string }).appId
+        const appId = (res.data as { appId: string }).appId;
         // Reload to get the full InstalledApp record
-        await get().loadApps()
-        return appId
+        await get().loadApps();
+        return appId;
       }
-      return null
+      return null;
     } catch (err) {
-      console.error('[AppsStore] installApp error:', err)
-      return null
+      console.error('[AppsStore] installApp error:', err);
+      return null;
     }
   },
 
   uninstallApp: async (appId) => {
     try {
-      const res = await api.appUninstall(appId)
+      const res = await api.appUninstall(appId);
       if (res.success) {
         // Optimistic: set status to 'uninstalled' and record timestamp
-        set(state => ({
-          apps: state.apps.map(a =>
+        set((state) => ({
+          apps: state.apps.map((a) =>
             a.id === appId
               ? { ...a, status: 'uninstalled' as AppStatus, uninstalledAt: Date.now() }
-              : a
+              : a,
           ),
-        }))
-        return true
+        }));
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] uninstallApp error:', err)
-      return false
+      console.error('[AppsStore] uninstallApp error:', err);
+      return false;
     }
   },
 
   reinstallApp: async (appId) => {
     try {
-      const res = await api.appReinstall(appId)
+      const res = await api.appReinstall(appId);
       if (res.success) {
         // Optimistic: set status back to 'active' and clear uninstalledAt
-        set(state => ({
-          apps: state.apps.map(a =>
-            a.id === appId
-              ? { ...a, status: 'active' as AppStatus, uninstalledAt: undefined }
-              : a
+        set((state) => ({
+          apps: state.apps.map((a) =>
+            a.id === appId ? { ...a, status: 'active' as AppStatus, uninstalledAt: undefined } : a,
           ),
-        }))
-        return true
+        }));
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] reinstallApp error:', err)
-      return false
+      console.error('[AppsStore] reinstallApp error:', err);
+      return false;
     }
   },
 
   deleteApp: async (appId) => {
     try {
-      const res = await api.appDelete(appId)
+      const res = await api.appDelete(appId);
       if (res.success) {
         // Remove from local list (permanent delete)
-        set(state => ({ apps: state.apps.filter(a => a.id !== appId) }))
-        return true
+        set((state) => ({ apps: state.apps.filter((a) => a.id !== appId) }));
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] deleteApp error:', err)
-      return false
+      console.error('[AppsStore] deleteApp error:', err);
+      return false;
     }
   },
 
   pauseApp: async (appId) => {
     try {
-      const res = await api.appPause(appId)
+      const res = await api.appPause(appId);
       if (res.success) {
         // Optimistic update
-        set(state => ({
-          apps: state.apps.map(a =>
-            a.id === appId ? { ...a, status: 'paused' as AppStatus } : a
+        set((state) => ({
+          apps: state.apps.map((a) =>
+            a.id === appId ? { ...a, status: 'paused' as AppStatus } : a,
           ),
-        }))
-        return true
+        }));
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] pauseApp error:', err)
-      return false
+      console.error('[AppsStore] pauseApp error:', err);
+      return false;
     }
   },
 
   resumeApp: async (appId) => {
     try {
-      const res = await api.appResume(appId)
+      const res = await api.appResume(appId);
       if (res.success) {
         // Optimistic update
-        set(state => ({
-          apps: state.apps.map(a =>
-            a.id === appId ? { ...a, status: 'active' as AppStatus } : a
+        set((state) => ({
+          apps: state.apps.map((a) =>
+            a.id === appId ? { ...a, status: 'active' as AppStatus } : a,
           ),
-        }))
-        return true
+        }));
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] resumeApp error:', err)
-      return false
+      console.error('[AppsStore] resumeApp error:', err);
+      return false;
     }
   },
 
   triggerApp: async (appId) => {
     try {
-      const res = await api.appTrigger(appId)
+      const res = await api.appTrigger(appId);
       if (!res.success && res.error) {
         // Surface backend rejections (e.g. per-app concurrency limit) as a toast
         // so the user sees clear feedback rather than a silent no-op.
@@ -254,12 +269,12 @@ export const useAppsStore = create<AppsState>((set, get) => ({
           title: res.error,
           variant: 'warning',
           duration: 4000,
-        })
+        });
       }
-      return res.success
+      return res.success;
     } catch (err) {
-      console.error('[AppsStore] triggerApp error:', err)
-      return false
+      console.error('[AppsStore] triggerApp error:', err);
+      return false;
     }
   },
 
@@ -267,14 +282,14 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   loadAppState: async (appId) => {
     try {
-      const res = await api.appGetState(appId)
+      const res = await api.appGetState(appId);
       if (res.success && res.data) {
-        set(state => ({
+        set((state) => ({
           appStates: { ...state.appStates, [appId]: res.data as AutomationAppState },
-        }))
+        }));
       }
     } catch (err) {
-      console.error('[AppsStore] loadAppState error:', err)
+      console.error('[AppsStore] loadAppState error:', err);
     }
   },
 
@@ -282,33 +297,33 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   loadActivity: async (appId, options) => {
     try {
-      const res = await api.appGetActivity(appId, { limit: PAGE_SIZE, ...options })
+      const res = await api.appGetActivity(appId, { limit: PAGE_SIZE, ...options });
       if (res.success && res.data) {
-        const entries = res.data as ActivityEntry[]
-        set(state => ({
+        const entries = res.data as ActivityEntry[];
+        set((state) => ({
           activityEntries: { ...state.activityEntries, [appId]: entries },
           activityHasMore: { ...state.activityHasMore, [appId]: entries.length === PAGE_SIZE },
-        }))
+        }));
       }
     } catch (err) {
-      console.error('[AppsStore] loadActivity error:', err)
+      console.error('[AppsStore] loadActivity error:', err);
     }
   },
 
   loadMoreActivity: async (appId) => {
-    const existing = get().activityEntries[appId] ?? []
-    if (!get().activityHasMore[appId]) return
+    const existing = get().activityEntries[appId] ?? [];
+    if (!get().activityHasMore[appId]) return;
 
     try {
       // Use the oldest entry's ts as the cursor (before = entries older than this)
-      const oldest = existing[existing.length - 1]
+      const oldest = existing[existing.length - 1];
       const res = await api.appGetActivity(appId, {
         limit: PAGE_SIZE,
         since: oldest?.ts,
-      })
+      });
       if (res.success && res.data) {
-        const newEntries = res.data as ActivityEntry[]
-        set(state => ({
+        const newEntries = res.data as ActivityEntry[];
+        set((state) => ({
           activityEntries: {
             ...state.activityEntries,
             [appId]: [...(state.activityEntries[appId] ?? []), ...newEntries],
@@ -317,10 +332,10 @@ export const useAppsStore = create<AppsState>((set, get) => ({
             ...state.activityHasMore,
             [appId]: newEntries.length === PAGE_SIZE,
           },
-        }))
+        }));
       }
     } catch (err) {
-      console.error('[AppsStore] loadMoreActivity error:', err)
+      console.error('[AppsStore] loadMoreActivity error:', err);
     }
   },
 
@@ -328,31 +343,29 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   respondToEscalation: async (appId, escalationId, response) => {
     try {
-      const res = await api.appRespondEscalation(appId, escalationId, response)
+      const res = await api.appRespondEscalation(appId, escalationId, response);
       if (res.success) {
         // Update the local entry to reflect the user's response
-        const userResponse = { ts: Date.now(), ...response }
-        set(state => {
-          const entries = state.activityEntries[appId] ?? []
-          const updated = entries.map(e =>
-            e.id === escalationId ? { ...e, userResponse } : e
-          )
+        const userResponse = { ts: Date.now(), ...response };
+        set((state) => {
+          const entries = state.activityEntries[appId] ?? [];
+          const updated = entries.map((e) => (e.id === escalationId ? { ...e, userResponse } : e));
           return {
             activityEntries: { ...state.activityEntries, [appId]: updated },
             // Clear waiting_user status optimistically
-            apps: state.apps.map(a =>
+            apps: state.apps.map((a) =>
               a.id === appId
                 ? { ...a, status: 'active' as AppStatus, pendingEscalationId: undefined }
-                : a
+                : a,
             ),
-          }
-        })
-        return true
+          };
+        });
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] respondToEscalation error:', err)
-      return false
+      console.error('[AppsStore] respondToEscalation error:', err);
+      return false;
     }
   },
 
@@ -360,57 +373,57 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   updateAppConfig: async (appId, config) => {
     try {
-      const res = await api.appUpdateConfig(appId, config)
+      const res = await api.appUpdateConfig(appId, config);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] updateAppConfig error:', err)
-      return false
+      console.error('[AppsStore] updateAppConfig error:', err);
+      return false;
     }
   },
 
   updateAppFrequency: async (appId, subscriptionId, frequency) => {
     try {
-      const res = await api.appUpdateFrequency(appId, subscriptionId, frequency)
+      const res = await api.appUpdateFrequency(appId, subscriptionId, frequency);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] updateAppFrequency error:', err)
-      return false
+      console.error('[AppsStore] updateAppFrequency error:', err);
+      return false;
     }
   },
 
   updateAppOverrides: async (appId, overrides) => {
     try {
-      const res = await api.appUpdateOverrides(appId, overrides)
+      const res = await api.appUpdateOverrides(appId, overrides);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] updateAppOverrides error:', err)
-      return false
+      console.error('[AppsStore] updateAppOverrides error:', err);
+      return false;
     }
   },
 
   updateAppSpec: async (appId, specPatch) => {
     try {
-      const res = await api.appUpdateSpec(appId, specPatch)
+      const res = await api.appUpdateSpec(appId, specPatch);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] updateAppSpec error:', err)
-      return false
+      console.error('[AppsStore] updateAppSpec error:', err);
+      return false;
     }
   },
 
@@ -418,128 +431,126 @@ export const useAppsStore = create<AppsState>((set, get) => ({
 
   exportApp: async (appId) => {
     try {
-      const res = await api.appExportSpec(appId)
+      const res = await api.appExportSpec(appId);
       if (res.success && res.data) {
-        const { yaml, filename } = res.data as { yaml: string; filename: string }
+        const { yaml, filename } = res.data as { yaml: string; filename: string };
         // Trigger browser file download
-        const blob = new Blob([yaml], { type: 'text/yaml;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        return true
+        const blob = new Blob([yaml], { type: 'text/yaml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] exportApp error:', err)
-      return false
+      console.error('[AppsStore] exportApp error:', err);
+      return false;
     }
   },
 
   importApp: async (spaceId, yamlContent) => {
     try {
-      const res = await api.appImportSpec({ spaceId, yamlContent })
+      const res = await api.appImportSpec({ spaceId, yamlContent });
       if (res.success && (res.data as { appId?: string })?.appId) {
-        const appId = (res.data as { appId: string }).appId
-        await get().loadApps()
-        return appId
+        const appId = (res.data as { appId: string }).appId;
+        await get().loadApps();
+        return appId;
       }
-      return null
+      return null;
     } catch (err) {
-      console.error('[AppsStore] importApp error:', err)
-      return null
+      console.error('[AppsStore] importApp error:', err);
+      return null;
     }
   },
 
   grantPermission: async (appId, permission) => {
     try {
-      const res = await api.appGrantPermission(appId, permission)
+      const res = await api.appGrantPermission(appId, permission);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] grantPermission error:', err)
-      return false
+      console.error('[AppsStore] grantPermission error:', err);
+      return false;
     }
   },
 
   revokePermission: async (appId, permission) => {
     try {
-      const res = await api.appRevokePermission(appId, permission)
+      const res = await api.appRevokePermission(appId, permission);
       if (res.success) {
-        await get().refreshApp(appId)
-        return true
+        await get().refreshApp(appId);
+        return true;
       }
-      return false
+      return false;
     } catch (err) {
-      console.error('[AppsStore] revokePermission error:', err)
-      return false
+      console.error('[AppsStore] revokePermission error:', err);
+      return false;
     }
   },
 
   // ── Real-time Event Handlers ──────────────
 
   handleStatusChanged: (appId, state) => {
-    set(s => {
+    set((s) => {
       // Map AutomationAppState.status -> AppStatus for InstalledApp
-      let appStatus: AppStatus
+      let appStatus: AppStatus;
       switch (state.status) {
         case 'running':
         case 'queued':
         case 'idle':
-          appStatus = 'active'
-          break
+          appStatus = 'active';
+          break;
         case 'paused':
-          appStatus = 'paused'
-          break
+          appStatus = 'paused';
+          break;
         case 'waiting_user':
-          appStatus = 'waiting_user'
-          break
+          appStatus = 'waiting_user';
+          break;
         case 'error':
-          appStatus = 'error'
-          break
+          appStatus = 'error';
+          break;
         default:
-          appStatus = 'active'
+          appStatus = 'active';
       }
 
       return {
         appStates: { ...s.appStates, [appId]: state },
-        apps: s.apps.map(a =>
-          a.id === appId ? { ...a, status: appStatus } : a
-        ),
-      }
-    })
+        apps: s.apps.map((a) => (a.id === appId ? { ...a, status: appStatus } : a)),
+      };
+    });
   },
 
   handleNewActivityEntry: (appId, entry) => {
-    set(state => {
-      const existing = state.activityEntries[appId] ?? []
+    set((state) => {
+      const existing = state.activityEntries[appId] ?? [];
       // Prepend (newest first); avoid duplicates by id
-      if (existing.some(e => e.id === entry.id)) return {}
+      if (existing.some((e) => e.id === entry.id)) return {};
       return {
         activityEntries: {
           ...state.activityEntries,
           [appId]: [entry, ...existing],
         },
-      }
-    })
+      };
+    });
   },
 
   handleNewEscalation: (appId, entryId, _question, _choices) => {
     // The activity entry is already added via handleNewActivityEntry.
     // Here we just update the app status to waiting_user.
-    set(state => ({
-      apps: state.apps.map(a =>
+    set((state) => ({
+      apps: state.apps.map((a) =>
         a.id === appId
           ? { ...a, status: 'waiting_user' as AppStatus, pendingEscalationId: entryId }
-          : a
+          : a,
       ),
-    }))
+    }));
   },
-}))
+}));

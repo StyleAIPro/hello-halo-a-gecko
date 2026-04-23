@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, '..')
+const projectRoot = path.join(__dirname, '..', '..', '..')
 const distDir = path.join(rootDir, 'dist')
 
 console.log('Building remote-agent-proxy...')
@@ -112,10 +113,12 @@ if (fs.existsSync(routerDistDir)) {
   console.log('ESM import extensions fixed')
 }
 
-// Step 6: Patch SDK for remote agent usage (cwd, systemPrompt, etc.)
+// Step 6: Patch SDK for remote agent usage (option forwarding + turn-level injection)
+// Uses the unified patch script from project root (scripts/patch-sdk.mjs)
 console.log('\nPatching SDK...')
 try {
-  execSync('node ' + path.join(__dirname, 'patch-sdk.mjs'), { cwd: rootDir, stdio: 'inherit' })
+  const unifiedPatchScript = path.join(projectRoot, 'scripts', 'patch-sdk.mjs')
+  execSync('node ' + unifiedPatchScript, { cwd: rootDir, stdio: 'inherit' })
 } catch (error) {
   console.warn('SDK patch failed (non-fatal):', error.message)
 }

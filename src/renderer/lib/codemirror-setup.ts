@@ -14,9 +14,10 @@
  * - No autocomplete, no linting (not needed for viewing)
  */
 
-import { EditorState, Extension, Compartment } from '@codemirror/state'
+import type { Extension } from '@codemirror/state';
+import { EditorState, Compartment } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import {
-  EditorView,
   lineNumbers,
   highlightActiveLine,
   highlightActiveLineGutter,
@@ -26,7 +27,8 @@ import {
   crosshairCursor,
   highlightSpecialChars,
   scrollPastEnd,
-} from '@codemirror/view'
+} from '@codemirror/view';
+import type { LanguageSupport } from '@codemirror/language';
 import {
   defaultHighlightStyle,
   syntaxHighlighting,
@@ -34,73 +36,72 @@ import {
   bracketMatching,
   foldGutter,
   foldKeymap,
-  LanguageSupport,
-} from '@codemirror/language'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+} from '@codemirror/language';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 
 // Language imports (will be lazy-loaded)
-import { javascript } from '@codemirror/lang-javascript'
-import { python } from '@codemirror/lang-python'
-import { json } from '@codemirror/lang-json'
-import { html } from '@codemirror/lang-html'
-import { css } from '@codemirror/lang-css'
-import { markdown } from '@codemirror/lang-markdown'
-import { sql } from '@codemirror/lang-sql'
-import { yaml } from '@codemirror/lang-yaml'
-import { xml } from '@codemirror/lang-xml'
-import { rust } from '@codemirror/lang-rust'
-import { go } from '@codemirror/lang-go'
-import { cpp } from '@codemirror/lang-cpp'
-import { java } from '@codemirror/lang-java'
-import { php } from '@codemirror/lang-php'
-import { vue } from '@codemirror/lang-vue'
-import { svelte } from '@replit/codemirror-lang-svelte'
-import { StreamLanguage } from '@codemirror/language'
-import { aicoBotTheme } from './codemirror-theme'
+import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { json } from '@codemirror/lang-json';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { markdown } from '@codemirror/lang-markdown';
+import { sql } from '@codemirror/lang-sql';
+import { yaml } from '@codemirror/lang-yaml';
+import { xml } from '@codemirror/lang-xml';
+import { rust } from '@codemirror/lang-rust';
+import { go } from '@codemirror/lang-go';
+import { cpp } from '@codemirror/lang-cpp';
+import { java } from '@codemirror/lang-java';
+import { php } from '@codemirror/lang-php';
+import { vue } from '@codemirror/lang-vue';
+import { svelte } from '@replit/codemirror-lang-svelte';
+import { StreamLanguage } from '@codemirror/language';
+import { aicoBotTheme } from './codemirror-theme';
 
 // Legacy mode languages (for less common languages)
-import { shell } from '@codemirror/legacy-modes/mode/shell'
-import { ruby } from '@codemirror/legacy-modes/mode/ruby'
-import { swift } from '@codemirror/legacy-modes/mode/swift'
-import { toml } from '@codemirror/legacy-modes/mode/toml'
-import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile'
-import { diff } from '@codemirror/legacy-modes/mode/diff'
-import { lua } from '@codemirror/legacy-modes/mode/lua'
-import { perl } from '@codemirror/legacy-modes/mode/perl'
-import { haskell } from '@codemirror/legacy-modes/mode/haskell'
-import { clike } from '@codemirror/legacy-modes/mode/clike'
-import { properties } from '@codemirror/legacy-modes/mode/properties'
-import { protobuf } from '@codemirror/legacy-modes/mode/protobuf'
-import { cmake } from '@codemirror/legacy-modes/mode/cmake'
-import { groovy } from '@codemirror/legacy-modes/mode/groovy'
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { ruby } from '@codemirror/legacy-modes/mode/ruby';
+import { swift } from '@codemirror/legacy-modes/mode/swift';
+import { toml } from '@codemirror/legacy-modes/mode/toml';
+import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
+import { diff } from '@codemirror/legacy-modes/mode/diff';
+import { lua } from '@codemirror/legacy-modes/mode/lua';
+import { perl } from '@codemirror/legacy-modes/mode/perl';
+import { haskell } from '@codemirror/legacy-modes/mode/haskell';
+import { clike } from '@codemirror/legacy-modes/mode/clike';
+import { properties } from '@codemirror/legacy-modes/mode/properties';
+import { protobuf } from '@codemirror/legacy-modes/mode/protobuf';
+import { cmake } from '@codemirror/legacy-modes/mode/cmake';
+import { groovy } from '@codemirror/legacy-modes/mode/groovy';
 // Additional legacy modes for 99% coverage
-import { powerShell } from '@codemirror/legacy-modes/mode/powershell'
-import { clojure } from '@codemirror/legacy-modes/mode/clojure'
-import { erlang } from '@codemirror/legacy-modes/mode/erlang'
-import { julia } from '@codemirror/legacy-modes/mode/julia'
-import { oCaml, fSharp, sml } from '@codemirror/legacy-modes/mode/mllike'
-import { fortran } from '@codemirror/legacy-modes/mode/fortran'
-import { pascal } from '@codemirror/legacy-modes/mode/pascal'
-import { vb } from '@codemirror/legacy-modes/mode/vb'
-import { vbScript } from '@codemirror/legacy-modes/mode/vbscript'
-import { octave } from '@codemirror/legacy-modes/mode/octave'
-import { scheme } from '@codemirror/legacy-modes/mode/scheme'
-import { commonLisp } from '@codemirror/legacy-modes/mode/commonlisp'
-import { sass } from '@codemirror/legacy-modes/mode/sass'
-import { stylus } from '@codemirror/legacy-modes/mode/stylus'
-import { pug } from '@codemirror/legacy-modes/mode/pug'
-import { coffeeScript } from '@codemirror/legacy-modes/mode/coffeescript'
-import { elm } from '@codemirror/legacy-modes/mode/elm'
-import { nginx } from '@codemirror/legacy-modes/mode/nginx'
-import { r } from '@codemirror/legacy-modes/mode/r'
-import { d as dLang } from '@codemirror/legacy-modes/mode/d'
-import { crystal } from '@codemirror/legacy-modes/mode/crystal'
-import { verilog } from '@codemirror/legacy-modes/mode/verilog'
-import { vhdl } from '@codemirror/legacy-modes/mode/vhdl'
-import { tcl } from '@codemirror/legacy-modes/mode/tcl'
-import { puppet } from '@codemirror/legacy-modes/mode/puppet'
-import { nsis } from '@codemirror/legacy-modes/mode/nsis'
+import { powerShell } from '@codemirror/legacy-modes/mode/powershell';
+import { clojure } from '@codemirror/legacy-modes/mode/clojure';
+import { erlang } from '@codemirror/legacy-modes/mode/erlang';
+import { julia } from '@codemirror/legacy-modes/mode/julia';
+import { oCaml, fSharp, sml } from '@codemirror/legacy-modes/mode/mllike';
+import { fortran } from '@codemirror/legacy-modes/mode/fortran';
+import { pascal } from '@codemirror/legacy-modes/mode/pascal';
+import { vb } from '@codemirror/legacy-modes/mode/vb';
+import { vbScript } from '@codemirror/legacy-modes/mode/vbscript';
+import { octave } from '@codemirror/legacy-modes/mode/octave';
+import { scheme } from '@codemirror/legacy-modes/mode/scheme';
+import { commonLisp } from '@codemirror/legacy-modes/mode/commonlisp';
+import { sass } from '@codemirror/legacy-modes/mode/sass';
+import { stylus } from '@codemirror/legacy-modes/mode/stylus';
+import { pug } from '@codemirror/legacy-modes/mode/pug';
+import { coffeeScript } from '@codemirror/legacy-modes/mode/coffeescript';
+import { elm } from '@codemirror/legacy-modes/mode/elm';
+import { nginx } from '@codemirror/legacy-modes/mode/nginx';
+import { r } from '@codemirror/legacy-modes/mode/r';
+import { d as dLang } from '@codemirror/legacy-modes/mode/d';
+import { crystal } from '@codemirror/legacy-modes/mode/crystal';
+import { verilog } from '@codemirror/legacy-modes/mode/verilog';
+import { vhdl } from '@codemirror/legacy-modes/mode/vhdl';
+import { tcl } from '@codemirror/legacy-modes/mode/tcl';
+import { puppet } from '@codemirror/legacy-modes/mode/puppet';
+import { nsis } from '@codemirror/legacy-modes/mode/nsis';
 
 // ============================================
 // Language Support
@@ -300,27 +301,27 @@ const languageMap: Record<string, () => LanguageSupport | Extension> = {
   pp: () => StreamLanguage.define(puppet),
   nsis: () => StreamLanguage.define(nsis),
   nsh: () => StreamLanguage.define(nsis),
-}
+};
 
 /**
  * Get language support for a given language name or file extension
  */
 export function getLanguageSupport(language?: string): Extension | null {
-  if (!language) return null
+  if (!language) return null;
 
-  const normalizedLang = language.toLowerCase().replace(/^\./, '')
-  const languageFactory = languageMap[normalizedLang]
+  const normalizedLang = language.toLowerCase().replace(/^\./, '');
+  const languageFactory = languageMap[normalizedLang];
 
   if (languageFactory) {
     try {
-      return languageFactory()
+      return languageFactory();
     } catch (err) {
-      console.warn(`[codemirror-setup] Failed to load language: ${language}`, err)
-      return null
+      console.warn(`[codemirror-setup] Failed to load language: ${language}`, err);
+      return null;
     }
   }
 
-  return null
+  return null;
 }
 
 // ============================================
@@ -330,17 +331,17 @@ export function getLanguageSupport(language?: string): Extension | null {
 /**
  * Compartment for read-only mode toggle
  */
-export const readOnlyCompartment = new Compartment()
+export const readOnlyCompartment = new Compartment();
 
 /**
  * Compartment for language (can be changed dynamically)
  */
-export const languageCompartment = new Compartment()
+export const languageCompartment = new Compartment();
 
 /**
  * Compartment for theme (can be changed dynamically)
  */
-export const themeCompartment = new Compartment()
+export const themeCompartment = new Compartment();
 
 // ============================================
 // Base Extensions
@@ -385,17 +386,11 @@ export function getBaseExtensions(): Extension[] {
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 
     // Keymaps
-    keymap.of([
-      ...defaultKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...foldKeymap,
-      indentWithTab,
-    ]),
+    keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
 
     // Indent on input (when editable)
     indentOnInput(),
-  ]
+  ];
 }
 
 // ============================================
@@ -404,22 +399,22 @@ export function getBaseExtensions(): Extension[] {
 
 export interface CreateEditorStateOptions {
   /** Initial document content */
-  doc: string
+  doc: string;
   /** Language for syntax highlighting */
-  language?: string
+  language?: string;
   /** Read-only mode (default: true) */
-  readOnly?: boolean
+  readOnly?: boolean;
   /** Additional extensions */
-  extensions?: Extension[]
+  extensions?: Extension[];
 }
 
 /**
  * Create a new EditorState with AICO-Bot's default configuration
  */
 export function createEditorState(options: CreateEditorStateOptions): EditorState {
-  const { doc, language, readOnly = true, extensions = [] } = options
+  const { doc, language, readOnly = true, extensions = [] } = options;
 
-  const languageExt = getLanguageSupport(language)
+  const languageExt = getLanguageSupport(language);
 
   return EditorState.create({
     doc,
@@ -435,7 +430,7 @@ export function createEditorState(options: CreateEditorStateOptions): EditorStat
       // Additional extensions
       ...extensions,
     ],
-  })
+  });
 }
 
 // ============================================
@@ -448,17 +443,17 @@ export function createEditorState(options: CreateEditorStateOptions): EditorStat
 export function setReadOnly(view: EditorView, readOnly: boolean): void {
   view.dispatch({
     effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
-  })
+  });
 }
 
 /**
  * Change the language of an EditorView
  */
 export function setLanguage(view: EditorView, language?: string): void {
-  const languageExt = getLanguageSupport(language)
+  const languageExt = getLanguageSupport(language);
   view.dispatch({
     effects: languageCompartment.reconfigure(languageExt || []),
-  })
+  });
 }
 
 /**
@@ -467,14 +462,14 @@ export function setLanguage(view: EditorView, language?: string): void {
 export function setTheme(view: EditorView, theme: Extension): void {
   view.dispatch({
     effects: themeCompartment.reconfigure(theme),
-  })
+  });
 }
 
 /**
  * Get the current document content
  */
 export function getContent(view: EditorView): string {
-  return view.state.doc.toString()
+  return view.state.doc.toString();
 }
 
 /**
@@ -487,12 +482,12 @@ export function setContent(view: EditorView, content: string): void {
       to: view.state.doc.length,
       insert: content,
     },
-  })
+  });
 }
 
 /**
  * Check if document has been modified
  */
 export function hasChanges(view: EditorView, originalContent: string): boolean {
-  return view.state.doc.toString() !== originalContent
+  return view.state.doc.toString() !== originalContent;
 }

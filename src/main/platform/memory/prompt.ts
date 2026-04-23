@@ -14,7 +14,7 @@
  * @returns Markdown-formatted prompt fragment
  */
 export function generatePromptInstructions(): string {
-  return MEMORY_INSTRUCTIONS
+  return MEMORY_INSTRUCTIONS;
 }
 
 // ============================================================================
@@ -173,4 +173,4 @@ Your memory directory has two types of archive files:
 **\`# History\`** grows naturally — the system handles compaction when memory.md
 exceeds its size threshold. Old History entries are archived automatically.
 You do not need to manage History size.
-`.trim()
+`.trim();

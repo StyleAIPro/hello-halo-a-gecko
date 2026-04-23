@@ -3,16 +3,19 @@
  * Handles AI agent interactions with tool calling support
  */
 
-import { app, BrowserWindow } from 'electron'
-import { join, dirname } from 'path'
-import { existsSync, mkdirSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'fs'
-import { getConfig, getTempSpacePath, onApiConfigChange } from './config.service'
-import { getConversation, saveSessionId, addMessage, updateLastMessage } from './conversation.service'
-import { getSpace } from './space.service'
+import type { BrowserWindow } from 'electron';
+import { app } from 'electron';
+import { join, dirname } from 'path';
+import { existsSync, mkdirSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'fs';
+import { getConfig, getTempSpacePath, onApiConfigChange } from './config.service';
 import {
-  query as claudeQuery,
-  unstable_v2_createSession
-} from '@anthropic-ai/claude-agent-sdk'
+  getConversation,
+  saveSessionId,
+  addMessage,
+  updateLastMessage,
+} from './conversation.service';
+import { getSpace } from './space.service';
+import { query as claudeQuery, unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 
 /**
  * SDK Patch Notes (patches/@anthropic-ai+claude-agent-sdk+0.1.76.patch)
@@ -49,28 +52,24 @@ import {
  * - V2 Session interrupt method
  * - includePartialMessages configuration
  */
-import { broadcastToAll, broadcastToWebSocket } from '../http/websocket'
-import { ensureOpenAICompatRouter, encodeBackendConfig } from '../openai-compat-router'
-import {
-  isAIBrowserTool,
-  AI_BROWSER_SYSTEM_PROMPT,
-  createAIBrowserMcpServer
-} from './ai-browser'
-import { getAISourceManager } from './ai-sources'
+import { broadcastToAll, broadcastToWebSocket } from '../http/websocket';
+import { ensureOpenAICompatRouter, encodeBackendConfig } from '../openai-compat-router';
+import { isAIBrowserTool, AI_BROWSER_SYSTEM_PROMPT, createAIBrowserMcpServer } from './ai-browser';
+import { getAISourceManager } from './ai-sources';
 
 /**
  * API credentials for agent requests
  * Unified structure for custom API and OAuth sources
  */
 interface ApiCredentials {
-  baseUrl: string
-  apiKey: string
-  model: string
-  provider: 'anthropic' | 'openai' | 'oauth'
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  provider: 'anthropic' | 'openai' | 'oauth';
   /** Custom headers for OAuth providers */
-  customHeaders?: Record<string, string>
+  customHeaders?: Record<string, string>;
   /** API type for OpenAI compatible providers */
-  apiType?: 'chat_completions' | 'responses'
+  apiType?: 'chat_completions' | 'responses';
 }
 
 /**
@@ -79,51 +78,63 @@ interface ApiCredentials {
  * Now uses AISourceManager for unified access
  */
 async function getApiCredentials(config: ReturnType<typeof getConfig>): Promise<ApiCredentials> {
-  const manager = getAISourceManager()
-  await manager.ensureInitialized()
+  const manager = getAISourceManager();
+  await manager.ensureInitialized();
 
   // Debug logging
-  console.log('[AgentService] getApiCredentials called')
+  console.log('[AgentService] getApiCredentials called');
 
   // Ensure token is valid for OAuth providers
-  const aiSources = (config as any).aiSources
-  const currentSource = aiSources?.current || 'custom'
+  const aiSources = (config as any).aiSources;
+  const currentSource = aiSources?.current || 'custom';
 
-  console.log('[AgentService] currentSource:', currentSource)
-  console.log('[AgentService] aiSources:', JSON.stringify({
-    current: aiSources?.current,
-    hasCustom: !!aiSources?.custom?.apiKey
-  }, null, 2))
+  console.log('[AgentService] currentSource:', currentSource);
+  console.log(
+    '[AgentService] aiSources:',
+    JSON.stringify(
+      {
+        current: aiSources?.current,
+        hasCustom: !!aiSources?.custom?.apiKey,
+      },
+      null,
+      2,
+    ),
+  );
 
   // Check if current source is an OAuth provider (not 'custom')
   if (currentSource !== 'custom') {
-    console.log('[AgentService] Checking OAuth token validity for:', currentSource)
-    const tokenResult = await manager.ensureValidToken(currentSource)
-    console.log('[AgentService] Token check result:', tokenResult.success)
+    console.log('[AgentService] Checking OAuth token validity for:', currentSource);
+    const tokenResult = await manager.ensureValidToken(currentSource);
+    console.log('[AgentService] Token check result:', tokenResult.success);
     if (!tokenResult.success) {
-      throw new Error('OAuth token expired or invalid. Please login again.')
+      throw new Error('OAuth token expired or invalid. Please login again.');
     }
   }
 
   // Get backend config from manager
-  console.log('[AgentService] Calling manager.getBackendConfig()')
-  const backendConfig = manager.getBackendConfig()
-  console.log('[AgentService] backendConfig:', backendConfig ? { url: backendConfig.url, model: backendConfig.model, hasKey: !!backendConfig.key } : null)
+  console.log('[AgentService] Calling manager.getBackendConfig()');
+  const backendConfig = manager.getBackendConfig();
+  console.log(
+    '[AgentService] backendConfig:',
+    backendConfig
+      ? { url: backendConfig.url, model: backendConfig.model, hasKey: !!backendConfig.key }
+      : null,
+  );
 
   if (!backendConfig) {
-    throw new Error('No AI source configured. Please configure an API key or login.')
+    throw new Error('No AI source configured. Please configure an API key or login.');
   }
 
   // Determine provider type
-  let provider: 'anthropic' | 'openai' | 'oauth'
+  let provider: 'anthropic' | 'openai' | 'oauth';
 
   if (currentSource !== 'custom') {
-    provider = 'oauth'
-    console.log(`[Agent] Using OAuth provider ${currentSource} via AISourceManager`)
+    provider = 'oauth';
+    console.log(`[Agent] Using OAuth provider ${currentSource} via AISourceManager`);
   } else {
     // Custom API - check provider from config
-    provider = aiSources?.custom?.provider === 'openai' ? 'openai' : 'anthropic'
-    console.log(`[Agent] Using custom API (${provider}) via AISourceManager`)
+    provider = aiSources?.custom?.provider === 'openai' ? 'openai' : 'anthropic';
+    console.log(`[Agent] Using custom API (${provider}) via AISourceManager`);
   }
 
   return {
@@ -132,12 +143,12 @@ async function getApiCredentials(config: ReturnType<typeof getConfig>): Promise<
     model: backendConfig.model || 'claude-opus-4-5-20251101',
     provider,
     customHeaders: backendConfig.headers,
-    apiType: backendConfig.apiType
-  }
+    apiType: backendConfig.apiType,
+  };
 }
 
 // Cached path to headless Electron binary (outside .app bundle to prevent Dock icon on macOS)
-let headlessElectronPath: string | null = null
+let headlessElectronPath: string | null = null;
 
 /**
  * Get the path to the headless Electron binary.
@@ -161,89 +172,97 @@ let headlessElectronPath: string | null = null
 function getHeadlessElectronPath(): string {
   // Return cached path if already set up
   if (headlessElectronPath && existsSync(headlessElectronPath)) {
-    return headlessElectronPath
+    return headlessElectronPath;
   }
 
-  const electronPath = process.execPath
+  const electronPath = process.execPath;
 
   // On non-macOS platforms or if not inside .app bundle, use original path
   if (process.platform !== 'darwin' || !electronPath.includes('.app/')) {
-    headlessElectronPath = electronPath
-    console.log('[Agent] Using original Electron path (not macOS or not .app bundle):', headlessElectronPath)
-    return headlessElectronPath
+    headlessElectronPath = electronPath;
+    console.log(
+      '[Agent] Using original Electron path (not macOS or not .app bundle):',
+      headlessElectronPath,
+    );
+    return headlessElectronPath;
   }
 
   // macOS: Create symlink to Electron binary outside .app bundle to prevent Dock icon
   try {
     // Use app's userData path for the symlink (persistent across sessions)
-    const userDataPath = app.getPath('userData')
-    const headlessDir = join(userDataPath, 'headless-electron')
-    const headlessSymlinkPath = join(headlessDir, 'electron-node')
+    const userDataPath = app.getPath('userData');
+    const headlessDir = join(userDataPath, 'headless-electron');
+    const headlessSymlinkPath = join(headlessDir, 'electron-node');
 
     // Create directory if needed
     if (!existsSync(headlessDir)) {
-      mkdirSync(headlessDir, { recursive: true })
+      mkdirSync(headlessDir, { recursive: true });
     }
 
     // Check if symlink exists and points to correct target
-    let needsSymlink = true
+    let needsSymlink = true;
 
     if (existsSync(headlessSymlinkPath)) {
       try {
-        const stat = lstatSync(headlessSymlinkPath)
+        const stat = lstatSync(headlessSymlinkPath);
         if (stat.isSymbolicLink()) {
-          const currentTarget = readlinkSync(headlessSymlinkPath)
+          const currentTarget = readlinkSync(headlessSymlinkPath);
           if (currentTarget === electronPath) {
-            needsSymlink = false
+            needsSymlink = false;
           } else {
             // Symlink exists but points to wrong target, remove it
-            console.log('[Agent] Symlink target changed, recreating...')
-            unlinkSync(headlessSymlinkPath)
+            console.log('[Agent] Symlink target changed, recreating...');
+            unlinkSync(headlessSymlinkPath);
           }
         } else {
           // Not a symlink (maybe old copy), remove it
-          console.log('[Agent] Removing old non-symlink file...')
-          unlinkSync(headlessSymlinkPath)
+          console.log('[Agent] Removing old non-symlink file...');
+          unlinkSync(headlessSymlinkPath);
         }
       } catch {
         // If we can't read it, try to remove and recreate
         try {
-          unlinkSync(headlessSymlinkPath)
-        } catch { /* ignore */ }
+          unlinkSync(headlessSymlinkPath);
+        } catch {
+          /* ignore */
+        }
       }
     }
 
     if (needsSymlink) {
-      console.log('[Agent] Creating symlink for headless Electron mode...')
-      console.log('[Agent] Target:', electronPath)
-      console.log('[Agent] Symlink:', headlessSymlinkPath)
+      console.log('[Agent] Creating symlink for headless Electron mode...');
+      console.log('[Agent] Target:', electronPath);
+      console.log('[Agent] Symlink:', headlessSymlinkPath);
 
-      symlinkSync(electronPath, headlessSymlinkPath)
+      symlinkSync(electronPath, headlessSymlinkPath);
 
-      console.log('[Agent] Symlink created successfully')
+      console.log('[Agent] Symlink created successfully');
     }
 
-    headlessElectronPath = headlessSymlinkPath
-    console.log('[Agent] Using headless Electron symlink:', headlessElectronPath)
-    return headlessElectronPath
+    headlessElectronPath = headlessSymlinkPath;
+    console.log('[Agent] Using headless Electron symlink:', headlessElectronPath);
+    return headlessElectronPath;
   } catch (error) {
     // Fallback to original path if symlink fails
-    console.error('[Agent] Failed to set up headless Electron symlink, falling back to original:', error)
-    headlessElectronPath = electronPath
-    return headlessElectronPath
+    console.error(
+      '[Agent] Failed to set up headless Electron symlink, falling back to original:',
+      error,
+    );
+    headlessElectronPath = electronPath;
+    return headlessElectronPath;
   }
 }
 
 // Image attachment type (matches renderer types)
-type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 interface ImageAttachment {
-  id: string
-  type: 'image'
-  mediaType: ImageMediaType
-  data: string  // Base64 encoded
-  name?: string
-  size?: number
+  id: string;
+  type: 'image';
+  mediaType: ImageMediaType;
+  data: string; // Base64 encoded
+  name?: string;
+  size?: number;
 }
 
 /**
@@ -251,102 +270,105 @@ interface ImageAttachment {
  * This allows AI to naturally understand what the user is currently viewing
  */
 interface CanvasContext {
-  isOpen: boolean
-  tabCount: number
+  isOpen: boolean;
+  tabCount: number;
   activeTab: {
-    type: string  // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
-    title: string
-    url?: string   // For browser/pdf tabs
-    path?: string  // For file tabs
-  } | null
+    type: string; // 'browser' | 'code' | 'markdown' | 'image' | 'pdf' | 'text' | 'json' | 'csv'
+    title: string;
+    url?: string; // For browser/pdf tabs
+    path?: string; // For file tabs
+  } | null;
   tabs: Array<{
-    type: string
-    title: string
-    url?: string
-    path?: string
-    isActive: boolean
-  }>
+    type: string;
+    title: string;
+    url?: string;
+    path?: string;
+    isActive: boolean;
+  }>;
 }
 
 interface AgentRequest {
-  spaceId: string
-  conversationId: string
-  message: string
-  resumeSessionId?: string
-  images?: ImageAttachment[]  // Optional images for multi-modal messages
-  aiBrowserEnabled?: boolean  // Enable AI Browser tools for this request
-  thinkingEnabled?: boolean  // Enable extended thinking mode (maxThinkingTokens: 10240)
-  model?: string  // Model to use (for future model switching)
-  canvasContext?: CanvasContext  // Current canvas state for AI awareness
+  spaceId: string;
+  conversationId: string;
+  message: string;
+  resumeSessionId?: string;
+  images?: ImageAttachment[]; // Optional images for multi-modal messages
+  aiBrowserEnabled?: boolean; // Enable AI Browser tools for this request
+  thinkingEnabled?: boolean; // Enable extended thinking mode (maxThinkingTokens: 10240)
+  model?: string; // Model to use (for future model switching)
+  canvasContext?: CanvasContext; // Current canvas state for AI awareness
 }
 
 interface ToolCall {
-  id: string
-  name: string
-  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval'
-  input: Record<string, unknown>
-  output?: string
-  error?: string
-  progress?: number
-  requiresApproval?: boolean
-  description?: string
+  id: string;
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval';
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  progress?: number;
+  requiresApproval?: boolean;
+  description?: string;
 }
 
 // Thought types for the agent's reasoning process
-type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error'
+type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error';
 
 interface Thought {
-  id: string
-  type: ThoughtType
-  content: string
-  timestamp: string
-  toolName?: string
-  toolInput?: Record<string, unknown>
-  toolOutput?: string
-  isError?: boolean
-  duration?: number
+  id: string;
+  type: ThoughtType;
+  content: string;
+  timestamp: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  isError?: boolean;
+  duration?: number;
 }
 
 // Multi-session support: Map of conversationId -> session state
 interface SessionState {
-  abortController: AbortController
-  spaceId: string
-  conversationId: string
-  pendingPermissionResolve: ((approved: boolean) => void) | null
-  thoughts: Thought[]  // Backend accumulates thoughts (Single Source of Truth)
+  abortController: AbortController;
+  spaceId: string;
+  conversationId: string;
+  pendingPermissionResolve: ((approved: boolean) => void) | null;
+  thoughts: Thought[]; // Backend accumulates thoughts (Single Source of Truth)
 }
 
-const activeSessions = new Map<string, SessionState>()
+const activeSessions = new Map<string, SessionState>();
 
 // V2 Session management: Map of conversationId -> persistent V2 session
 // Note: SDK types are unstable after patching (return values may not be Promise<...>),
 // using minimal interface for type safety and maintainability, avoiding inference to never.
 type V2SDKSession = {
-  send: (message: any) => void
-  stream: () => AsyncIterable<any>
-  close: () => void
-  interrupt?: () => Promise<void> | void
+  send: (message: any) => void;
+  stream: () => AsyncIterable<any>;
+  close: () => void;
+  interrupt?: () => Promise<void> | void;
   // Dynamic runtime methods (exposed via patch)
-  setModel?: (model: string | undefined) => Promise<void>
-  setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>
-  setPermissionMode?: (mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan') => Promise<void>
-}
+  setModel?: (model: string | undefined) => Promise<void>;
+  setMaxThinkingTokens?: (maxThinkingTokens: number | null) => Promise<void>;
+  setPermissionMode?: (
+    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan',
+  ) => Promise<void>;
+};
 
 function inferOpenAIWireApi(apiUrl: string): 'responses' | 'chat_completions' {
   // 1. Check environment variable override
-  const envApiType = process.env.HALO_OPENAI_API_TYPE || process.env.HALO_OPENAI_WIRE_API
+  const envApiType = process.env.HALO_OPENAI_API_TYPE || process.env.HALO_OPENAI_WIRE_API;
   if (envApiType) {
-    const v = envApiType.toLowerCase()
-    if (v.includes('response')) return 'responses'
-    if (v.includes('chat')) return 'chat_completions'
+    const v = envApiType.toLowerCase();
+    if (v.includes('response')) return 'responses';
+    if (v.includes('chat')) return 'chat_completions';
   }
   // 2. Infer from URL
   if (apiUrl) {
-    if (apiUrl.includes('/chat/completions') || apiUrl.includes('/chat_completions')) return 'chat_completions'
-    if (apiUrl.includes('/responses')) return 'responses'
+    if (apiUrl.includes('/chat/completions') || apiUrl.includes('/chat_completions'))
+      return 'chat_completions';
+    if (apiUrl.includes('/responses')) return 'responses';
   }
   // 3. Default to chat_completions (most common for third-party providers)
-  return 'chat_completions'
+  return 'chat_completions';
 }
 
 /**
@@ -354,45 +376,45 @@ function inferOpenAIWireApi(apiUrl: string): 'responses' | 'chat_completions' {
  * These are "process-level" parameters fixed at Claude Code subprocess startup
  */
 interface SessionConfig {
-  aiBrowserEnabled: boolean
+  aiBrowserEnabled: boolean;
   // model is now dynamic, no rebuild needed
   // thinkingEnabled is now dynamic, no rebuild needed
 }
 
 interface V2SessionInfo {
-  session: V2SDKSession
-  spaceId: string
-  conversationId: string
-  createdAt: number
-  lastUsedAt: number
+  session: V2SDKSession;
+  spaceId: string;
+  conversationId: string;
+  createdAt: number;
+  lastUsedAt: number;
   // Track config at session creation time for rebuild detection
-  config: SessionConfig
+  config: SessionConfig;
 }
 
-const v2Sessions = new Map<string, V2SessionInfo>()
+const v2Sessions = new Map<string, V2SessionInfo>();
 
 // Session cleanup interval (clean up sessions not used for 30 minutes)
-const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
-let cleanupIntervalId: NodeJS.Timeout | null = null
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+let cleanupIntervalId: NodeJS.Timeout | null = null;
 
 function startSessionCleanup(): void {
-  if (cleanupIntervalId) return
+  if (cleanupIntervalId) return;
 
   cleanupIntervalId = setInterval(() => {
-    const now = Date.now()
+    const now = Date.now();
     // Avoid TS downlevelIteration requirement (main process tsconfig doesn't force target=es2015)
     for (const [convId, info] of Array.from(v2Sessions.entries())) {
       if (now - info.lastUsedAt > SESSION_IDLE_TIMEOUT_MS) {
-        console.log(`[Agent] Cleaning up idle V2 session: ${convId}`)
+        console.log(`[Agent] Cleaning up idle V2 session: ${convId}`);
         try {
-          info.session.close()
+          info.session.close();
         } catch (e) {
-          console.error(`[Agent] Error closing session ${convId}:`, e)
+          console.error(`[Agent] Error closing session ${convId}:`, e);
         }
-        v2Sessions.delete(convId)
+        v2Sessions.delete(convId);
       }
     }
-  }, 60 * 1000) // Check every minute
+  }, 60 * 1000); // Check every minute
 }
 
 /**
@@ -401,13 +423,16 @@ function startSessionCleanup(): void {
  */
 function formatCanvasContext(canvasContext?: CanvasContext): string {
   if (!canvasContext?.isOpen || canvasContext.tabCount === 0) {
-    return ''
+    return '';
   }
 
-  const activeTab = canvasContext.activeTab
+  const activeTab = canvasContext.activeTab;
   const tabsSummary = canvasContext.tabs
-    .map(t => `${t.isActive ? '▶ ' : '  '}${t.title} (${t.type})${t.path ? ` - ${t.path}` : ''}${t.url ? ` - ${t.url}` : ''}`)
-    .join('\n')
+    .map(
+      (t) =>
+        `${t.isActive ? '▶ ' : '  '}${t.title} (${t.type})${t.path ? ` - ${t.path}` : ''}${t.url ? ` - ${t.url}` : ''}`,
+    )
+    .join('\n');
 
   return `<aico_bot_canvas>
 Content canvas currently open in AICO-Bot:
@@ -419,7 +444,7 @@ All tabs:
 ${tabsSummary}
 </aico_bot_canvas>
 
-`
+`;
 }
 
 /**
@@ -427,22 +452,22 @@ ${tabsSummary}
  * Only "process-level" params need rebuild; runtime params use setXxx() methods
  */
 function needsSessionRebuild(existing: V2SessionInfo, newConfig: SessionConfig): boolean {
-  return existing.config.aiBrowserEnabled !== newConfig.aiBrowserEnabled
+  return existing.config.aiBrowserEnabled !== newConfig.aiBrowserEnabled;
 }
 
 /**
  * Close and remove an existing V2 session (internal helper for rebuild)
  */
 function closeV2SessionForRebuild(conversationId: string): void {
-  const existing = v2Sessions.get(conversationId)
+  const existing = v2Sessions.get(conversationId);
   if (existing) {
-    console.log(`[Agent][${conversationId}] Closing V2 session for rebuild`)
+    console.log(`[Agent][${conversationId}] Closing V2 session for rebuild`);
     try {
-      existing.session.close()
+      existing.session.close();
     } catch (e) {
-      console.error(`[Agent][${conversationId}] Error closing session:`, e)
+      console.error(`[Agent][${conversationId}] Error closing session:`, e);
     }
-    v2Sessions.delete(conversationId)
+    v2Sessions.delete(conversationId);
   }
 }
 
@@ -462,42 +487,44 @@ async function getOrCreateV2Session(
   conversationId: string,
   sdkOptions: Record<string, any>,
   sessionId?: string,
-  config?: SessionConfig
+  config?: SessionConfig,
 ): Promise<V2SessionInfo['session']> {
   // Check if we have an existing session for this conversation
-  const existing = v2Sessions.get(conversationId)
+  const existing = v2Sessions.get(conversationId);
   if (existing) {
     // Check if config changed and requires rebuild
     if (config && needsSessionRebuild(existing, config)) {
-      console.log(`[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${config.aiBrowserEnabled}), rebuilding session...`)
-      closeV2SessionForRebuild(conversationId)
+      console.log(
+        `[Agent][${conversationId}] Config changed (aiBrowser: ${existing.config.aiBrowserEnabled} → ${config.aiBrowserEnabled}), rebuilding session...`,
+      );
+      closeV2SessionForRebuild(conversationId);
       // Fall through to create new session
     } else {
-      console.log(`[Agent][${conversationId}] Reusing existing V2 session`)
-      existing.lastUsedAt = Date.now()
-      return existing.session
+      console.log(`[Agent][${conversationId}] Reusing existing V2 session`);
+      existing.lastUsedAt = Date.now();
+      return existing.session;
     }
   }
 
   // Create new session
   // If sessionId exists, pass resume to let CC restore history from disk
   // After first message, the process stays alive and maintains context in memory
-  console.log(`[Agent][${conversationId}] Creating new V2 session...`)
+  console.log(`[Agent][${conversationId}] Creating new V2 session...`);
   if (sessionId) {
-    console.log(`[Agent][${conversationId}] With resume: ${sessionId}`)
+    console.log(`[Agent][${conversationId}] With resume: ${sessionId}`);
   }
-  const startTime = Date.now()
+  const startTime = Date.now();
 
   // Requires SDK patch: resume parameter lets CC restore history from disk
   // Native SDK V2 Session doesn't support resume parameter
   if (sessionId) {
-    sdkOptions.resume = sessionId
+    sdkOptions.resume = sessionId;
   }
   // Requires SDK patch: native SDK ignores most sdkOptions parameters
   // Use 'as any' to bypass type check, actual params handled by patched SDK
-  const session = (await unstable_v2_createSession(sdkOptions as any)) as unknown as V2SDKSession
+  const session = (await unstable_v2_createSession(sdkOptions as any)) as unknown as V2SDKSession;
 
-  console.log(`[Agent][${conversationId}] V2 session created in ${Date.now() - startTime}ms`)
+  console.log(`[Agent][${conversationId}] V2 session created in ${Date.now() - startTime}ms`);
 
   // Store session with config
   v2Sessions.set(conversationId, {
@@ -506,13 +533,13 @@ async function getOrCreateV2Session(
     conversationId,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
-    config: config || { aiBrowserEnabled: false }
-  })
+    config: config || { aiBrowserEnabled: false },
+  });
 
   // Start cleanup if not already running
-  startSessionCleanup()
+  startSessionCleanup();
 
-  return session
+  return session;
 }
 
 /**
@@ -528,53 +555,55 @@ async function getOrCreateV2Session(
  *
  * Important: Parameters must be identical to sendMessage for session reliability
  */
-export async function ensureSessionWarm(
-  spaceId: string,
-  conversationId: string
-): Promise<void> {
-  const config = getConfig()
-  const workDir = getWorkingDir(spaceId)
-  const conversation = getConversation(spaceId, conversationId)
-  const sessionId = conversation?.sessionId
-  const electronPath = getHeadlessElectronPath()
+export async function ensureSessionWarm(spaceId: string, conversationId: string): Promise<void> {
+  const config = getConfig();
+  const workDir = getWorkingDir(spaceId);
+  const conversation = getConversation(spaceId, conversationId);
+  const sessionId = conversation?.sessionId;
+  const electronPath = getHeadlessElectronPath();
 
   // Create abortController - consistent with sendMessage
-  const abortController = new AbortController()
+  const abortController = new AbortController();
 
   // Get API credentials based on current aiSources configuration
-  const credentials = await getApiCredentials(config)
-  console.log(`[Agent] Session warm using: ${credentials.provider}, model: ${credentials.model}`)
+  const credentials = await getApiCredentials(config);
+  console.log(`[Agent] Session warm using: ${credentials.provider}, model: ${credentials.model}`);
 
   // Route through OpenAI compat router for non-Anthropic providers
-  let anthropicBaseUrl = credentials.baseUrl
-  let anthropicApiKey = credentials.apiKey
-  let sdkModel = credentials.model || 'claude-opus-4-5-20251101'
+  let anthropicBaseUrl = credentials.baseUrl;
+  let anthropicApiKey = credentials.apiKey;
+  let sdkModel = credentials.model || 'claude-opus-4-5-20251101';
 
   // For non-Anthropic providers (openai or oauth), use the OpenAI compat router
   if (credentials.provider !== 'anthropic') {
-    const router = await ensureOpenAICompatRouter({ debug: false })
-    anthropicBaseUrl = router.baseUrl
+    const router = await ensureOpenAICompatRouter({ debug: false });
+    anthropicBaseUrl = router.baseUrl;
 
     // Use apiType from credentials (set by provider), fallback to inference
-    const apiType = credentials.apiType
-      || (credentials.provider === 'oauth' ? 'chat_completions' : inferOpenAIWireApi(credentials.baseUrl))
+    const apiType =
+      credentials.apiType ||
+      (credentials.provider === 'oauth'
+        ? 'chat_completions'
+        : inferOpenAIWireApi(credentials.baseUrl));
 
     anthropicApiKey = encodeBackendConfig({
       url: credentials.baseUrl,
       key: credentials.apiKey,
       model: credentials.model,
       headers: credentials.customHeaders,
-      apiType
-    })
+      apiType,
+    });
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-6'
-    console.log(`[Agent] ${credentials.provider} provider enabled (warm): routing via ${anthropicBaseUrl}, apiType=${apiType}`)
+    sdkModel = 'claude-sonnet-4-6';
+    console.log(
+      `[Agent] ${credentials.provider} provider enabled (warm): routing via ${anthropicBaseUrl}, apiType=${apiType}`,
+    );
   }
 
   const sdkOptions: Record<string, any> = {
     model: sdkModel,
     cwd: workDir,
-    abortController,  // Consistent with sendMessage
+    abortController, // Consistent with sendMessage
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: 1,
@@ -587,73 +616,74 @@ export async function ensureSessionWarm(
       // Disable unnecessary API requests
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       DISABLE_TELEMETRY: '1',
-      DISABLE_COST_WARNINGS: '1'
+      DISABLE_COST_WARNINGS: '1',
     },
     extraArgs: {
-      'dangerously-skip-permissions': null
+      'dangerously-skip-permissions': null,
     },
-    stderr: (data: string) => {  // Consistent with sendMessage
-      console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data)
+    stderr: (data: string) => {
+      // Consistent with sendMessage
+      console.error(`[Agent][${conversationId}] CLI stderr (warm):`, data);
     },
     systemPrompt: {
       type: 'preset' as const,
       preset: 'claude_code' as const,
-      append: buildSystemPromptAppend(workDir, credentials.model)
+      append: buildSystemPromptAppend(workDir, credentials.model),
     },
     maxTurns: 50,
     allowedTools: ['Read', 'Write', 'Edit', 'Grep', 'Glob', 'Bash'],
     permissionMode: 'acceptEdits' as const,
-    canUseTool: createCanUseTool(workDir, spaceId, conversationId),  // Consistent with sendMessage
+    canUseTool: createCanUseTool(workDir, spaceId, conversationId), // Consistent with sendMessage
     includePartialMessages: true,
     executable: electronPath,
     executableArgs: ['--no-warnings'],
     // MCP servers configuration - pass through enabled servers only
-    ...((() => {
-      const enabledMcp = getEnabledMcpServers(config.mcpServers || {})
-      return enabledMcp ? { mcpServers: enabledMcp } : {}
-    })())
-  }
+    ...(() => {
+      const enabledMcp = getEnabledMcpServers(config.mcpServers || {});
+      return enabledMcp ? { mcpServers: enabledMcp } : {};
+    })(),
+  };
 
   try {
-    console.log(`[Agent] Warming up V2 session: ${conversationId}`)
-    await getOrCreateV2Session(spaceId, conversationId, sdkOptions, sessionId)
-    console.log(`[Agent] V2 session warmed up: ${conversationId}`)
+    console.log(`[Agent] Warming up V2 session: ${conversationId}`);
+    await getOrCreateV2Session(spaceId, conversationId, sdkOptions, sessionId);
+    console.log(`[Agent] V2 session warmed up: ${conversationId}`);
   } catch (error) {
-    console.error(`[Agent] Failed to warm up session ${conversationId}:`, error)
+    console.error(`[Agent] Failed to warm up session ${conversationId}:`, error);
     // Don't throw on warm-up failure, sendMessage() will reinitialize (just slower)
   }
 }
 
 // Close V2 session for a conversation
 export function closeV2Session(conversationId: string): void {
-  const info = v2Sessions.get(conversationId)
+  const info = v2Sessions.get(conversationId);
   if (info) {
-    console.log(`[Agent][${conversationId}] Closing V2 session`)
+    console.log(`[Agent][${conversationId}] Closing V2 session`);
     try {
-      info.session.close()
+      info.session.close();
     } catch (e) {
-      console.error(`[Agent] Error closing session:`, e)
+      console.error(`[Agent] Error closing session:`, e);
     }
-    v2Sessions.delete(conversationId)
+    v2Sessions.delete(conversationId);
   }
 }
 
 // Close all V2 sessions (for app shutdown)
 export function closeAllV2Sessions(): void {
-  console.log(`[Agent] Closing all ${v2Sessions.size} V2 sessions`)
+  console.log(`[Agent] Closing all ${v2Sessions.size} V2 sessions`);
   // Avoid TS downlevelIteration requirement
   for (const [convId, info] of Array.from(v2Sessions.entries())) {
     try {
-      info.session.close()
+      info.session.close();
     } catch (e) {
-      console.error(`[Agent] Error closing session ${convId}:`, e)
+      console.error(`[Agent] Error closing session ${convId}:`, e);
     }
   }
-  v2Sessions.clear()
+  v2Sessions.clear();
 
   if (cleanupIntervalId) {
-    clearInterval(cleanupIntervalId)
-    cleanupIntervalId = null
+    clearInterval(cleanupIntervalId);
+    cleanupIntervalId = null;
   }
 }
 
@@ -666,69 +696,76 @@ export function closeAllV2Sessions(): void {
  * Idle sessions are closed immediately.
  */
 function invalidateAllSessions(): void {
-  const count = v2Sessions.size
+  const count = v2Sessions.size;
   if (count === 0) {
-    console.log('[Agent] No active sessions to invalidate')
-    return
+    console.log('[Agent] No active sessions to invalidate');
+    return;
   }
 
-  console.log(`[Agent] Invalidating ${count} sessions due to API config change`)
+  console.log(`[Agent] Invalidating ${count} sessions due to API config change`);
 
-  let closedCount = 0
-  let skippedCount = 0
+  let closedCount = 0;
+  let skippedCount = 0;
 
   for (const [convId, info] of Array.from(v2Sessions.entries())) {
     // Skip sessions with active conversations - don't interrupt ongoing chats
     if (activeSessions.has(convId)) {
-      console.log(`[Agent] Skipping active session: ${convId}`)
-      skippedCount++
-      continue
+      console.log(`[Agent] Skipping active session: ${convId}`);
+      skippedCount++;
+      continue;
     }
 
     try {
-      console.log(`[Agent] Closing idle session: ${convId}`)
-      info.session.close()
-      v2Sessions.delete(convId)
-      closedCount++
+      console.log(`[Agent] Closing idle session: ${convId}`);
+      info.session.close();
+      v2Sessions.delete(convId);
+      closedCount++;
     } catch (e) {
-      console.error(`[Agent] Error closing session ${convId}:`, e)
+      console.error(`[Agent] Error closing session ${convId}:`, e);
     }
   }
 
-  console.log(`[Agent] Sessions invalidated: ${closedCount} closed, ${skippedCount} active (skipped)`)
+  console.log(
+    `[Agent] Sessions invalidated: ${closedCount} closed, ${skippedCount} active (skipped)`,
+  );
 }
 
 // Register for API config change notifications
 // This is called once when the module loads
 onApiConfigChange(() => {
-  invalidateAllSessions()
-})
-let currentMainWindow: BrowserWindow | null = null
+  invalidateAllSessions();
+});
+let currentMainWindow: BrowserWindow | null = null;
 
 // Get working directory for a space
 function getWorkingDir(spaceId: string): string {
-  console.log(`[Agent] getWorkingDir called with spaceId: ${spaceId}`)
-  
+  console.log(`[Agent] getWorkingDir called with spaceId: ${spaceId}`);
+
   if (spaceId === 'aico-bot-temp') {
-    const artifactsDir = join(getTempSpacePath(), 'artifacts')
+    const artifactsDir = join(getTempSpacePath(), 'artifacts');
     if (!existsSync(artifactsDir)) {
-      mkdirSync(artifactsDir, { recursive: true })
+      mkdirSync(artifactsDir, { recursive: true });
     }
-    console.log(`[Agent] Using temp space artifacts dir: ${artifactsDir}`)
-    return artifactsDir
+    console.log(`[Agent] Using temp space artifacts dir: ${artifactsDir}`);
+    return artifactsDir;
   }
 
-  const space = getSpace(spaceId)
-  console.log(`[Agent] getSpace result:`, space ? { id: space.id, name: space.name, path: space.path, workingDir: space.workingDir } : null)
+  const space = getSpace(spaceId);
+  console.log(
+    `[Agent] getSpace result:`,
+    space
+      ? { id: space.id, name: space.name, path: space.path, workingDir: space.workingDir }
+      : null,
+  );
 
   if (space) {
-    const dir = space.workingDir || space.path
-    console.log(`[Agent] Using space working dir: ${dir}`)
-    return dir
+    const dir = space.workingDir || space.path;
+    console.log(`[Agent] Using space working dir: ${dir}`);
+    return dir;
   }
 
-  console.log(`[Agent] WARNING: Space not found, falling back to temp path`)
-  return getTempSpacePath()
+  console.log(`[Agent] WARNING: Space not found, falling back to temp path`);
+  return getTempSpacePath();
 }
 
 // ============================================
@@ -737,48 +774,48 @@ function getWorkingDir(spaceId: string): string {
 
 // MCP server status type (matches SDK)
 interface McpServerStatusInfo {
-  name: string
-  status: 'connected' | 'failed' | 'needs-auth' | 'pending'
+  name: string;
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending';
   serverInfo?: {
-    name: string
-    version: string
-  }
-  error?: string
+    name: string;
+    version: string;
+  };
+  error?: string;
 }
 
 // Cached MCP status - updated when SDK reports status during conversation
-let cachedMcpStatus: McpServerStatusInfo[] = []
-let lastMcpStatusUpdate: number = 0
+let cachedMcpStatus: McpServerStatusInfo[] = [];
+let lastMcpStatusUpdate: number = 0;
 
 // Get cached MCP status
 export function getCachedMcpStatus(): McpServerStatusInfo[] {
-  return cachedMcpStatus
+  return cachedMcpStatus;
 }
 
 // Broadcast MCP status to all renderers (global, not conversation-specific)
 function broadcastMcpStatus(mcpServers: Array<{ name: string; status: string }>): void {
   // Convert to our status type
-  cachedMcpStatus = mcpServers.map(s => ({
+  cachedMcpStatus = mcpServers.map((s) => ({
     name: s.name,
-    status: s.status as McpServerStatusInfo['status']
-  }))
-  lastMcpStatusUpdate = Date.now()
+    status: s.status as McpServerStatusInfo['status'],
+  }));
+  lastMcpStatusUpdate = Date.now();
 
   const eventData = {
     servers: cachedMcpStatus,
-    timestamp: lastMcpStatusUpdate
-  }
+    timestamp: lastMcpStatusUpdate,
+  };
 
   // 1. Send to Electron renderer via IPC (global event)
   if (currentMainWindow && !currentMainWindow.isDestroyed()) {
-    currentMainWindow.webContents.send('agent:mcp-status', eventData)
-    console.log(`[Agent] Broadcast MCP status: ${cachedMcpStatus.length} servers`)
+    currentMainWindow.webContents.send('agent:mcp-status', eventData);
+    console.log(`[Agent] Broadcast MCP status: ${cachedMcpStatus.length} servers`);
   }
 
   // 2. Broadcast to remote WebSocket clients
   try {
     // MCP status is a global event (not conversation-scoped), so send to all authenticated WS clients.
-    broadcastToAll('agent:mcp-status', eventData)
+    broadcastToAll('agent:mcp-status', eventData);
   } catch (error) {
     // WebSocket module might not be initialized yet, ignore
   }
@@ -786,74 +823,81 @@ function broadcastMcpStatus(mcpServers: Array<{ name: string; status: string }>)
 
 // Test MCP connections manually
 // Starts a temporary SDK query just to get MCP status
-let mcpTestInProgress = false
+let mcpTestInProgress = false;
 
-export async function testMcpConnections(mainWindow?: BrowserWindow | null): Promise<{ success: boolean; servers: McpServerStatusInfo[]; error?: string }> {
+export async function testMcpConnections(
+  mainWindow?: BrowserWindow | null,
+): Promise<{ success: boolean; servers: McpServerStatusInfo[]; error?: string }> {
   if (mcpTestInProgress) {
-    return { success: false, servers: cachedMcpStatus, error: 'Test already in progress' }
+    return { success: false, servers: cachedMcpStatus, error: 'Test already in progress' };
   }
 
   // Set currentMainWindow if provided (for broadcasting status to renderer)
   if (mainWindow) {
-    currentMainWindow = mainWindow
+    currentMainWindow = mainWindow;
   }
 
-  mcpTestInProgress = true
-  console.log('[Agent] Starting MCP connection test...')
+  mcpTestInProgress = true;
+  console.log('[Agent] Starting MCP connection test...');
 
   try {
-    const config = getConfig()
+    const config = getConfig();
 
     // Get API credentials based on current aiSources configuration
-    const credentials = await getApiCredentials(config)
+    const credentials = await getApiCredentials(config);
     if (!credentials.apiKey && credentials.provider !== 'oauth') {
-      return { success: false, servers: [], error: 'API key not configured' }
+      return { success: false, servers: [], error: 'API key not configured' };
     }
 
     // Get enabled MCP servers from config
-    const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
+    const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {});
     if (!enabledMcpServers || Object.keys(enabledMcpServers).length === 0) {
-      return { success: true, servers: [], error: 'No MCP servers configured' }
+      return { success: true, servers: [], error: 'No MCP servers configured' };
     }
 
-    console.log('[Agent] MCP servers to test:', Object.keys(enabledMcpServers).join(', '))
+    console.log('[Agent] MCP servers to test:', Object.keys(enabledMcpServers).join(', '));
 
     // Use a temp space path for the query
-    const cwd = getTempSpacePath()
+    const cwd = getTempSpacePath();
 
     // Use the same electron path as sendMessage (prevents Dock icon on macOS)
-    const electronPath = getHeadlessElectronPath()
+    const electronPath = getHeadlessElectronPath();
 
     // Route through OpenAI compat router for non-Anthropic providers
-    let anthropicBaseUrl = credentials.baseUrl
-    let anthropicApiKey = credentials.apiKey
-    let sdkModel = credentials.model || 'claude-sonnet-4-6'
+    let anthropicBaseUrl = credentials.baseUrl;
+    let anthropicApiKey = credentials.apiKey;
+    let sdkModel = credentials.model || 'claude-sonnet-4-6';
 
     // For non-Anthropic providers (openai or oauth), use the OpenAI compat router
     if (credentials.provider !== 'anthropic') {
-      const router = await ensureOpenAICompatRouter({ debug: false })
-      anthropicBaseUrl = router.baseUrl
+      const router = await ensureOpenAICompatRouter({ debug: false });
+      anthropicBaseUrl = router.baseUrl;
 
       // Use apiType from credentials (set by provider), fallback to inference
-      const apiType = credentials.apiType
-        || (credentials.provider === 'oauth' ? 'chat_completions' : inferOpenAIWireApi(credentials.baseUrl))
+      const apiType =
+        credentials.apiType ||
+        (credentials.provider === 'oauth'
+          ? 'chat_completions'
+          : inferOpenAIWireApi(credentials.baseUrl));
 
       anthropicApiKey = encodeBackendConfig({
         url: credentials.baseUrl,
         key: credentials.apiKey,
         model: credentials.model,
         headers: credentials.customHeaders,
-        apiType
-      })
-      sdkModel = 'claude-sonnet-4-6'
-      console.log(`[Agent] MCP test: ${credentials.provider} provider enabled via ${anthropicBaseUrl}, apiType=${apiType}`)
+        apiType,
+      });
+      sdkModel = 'claude-sonnet-4-6';
+      console.log(
+        `[Agent] MCP test: ${credentials.provider} provider enabled via ${anthropicBaseUrl}, apiType=${apiType}`,
+      );
     }
 
-    console.log('[Agent] MCP test config:', JSON.stringify(enabledMcpServers, null, 2))
+    console.log('[Agent] MCP test config:', JSON.stringify(enabledMcpServers, null, 2));
 
     // Create query with proper configuration (matching sendMessage)
     // Use a simple prompt that will get a quick response
-    const abortController = new AbortController()
+    const abortController = new AbortController();
     const queryIterator = claudeQuery({
       prompt: 'hi', // Simple prompt to trigger MCP connection
       options: {
@@ -874,70 +918,72 @@ export async function testMcpConnections(mainWindow?: BrowserWindow | null): Pro
           // Disable unnecessary API requests
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
           DISABLE_TELEMETRY: '1',
-          DISABLE_COST_WARNINGS: '1'
+          DISABLE_COST_WARNINGS: '1',
         },
         permissionMode: 'bypassPermissions',
         abortController,
         mcpServers: enabledMcpServers,
-        maxTurns: 1  // Only need one turn to get MCP status
-      } as any
-    })
+        maxTurns: 1, // Only need one turn to get MCP status
+      } as any,
+    });
 
     // Iterate through messages looking for system message with MCP status
-    let foundStatus = false
+    let foundStatus = false;
     const timeoutPromise = new Promise<void>((_, reject) => {
       setTimeout(() => {
-        abortController.abort()
-        reject(new Error('MCP test timeout'))
-      }, 30000) // 30s timeout
-    })
+        abortController.abort();
+        reject(new Error('MCP test timeout'));
+      }, 30000); // 30s timeout
+    });
 
     const iteratePromise = (async () => {
       for await (const msg of queryIterator) {
-        console.log('[Agent] MCP test received msg type:', msg.type)
+        console.log('[Agent] MCP test received msg type:', msg.type);
 
         // Check for system message which contains MCP status
         if (msg.type === 'system') {
-          const mcpServers = (msg as any).mcp_servers as Array<{ name: string; status: string }> | undefined
-          console.log('[Agent] MCP test mcp_servers field:', mcpServers)
+          const mcpServers = (msg as any).mcp_servers as
+            | Array<{ name: string; status: string }>
+            | undefined;
+          console.log('[Agent] MCP test mcp_servers field:', mcpServers);
 
           if (mcpServers) {
-            console.log('[Agent] MCP test got status:', JSON.stringify(mcpServers))
-            broadcastMcpStatus(mcpServers)
-            foundStatus = true
+            console.log('[Agent] MCP test got status:', JSON.stringify(mcpServers));
+            broadcastMcpStatus(mcpServers);
+            foundStatus = true;
           }
           // After getting system message with MCP status, abort to save resources
-          abortController.abort()
-          break
+          abortController.abort();
+          break;
         }
 
         // If we get a result before system message, something is wrong
         if (msg.type === 'result') {
-          break
+          break;
         }
       }
-    })()
+    })();
 
     try {
-      await Promise.race([iteratePromise, timeoutPromise])
+      await Promise.race([iteratePromise, timeoutPromise]);
     } catch (e) {
       // Ignore abort errors, they're expected
       if ((e as Error).name !== 'AbortError') {
-        throw e
+        throw e;
       }
     }
 
     if (foundStatus) {
-      return { success: true, servers: cachedMcpStatus }
+      return { success: true, servers: cachedMcpStatus };
     } else {
-      return { success: true, servers: [], error: 'No MCP status received from SDK' }
+      return { success: true, servers: [], error: 'No MCP status received from SDK' };
     }
   } catch (error) {
-    const err = error as Error
-    console.error('[Agent] MCP test error:', err)
-    return { success: false, servers: cachedMcpStatus, error: err.message }
+    const err = error as Error;
+    console.error('[Agent] MCP test error:', err);
+    return { success: false, servers: cachedMcpStatus, error: err.message };
   } finally {
-    mcpTestInProgress = false
+    mcpTestInProgress = false;
   }
 }
 
@@ -947,72 +993,91 @@ export async function testMcpConnections(mainWindow?: BrowserWindow | null): Pro
 
 // Send event to renderer with session identifiers
 // Also broadcasts to WebSocket for remote clients
-function sendToRenderer(channel: string, spaceId: string, conversationId: string, data: Record<string, unknown>): void {
+function sendToRenderer(
+  channel: string,
+  spaceId: string,
+  conversationId: string,
+  data: Record<string, unknown>,
+): void {
   // Always include spaceId and conversationId in event data
-  const eventData = { ...data, spaceId, conversationId }
+  const eventData = { ...data, spaceId, conversationId };
 
   // 1. Send to Electron renderer via IPC
   if (currentMainWindow && !currentMainWindow.isDestroyed()) {
-    currentMainWindow.webContents.send(channel, eventData)
-    console.log(`[Agent] Sent to renderer: ${channel}`, JSON.stringify(eventData).substring(0, 200))
+    currentMainWindow.webContents.send(channel, eventData);
+    console.log(
+      `[Agent] Sent to renderer: ${channel}`,
+      JSON.stringify(eventData).substring(0, 200),
+    );
   }
 
   // 2. Broadcast to remote WebSocket clients
   try {
-    broadcastToWebSocket(channel, eventData)
+    broadcastToWebSocket(channel, eventData);
   } catch (error) {
     // WebSocket module might not be initialized yet, ignore
   }
 }
 
 // Create tool permission handler for a specific session
-function createCanUseTool(workDir: string, spaceId: string, conversationId: string): (
+function createCanUseTool(
+  workDir: string,
+  spaceId: string,
+  conversationId: string,
+): (
   toolName: string,
   input: Record<string, unknown>,
-  options: { signal: AbortSignal }
-) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Record<string, unknown>; message?: string }> {
-  const config = getConfig()
-  const path = require('path')
-  const absoluteWorkDir = path.resolve(workDir)
+  options: { signal: AbortSignal },
+) => Promise<{
+  behavior: 'allow' | 'deny';
+  updatedInput?: Record<string, unknown>;
+  message?: string;
+}> {
+  const config = getConfig();
+  const path = require('path');
+  const absoluteWorkDir = path.resolve(workDir);
 
-  console.log(`[Agent] Creating canUseTool with workDir: ${absoluteWorkDir}`)
+  console.log(`[Agent] Creating canUseTool with workDir: ${absoluteWorkDir}`);
 
   return async (
     toolName: string,
     input: Record<string, unknown>,
-    _options: { signal: AbortSignal }
+    _options: { signal: AbortSignal },
   ) => {
-    console.log(`[Agent] canUseTool called - Tool: ${toolName}, Input:`, JSON.stringify(input).substring(0, 200))
+    console.log(
+      `[Agent] canUseTool called - Tool: ${toolName}, Input:`,
+      JSON.stringify(input).substring(0, 200),
+    );
 
     // Check file path tools - restrict to working directory
-    const fileTools = ['Read', 'Write', 'Edit', 'Grep', 'Glob']
+    const fileTools = ['Read', 'Write', 'Edit', 'Grep', 'Glob'];
     if (fileTools.includes(toolName)) {
-      const pathParam = (input.file_path || input.path) as string | undefined
+      const pathParam = (input.file_path || input.path) as string | undefined;
 
       if (pathParam) {
-        const absolutePath = path.resolve(pathParam)
+        const absolutePath = path.resolve(pathParam);
         const isWithinWorkDir =
-          absolutePath.startsWith(absoluteWorkDir + path.sep) || absolutePath === absoluteWorkDir
+          absolutePath.startsWith(absoluteWorkDir + path.sep) || absolutePath === absoluteWorkDir;
 
         if (!isWithinWorkDir) {
-          console.log(`[Agent] Security: Blocked access to: ${pathParam}`)
+          console.log(`[Agent] Security: Blocked access to: ${pathParam}`);
           return {
             behavior: 'deny' as const,
-            message: `Can only access files within the current space: ${workDir}`
-          }
+            message: `Can only access files within the current space: ${workDir}`,
+          };
         }
       }
     }
 
     // Check Bash commands based on permission settings
     if (toolName === 'Bash') {
-      const permission = config.permissions.commandExecution
+      const permission = config.permissions.commandExecution;
 
       if (permission === 'deny') {
         return {
           behavior: 'deny' as const,
-          message: 'Command execution is disabled'
-        }
+          message: 'Command execution is disabled',
+        };
       }
 
       if (permission === 'ask' && !config.permissions.trustMode) {
@@ -1023,68 +1088,76 @@ function createCanUseTool(workDir: string, spaceId: string, conversationId: stri
           status: 'waiting_approval',
           input,
           requiresApproval: true,
-          description: `Execute command: ${input.command}`
-        }
+          description: `Execute command: ${input.command}`,
+        };
 
-        sendToRenderer('agent:tool-call', spaceId, conversationId, toolCall as unknown as Record<string, unknown>)
+        sendToRenderer(
+          'agent:tool-call',
+          spaceId,
+          conversationId,
+          toolCall as unknown as Record<string, unknown>,
+        );
 
         // Wait for user response using session-specific resolver
-        const session = activeSessions.get(conversationId)
+        const session = activeSessions.get(conversationId);
         if (!session) {
-          return { behavior: 'deny' as const, message: 'Session not found' }
+          return { behavior: 'deny' as const, message: 'Session not found' };
         }
 
         return new Promise((resolve) => {
           session.pendingPermissionResolve = (approved: boolean) => {
             if (approved) {
-              resolve({ behavior: 'allow' as const })
+              resolve({ behavior: 'allow' as const });
             } else {
               resolve({
                 behavior: 'deny' as const,
-                message: 'User rejected command execution'
-              })
+                message: 'User rejected command execution',
+              });
             }
-          }
-        })
+          };
+        });
       }
     }
 
     // AI Browser tools are always allowed (they run in sandboxed browser context)
     if (isAIBrowserTool(toolName)) {
-      console.log(`[Agent] AI Browser tool allowed: ${toolName}`)
-      return { behavior: 'allow' as const }
+      console.log(`[Agent] AI Browser tool allowed: ${toolName}`);
+      return { behavior: 'allow' as const };
     }
 
     // Default: allow
-    return { behavior: 'allow' as const }
-  }
+    return { behavior: 'allow' as const };
+  };
 }
 
 // Handle tool approval from renderer for a specific conversation
 export function handleToolApproval(conversationId: string, approved: boolean): void {
-  const session = activeSessions.get(conversationId)
+  const session = activeSessions.get(conversationId);
   if (session?.pendingPermissionResolve) {
-    session.pendingPermissionResolve(approved)
-    session.pendingPermissionResolve = null
+    session.pendingPermissionResolve(approved);
+    session.pendingPermissionResolve = null;
   }
 }
 
 // Build multi-modal message content for Claude API
-function buildMessageContent(text: string, images?: ImageAttachment[]): string | Array<{ type: string; [key: string]: unknown }> {
+function buildMessageContent(
+  text: string,
+  images?: ImageAttachment[],
+): string | Array<{ type: string; [key: string]: unknown }> {
   // If no images, just return plain text
   if (!images || images.length === 0) {
-    return text
+    return text;
   }
 
   // Build content blocks array for multi-modal message
-  const contentBlocks: Array<{ type: string; [key: string]: unknown }> = []
+  const contentBlocks: Array<{ type: string; [key: string]: unknown }> = [];
 
   // Add text block first (if there's text)
   if (text.trim()) {
     contentBlocks.push({
       type: 'text',
-      text: text
-    })
+      text: text,
+    });
   }
 
   // Add image blocks
@@ -1094,66 +1167,82 @@ function buildMessageContent(text: string, images?: ImageAttachment[]): string |
       source: {
         type: 'base64',
         media_type: image.mediaType,
-        data: image.data
-      }
-    })
+        data: image.data,
+      },
+    });
   }
 
-  return contentBlocks
+  return contentBlocks;
 }
 
 // Send message to agent (supports multiple concurrent sessions)
 export async function sendMessage(
   mainWindow: BrowserWindow | null,
-  request: AgentRequest
+  request: AgentRequest,
 ): Promise<void> {
-  currentMainWindow = mainWindow
+  currentMainWindow = mainWindow;
 
-  const { spaceId, conversationId, message, resumeSessionId, images, aiBrowserEnabled, thinkingEnabled, canvasContext } = request
-  console.log(`[Agent] sendMessage: conv=${conversationId}${images && images.length > 0 ? `, images=${images.length}` : ''}${aiBrowserEnabled ? ', AI Browser enabled' : ''}${thinkingEnabled ? ', thinking=ON' : ''}${canvasContext?.isOpen ? `, canvas tabs=${canvasContext.tabCount}` : ''}`)
+  const {
+    spaceId,
+    conversationId,
+    message,
+    resumeSessionId,
+    images,
+    aiBrowserEnabled,
+    thinkingEnabled,
+    canvasContext,
+  } = request;
+  console.log(
+    `[Agent] sendMessage: conv=${conversationId}${images && images.length > 0 ? `, images=${images.length}` : ''}${aiBrowserEnabled ? ', AI Browser enabled' : ''}${thinkingEnabled ? ', thinking=ON' : ''}${canvasContext?.isOpen ? `, canvas tabs=${canvasContext.tabCount}` : ''}`,
+  );
 
-  const config = getConfig()
-  const workDir = getWorkingDir(spaceId)
+  const config = getConfig();
+  const workDir = getWorkingDir(spaceId);
 
   // Get API credentials based on current aiSources configuration
-  const credentials = await getApiCredentials(config)
-  console.log(`[Agent] sendMessage using: ${credentials.provider}, model: ${credentials.model}`)
+  const credentials = await getApiCredentials(config);
+  console.log(`[Agent] sendMessage using: ${credentials.provider}, model: ${credentials.model}`);
 
   // Route through OpenAI compat router for non-Anthropic providers
-  let anthropicBaseUrl = credentials.baseUrl
-  let anthropicApiKey = credentials.apiKey
-  let sdkModel = credentials.model || 'claude-opus-4-5-20251101'
+  let anthropicBaseUrl = credentials.baseUrl;
+  let anthropicApiKey = credentials.apiKey;
+  let sdkModel = credentials.model || 'claude-opus-4-5-20251101';
 
   // For non-Anthropic providers (openai or oauth), use the OpenAI compat router
   if (credentials.provider !== 'anthropic') {
-    const router = await ensureOpenAICompatRouter({ debug: false })
-    anthropicBaseUrl = router.baseUrl
+    const router = await ensureOpenAICompatRouter({ debug: false });
+    anthropicBaseUrl = router.baseUrl;
 
     // Use apiType from credentials (set by provider), fallback to inference
-    const apiType = credentials.apiType
-      || (credentials.provider === 'oauth' ? 'chat_completions' : inferOpenAIWireApi(credentials.baseUrl))
+    const apiType =
+      credentials.apiType ||
+      (credentials.provider === 'oauth'
+        ? 'chat_completions'
+        : inferOpenAIWireApi(credentials.baseUrl));
 
     anthropicApiKey = encodeBackendConfig({
       url: credentials.baseUrl,
       key: credentials.apiKey,
       model: credentials.model,
       headers: credentials.customHeaders,
-      apiType
-    })
+      apiType,
+    });
     // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-6'
-    console.log(`[Agent] ${credentials.provider} provider enabled: routing via ${anthropicBaseUrl}, apiType=${apiType}`)
+    sdkModel = 'claude-sonnet-4-6';
+    console.log(
+      `[Agent] ${credentials.provider} provider enabled: routing via ${anthropicBaseUrl}, apiType=${apiType}`,
+    );
   }
 
   // Get conversation for session resumption
-  const conversation = getConversation(spaceId, conversationId)
-  const sessionId = resumeSessionId || conversation?.sessionId
+  const conversation = getConversation(spaceId, conversationId);
+  const sessionId = resumeSessionId || conversation?.sessionId;
 
   // Create abort controller for this session
-  const abortController = new AbortController()
+  const abortController = new AbortController();
 
   // Accumulate stderr for detailed error messages
-  let stderrBuffer = ''
+  let stderrBuffer = '';
 
   // Register this session in the active sessions map
   const sessionState: SessionState = {
@@ -1161,28 +1250,28 @@ export async function sendMessage(
     spaceId,
     conversationId,
     pendingPermissionResolve: null,
-    thoughts: []  // Initialize thoughts array for this session
-  }
-  activeSessions.set(conversationId, sessionState)
+    thoughts: [], // Initialize thoughts array for this session
+  };
+  activeSessions.set(conversationId, sessionState);
 
   // Add user message to conversation (with images if provided)
   addMessage(spaceId, conversationId, {
     role: 'user',
     content: message,
-    images: images  // Include images in the saved message
-  })
+    images: images, // Include images in the saved message
+  });
 
   // Add placeholder for assistant response
   addMessage(spaceId, conversationId, {
     role: 'assistant',
     content: '',
-    toolCalls: []
-  })
+    toolCalls: [],
+  });
 
   try {
     // Use headless Electron binary (outside .app bundle on macOS to prevent Dock icon)
-    const electronPath = getHeadlessElectronPath()
-    console.log(`[Agent] Using headless Electron as Node runtime: ${electronPath}`)
+    const electronPath = getHeadlessElectronPath();
+    console.log(`[Agent] Using headless Electron as Node runtime: ${electronPath}`);
 
     // Configure SDK options
     // Note: These parameters require SDK patch to work in V2 Session
@@ -1204,27 +1293,29 @@ export async function sendMessage(
         // Disable unnecessary API requests
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_TELEMETRY: '1',
-        DISABLE_COST_WARNINGS: '1'
+        DISABLE_COST_WARNINGS: '1',
       },
       extraArgs: {
-        'dangerously-skip-permissions': null
+        'dangerously-skip-permissions': null,
       },
       stderr: (data: string) => {
-        console.error(`[Agent][${conversationId}] CLI stderr:`, data)
-        stderrBuffer += data  // Accumulate for error reporting
+        console.error(`[Agent][${conversationId}] CLI stderr:`, data);
+        stderrBuffer += data; // Accumulate for error reporting
       },
       systemPrompt: {
         type: 'preset' as const,
         preset: 'claude_code' as const,
         // Append AI Browser system prompt if enabled
         // Pass actual model name so AI knows what model it's running on
-        append: buildSystemPromptAppend(workDir, credentials.model) + (aiBrowserEnabled ? AI_BROWSER_SYSTEM_PROMPT : '')
+        append:
+          buildSystemPromptAppend(workDir, credentials.model) +
+          (aiBrowserEnabled ? AI_BROWSER_SYSTEM_PROMPT : ''),
       },
       maxTurns: 50,
       allowedTools: ['Read', 'Write', 'Edit', 'Grep', 'Glob', 'Bash'],
       permissionMode: 'acceptEdits' as const,
       canUseTool: createCanUseTool(workDir, spaceId, conversationId),
-      includePartialMessages: true,  // Requires SDK patch: enable token-level streaming (stream_event)
+      includePartialMessages: true, // Requires SDK patch: enable token-level streaming (stream_event)
       executable: electronPath,
       executableArgs: ['--no-warnings'],
       // Extended thinking: enable when user requests it (10240 tokens, same as Claude Code CLI Tab)
@@ -1236,38 +1327,46 @@ export async function sendMessage(
       // NOTE: SDK patch adds proper handling of SDK-type MCP servers in SessionImpl,
       // extracting 'instance' before serialization (mirrors query() behavior).
       // See patches/@anthropic-ai+claude-agent-sdk+0.1.76.patch
-      ...((() => {
-        const enabledMcp = getEnabledMcpServers(config.mcpServers || {})
-        const mcpServers: Record<string, any> = enabledMcp ? { ...enabledMcp } : {}
+      ...(() => {
+        const enabledMcp = getEnabledMcpServers(config.mcpServers || {});
+        const mcpServers: Record<string, any> = enabledMcp ? { ...enabledMcp } : {};
 
         // Add AI Browser as SDK MCP server if enabled
         if (aiBrowserEnabled) {
-          mcpServers['ai-browser'] = createAIBrowserMcpServer()
-          console.log(`[Agent][${conversationId}] AI Browser MCP server added`)
+          mcpServers['ai-browser'] = createAIBrowserMcpServer();
+          console.log(`[Agent][${conversationId}] AI Browser MCP server added`);
         }
 
-        return Object.keys(mcpServers).length > 0 ? { mcpServers } : {}
-      })())
-    }
+        return Object.keys(mcpServers).length > 0 ? { mcpServers } : {};
+      })(),
+    };
 
-    const t0 = Date.now()
-    console.log(`[Agent][${conversationId}] Getting or creating V2 session...`)
+    const t0 = Date.now();
+    console.log(`[Agent][${conversationId}] Getting or creating V2 session...`);
 
     // Log MCP servers if configured (only enabled ones)
-    const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {})
-    const mcpServerNames = enabledMcpServers ? Object.keys(enabledMcpServers) : []
+    const enabledMcpServers = getEnabledMcpServers(config.mcpServers || {});
+    const mcpServerNames = enabledMcpServers ? Object.keys(enabledMcpServers) : [];
     if (mcpServerNames.length > 0) {
-      console.log(`[Agent][${conversationId}] MCP servers configured: ${mcpServerNames.join(', ')}`)
+      console.log(
+        `[Agent][${conversationId}] MCP servers configured: ${mcpServerNames.join(', ')}`,
+      );
     }
 
     // Session config for rebuild detection
     const sessionConfig: SessionConfig = {
-      aiBrowserEnabled: !!aiBrowserEnabled
-    }
+      aiBrowserEnabled: !!aiBrowserEnabled,
+    };
 
     // Get or create persistent V2 session for this conversation
     // Pass config for rebuild detection when aiBrowserEnabled changes
-    const v2Session = await getOrCreateV2Session(spaceId, conversationId, sdkOptions, sessionId, sessionConfig)
+    const v2Session = await getOrCreateV2Session(
+      spaceId,
+      conversationId,
+      sdkOptions,
+      sessionId,
+      sessionConfig,
+    );
 
     // Dynamic runtime parameter adjustment (via SDK patch)
     // These can be changed without rebuilding the session
@@ -1276,109 +1375,117 @@ export async function sendMessage(
       // Note: For OpenAI-compat/OAuth providers, model is encoded in apiKey and always fresh
       // This setModel call is mainly for pure Anthropic API sessions
       if (v2Session.setModel) {
-        await v2Session.setModel(sdkModel)
-        console.log(`[Agent][${conversationId}] Model set: ${sdkModel}`)
+        await v2Session.setModel(sdkModel);
+        console.log(`[Agent][${conversationId}] Model set: ${sdkModel}`);
       }
 
       // Set thinking tokens dynamically
       if (v2Session.setMaxThinkingTokens) {
-        await v2Session.setMaxThinkingTokens(thinkingEnabled ? 10240 : null)
-        console.log(`[Agent][${conversationId}] Thinking mode: ${thinkingEnabled ? 'ON (10240 tokens)' : 'OFF'}`)
+        await v2Session.setMaxThinkingTokens(thinkingEnabled ? 10240 : null);
+        console.log(
+          `[Agent][${conversationId}] Thinking mode: ${thinkingEnabled ? 'ON (10240 tokens)' : 'OFF'}`,
+        );
       }
     } catch (e) {
-      console.error(`[Agent][${conversationId}] Failed to set dynamic params:`, e)
+      console.error(`[Agent][${conversationId}] Failed to set dynamic params:`, e);
     }
-    console.log(`[Agent][${conversationId}] ⏱️ V2 session ready: ${Date.now() - t0}ms`)
+    console.log(`[Agent][${conversationId}] ⏱️ V2 session ready: ${Date.now() - t0}ms`);
     // Only keep track of the LAST text block as the final reply
     // Intermediate text blocks are shown in thought process, not accumulated into message bubble
-    let lastTextContent = ''
-    let capturedSessionId: string | undefined
+    let lastTextContent = '';
+    let capturedSessionId: string | undefined;
 
     // Token usage tracking
     // lastSingleUsage: Last API call usage (single call, represents current context size)
     let lastSingleUsage: {
-      inputTokens: number
-      outputTokens: number
-      cacheReadTokens: number
-      cacheCreationTokens: number
-    } | null = null
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+    } | null = null;
 
     let tokenUsage: {
-      inputTokens: number
-      outputTokens: number
-      cacheReadTokens: number
-      cacheCreationTokens: number
-      totalCostUsd: number
-      contextWindow: number
-    } | null = null
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      totalCostUsd: number;
+      contextWindow: number;
+    } | null = null;
 
     // Token-level streaming state
-    let currentStreamingText = ''  // Accumulates text_delta tokens
-    let isStreamingTextBlock = false  // True when inside a text content block
-    let lastStreamTime = 0  // For throttling stream updates
-    const STREAM_THROTTLE_MS = 30  // Throttle updates to ~33fps
+    let currentStreamingText = ''; // Accumulates text_delta tokens
+    let isStreamingTextBlock = false; // True when inside a text content block
+    const lastStreamTime = 0; // For throttling stream updates
+    const STREAM_THROTTLE_MS = 30; // Throttle updates to ~33fps
 
-    console.log(`[Agent][${conversationId}] Sending message to V2 session...`)
-    const t1 = Date.now()
+    console.log(`[Agent][${conversationId}] Sending message to V2 session...`);
+    const t1 = Date.now();
     if (images && images.length > 0) {
-      console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s)`)
+      console.log(`[Agent][${conversationId}] Message includes ${images.length} image(s)`);
     }
 
     // Inject Canvas Context prefix if available
     // This provides AI awareness of what user is currently viewing
-    const canvasPrefix = formatCanvasContext(canvasContext)
-    const messageWithContext = canvasPrefix + message
+    const canvasPrefix = formatCanvasContext(canvasContext);
+    const messageWithContext = canvasPrefix + message;
 
     // Build message content (text-only or multi-modal with images)
-    const messageContent = buildMessageContent(messageWithContext, images)
+    const messageContent = buildMessageContent(messageWithContext, images);
 
     // Send message to V2 session and stream response
     // For multi-modal messages, we need to send as SDKUserMessage
     if (typeof messageContent === 'string') {
-      v2Session.send(messageContent)
+      v2Session.send(messageContent);
     } else {
       // Multi-modal message: construct SDKUserMessage
       const userMessage = {
         type: 'user' as const,
         message: {
           role: 'user' as const,
-          content: messageContent
-        }
-      }
-      v2Session.send(userMessage as any)
+          content: messageContent,
+        },
+      };
+      v2Session.send(userMessage as any);
     }
 
     // Stream messages from V2 session
     for await (const sdkMessage of v2Session.stream()) {
       // Handle abort - check this session's controller
       if (abortController.signal.aborted) {
-        console.log(`[Agent][${conversationId}] Aborted`)
-        break
+        console.log(`[Agent][${conversationId}] Aborted`);
+        break;
       }
 
       // Handle stream_event for token-level streaming (text only)
       if (sdkMessage.type === 'stream_event') {
-        const event = (sdkMessage as any).event
-        if (!event) continue
+        const event = (sdkMessage as any).event;
+        if (!event) continue;
 
         // DEBUG: Log all stream events with timestamp (ms since send)
-        const elapsed = Date.now() - t1
+        const elapsed = Date.now() - t1;
         // For message_start, log the full event to see if it contains content structure hints
         if (event.type === 'message_start') {
-          console.log(`[Agent][${conversationId}] 🔴 +${elapsed}ms message_start FULL:`, JSON.stringify(event))
+          console.log(
+            `[Agent][${conversationId}] 🔴 +${elapsed}ms message_start FULL:`,
+            JSON.stringify(event),
+          );
         } else {
-          console.log(`[Agent][${conversationId}] 🔴 +${elapsed}ms stream_event:`, JSON.stringify({
-            type: event.type,
-            index: event.index,
-            content_block: event.content_block,
-            delta: event.delta
-          }))
+          console.log(
+            `[Agent][${conversationId}] 🔴 +${elapsed}ms stream_event:`,
+            JSON.stringify({
+              type: event.type,
+              index: event.index,
+              content_block: event.content_block,
+              delta: event.delta,
+            }),
+          );
         }
 
         // Text block started
         if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
-          isStreamingTextBlock = true
-          currentStreamingText = event.content_block.text || ''
+          isStreamingTextBlock = true;
+          currentStreamingText = event.content_block.text || '';
 
           // 🔑 Send precise signal for new text block (fixes truncation bug)
           // This is 100% reliable - comes directly from SDK's content_block_start event
@@ -1387,62 +1494,77 @@ export async function sendMessage(
             content: '',
             isComplete: false,
             isStreaming: false,
-            isNewTextBlock: true  // Signal: new text block started
-          })
+            isNewTextBlock: true, // Signal: new text block started
+          });
 
-          console.log(`[Agent][${conversationId}] ⏱️ Text block started (isNewTextBlock signal): ${Date.now() - t1}ms after send`)
+          console.log(
+            `[Agent][${conversationId}] ⏱️ Text block started (isNewTextBlock signal): ${Date.now() - t1}ms after send`,
+          );
         }
 
         // Text delta - accumulate locally, send delta to frontend
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && isStreamingTextBlock) {
-          const delta = event.delta.text || ''
-          currentStreamingText += delta
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta?.type === 'text_delta' &&
+          isStreamingTextBlock
+        ) {
+          const delta = event.delta.text || '';
+          currentStreamingText += delta;
 
           // Send delta immediately without throttling
           sendToRenderer('agent:message', spaceId, conversationId, {
             type: 'message',
             delta,
             isComplete: false,
-            isStreaming: true
-          })
+            isStreaming: true,
+          });
         }
 
         // Text block ended
         if (event.type === 'content_block_stop' && isStreamingTextBlock) {
-          isStreamingTextBlock = false
+          isStreamingTextBlock = false;
           // Send final content of this block
           sendToRenderer('agent:message', spaceId, conversationId, {
             type: 'message',
             content: currentStreamingText,
             isComplete: false,
-            isStreaming: false
-          })
+            isStreaming: false,
+          });
           // Update lastTextContent for final result
-          lastTextContent = currentStreamingText
-          console.log(`[Agent][${conversationId}] Text block completed, length: ${currentStreamingText.length}`)
+          lastTextContent = currentStreamingText;
+          console.log(
+            `[Agent][${conversationId}] Text block completed, length: ${currentStreamingText.length}`,
+          );
         }
 
-        continue  // stream_event handled, skip normal processing
+        continue; // stream_event handled, skip normal processing
       }
 
       // DEBUG: Log all SDK messages with timestamp
-      const elapsed = Date.now() - t1
-      console.log(`[Agent][${conversationId}] 🔵 +${elapsed}ms ${sdkMessage.type}:`,
+      const elapsed = Date.now() - t1;
+      console.log(
+        `[Agent][${conversationId}] 🔵 +${elapsed}ms ${sdkMessage.type}:`,
         sdkMessage.type === 'assistant'
           ? JSON.stringify(
               Array.isArray((sdkMessage as any).message?.content)
-                ? (sdkMessage as any).message.content.map((b: any) => ({ type: b.type, id: b.id, name: b.name, textLen: b.text?.length, thinkingLen: b.thinking?.length }))
-                : (sdkMessage as any).message?.content
+                ? (sdkMessage as any).message.content.map((b: any) => ({
+                    type: b.type,
+                    id: b.id,
+                    name: b.name,
+                    textLen: b.text?.length,
+                    thinkingLen: b.thinking?.length,
+                  }))
+                : (sdkMessage as any).message?.content,
             )
           : sdkMessage.type === 'user'
             ? `tool_result or input`
-            : ''
-      )
+            : '',
+      );
 
       // Extract single API call usage from assistant message (represents current context size)
       if (sdkMessage.type === 'assistant') {
-        const assistantMsg = sdkMessage as any
-        const msgUsage = assistantMsg.message?.usage
+        const assistantMsg = sdkMessage as any;
+        const msgUsage = assistantMsg.message?.usage;
         if (msgUsage) {
           // Save last API call usage (overwrite each time, keep final one)
           lastSingleUsage = {
@@ -1450,124 +1572,135 @@ export async function sendMessage(
             outputTokens: msgUsage.output_tokens || 0,
             cacheReadTokens: msgUsage.cache_read_input_tokens || 0,
             cacheCreationTokens: msgUsage.cache_creation_input_tokens || 0,
-          }
+          };
         }
       }
 
       // Parse SDK message into Thought and send to renderer
       // Pass credentials.model to display the user's actual configured model
-      const thought = parseSDKMessage(sdkMessage, credentials.model)
+      const thought = parseSDKMessage(sdkMessage, credentials.model);
 
       if (thought) {
         // Accumulate thought in backend session (Single Source of Truth)
-        sessionState.thoughts.push(thought)
+        sessionState.thoughts.push(thought);
 
         // Send ALL thoughts to renderer for real-time display in thought process area
         // This includes text blocks - they appear in the timeline during generation
-        sendToRenderer('agent:thought', spaceId, conversationId, { thought })
+        sendToRenderer('agent:thought', spaceId, conversationId, { thought });
 
         // Handle specific thought types
         if (thought.type === 'text') {
           // Keep only the latest text block (overwritten by each new text block)
           // This becomes the final reply when generation completes
           // Intermediate texts stay in the thought process area only
-          lastTextContent = thought.content
+          lastTextContent = thought.content;
 
           // Send streaming update - frontend shows this during generation
           sendToRenderer('agent:message', spaceId, conversationId, {
             type: 'message',
             content: lastTextContent,
-            isComplete: false
-          })
+            isComplete: false,
+          });
         } else if (thought.type === 'tool_use') {
           // Send tool call event
           const toolCall: ToolCall = {
             id: thought.id,
             name: thought.toolName || '',
             status: 'running',
-            input: thought.toolInput || {}
-          }
-          sendToRenderer('agent:tool-call', spaceId, conversationId, toolCall as unknown as Record<string, unknown>)
+            input: thought.toolInput || {},
+          };
+          sendToRenderer(
+            'agent:tool-call',
+            spaceId,
+            conversationId,
+            toolCall as unknown as Record<string, unknown>,
+          );
         } else if (thought.type === 'tool_result') {
           // Send tool result event
           sendToRenderer('agent:tool-result', spaceId, conversationId, {
             type: 'tool_result',
             toolId: thought.id,
             result: thought.toolOutput || '',
-            isError: thought.isError || false
-          })
+            isError: thought.isError || false,
+          });
         } else if (thought.type === 'result') {
           // Final result - use the last text block as the final reply
-          const finalContent = lastTextContent || thought.content
+          const finalContent = lastTextContent || thought.content;
           sendToRenderer('agent:message', spaceId, conversationId, {
             type: 'message',
             content: finalContent,
-            isComplete: true
-          })
+            isComplete: true,
+          });
           // Fallback: if no text block was received, use result content for persistence
           if (!lastTextContent && thought.content) {
-            lastTextContent = thought.content
+            lastTextContent = thought.content;
           }
           // Note: updateLastMessage is called after loop to include tokenUsage
-          console.log(`[Agent][${conversationId}] Result thought received, ${sessionState.thoughts.length} thoughts accumulated`)
+          console.log(
+            `[Agent][${conversationId}] Result thought received, ${sessionState.thoughts.length} thoughts accumulated`,
+          );
         }
       }
 
       // Capture session ID and MCP status from system/result messages
       // Use type assertion for SDK message properties that may vary
-      const msg = sdkMessage as Record<string, unknown>
+      const msg = sdkMessage as Record<string, unknown>;
       if (sdkMessage.type === 'system') {
-        const subtype = msg.subtype as string | undefined
-        const sessionId = msg.session_id || (msg.message as Record<string, unknown>)?.session_id
+        const subtype = msg.subtype as string | undefined;
+        const sessionId = msg.session_id || (msg.message as Record<string, unknown>)?.session_id;
         if (sessionId) {
-          capturedSessionId = sessionId as string
-          console.log(`[Agent][${conversationId}] Captured session ID:`, capturedSessionId)
+          capturedSessionId = sessionId as string;
+          console.log(`[Agent][${conversationId}] Captured session ID:`, capturedSessionId);
         }
 
         // Handle compact_boundary - context compression notification
         if (subtype === 'compact_boundary') {
-          const compactMetadata = msg.compact_metadata as { trigger: 'manual' | 'auto'; pre_tokens: number } | undefined
+          const compactMetadata = msg.compact_metadata as
+            | { trigger: 'manual' | 'auto'; pre_tokens: number }
+            | undefined;
           if (compactMetadata) {
-            console.log(`[Agent][${conversationId}] Context compressed: trigger=${compactMetadata.trigger}, pre_tokens=${compactMetadata.pre_tokens}`)
+            console.log(
+              `[Agent][${conversationId}] Context compressed: trigger=${compactMetadata.trigger}, pre_tokens=${compactMetadata.pre_tokens}`,
+            );
             // Send compact notification to renderer
             sendToRenderer('agent:compact', spaceId, conversationId, {
               type: 'compact',
               trigger: compactMetadata.trigger,
-              preTokens: compactMetadata.pre_tokens
-            })
+              preTokens: compactMetadata.pre_tokens,
+            });
           }
         }
 
         // Extract MCP server status from system init message
         // SDKSystemMessage includes mcp_servers: { name: string; status: string }[]
-        const mcpServers = msg.mcp_servers as Array<{ name: string; status: string }> | undefined
+        const mcpServers = msg.mcp_servers as Array<{ name: string; status: string }> | undefined;
         if (mcpServers && mcpServers.length > 0) {
-          console.log(`[Agent][${conversationId}] MCP server status:`, JSON.stringify(mcpServers))
+          console.log(`[Agent][${conversationId}] MCP server status:`, JSON.stringify(mcpServers));
           // Broadcast MCP status to frontend (global event, not conversation-specific)
-          broadcastMcpStatus(mcpServers)
+          broadcastMcpStatus(mcpServers);
         }
 
         // Also capture tools list if available
-        const tools = msg.tools as string[] | undefined
+        const tools = msg.tools as string[] | undefined;
         if (tools) {
-          console.log(`[Agent][${conversationId}] Available tools: ${tools.length}`)
+          console.log(`[Agent][${conversationId}] Available tools: ${tools.length}`);
         }
       } else if (sdkMessage.type === 'result') {
         if (!capturedSessionId) {
-          const sessionId = msg.session_id || (msg.message as Record<string, unknown>)?.session_id
-          capturedSessionId = sessionId as string
+          const sessionId = msg.session_id || (msg.message as Record<string, unknown>)?.session_id;
+          capturedSessionId = sessionId as string;
         }
 
         // Get cumulative cost and contextWindow from result message
-        const modelUsage = msg.modelUsage as Record<string, { contextWindow?: number }> | undefined
-        const totalCostUsd = msg.total_cost_usd as number | undefined
+        const modelUsage = msg.modelUsage as Record<string, { contextWindow?: number }> | undefined;
+        const totalCostUsd = msg.total_cost_usd as number | undefined;
 
         // Get context window from first model in modelUsage (usually only one model)
-        let contextWindow = 200000  // Default to 200K
+        let contextWindow = 200000; // Default to 200K
         if (modelUsage) {
-          const firstModel = Object.values(modelUsage)[0]
+          const firstModel = Object.values(modelUsage)[0];
           if (firstModel?.contextWindow) {
-            contextWindow = firstModel.contextWindow
+            contextWindow = firstModel.contextWindow;
           }
         }
 
@@ -1576,11 +1709,18 @@ export async function sendMessage(
           tokenUsage = {
             ...lastSingleUsage,
             totalCostUsd: totalCostUsd || 0,
-            contextWindow
-          }
+            contextWindow,
+          };
         } else {
           // Fallback: If no assistant message, use result.usage (cumulative, less accurate but has data)
-          const usage = msg.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined
+          const usage = msg.usage as
+            | {
+                input_tokens?: number;
+                output_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              }
+            | undefined;
           if (usage) {
             tokenUsage = {
               inputTokens: usage.input_tokens || 0,
@@ -1588,119 +1728,131 @@ export async function sendMessage(
               cacheReadTokens: usage.cache_read_input_tokens || 0,
               cacheCreationTokens: usage.cache_creation_input_tokens || 0,
               totalCostUsd: totalCostUsd || 0,
-              contextWindow
-            }
+              contextWindow,
+            };
           }
         }
         if (tokenUsage) {
-          console.log(`[Agent][${conversationId}] Token usage (single API):`, tokenUsage)
+          console.log(`[Agent][${conversationId}] Token usage (single API):`, tokenUsage);
         }
       }
     }
 
     // Save session ID for future resumption
     if (capturedSessionId) {
-      saveSessionId(spaceId, conversationId, capturedSessionId)
-      console.log(`[Agent][${conversationId}] Session ID saved:`, capturedSessionId)
+      saveSessionId(spaceId, conversationId, capturedSessionId);
+      console.log(`[Agent][${conversationId}] Session ID saved:`, capturedSessionId);
     }
 
     // Ensure complete event is sent even if no result message was received
     if (lastTextContent) {
-      console.log(`[Agent][${conversationId}] Sending final complete event with last text`)
+      console.log(`[Agent][${conversationId}] Sending final complete event with last text`);
       // Backend saves complete message with thoughts and tokenUsage (Single Source of Truth)
       updateLastMessage(spaceId, conversationId, {
         content: lastTextContent,
         thoughts: sessionState.thoughts.length > 0 ? [...sessionState.thoughts] : undefined,
-        tokenUsage: tokenUsage || undefined  // Include token usage if available
-      })
-      console.log(`[Agent][${conversationId}] Saved ${sessionState.thoughts.length} thoughts${tokenUsage ? ' with tokenUsage' : ''} to backend`)
+        tokenUsage: tokenUsage || undefined, // Include token usage if available
+      });
+      console.log(
+        `[Agent][${conversationId}] Saved ${sessionState.thoughts.length} thoughts${tokenUsage ? ' with tokenUsage' : ''} to backend`,
+      );
       sendToRenderer('agent:complete', spaceId, conversationId, {
         type: 'complete',
         duration: 0,
-        tokenUsage  // Include token usage data
-      })
+        tokenUsage, // Include token usage data
+      });
     } else {
-      console.log(`[Agent][${conversationId}] WARNING: No text content after SDK query completed`)
+      console.log(`[Agent][${conversationId}] WARNING: No text content after SDK query completed`);
       // CRITICAL: Still send complete event to unblock frontend
       // This can happen if content_block_stop is missing from SDK response
 
       // Fallback: Try to use currentStreamingText if available (content_block_stop was missed)
-      const fallbackContent = currentStreamingText || ''
+      const fallbackContent = currentStreamingText || '';
       if (fallbackContent) {
-        console.log(`[Agent][${conversationId}] Using fallback content from currentStreamingText: ${fallbackContent.length} chars`)
+        console.log(
+          `[Agent][${conversationId}] Using fallback content from currentStreamingText: ${fallbackContent.length} chars`,
+        );
         updateLastMessage(spaceId, conversationId, {
           content: fallbackContent,
           thoughts: sessionState.thoughts.length > 0 ? [...sessionState.thoughts] : undefined,
-          tokenUsage: tokenUsage || undefined
-        })
+          tokenUsage: tokenUsage || undefined,
+        });
       }
 
       sendToRenderer('agent:complete', spaceId, conversationId, {
         type: 'complete',
         duration: 0,
-        tokenUsage  // Include token usage data
-      })
+        tokenUsage, // Include token usage data
+      });
     }
   } catch (error: unknown) {
-    const err = error as Error
+    const err = error as Error;
 
     // Don't report abort as error
     if (err.name === 'AbortError') {
-      console.log(`[Agent][${conversationId}] Aborted by user`)
-      return
+      console.log(`[Agent][${conversationId}] Aborted by user`);
+      return;
     }
 
-    console.error(`[Agent][${conversationId}] Error:`, error)
+    console.error(`[Agent][${conversationId}] Error:`, error);
 
     // Extract detailed error message from stderr if available
-    let errorMessage = err.message || 'Unknown error occurred'
+    let errorMessage = err.message || 'Unknown error occurred';
 
     // Windows: Check for Git Bash related errors
     if (process.platform === 'win32') {
-      const isExitCode1 = errorMessage.includes('exited with code 1') ||
-                          errorMessage.includes('process exited') ||
-                          errorMessage.includes('spawn ENOENT')
-      const isBashError = stderrBuffer?.includes('bash') ||
-                          stderrBuffer?.includes('ENOENT') ||
-                          errorMessage.includes('ENOENT')
+      const isExitCode1 =
+        errorMessage.includes('exited with code 1') ||
+        errorMessage.includes('process exited') ||
+        errorMessage.includes('spawn ENOENT');
+      const isBashError =
+        stderrBuffer?.includes('bash') ||
+        stderrBuffer?.includes('ENOENT') ||
+        errorMessage.includes('ENOENT');
 
       if (isExitCode1 || isBashError) {
         // Check if Git Bash is properly configured
-        const { detectGitBash } = require('./git-bash.service')
-        const gitBashStatus = detectGitBash()
+        const { detectGitBash } = require('./git-bash.service');
+        const gitBashStatus = detectGitBash();
 
         if (!gitBashStatus.found) {
-          errorMessage = 'Command execution environment not installed. Please restart the app and complete setup, or install manually in settings.'
+          errorMessage =
+            'Command execution environment not installed. Please restart the app and complete setup, or install manually in settings.';
         } else {
           // Git Bash found but still got error - could be path issue
-          errorMessage = 'Command execution failed. This may be an environment configuration issue, please try restarting the app.\n\n' +
-                        `Technical details: ${err.message}`
+          errorMessage =
+            'Command execution failed. This may be an environment configuration issue, please try restarting the app.\n\n' +
+            `Technical details: ${err.message}`;
         }
       }
     }
 
     if (stderrBuffer && !errorMessage.includes('Command execution')) {
       // Try to extract the most useful error info from stderr
-      const mcpErrorMatch = stderrBuffer.match(/Error: Invalid MCP configuration:[\s\S]*?(?=\n\s*at |$)/m)
-      const genericErrorMatch = stderrBuffer.match(/Error: [\s\S]*?(?=\n\s*at |$)/m)
+      const mcpErrorMatch = stderrBuffer.match(
+        /Error: Invalid MCP configuration:[\s\S]*?(?=\n\s*at |$)/m,
+      );
+      const genericErrorMatch = stderrBuffer.match(/Error: [\s\S]*?(?=\n\s*at |$)/m);
       if (mcpErrorMatch) {
-        errorMessage = mcpErrorMatch[0].trim()
+        errorMessage = mcpErrorMatch[0].trim();
       } else if (genericErrorMatch) {
-        errorMessage = genericErrorMatch[0].trim()
+        errorMessage = genericErrorMatch[0].trim();
       }
     }
 
     sendToRenderer('agent:error', spaceId, conversationId, {
       type: 'error',
-      error: errorMessage
-    })
+      error: errorMessage,
+    });
 
     // Close V2 session on error (it may be in a bad state)
-    closeV2Session(conversationId)
+    closeV2Session(conversationId);
   } finally {
     // Clean up active session state (but keep V2 session for reuse)
-    activeSessions.delete(conversationId)
-    console.log(`[Agent][${conversationId}] Active session state cleaned up. V2 sessions: ${v2Sessions.size}`)
+    activeSessions.delete(conversationId);
+    console.log(
+      `[Agent][${conversationId}] Active session state cleaned up. V2 sessions: ${v2Sessions.size}`,
+    );
   }
 }
 
@@ -1708,105 +1860,105 @@ export async function sendMessage(
 export async function stopGeneration(conversationId?: string): Promise<void> {
   if (conversationId) {
     // Stop specific session
-    const session = activeSessions.get(conversationId)
+    const session = activeSessions.get(conversationId);
     if (session) {
-      session.abortController.abort()
-      activeSessions.delete(conversationId)
+      session.abortController.abort();
+      activeSessions.delete(conversationId);
 
       // Interrupt V2 Session and drain stale messages
-      const v2Session = v2Sessions.get(conversationId)
+      const v2Session = v2Sessions.get(conversationId);
       if (v2Session) {
         try {
-          await (v2Session.session as any).interrupt()
-          console.log(`[Agent] V2 session interrupted, draining stale messages...`)
+          await (v2Session.session as any).interrupt();
+          console.log(`[Agent] V2 session interrupted, draining stale messages...`);
 
           // Drain stale messages until we hit the result
           for await (const msg of v2Session.session.stream()) {
-            console.log(`[Agent] Drained: ${msg.type}`)
-            if (msg.type === 'result') break
+            console.log(`[Agent] Drained: ${msg.type}`);
+            if (msg.type === 'result') break;
           }
-          console.log(`[Agent] Drain complete for: ${conversationId}`)
+          console.log(`[Agent] Drain complete for: ${conversationId}`);
         } catch (e) {
-          console.error(`[Agent] Failed to interrupt/drain V2 session:`, e)
+          console.error(`[Agent] Failed to interrupt/drain V2 session:`, e);
         }
       }
 
-      console.log(`[Agent] Stopped generation for conversation: ${conversationId}`)
+      console.log(`[Agent] Stopped generation for conversation: ${conversationId}`);
     }
   } else {
     // Stop all sessions (backward compatibility)
     for (const [convId, session] of Array.from(activeSessions)) {
-      session.abortController.abort()
+      session.abortController.abort();
 
       // Interrupt V2 Session
-      const v2Session = v2Sessions.get(convId)
+      const v2Session = v2Sessions.get(convId);
       if (v2Session) {
         try {
-          await (v2Session.session as any).interrupt()
+          await (v2Session.session as any).interrupt();
         } catch (e) {
-          console.error(`[Agent] Failed to interrupt V2 session ${convId}:`, e)
+          console.error(`[Agent] Failed to interrupt V2 session ${convId}:`, e);
         }
       }
 
-      console.log(`[Agent] Stopped generation for conversation: ${convId}`)
+      console.log(`[Agent] Stopped generation for conversation: ${convId}`);
     }
-    activeSessions.clear()
-    console.log('[Agent] All generations stopped')
+    activeSessions.clear();
+    console.log('[Agent] All generations stopped');
   }
 }
 
 // Check if a conversation has an active generation
 export function isGenerating(conversationId: string): boolean {
-  return activeSessions.has(conversationId)
+  return activeSessions.has(conversationId);
 }
 
 // Get all active session conversation IDs
 export function getActiveSessions(): string[] {
-  return Array.from(activeSessions.keys())
+  return Array.from(activeSessions.keys());
 }
 
 // Get current session state for a conversation (for recovery after refresh)
 export function getSessionState(conversationId: string): {
-  isActive: boolean
-  thoughts: Thought[]
-  spaceId?: string
+  isActive: boolean;
+  thoughts: Thought[];
+  spaceId?: string;
 } {
-  const session = activeSessions.get(conversationId)
+  const session = activeSessions.get(conversationId);
   if (!session) {
-    return { isActive: false, thoughts: [] }
+    return { isActive: false, thoughts: [] };
   }
   return {
     isActive: true,
     thoughts: [...session.thoughts],
-    spaceId: session.spaceId
-  }
+    spaceId: session.spaceId,
+  };
 }
 
 // Parse SDK message into a Thought object
 // displayModel: The actual model name to display (user-configured model, not SDK's internal model)
 function parseSDKMessage(message: any, displayModel?: string): Thought | null {
-  const timestamp = new Date().toISOString()
-  const generateId = () => `thought-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  const timestamp = new Date().toISOString();
+  const generateId = () => `thought-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   // System initialization
   if (message.type === 'system') {
     if (message.subtype === 'init') {
       // Use displayModel (user's configured model) instead of SDK's internal model
       // This ensures users see the actual model they configured, not the spoofed Claude model
-      const modelName = displayModel || message.model || 'claude'
+      const modelName = displayModel || message.model || 'claude';
       return {
         id: generateId(),
         type: 'system',
         content: `Connected | Model: ${modelName}`,
-        timestamp
-      }
+        timestamp,
+      };
     }
-    return null
+    return null;
   }
 
   // Assistant messages (thinking, tool_use, text blocks)
   if (message.type === 'assistant') {
-    const content = message.message?.content
+    const content = message.message?.content;
     if (Array.isArray(content)) {
       for (const block of content) {
         // Thinking blocks
@@ -1815,8 +1967,8 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
             id: generateId(),
             type: 'thinking',
             content: block.thinking || '',
-            timestamp
-          }
+            timestamp,
+          };
         }
         // Tool use blocks
         if (block.type === 'tool_use') {
@@ -1826,8 +1978,8 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
             content: `Tool call: ${block.name}`,
             timestamp,
             toolName: block.name,
-            toolInput: block.input
-          }
+            toolInput: block.input,
+          };
         }
         // Text blocks
         if (block.type === 'text') {
@@ -1835,29 +1987,29 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
             id: generateId(),
             type: 'text',
             content: block.text || '',
-            timestamp
-          }
+            timestamp,
+          };
         }
       }
     }
-    return null
+    return null;
   }
 
   // User messages (tool results or command output)
   if (message.type === 'user') {
-    const content = message.message?.content
+    const content = message.message?.content;
 
     // Handle slash command output: <local-command-stdout>...</local-command-stdout>
     // These are returned as user messages with isReplay: true
     if (typeof content === 'string') {
-      const match = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/)
+      const match = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
       if (match) {
         return {
           id: generateId(),
-          type: 'text',  // Render as text block (will show in assistant bubble)
+          type: 'text', // Render as text block (will show in assistant bubble)
           content: match[1].trim(),
-          timestamp
-        }
+          timestamp,
+        };
       }
     }
 
@@ -1865,10 +2017,9 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
     if (Array.isArray(content)) {
       for (const block of content) {
         if (block.type === 'tool_result') {
-          const isError = block.is_error || false
-          const resultContent = typeof block.content === 'string'
-            ? block.content
-            : JSON.stringify(block.content)
+          const isError = block.is_error || false;
+          const resultContent =
+            typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
 
           return {
             id: block.tool_use_id || generateId(),
@@ -1876,12 +2027,12 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
             content: isError ? `Tool execution failed` : `Tool execution succeeded`,
             timestamp,
             toolOutput: resultContent,
-            isError
-          }
+            isError,
+          };
         }
       }
     }
-    return null
+    return null;
   }
 
   // Final result
@@ -1891,38 +2042,38 @@ function parseSDKMessage(message: any, displayModel?: string): Thought | null {
       type: 'result',
       content: message.message?.result || message.result || '',
       timestamp,
-      duration: message.duration_ms
-    }
+      duration: message.duration_ms,
+    };
   }
 
-  return null
+  return null;
 }
 
 // Build system prompt append - minimal context, preserve Claude Code's native behavior
 // modelInfo: The actual model being used (user-configured, may differ from SDK's internal model)
 function buildSystemPromptAppend(workDir: string, modelInfo?: string): string {
-  const modelLine = modelInfo ? `You are powered by ${modelInfo}.` : ''
+  const modelLine = modelInfo ? `You are powered by ${modelInfo}.` : '';
   return `
 You are AICO-Bot, an AI assistant that helps users accomplish real work.
 ${modelLine}
 All created files will be saved in the user's workspace. Current workspace: ${workDir}.
-`
+`;
 }
 
 // Filter out disabled MCP servers before passing to SDK
 function getEnabledMcpServers(mcpServers: Record<string, any>): Record<string, any> | null {
   if (!mcpServers || Object.keys(mcpServers).length === 0) {
-    return null
+    return null;
   }
 
-  const enabled: Record<string, any> = {}
+  const enabled: Record<string, any> = {};
   for (const [name, config] of Object.entries(mcpServers)) {
     if (!config.disabled) {
       // Remove the 'disabled' field before passing to SDK (it's an AICO-Bot extension)
-      const { disabled, ...sdkConfig } = config as any
-      enabled[name] = sdkConfig
+      const { disabled, ...sdkConfig } = config as any;
+      enabled[name] = sdkConfig;
     }
   }
 
-  return Object.keys(enabled).length > 0 ? enabled : null
+  return Object.keys(enabled).length > 0 ? enabled : null;
 }

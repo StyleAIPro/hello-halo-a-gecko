@@ -8,17 +8,17 @@
  * - Expandable to full diff view
  */
 
-import { memo, useMemo, useState } from 'react'
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
-import { ChevronDown, FileEdit, FilePlus } from 'lucide-react'
-import type { ViewerBaseProps } from './types'
+import { memo, useMemo, useState } from 'react';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
+import { ChevronDown, FileEdit, FilePlus } from 'lucide-react';
+import type { ViewerBaseProps } from './types';
 
 // Detect if dark mode is active
 function useIsDarkMode(): boolean {
   if (typeof document !== 'undefined') {
-    return !document.documentElement.classList.contains('light')
+    return !document.documentElement.classList.contains('light');
   }
-  return true
+  return true;
 }
 
 // Custom styles matching AICO-Bot's dark theme (same as DiffContent.tsx)
@@ -47,19 +47,17 @@ const customStyles = {
       highlightGutterBackground: 'hsla(var(--primary), 0.2)',
     },
   },
-}
+};
 
-export const DiffResultViewer = memo(function DiffResultViewer({
-  toolInput,
-}: ViewerBaseProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const isDark = useIsDarkMode()
+export const DiffResultViewer = memo(function DiffResultViewer({ toolInput }: ViewerBaseProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isDark = useIsDarkMode();
 
   // Extract old/new content from toolInput
   const { oldString, newString, type, filePath } = useMemo(() => {
-    if (!toolInput) return { oldString: '', newString: '', type: 'edit' as const, filePath: '' }
+    if (!toolInput) return { oldString: '', newString: '', type: 'edit' as const, filePath: '' };
 
-    const fp = (toolInput.file_path as string) || ''
+    const fp = (toolInput.file_path as string) || '';
 
     // Edit tool: has old_string and new_string
     if (toolInput.old_string !== undefined || toolInput.new_string !== undefined) {
@@ -68,7 +66,7 @@ export const DiffResultViewer = memo(function DiffResultViewer({
         newString: (toolInput.new_string as string) || '',
         type: 'edit' as const,
         filePath: fp,
-      }
+      };
     }
 
     // Write tool: has content (no old content)
@@ -78,30 +76,30 @@ export const DiffResultViewer = memo(function DiffResultViewer({
         newString: (toolInput.content as string) || '',
         type: 'write' as const,
         filePath: fp,
-      }
+      };
     }
 
-    return { oldString: '', newString: '', type: 'edit' as const, filePath: fp }
-  }, [toolInput])
+    return { oldString: '', newString: '', type: 'edit' as const, filePath: fp };
+  }, [toolInput]);
 
   // Calculate stats
   const stats = useMemo(() => {
     if (type === 'write') {
-      const lines = newString.split('\n').length
-      return { added: lines, removed: 0 }
+      const lines = newString.split('\n').length;
+      return { added: lines, removed: 0 };
     }
-    const oldLines = oldString.split('\n')
-    const newLines = newString.split('\n')
+    const oldLines = oldString.split('\n');
+    const newLines = newString.split('\n');
     return {
       added: Math.max(0, newLines.length - oldLines.length + 1),
       removed: Math.max(0, oldLines.length - newLines.length + 1),
-    }
-  }, [type, oldString, newString])
+    };
+  }, [type, oldString, newString]);
 
   // Extract filename for display
-  const fileName = filePath ? filePath.split(/[/\\]/).pop() || filePath : ''
+  const fileName = filePath ? filePath.split(/[/\\]/).pop() || filePath : '';
 
-  const Icon = type === 'write' ? FilePlus : FileEdit
+  const Icon = type === 'write' ? FilePlus : FileEdit;
 
   return (
     <div className="rounded-lg overflow-hidden">
@@ -146,5 +144,5 @@ export const DiffResultViewer = memo(function DiffResultViewer({
         </div>
       )}
     </div>
-  )
-})
+  );
+});

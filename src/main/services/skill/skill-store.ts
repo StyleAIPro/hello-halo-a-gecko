@@ -5,7 +5,7 @@
 
 import * as https from 'https';
 import * as http from 'http';
-import { SkillMarketItem, SkillMarketSource } from '../../shared/skill/skill-types';
+import type { SkillMarketItem, SkillMarketSource } from '../../shared/skill/skill-types';
 
 /**
  * 预定义的市场源
@@ -15,14 +15,14 @@ const DEFAULT_MARKET_SOURCES: SkillMarketSource[] = [
     id: 'skills-sh',
     name: 'Skills.sh',
     url: 'https://skills.sh/api/skills',
-    enabled: true
+    enabled: true,
   },
   {
     id: 'skillsmp',
     name: 'SkillsMP (中文)',
     url: 'https://skillsmp.com/zh/api/skills',
-    enabled: true
-  }
+    enabled: true,
+  },
 ];
 
 /**
@@ -59,7 +59,7 @@ export class SkillStoreService {
    * 启用/禁用市场源
    */
   toggleSource(sourceId: string, enabled: boolean): void {
-    const source = this.sources.find(s => s.id === sourceId);
+    const source = this.sources.find((s) => s.id === sourceId);
     if (source) {
       source.enabled = enabled;
       // 清除缓存
@@ -71,7 +71,7 @@ export class SkillStoreService {
    * 添加自定义市场源
    */
   addSource(source: SkillMarketSource): void {
-    if (!this.sources.find(s => s.id === source.id)) {
+    if (!this.sources.find((s) => s.id === source.id)) {
       this.sources.push(source);
     }
   }
@@ -80,7 +80,7 @@ export class SkillStoreService {
    * 从所有启用的市场源获取技能列表
    */
   async fetchAllSkills(): Promise<SkillMarketItem[]> {
-    const enabledSources = this.sources.filter(s => s.enabled);
+    const enabledSources = this.sources.filter((s) => s.enabled);
     const allSkills: SkillMarketItem[] = [];
 
     for (const source of enabledSources) {
@@ -163,9 +163,9 @@ export class SkillStoreService {
     try {
       const data = await this.httpGet(url, {
         headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'AICO-Bot-Skill-Manager'
-        }
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'AICO-Bot-Skill-Manager',
+        },
       });
 
       if (!Array.isArray(data)) {
@@ -196,20 +196,20 @@ export class SkillStoreService {
    */
   private async fetchGitHubSkillInfo(
     repo: string,
-    skillName: string
+    skillName: string,
   ): Promise<SkillMarketItem | null> {
     try {
       // 获取 SKILL.md 或 README.md
       const files = await this.httpGet(
         `https://api.github.com/repos/${repo}/contents/${skillName}`,
         {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'AICO-Bot-Skill-Manager'
-        }
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'AICO-Bot-Skill-Manager',
+        },
       );
 
       let description = '';
-      let downloadUrl = `https://github.com/${repo}/tree/main/${skillName}`;
+      const downloadUrl = `https://github.com/${repo}/tree/main/${skillName}`;
 
       // 查找 SKILL.md 或 README.md
       for (const file of Array.isArray(files) ? files : []) {
@@ -230,7 +230,7 @@ export class SkillStoreService {
         tags: [],
         downloadUrl,
         sourceUrl: `https://github.com/${repo}/tree/main/${skillName}`,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
       };
     } catch (error) {
       console.error('[SkillStore] Failed to fetch skill info:', skillName, error);
@@ -257,7 +257,7 @@ export class SkillStoreService {
     }
 
     // 提取第一段作为描述
-    const lines = decoded.split('\n').filter(line => line.trim());
+    const lines = decoded.split('\n').filter((line) => line.trim());
     for (const line of lines) {
       if (line && !line.startsWith('#') && line.trim().length > 10) {
         return line.trim();
@@ -271,9 +271,7 @@ export class SkillStoreService {
    * 格式化技能名称
    */
   private formatSkillName(name: string): string {
-    return name
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, c => c.toUpperCase());
+    return name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   /**
@@ -283,22 +281,24 @@ export class SkillStoreService {
     return new Promise((resolve, reject) => {
       const client = url.startsWith('https') ? https : http;
 
-      client.get(url, { headers }, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            resolve(data);
+      client
+        .get(url, { headers }, (res) => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
           }
-        });
-      }).on('error', reject);
+
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch {
+              resolve(data);
+            }
+          });
+        })
+        .on('error', reject);
     });
   }
 
@@ -309,10 +309,11 @@ export class SkillStoreService {
     const allSkills = await this.fetchAllSkills();
     const lowerQuery = query.toLowerCase();
 
-    return allSkills.filter(skill =>
-      skill.name.toLowerCase().includes(lowerQuery) ||
-      skill.description.toLowerCase().includes(lowerQuery) ||
-      skill.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
+    return allSkills.filter(
+      (skill) =>
+        skill.name.toLowerCase().includes(lowerQuery) ||
+        skill.description.toLowerCase().includes(lowerQuery) ||
+        skill.tags.some((tag) => tag.toLowerCase().includes(lowerQuery)),
     );
   }
 
@@ -321,8 +322,8 @@ export class SkillStoreService {
    */
   async getSkillsByTag(tag: string): Promise<SkillMarketItem[]> {
     const allSkills = await this.fetchAllSkills();
-    return allSkills.filter(skill =>
-      skill.tags.some(t => t.toLowerCase() === tag.toLowerCase())
+    return allSkills.filter((skill) =>
+      skill.tags.some((t) => t.toLowerCase() === tag.toLowerCase()),
     );
   }
 

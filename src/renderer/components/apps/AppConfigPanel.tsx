@@ -13,28 +13,40 @@
  * bg-secondary inputs, same spacing/typography scale.
  */
 
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
-import { Save, RotateCcw, Unplug, Loader2, FileCode, Settings, Code, AlertTriangle, Globe, Bell, Download } from 'lucide-react'
-import { stringify as stringifyYaml, parse as parseYaml } from 'yaml'
-import { useAppsStore } from '../../stores/apps.store'
-import { useTranslation, getCurrentLanguage } from '../../i18n'
-import type { InputDef, SubscriptionDef, AppSpec } from '../../../shared/apps/spec-types'
-import type { InstalledApp } from '../../../shared/apps/app-types'
-import { resolvePermission } from '../../../shared/apps/app-types'
-import { resolveSpecI18n } from '../../utils/spec-i18n'
-import { AppModelSelector } from './AppModelSelector'
-import { appTypeLabel } from './appTypeUtils'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import {
+  Save,
+  RotateCcw,
+  Unplug,
+  Loader2,
+  FileCode,
+  Settings,
+  Code,
+  AlertTriangle,
+  Globe,
+  Bell,
+  Download,
+} from 'lucide-react';
+import { stringify as stringifyYaml, parse as parseYaml } from 'yaml';
+import { useAppsStore } from '../../stores/apps.store';
+import { useTranslation, getCurrentLanguage } from '../../i18n';
+import type { InputDef, SubscriptionDef, AppSpec } from '../../../shared/apps/spec-types';
+import type { InstalledApp } from '../../../shared/apps/app-types';
+import { resolvePermission } from '../../../shared/apps/app-types';
+import { resolveSpecI18n } from '../../utils/spec-i18n';
+import { AppModelSelector } from './AppModelSelector';
+import { appTypeLabel } from './appTypeUtils';
 
 // Lazy-load CodeMirrorEditor to keep initial bundle small
 const CodeMirrorEditor = lazy(() =>
-  import('../canvas/viewers/CodeMirrorEditor').then(m => ({ default: m.CodeMirrorEditor }))
-)
+  import('../canvas/viewers/CodeMirrorEditor').then((m) => ({ default: m.CodeMirrorEditor })),
+);
 
 // ============================================
 // Types
 // ============================================
 
-type ConfigTab = 'settings' | 'yaml'
+type ConfigTab = 'settings' | 'yaml';
 
 // ============================================
 // Frequency Presets
@@ -50,7 +62,7 @@ const FREQUENCY_PRESETS = [
   { label: '6h', value: '6h' },
   { label: '12h', value: '12h' },
   { label: '1d', value: '1d' },
-]
+];
 
 // ============================================
 // Helpers
@@ -58,59 +70,72 @@ const FREQUENCY_PRESETS = [
 
 /** Parse a duration string like "30m", "2h", "1d" into milliseconds */
 function durationToMs(dur: string): number {
-  const match = dur.match(/^(\d+)([smhd])$/)
-  if (!match) return 0
-  const val = Number(match[1])
+  const match = dur.match(/^(\d+)([smhd])$/);
+  if (!match) return 0;
+  const val = Number(match[1]);
   switch (match[2]) {
-    case 's': return val * 1000
-    case 'm': return val * 60_000
-    case 'h': return val * 3_600_000
-    case 'd': return val * 86_400_000
-    default: return 0
+    case 's':
+      return val * 1000;
+    case 'm':
+      return val * 60_000;
+    case 'h':
+      return val * 3_600_000;
+    case 'd':
+      return val * 86_400_000;
+    default:
+      return 0;
   }
 }
 
 /** Format a duration string to a human-readable label */
-function formatFrequency(dur: string, t: (s: string, opts?: Record<string, unknown>) => string): string {
-  const match = dur.match(/^(\d+)([smhd])$/)
-  if (!match) return dur
-  const val = Number(match[1])
+function formatFrequency(
+  dur: string,
+  t: (s: string, opts?: Record<string, unknown>) => string,
+): string {
+  const match = dur.match(/^(\d+)([smhd])$/);
+  if (!match) return dur;
+  const val = Number(match[1]);
   switch (match[2]) {
-    case 's': return t('Every {{count}}s', { count: val })
-    case 'm': return t('Every {{count}}m', { count: val })
-    case 'h': return t('Every {{count}}h', { count: val })
-    case 'd': return t('Every {{count}}d', { count: val })
-    default: return dur
+    case 's':
+      return t('Every {{count}}s', { count: val });
+    case 'm':
+      return t('Every {{count}}m', { count: val });
+    case 'h':
+      return t('Every {{count}}h', { count: val });
+    case 'd':
+      return t('Every {{count}}d', { count: val });
+    default:
+      return dur;
   }
 }
 
 /** Get the effective frequency for a subscription (user override > spec default) */
 function getEffectiveFrequency(sub: SubscriptionDef, app: InstalledApp): string | null {
-  const subId = sub.id ?? '0'
-  const userOverride = app.userOverrides?.frequency?.[subId]
-  if (userOverride) return userOverride
-  if (sub.frequency?.default) return sub.frequency.default
+  const subId = sub.id ?? '0';
+  const userOverride = app.userOverrides?.frequency?.[subId];
+  if (userOverride) return userOverride;
+  if (sub.frequency?.default) return sub.frequency.default;
   if (sub.source.type === 'schedule') {
-    return sub.source.config.every ?? null
+    return sub.source.config.every ?? null;
   }
-  return null
+  return null;
 }
 
 /** Filter frequency presets by min/max constraints from the subscription */
 function filterPresets(sub: SubscriptionDef): typeof FREQUENCY_PRESETS {
-  const minMs = sub.frequency?.min ? durationToMs(sub.frequency.min) : 0
-  const maxMs = sub.frequency?.max ? durationToMs(sub.frequency.max) : Infinity
-  return FREQUENCY_PRESETS.filter(p => {
-    const ms = durationToMs(p.value)
-    return ms >= minMs && ms <= maxMs
-  })
+  const minMs = sub.frequency?.min ? durationToMs(sub.frequency.min) : 0;
+  const maxMs = sub.frequency?.max ? durationToMs(sub.frequency.max) : Infinity;
+  return FREQUENCY_PRESETS.filter((p) => {
+    const ms = durationToMs(p.value);
+    return ms >= minMs && ms <= maxMs;
+  });
 }
 
 /** Serialize an AppSpec to clean YAML, stripping undefined/null fields */
 function specToYaml(spec: AppSpec): string {
   // Create a clean copy without undefined values for nice YAML output
-  const clean = JSON.parse(JSON.stringify(spec))
-  return stringifyYaml(clean, { lineWidth: 0 })
+  const clean = JSON.parse(JSON.stringify(spec));
+  return stringifyYaml(clean, { lineWidth: 0 });
 }
 
 // ============================================
@@ -118,24 +143,26 @@ function specToYaml(spec: AppSpec): string {
 // ============================================
 
 interface ConfigFieldProps {
-  def: InputDef
-  value: unknown
-  onChange: (key: string, value: unknown) => void
-  t: (s: string, opts?: Record<string, unknown>) => string
+  def: InputDef;
+  value: unknown;
+  onChange: (key: string, value: unknown) => void;
+  t: (s: string, opts?: Record<string, unknown>) => string;
 }
 
 function ConfigField({ def, value, onChange, t }: ConfigFieldProps) {
-  const id = `config-${def.key}`
+  const id = `config-${def.key}`;
 
   // Resolve current value (user-provided > default > empty)
-  const currentValue = value ?? def.default ?? ''
+  const currentValue = value ?? def.default ?? '';
 
   switch (def.type) {
     case 'boolean':
       return (
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <label htmlFor={id} className="text-sm text-foreground">{def.label}</label>
+            <label htmlFor={id} className="text-sm text-foreground">
+              {def.label}
+            </label>
             {def.description && (
               <p className="text-xs text-muted-foreground mt-0.5">{def.description}</p>
             )}
@@ -157,85 +184,87 @@ function ConfigField({ def, value, onChange, t }: ConfigFieldProps) {
             />
           </button>
         </div>
-      )
+      );
 
     case 'select':
       return (
         <div className="space-y-1.5">
-          <label htmlFor={id} className="text-sm text-foreground">{def.label}</label>
-          {def.description && (
-            <p className="text-xs text-muted-foreground">{def.description}</p>
-          )}
+          <label htmlFor={id} className="text-sm text-foreground">
+            {def.label}
+          </label>
+          {def.description && <p className="text-xs text-muted-foreground">{def.description}</p>}
           <select
             id={id}
             value={String(currentValue)}
-            onChange={e => onChange(def.key, e.target.value)}
+            onChange={(e) => onChange(def.key, e.target.value)}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
           >
             <option value="">{t('Select...')}</option>
-            {(def.options ?? []).map(opt => (
+            {(def.options ?? []).map((opt) => (
               <option key={String(opt.value)} value={String(opt.value)}>
                 {opt.label}
               </option>
             ))}
           </select>
         </div>
-      )
+      );
 
     case 'number':
       return (
         <div className="space-y-1.5">
-          <label htmlFor={id} className="text-sm text-foreground">{def.label}</label>
-          {def.description && (
-            <p className="text-xs text-muted-foreground">{def.description}</p>
-          )}
+          <label htmlFor={id} className="text-sm text-foreground">
+            {def.label}
+          </label>
+          {def.description && <p className="text-xs text-muted-foreground">{def.description}</p>}
           <input
             id={id}
             type="number"
             value={currentValue === '' ? '' : Number(currentValue)}
             placeholder={def.placeholder}
-            onChange={e => onChange(def.key, e.target.value === '' ? undefined : Number(e.target.value))}
+            onChange={(e) =>
+              onChange(def.key, e.target.value === '' ? undefined : Number(e.target.value))
+            }
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
           />
         </div>
-      )
+      );
 
     case 'text':
       return (
         <div className="space-y-1.5">
-          <label htmlFor={id} className="text-sm text-foreground">{def.label}</label>
-          {def.description && (
-            <p className="text-xs text-muted-foreground">{def.description}</p>
-          )}
+          <label htmlFor={id} className="text-sm text-foreground">
+            {def.label}
+          </label>
+          {def.description && <p className="text-xs text-muted-foreground">{def.description}</p>}
           <textarea
             id={id}
             value={String(currentValue)}
             placeholder={def.placeholder}
             rows={3}
-            onChange={e => onChange(def.key, e.target.value)}
+            onChange={(e) => onChange(def.key, e.target.value)}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
           />
         </div>
-      )
+      );
 
     // url, string, email — all text inputs with different types
     default:
       return (
         <div className="space-y-1.5">
-          <label htmlFor={id} className="text-sm text-foreground">{def.label}</label>
-          {def.description && (
-            <p className="text-xs text-muted-foreground">{def.description}</p>
-          )}
+          <label htmlFor={id} className="text-sm text-foreground">
+            {def.label}
+          </label>
+          {def.description && <p className="text-xs text-muted-foreground">{def.description}</p>}
           <input
             id={id}
             type={def.type === 'email' ? 'email' : def.type === 'url' ? 'url' : 'text'}
             value={String(currentValue)}
             placeholder={def.placeholder}
-            onChange={e => onChange(def.key, e.target.value)}
+            onChange={(e) => onChange(def.key, e.target.value)}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground/50"
           />
         </div>
-      )
+      );
   }
 }
 
@@ -244,33 +273,29 @@ function ConfigField({ def, value, onChange, t }: ConfigFieldProps) {
 // ============================================
 
 interface FrequencyEditorProps {
-  subscription: SubscriptionDef
-  app: InstalledApp
-  onFrequencyChange: (subscriptionId: string, frequency: string) => void
-  t: (s: string, opts?: Record<string, unknown>) => string
+  subscription: SubscriptionDef;
+  app: InstalledApp;
+  onFrequencyChange: (subscriptionId: string, frequency: string) => void;
+  t: (s: string, opts?: Record<string, unknown>) => string;
 }
 
 function FrequencyEditor({ subscription, app, onFrequencyChange, t }: FrequencyEditorProps) {
-  const subId = subscription.id ?? '0'
-  const currentFreq = getEffectiveFrequency(subscription, app)
-  const presets = filterPresets(subscription)
+  const subId = subscription.id ?? '0';
+  const currentFreq = getEffectiveFrequency(subscription, app);
+  const presets = filterPresets(subscription);
 
-  if (presets.length === 0 || !currentFreq) return null
+  if (presets.length === 0 || !currentFreq) return null;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm text-foreground">
-          {subscription.source.type === 'schedule'
-            ? t('Schedule frequency')
-            : t('Check frequency')}
+          {subscription.source.type === 'schedule' ? t('Schedule frequency') : t('Check frequency')}
         </span>
-        <span className="text-xs text-muted-foreground">
-          {formatFrequency(currentFreq, t)}
-        </span>
+        <span className="text-xs text-muted-foreground">{formatFrequency(currentFreq, t)}</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {presets.map(preset => (
+        {presets.map((preset) => (
           <button
             key={preset.value}
             onClick={() => onFrequencyChange(subId, preset.value)}
@@ -285,7 +310,7 @@ function FrequencyEditor({ subscription, app, onFrequencyChange, t }: FrequencyE
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 // ============================================
@@ -293,111 +318,119 @@ function FrequencyEditor({ subscription, app, onFrequencyChange, t }: FrequencyE
 // ============================================
 
 interface SettingsTabProps {
-  app: InstalledApp
-  appId: string
-  t: (s: string, opts?: Record<string, unknown>) => string
+  app: InstalledApp;
+  appId: string;
+  t: (s: string, opts?: Record<string, unknown>) => string;
 }
 
 function SettingsTab({ app, appId, t }: SettingsTabProps) {
-  const { updateAppConfig, updateAppFrequency, updateAppSpec, updateAppOverrides, grantPermission, revokePermission } = useAppsStore()
+  const {
+    updateAppConfig,
+    updateAppFrequency,
+    updateAppSpec,
+    updateAppOverrides,
+    grantPermission,
+    revokePermission,
+  } = useAppsStore();
 
   // ── Spec fields (name, description, system_prompt) ──
-  const [specName, setSpecName] = useState(app.spec.name)
-  const [specDescription, setSpecDescription] = useState(app.spec.description)
-  const [specSystemPrompt, setSpecSystemPrompt] = useState(app.spec.system_prompt ?? '')
-  const [specSaving, setSpecSaving] = useState(false)
-  const [specSaveSuccess, setSpecSaveSuccess] = useState(false)
-  const [specError, setSpecError] = useState<string | null>(null)
+  const [specName, setSpecName] = useState(app.spec.name);
+  const [specDescription, setSpecDescription] = useState(app.spec.description);
+  const [specSystemPrompt, setSpecSystemPrompt] = useState(app.spec.system_prompt ?? '');
+  const [specSaving, setSpecSaving] = useState(false);
+  const [specSaveSuccess, setSpecSaveSuccess] = useState(false);
+  const [specError, setSpecError] = useState<string | null>(null);
 
   // ── User config form ──
-  const [formValues, setFormValues] = useState<Record<string, unknown>>({})
-  const [configSaving, setConfigSaving] = useState(false)
-  const [configSaveSuccess, setConfigSaveSuccess] = useState(false)
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
 
   // Sync from app data
   useEffect(() => {
-    setSpecName(app.spec.name)
-    setSpecDescription(app.spec.description)
-    setSpecSystemPrompt(app.spec.system_prompt ?? '')
-    setSpecSaveSuccess(false)
-    setSpecError(null)
-    setFormValues({ ...app.userConfig })
-    setConfigSaveSuccess(false)
-  }, [app.id, app.spec.name, app.spec.description, app.spec.system_prompt, app.userConfig])
+    setSpecName(app.spec.name);
+    setSpecDescription(app.spec.description);
+    setSpecSystemPrompt(app.spec.system_prompt ?? '');
+    setSpecSaveSuccess(false);
+    setSpecError(null);
+    setFormValues({ ...app.userConfig });
+    setConfigSaveSuccess(false);
+  }, [app.id, app.spec.name, app.spec.description, app.spec.system_prompt, app.userConfig]);
 
   const handleFieldChange = useCallback((key: string, value: unknown) => {
-    setFormValues(prev => ({ ...prev, [key]: value }))
-    setConfigSaveSuccess(false)
-  }, [])
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+    setConfigSaveSuccess(false);
+  }, []);
 
-  const configSchema = resolveSpecI18n(app.spec, getCurrentLanguage()).config_schema ?? []
-  const subscriptions = app.spec.subscriptions ?? []
-  const hasConfig = configSchema.length > 0
-  const hasFrequency = subscriptions.some(s => s.frequency || s.source.type === 'schedule')
+  const configSchema = resolveSpecI18n(app.spec, getCurrentLanguage()).config_schema ?? [];
+  const subscriptions = app.spec.subscriptions ?? [];
+  const hasConfig = configSchema.length > 0;
+  const hasFrequency = subscriptions.some((s) => s.frequency || s.source.type === 'schedule');
 
   // Spec fields change detection
   const specHasChanges =
     specName !== app.spec.name ||
     specDescription !== app.spec.description ||
-    specSystemPrompt !== (app.spec.system_prompt ?? '')
+    specSystemPrompt !== (app.spec.system_prompt ?? '');
 
   // Config form change detection
-  const configHasChanges = hasConfig && JSON.stringify(formValues) !== JSON.stringify(app.userConfig)
+  const configHasChanges =
+    hasConfig && JSON.stringify(formValues) !== JSON.stringify(app.userConfig);
 
   async function handleSpecSave() {
-    setSpecError(null)
+    setSpecError(null);
     if (!specName.trim()) {
-      setSpecError(t('App name is required'))
-      return
+      setSpecError(t('App name is required'));
+      return;
     }
     if (!specDescription.trim()) {
-      setSpecError(t('Description is required'))
-      return
+      setSpecError(t('Description is required'));
+      return;
     }
 
-    setSpecSaving(true)
-    const patch: Record<string, unknown> = {}
-    if (specName !== app.spec.name) patch.name = specName.trim()
-    if (specDescription !== app.spec.description) patch.description = specDescription.trim()
+    setSpecSaving(true);
+    const patch: Record<string, unknown> = {};
+    if (specName !== app.spec.name) patch.name = specName.trim();
+    if (specDescription !== app.spec.description) patch.description = specDescription.trim();
     if (specSystemPrompt !== (app.spec.system_prompt ?? '')) {
-      patch.system_prompt = specSystemPrompt.trim() || null
+      patch.system_prompt = specSystemPrompt.trim() || null;
     }
 
-    const ok = await updateAppSpec(appId, patch)
-    setSpecSaving(false)
+    const ok = await updateAppSpec(appId, patch);
+    setSpecSaving(false);
     if (ok) {
-      setSpecSaveSuccess(true)
-      setTimeout(() => setSpecSaveSuccess(false), 2000)
+      setSpecSaveSuccess(true);
+      setTimeout(() => setSpecSaveSuccess(false), 2000);
     } else {
-      setSpecError(t('Failed to save spec changes'))
+      setSpecError(t('Failed to save spec changes'));
     }
   }
 
   function handleSpecReset() {
-    setSpecName(app.spec.name)
-    setSpecDescription(app.spec.description)
-    setSpecSystemPrompt(app.spec.system_prompt ?? '')
-    setSpecSaveSuccess(false)
-    setSpecError(null)
+    setSpecName(app.spec.name);
+    setSpecDescription(app.spec.description);
+    setSpecSystemPrompt(app.spec.system_prompt ?? '');
+    setSpecSaveSuccess(false);
+    setSpecError(null);
   }
 
   async function handleConfigSave() {
-    setConfigSaving(true)
-    const ok = await updateAppConfig(appId, formValues)
-    setConfigSaving(false)
+    setConfigSaving(true);
+    const ok = await updateAppConfig(appId, formValues);
+    setConfigSaving(false);
     if (ok) {
-      setConfigSaveSuccess(true)
-      setTimeout(() => setConfigSaveSuccess(false), 2000)
+      setConfigSaveSuccess(true);
+      setTimeout(() => setConfigSaveSuccess(false), 2000);
     }
   }
 
   function handleConfigReset() {
-    setFormValues({ ...app.userConfig })
-    setConfigSaveSuccess(false)
+    setFormValues({ ...app.userConfig });
+    setConfigSaveSuccess(false);
   }
 
   async function handleFrequencyChange(subscriptionId: string, frequency: string) {
-    await updateAppFrequency(appId, subscriptionId, frequency)
+    await updateAppFrequency(appId, subscriptionId, frequency);
   }
 
   return (
@@ -414,7 +447,11 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
           <input
             type="text"
             value={specName}
-            onChange={e => { setSpecName(e.target.value); setSpecSaveSuccess(false); setSpecError(null) }}
+            onChange={(e) => {
+              setSpecName(e.target.value);
+              setSpecSaveSuccess(false);
+              setSpecError(null);
+            }}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
           />
         </div>
@@ -425,7 +462,11 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
           <input
             type="text"
             value={specDescription}
-            onChange={e => { setSpecDescription(e.target.value); setSpecSaveSuccess(false); setSpecError(null) }}
+            onChange={(e) => {
+              setSpecDescription(e.target.value);
+              setSpecSaveSuccess(false);
+              setSpecError(null);
+            }}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
           />
         </div>
@@ -435,7 +476,11 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
           <label className="text-sm text-foreground">{t('System Prompt')}</label>
           <textarea
             value={specSystemPrompt}
-            onChange={e => { setSpecSystemPrompt(e.target.value); setSpecSaveSuccess(false); setSpecError(null) }}
+            onChange={(e) => {
+              setSpecSystemPrompt(e.target.value);
+              setSpecSaveSuccess(false);
+              setSpecError(null);
+            }}
             rows={6}
             spellCheck={false}
             className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground font-mono"
@@ -443,18 +488,18 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
         </div>
 
         {/* Spec Save / Reset */}
-        {specError && (
-          <p className="text-xs text-red-400">{specError}</p>
-        )}
+        {specError && <p className="text-xs text-red-400">{specError}</p>}
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={handleSpecSave}
             disabled={!specHasChanges || specSaving}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40"
           >
-            {specSaving
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <Save className="w-3.5 h-3.5" />}
+            {specSaving ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
             {t('Save')}
           </button>
           {specHasChanges && (
@@ -466,9 +511,7 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
               {t('Reset')}
             </button>
           )}
-          {specSaveSuccess && (
-            <span className="text-xs text-green-500">{t('Saved')}</span>
-          )}
+          {specSaveSuccess && <span className="text-xs text-green-500">{t('Saved')}</span>}
         </div>
       </div>
 
@@ -505,7 +548,7 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
             await updateAppOverrides(appId, {
               modelSourceId: sourceId,
               modelId: modelId,
-            })
+            });
           }}
         />
 
@@ -525,11 +568,11 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
             role="switch"
             aria-checked={resolvePermission(app, 'ai-browser')}
             onClick={async () => {
-              const isEnabled = resolvePermission(app, 'ai-browser')
+              const isEnabled = resolvePermission(app, 'ai-browser');
               if (isEnabled) {
-                await revokePermission(appId, 'ai-browser')
+                await revokePermission(appId, 'ai-browser');
               } else {
-                await grantPermission(appId, 'ai-browser')
+                await grantPermission(appId, 'ai-browser');
               }
             }}
             className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
@@ -558,17 +601,19 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
             <span className="text-sm text-foreground">{t('Notifications')}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {([
-              { value: 'important', label: t('Important') },
-              { value: 'all', label: t('All') },
-              { value: 'none', label: t('None') },
-            ] as const).map(opt => (
+            {(
+              [
+                { value: 'important', label: t('Important') },
+                { value: 'all', label: t('All') },
+                { value: 'none', label: t('None') },
+              ] as const
+            ).map((opt) => (
               <button
                 key={opt.value}
                 onClick={async () => {
                   await updateAppOverrides(appId, {
                     notificationLevel: opt.value === 'important' ? undefined : opt.value,
-                  })
+                  });
                 }}
                 className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                   (app.userOverrides.notificationLevel ?? 'important') === opt.value
@@ -597,7 +642,7 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
             {t('Configuration')}
           </h3>
           <div className="space-y-4">
-            {configSchema.map(def => (
+            {configSchema.map((def) => (
               <ConfigField
                 key={def.key}
                 def={def}
@@ -615,9 +660,11 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
               disabled={!configHasChanges || configSaving}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40"
             >
-              {configSaving
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Save className="w-3.5 h-3.5" />}
+              {configSaving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
               {t('Save')}
             </button>
             {configHasChanges && (
@@ -629,9 +676,7 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
                 {t('Reset')}
               </button>
             )}
-            {configSaveSuccess && (
-              <span className="text-xs text-green-500">{t('Saved')}</span>
-            )}
+            {configSaveSuccess && <span className="text-xs text-green-500">{t('Saved')}</span>}
           </div>
         </div>
       )}
@@ -659,14 +704,14 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
             <div className="flex gap-2">
               <span className="text-muted-foreground w-20 flex-shrink-0">{t('Triggers')}</span>
               <span className="text-foreground">
-                {subscriptions.map(s => s.source.type).join(', ')}
+                {subscriptions.map((s) => s.source.type).join(', ')}
               </span>
             </div>
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ============================================
@@ -674,80 +719,80 @@ function SettingsTab({ app, appId, t }: SettingsTabProps) {
 // ============================================
 
 interface YamlTabProps {
-  app: InstalledApp
-  appId: string
-  t: (s: string, opts?: Record<string, unknown>) => string
+  app: InstalledApp;
+  appId: string;
+  t: (s: string, opts?: Record<string, unknown>) => string;
 }
 
 function YamlTab({ app, appId, t }: YamlTabProps) {
-  const { updateAppSpec, exportApp } = useAppsStore()
+  const { updateAppSpec, exportApp } = useAppsStore();
 
-  const [yamlContent, setYamlContent] = useState(() => specToYaml(app.spec))
-  const [originalYaml, setOriginalYaml] = useState(() => specToYaml(app.spec))
-  const [saving, setSaving] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [yamlContent, setYamlContent] = useState(() => specToYaml(app.spec));
+  const [originalYaml, setOriginalYaml] = useState(() => specToYaml(app.spec));
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Sync when app spec changes externally (e.g. after Settings tab save)
   useEffect(() => {
-    const fresh = specToYaml(app.spec)
-    setYamlContent(fresh)
-    setOriginalYaml(fresh)
-    setSaveSuccess(false)
-    setError(null)
-  }, [app.id, app.spec])
+    const fresh = specToYaml(app.spec);
+    setYamlContent(fresh);
+    setOriginalYaml(fresh);
+    setSaveSuccess(false);
+    setError(null);
+  }, [app.id, app.spec]);
 
-  const hasChanges = yamlContent !== originalYaml
+  const hasChanges = yamlContent !== originalYaml;
 
   async function handleSave() {
-    setError(null)
+    setError(null);
 
     // Parse YAML
-    let parsed: Record<string, unknown>
+    let parsed: Record<string, unknown>;
     try {
-      parsed = parseYaml(yamlContent) as Record<string, unknown>
+      parsed = parseYaml(yamlContent) as Record<string, unknown>;
     } catch (e) {
-      setError(t('Invalid YAML syntax'))
-      return
+      setError(t('Invalid YAML syntax'));
+      return;
     }
 
     if (!parsed || typeof parsed !== 'object') {
-      setError(t('YAML must be an object'))
-      return
+      setError(t('YAML must be an object'));
+      return;
     }
 
     // Prevent type changes
     if (parsed.type && parsed.type !== app.spec.type) {
-      setError(t('Cannot change app type'))
-      return
+      setError(t('Cannot change app type'));
+      return;
     }
 
-    setSaving(true)
+    setSaving(true);
 
     // Send the full parsed spec as the patch.
     // The backend applies JSON Merge Patch and re-validates with Zod.
-    const ok = await updateAppSpec(appId, parsed)
-    setSaving(false)
+    const ok = await updateAppSpec(appId, parsed);
+    setSaving(false);
 
     if (ok) {
-      setSaveSuccess(true)
-      setTimeout(() => setSaveSuccess(false), 2000)
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
     } else {
-      setError(t('Failed to save. The server rejected the spec — check for validation errors.'))
+      setError(t('Failed to save. The server rejected the spec — check for validation errors.'));
     }
   }
 
   function handleReset() {
-    setYamlContent(originalYaml)
-    setError(null)
-    setSaveSuccess(false)
+    setYamlContent(originalYaml);
+    setError(null);
+    setSaveSuccess(false);
   }
 
   async function handleExport() {
-    setExporting(true)
-    await exportApp(appId)
-    setExporting(false)
+    setExporting(true);
+    await exportApp(appId);
+    setExporting(false);
   }
 
   return (
@@ -756,12 +801,17 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
         {t('Edit the full app spec as YAML. Changes are validated by the server before saving.')}
       </p>
 
-      <Suspense fallback={
-        <div className="h-96 flex items-center justify-center bg-secondary rounded-lg border border-border">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      }>
-        <div className="border border-border rounded-lg overflow-hidden" style={{ height: '60vh', minHeight: '320px' }}>
+      <Suspense
+        fallback={
+          <div className="h-96 flex items-center justify-center bg-secondary rounded-lg border border-border">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+        }
+      >
+        <div
+          className="border border-border rounded-lg overflow-hidden"
+          style={{ height: '60vh', minHeight: '320px' }}
+        >
           <CodeMirrorEditor
             content={yamlContent}
             language="yaml"
@@ -771,9 +821,7 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
         </div>
       </Suspense>
 
-      {error && (
-        <p className="text-xs text-red-400">{error}</p>
-      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
 
       <div className="flex items-center gap-2">
         <button
@@ -781,9 +829,11 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
           disabled={!hasChanges || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40"
         >
-          {saving
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <Save className="w-3.5 h-3.5" />}
+          {saving ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Save className="w-3.5 h-3.5" />
+          )}
           {t('Save')}
         </button>
         {hasChanges && (
@@ -795,9 +845,7 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
             {t('Reset')}
           </button>
         )}
-        {saveSuccess && (
-          <span className="text-xs text-green-500">{t('Saved')}</span>
-        )}
+        {saveSuccess && <span className="text-xs text-green-500">{t('Saved')}</span>}
 
         <div className="flex-1" />
 
@@ -807,14 +855,16 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg transition-colors disabled:opacity-40"
           title={t('Export as YAML file')}
         >
-          {exporting
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <Download className="w-3.5 h-3.5" />}
+          {exporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Download className="w-3.5 h-3.5" />
+          )}
           {t('Export')}
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 // ============================================
@@ -822,22 +872,22 @@ function YamlTab({ app, appId, t }: YamlTabProps) {
 // ============================================
 
 interface AppConfigPanelProps {
-  appId: string
+  appId: string;
   /** Space name to display in the identity section */
-  spaceName?: string
+  spaceName?: string;
 }
 
 export function AppConfigPanel({ appId, spaceName }: AppConfigPanelProps) {
-  const { t } = useTranslation()
-  const { apps, uninstallApp } = useAppsStore()
-  const app = apps.find(a => a.id === appId)
+  const { t } = useTranslation();
+  const { apps, uninstallApp } = useAppsStore();
+  const app = apps.find((a) => a.id === appId);
 
-  const [activeTab, setActiveTab] = useState<ConfigTab>('settings')
-  const [showUninstallConfirm, setShowUninstallConfirm] = useState(false)
+  const [activeTab, setActiveTab] = useState<ConfigTab>('settings');
+  const [showUninstallConfirm, setShowUninstallConfirm] = useState(false);
 
-  if (!app) return null
+  if (!app) return null;
 
-  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage())
+  const { name, description } = resolveSpecI18n(app.spec, getCurrentLanguage());
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -880,12 +930,8 @@ export function AppConfigPanel({ appId, spaceName }: AppConfigPanelProps) {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'settings' && (
-        <SettingsTab app={app} appId={appId} t={t} />
-      )}
-      {activeTab === 'yaml' && (
-        <YamlTab app={app} appId={appId} t={t} />
-      )}
+      {activeTab === 'settings' && <SettingsTab app={app} appId={appId} t={t} />}
+      {activeTab === 'yaml' && <YamlTab app={app} appId={appId} t={t} />}
 
       {/* Danger Zone (always visible) */}
       <div className="space-y-2 pt-2 border-t border-border">
@@ -903,8 +949,8 @@ export function AppConfigPanel({ appId, spaceName }: AppConfigPanelProps) {
             <div className="flex items-center gap-2">
               <button
                 onClick={async () => {
-                  await uninstallApp(appId)
-                  setShowUninstallConfirm(false)
+                  await uninstallApp(appId);
+                  setShowUninstallConfirm(false);
                 }}
                 className="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 border border-red-400/30 hover:border-red-400/60 rounded-lg transition-colors"
               >
@@ -929,5 +975,5 @@ export function AppConfigPanel({ appId, spaceName }: AppConfigPanelProps) {
         )}
       </div>
     </div>
-  )
+  );
 }

@@ -8,67 +8,60 @@
  * - Expand to full content
  */
 
-import { useState, useCallback, useRef } from 'react'
-import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react'
-import { MarkdownRenderer } from '../MarkdownRenderer'
-import { useTranslation } from '../../../i18n'
-import type { ViewerBaseProps } from './types'
-import { countLines } from './detection'
+import { useState, useCallback, useRef } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { MarkdownRenderer } from '../MarkdownRenderer';
+import { useTranslation } from '../../../i18n';
+import type { ViewerBaseProps } from './types';
+import { countLines } from './detection';
 
-const PREVIEW_HEIGHT = 120
-const MAX_EXPANDED_HEIGHT = 400
+const PREVIEW_HEIGHT = 120;
+const MAX_EXPANDED_HEIGHT = 400;
 
-export function MarkdownResultViewer({
-  output,
-  isError,
-  toolInput
-}: ViewerBaseProps) {
-  const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [needsExpand, setNeedsExpand] = useState(false)
-  const contentRef = useRef<HTMLDivElement>(null)
+export function MarkdownResultViewer({ output, isError, toolInput }: ViewerBaseProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [needsExpand, setNeedsExpand] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Check if content overflows preview height
   const checkOverflow = useCallback((node: HTMLDivElement | null) => {
     if (node) {
-      setNeedsExpand(node.scrollHeight > PREVIEW_HEIGHT)
+      setNeedsExpand(node.scrollHeight > PREVIEW_HEIGHT);
     }
-  }, [])
+  }, []);
 
   // Copy handler (copies raw markdown)
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(output)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err)
+      console.error('Failed to copy:', err);
     }
-  }, [output])
+  }, [output]);
 
   // Toggle expand
   const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
-  const lineCount = countLines(output)
+  const lineCount = countLines(output);
 
   return (
     <div
       className={`
         mt-1.5 rounded-lg overflow-hidden border
-        ${isError
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border/30 bg-muted/20'
-        }
+        ${isError ? 'border-amber-500/30 bg-amber-500/5' : 'border-border/30 bg-muted/20'}
       `}
     >
       {/* Markdown content */}
       <div
         ref={(node) => {
-          contentRef.current = node
-          checkOverflow(node)
+          contentRef.current = node;
+          checkOverflow(node);
         }}
         className={`
           relative overflow-hidden transition-all duration-200 ease-out
@@ -84,7 +77,7 @@ export function MarkdownResultViewer({
           <div
             className="absolute bottom-0 left-0 right-0 h-10 pointer-events-none"
             style={{
-              background: 'linear-gradient(to bottom, transparent, hsl(var(--muted) / 0.3))'
+              background: 'linear-gradient(to bottom, transparent, hsl(var(--muted) / 0.3))',
             }}
           />
         )}
@@ -96,9 +89,10 @@ export function MarkdownResultViewer({
           flex items-center justify-between
           px-2.5 py-[1px]
           border-t text-[10px]
-          ${isError
-            ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
-            : 'border-border/20 bg-muted/30 text-muted-foreground/60'
+          ${
+            isError
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-600/60'
+              : 'border-border/20 bg-muted/30 text-muted-foreground/60'
           }
         `}
       >
@@ -164,5 +158,5 @@ export function MarkdownResultViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }

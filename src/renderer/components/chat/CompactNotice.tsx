@@ -8,33 +8,41 @@
  * - Shows estimated remaining capacity after compression
  */
 
-import { useTranslation } from '../../i18n'
-import type { CompactInfo } from '../../types'
+import { useTranslation } from '../../i18n';
+import type { CompactInfo } from '../../types';
 
 interface CompactNoticeProps extends CompactInfo {
-  className?: string
+  className?: string;
   // Optional: estimated remaining tokens after compression
-  remainingCapacity?: number
+  remainingCapacity?: number;
 }
 
 // Format number to K format (e.g., 180000 -> "180K")
 function formatTokens(tokens: number): string {
-  if (tokens < 1000) return tokens.toString()
-  return `${Math.round(tokens / 1000)}K`
+  if (tokens < 1000) return tokens.toString();
+  return `${Math.round(tokens / 1000)}K`;
 }
 
 // Compression threshold (80% of context window)
-const COMPRESSION_THRESHOLD = 0.8
-const DEFAULT_CONTEXT_WINDOW = 200000
+const COMPRESSION_THRESHOLD = 0.8;
+const DEFAULT_CONTEXT_WINDOW = 200000;
 
-export function CompactNotice({ trigger, preTokens, postTokens, remainingCapacity, className = '' }: CompactNoticeProps) {
-  const { t } = useTranslation()
+export function CompactNotice({
+  trigger,
+  preTokens,
+  postTokens,
+  remainingCapacity,
+  className = '',
+}: CompactNoticeProps) {
+  const { t } = useTranslation();
 
   // Calculate estimated remaining capacity if not provided
-  const estimatedRemaining = remainingCapacity ?? (postTokens ? DEFAULT_CONTEXT_WINDOW - postTokens : null)
+  const estimatedRemaining =
+    remainingCapacity ?? (postTokens ? DEFAULT_CONTEXT_WINDOW - postTokens : null);
 
   // Calculate compression ratio
-  const compressionRatio = preTokens > 0 && postTokens ? Math.round((1 - postTokens / preTokens) * 100) : null
+  const compressionRatio =
+    preTokens > 0 && postTokens ? Math.round((1 - postTokens / preTokens) * 100) : null;
 
   return (
     <div className={`flex justify-center my-4 ${className}`}>
@@ -54,5 +62,5 @@ export function CompactNotice({ trigger, preTokens, postTokens, remainingCapacit
         </div>
       </div>
     </div>
-  )
+  );
 }

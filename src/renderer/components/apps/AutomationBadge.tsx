@@ -10,28 +10,28 @@
  *   (click → jump directly to that app's Activity Thread)
  */
 
-import { useAppsStore } from '../../stores/apps.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useAppStore } from '../../stores/app.store'
-import { useTranslation } from '../../i18n'
+import { useAppsStore } from '../../stores/apps.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { useAppStore } from '../../stores/app.store';
+import { useTranslation } from '../../i18n';
 
 export function AutomationBadge() {
-  const { t } = useTranslation()
-  const { setView } = useAppStore()
-  const { apps } = useAppsStore()
-  const { setInitialAppId } = useAppsPageStore()
+  const { t } = useTranslation();
+  const { setView } = useAppStore();
+  const { apps } = useAppsStore();
+  const { setInitialAppId } = useAppsPageStore();
 
   // Only show for automation-type apps
-  const automationApps = apps.filter(a => a.spec.type === 'automation')
-  if (automationApps.length === 0) return null
+  const automationApps = apps.filter((a) => a.spec.type === 'automation');
+  if (automationApps.length === 0) return null;
 
   // Priority: escalation waiting
-  const waitingApp = automationApps.find(a => a.status === 'waiting_user')
+  const waitingApp = automationApps.find((a) => a.status === 'waiting_user');
   if (waitingApp) {
     const handleClick = () => {
-      setInitialAppId(waitingApp.id)
-      setView('apps')
-    }
+      setInitialAppId(waitingApp.id);
+      setView('apps');
+    };
     return (
       <button
         onClick={handleClick}
@@ -42,16 +42,16 @@ export function AutomationBadge() {
           {waitingApp.spec.name} — {t('needs your input')}
         </span>
       </button>
-    )
+    );
   }
 
   // Secondary: running / active apps count
-  const runningApps = automationApps.filter(a => a.status === 'active' || a.status === 'error')
-  if (runningApps.length === 0) return null
+  const runningApps = automationApps.filter((a) => a.status === 'active' || a.status === 'error');
+  if (runningApps.length === 0) return null;
 
   const handleClick = () => {
-    setView('apps')
-  }
+    setView('apps');
+  };
 
   return (
     <button
@@ -62,9 +62,8 @@ export function AutomationBadge() {
       <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
         {runningApps.length === 1
           ? t('{{name}} running', { name: runningApps[0].spec.name })
-          : t('{{count}} apps running', { count: runningApps.length })
-        }
+          : t('{{count}} apps running', { count: runningApps.length })}
       </span>
     </button>
-  )
+  );
 }

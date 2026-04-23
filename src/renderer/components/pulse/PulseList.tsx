@@ -13,71 +13,73 @@
  * Does NOT handle: positioning, open/close, collapse/expand, or responsive logic.
  */
 
-import { useCallback, useMemo } from 'react'
-import { usePulseItems, useChatStore } from '../../stores/chat.store'
-import { useSpaceStore } from '../../stores/space.store'
-import { useAppStore } from '../../stores/app.store'
-import { useTranslation } from '../../i18n'
-import { TaskCard } from './TaskCard'
-import type { PulseItem } from '../../types'
+import { useCallback, useMemo } from 'react';
+import { usePulseItems, useChatStore } from '../../stores/chat.store';
+import { useSpaceStore } from '../../stores/space.store';
+import { useAppStore } from '../../stores/app.store';
+import { useTranslation } from '../../i18n';
+import { TaskCard } from './TaskCard';
+import type { PulseItem } from '../../types';
 
 /**
  * Navigate to a conversation, handling cross-space switching.
  * Extracted as a standalone function so it can be called from any context.
  */
 export function navigateToConversation(spaceId: string, conversationId: string) {
-  const chatStore = useChatStore.getState()
-  const currentSpaceId = chatStore.currentSpaceId
+  const chatStore = useChatStore.getState();
+  const currentSpaceId = chatStore.currentSpaceId;
 
   if (currentSpaceId === spaceId) {
-    chatStore.selectConversation(conversationId)
-    return
+    chatStore.selectConversation(conversationId);
+    return;
   }
 
   // Different space - switch space first
-  const spaceStore = useSpaceStore.getState()
-  const targetSpace = spaceStore.defaultSpace?.id === spaceId
-    ? spaceStore.defaultSpace
-    : spaceStore.spaces.find(s => s.id === spaceId)
+  const spaceStore = useSpaceStore.getState();
+  const targetSpace =
+    spaceStore.defaultSpace?.id === spaceId
+      ? spaceStore.defaultSpace
+      : spaceStore.spaces.find((s) => s.id === spaceId);
 
-  if (!targetSpace) return
+  if (!targetSpace) return;
 
   // Set flag for SpacePage to consume after it finishes loading conversations
-  useChatStore.setState({ pendingPulseNavigation: conversationId })
+  useChatStore.setState({ pendingPulseNavigation: conversationId });
 
   // Switch space — SpacePage's initSpace will pick up the flag and call selectConversation
-  spaceStore.setCurrentSpace(targetSpace)
-  useAppStore.getState().setView('space')
+  spaceStore.setCurrentSpace(targetSpace);
+  useAppStore.getState().setView('space');
 }
 
 interface PulseListProps {
   /** Max height for the scrollable area (CSS value) */
-  maxHeight?: string
+  maxHeight?: string;
   /** Callback after an item is clicked (e.g. to close a panel) */
-  onItemClick?: () => void
+  onItemClick?: () => void;
   /** Whether to show compact items (smaller padding) */
-  compact?: boolean
+  compact?: boolean;
 }
 
 export function PulseList({ maxHeight = '360px', onItemClick, compact = false }: PulseListProps) {
-  const { t } = useTranslation()
-  const rawItems = usePulseItems()
-  const defaultSpace = useSpaceStore(state => state.defaultSpace)
-  const spaces = useSpaceStore(state => state.spaces)
+  const { t } = useTranslation();
+  const rawItems = usePulseItems();
+  const defaultSpace = useSpaceStore((state) => state.defaultSpace);
+  const spaces = useSpaceStore((state) => state.spaces);
 
   // Enrich items with proper space names from space store
   const items = useMemo(() => {
-    return rawItems.map(item => {
-      if (item.spaceName !== item.spaceId) return item
-      const space = defaultSpace?.id === item.spaceId
-        ? defaultSpace
-        : spaces.find(s => s.id === item.spaceId)
-      return space ? { ...item, spaceName: space.isTemp ? 'AICO-Bot' : space.name } : item
-    })
-  }, [rawItems, defaultSpace, spaces])
+    return rawItems.map((item) => {
+      if (item.spaceName !== item.spaceId) return item;
+      const space =
+        defaultSpace?.id === item.spaceId
+          ? defaultSpace
+          : spaces.find((s) => s.id === item.spaceId);
+      return space ? { ...item, spaceName: space.isTemp ? 'AICO-Bot' : space.name } : item;
+    });
+  }, [rawItems, defaultSpace, spaces]);
 
-  const activeItems = items.filter(i => i.status !== 'idle')
-  const pinnedIdleItems = items.filter(i => i.status === 'idle')
+  const activeItems = items.filter((i) => i.status !== 'idle');
+  const pinnedIdleItems = items.filter((i) => i.status === 'idle');
 
   if (items.length === 0) {
     return (
@@ -87,7 +89,7 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
           {t('Tasks and pinned conversations appear here')}
         </p>
       </div>
-    )
+    );
   }
 
   return (
@@ -95,7 +97,7 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
       {/* Active items — rendered as TaskCards */}
       {activeItems.length > 0 && (
         <div className="py-1">
-          {activeItems.map(item => (
+          {activeItems.map((item) => (
             <TaskCard
               key={item.conversationId}
               item={item}
@@ -114,7 +116,7 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
       {/* Pinned idle items — rendered as TaskCards */}
       {pinnedIdleItems.length > 0 && (
         <div className="py-1">
-          {pinnedIdleItems.map(item => (
+          {pinnedIdleItems.map((item) => (
             <TaskCard
               key={item.conversationId}
               item={item}
@@ -125,5 +127,5 @@ export function PulseList({ maxHeight = '360px', onItemClick, compact = false }:
         </div>
       )}
     </div>
-  )
+  );
 }

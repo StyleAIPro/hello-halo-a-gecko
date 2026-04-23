@@ -12,18 +12,26 @@
  *   |       +-- {slug}.yaml   # Cached spec files
  */
 
-import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync, statSync } from 'fs'
-import { getAicoBotDir } from '../services/config.service'
-import type { RegistryIndex } from '../../shared/store/store-types'
-import type { AppSpec } from '../apps/spec/schema'
-import type { CachedIndex, CachedSpec } from './registry.types'
+import { join } from 'path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  readdirSync,
+  statSync,
+} from 'fs';
+import { getAicoBotDir } from '../services/config.service';
+import type { RegistryIndex } from '../../shared/store/store-types';
+import type { AppSpec } from '../apps/spec/schema';
+import type { CachedIndex, CachedSpec } from './registry.types';
 
 /** Name of the cache directory under the AICO-Bot data directory */
-const CACHE_DIR_NAME = 'store-cache'
+const CACHE_DIR_NAME = 'store-cache';
 
 /** Metadata suffix for cache entries (stores fetchedAt timestamp) */
-const META_SUFFIX = '.meta.json'
+const META_SUFFIX = '.meta.json';
 
 // ============================================
 // Cache Directory
@@ -34,11 +42,11 @@ const META_SUFFIX = '.meta.json'
  * Creates the directory if it does not exist.
  */
 export function getCacheDir(): string {
-  const dir = join(getAicoBotDir(), CACHE_DIR_NAME)
+  const dir = join(getAicoBotDir(), CACHE_DIR_NAME);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true });
   }
-  return dir
+  return dir;
 }
 
 /**
@@ -46,11 +54,11 @@ export function getCacheDir(): string {
  * Creates the directory if it does not exist.
  */
 function getRegistryCacheDir(registryId: string): string {
-  const dir = join(getCacheDir(), registryId)
+  const dir = join(getCacheDir(), registryId);
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true });
   }
-  return dir
+  return dir;
 }
 
 /**
@@ -58,11 +66,11 @@ function getRegistryCacheDir(registryId: string): string {
  * Creates the directory if it does not exist.
  */
 function getSpecsCacheDir(registryId: string): string {
-  const dir = join(getRegistryCacheDir(registryId), 'specs')
+  const dir = join(getRegistryCacheDir(registryId), 'specs');
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true });
   }
-  return dir
+  return dir;
 }
 
 // ============================================
@@ -75,27 +83,27 @@ function getSpecsCacheDir(registryId: string): string {
  */
 export function readCachedIndex(registryId: string): CachedIndex | null {
   try {
-    const indexPath = join(getRegistryCacheDir(registryId), 'index.json')
-    const metaPath = indexPath + META_SUFFIX
+    const indexPath = join(getRegistryCacheDir(registryId), 'index.json');
+    const metaPath = indexPath + META_SUFFIX;
 
     if (!existsSync(indexPath) || !existsSync(metaPath)) {
-      return null
+      return null;
     }
 
-    const indexContent = readFileSync(indexPath, 'utf-8')
-    const metaContent = readFileSync(metaPath, 'utf-8')
+    const indexContent = readFileSync(indexPath, 'utf-8');
+    const metaContent = readFileSync(metaPath, 'utf-8');
 
-    const index = JSON.parse(indexContent) as RegistryIndex
-    const meta = JSON.parse(metaContent) as { fetchedAt: number }
+    const index = JSON.parse(indexContent) as RegistryIndex;
+    const meta = JSON.parse(metaContent) as { fetchedAt: number };
 
     return {
       index,
       fetchedAt: meta.fetchedAt,
       registryId,
-    }
+    };
   } catch (error) {
-    console.error(`[RegistryCache] Failed to read cached index for ${registryId}:`, error)
-    return null
+    console.error(`[RegistryCache] Failed to read cached index for ${registryId}:`, error);
+    return null;
   }
 }
 
@@ -104,14 +112,14 @@ export function readCachedIndex(registryId: string): CachedIndex | null {
  */
 export function writeCachedIndex(registryId: string, index: RegistryIndex): void {
   try {
-    const dir = getRegistryCacheDir(registryId)
-    const indexPath = join(dir, 'index.json')
-    const metaPath = indexPath + META_SUFFIX
+    const dir = getRegistryCacheDir(registryId);
+    const indexPath = join(dir, 'index.json');
+    const metaPath = indexPath + META_SUFFIX;
 
-    writeFileSync(indexPath, JSON.stringify(index, null, 2))
-    writeFileSync(metaPath, JSON.stringify({ fetchedAt: Date.now() }))
+    writeFileSync(indexPath, JSON.stringify(index, null, 2));
+    writeFileSync(metaPath, JSON.stringify({ fetchedAt: Date.now() }));
   } catch (error) {
-    console.error(`[RegistryCache] Failed to write cached index for ${registryId}:`, error)
+    console.error(`[RegistryCache] Failed to write cached index for ${registryId}:`, error);
   }
 }
 
@@ -125,28 +133,28 @@ export function writeCachedIndex(registryId: string, index: RegistryIndex): void
  */
 export function readCachedSpec(registryId: string, slug: string): CachedSpec | null {
   try {
-    const specsDir = getSpecsCacheDir(registryId)
-    const specPath = join(specsDir, `${slug}.json`)
-    const metaPath = specPath + META_SUFFIX
+    const specsDir = getSpecsCacheDir(registryId);
+    const specPath = join(specsDir, `${slug}.json`);
+    const metaPath = specPath + META_SUFFIX;
 
     if (!existsSync(specPath) || !existsSync(metaPath)) {
-      return null
+      return null;
     }
 
-    const specContent = readFileSync(specPath, 'utf-8')
-    const metaContent = readFileSync(metaPath, 'utf-8')
+    const specContent = readFileSync(specPath, 'utf-8');
+    const metaContent = readFileSync(metaPath, 'utf-8');
 
-    const spec = JSON.parse(specContent) as AppSpec
-    const meta = JSON.parse(metaContent) as { fetchedAt: number }
+    const spec = JSON.parse(specContent) as AppSpec;
+    const meta = JSON.parse(metaContent) as { fetchedAt: number };
 
     return {
       spec,
       key: `${registryId}:${slug}`,
       fetchedAt: meta.fetchedAt,
-    }
+    };
   } catch (error) {
-    console.error(`[RegistryCache] Failed to read cached spec for ${registryId}:${slug}:`, error)
-    return null
+    console.error(`[RegistryCache] Failed to read cached spec for ${registryId}:${slug}:`, error);
+    return null;
   }
 }
 
@@ -156,14 +164,14 @@ export function readCachedSpec(registryId: string, slug: string): CachedSpec | n
  */
 export function writeCachedSpec(registryId: string, slug: string, spec: AppSpec): void {
   try {
-    const specsDir = getSpecsCacheDir(registryId)
-    const specPath = join(specsDir, `${slug}.json`)
-    const metaPath = specPath + META_SUFFIX
+    const specsDir = getSpecsCacheDir(registryId);
+    const specPath = join(specsDir, `${slug}.json`);
+    const metaPath = specPath + META_SUFFIX;
 
-    writeFileSync(specPath, JSON.stringify(spec, null, 2))
-    writeFileSync(metaPath, JSON.stringify({ fetchedAt: Date.now() }))
+    writeFileSync(specPath, JSON.stringify(spec, null, 2));
+    writeFileSync(metaPath, JSON.stringify({ fetchedAt: Date.now() }));
   } catch (error) {
-    console.error(`[RegistryCache] Failed to write cached spec for ${registryId}:${slug}:`, error)
+    console.error(`[RegistryCache] Failed to write cached spec for ${registryId}:${slug}:`, error);
   }
 }
 
@@ -180,20 +188,20 @@ export function writeCachedSpec(registryId: string, slug: string, spec: AppSpec)
 export function clearCache(registryId?: string): void {
   try {
     if (registryId) {
-      const dir = join(getCacheDir(), registryId)
+      const dir = join(getCacheDir(), registryId);
       if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true })
-        console.log(`[RegistryCache] Cleared cache for registry: ${registryId}`)
+        rmSync(dir, { recursive: true, force: true });
+        console.log(`[RegistryCache] Cleared cache for registry: ${registryId}`);
       }
     } else {
-      const dir = getCacheDir()
+      const dir = getCacheDir();
       if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true })
-        console.log('[RegistryCache] Cleared all cache')
+        rmSync(dir, { recursive: true, force: true });
+        console.log('[RegistryCache] Cleared all cache');
       }
     }
   } catch (error) {
-    console.error('[RegistryCache] Failed to clear cache:', error)
+    console.error('[RegistryCache] Failed to clear cache:', error);
   }
 }
 
@@ -201,38 +209,35 @@ export function clearCache(registryId?: string): void {
  * Get cache statistics: total file count and total size in bytes.
  */
 export function getCacheStats(): { totalFiles: number; totalSizeBytes: number } {
-  const stats = { totalFiles: 0, totalSizeBytes: 0 }
+  const stats = { totalFiles: 0, totalSizeBytes: 0 };
 
   try {
-    const cacheDir = getCacheDir()
+    const cacheDir = getCacheDir();
     if (!existsSync(cacheDir)) {
-      return stats
+      return stats;
     }
-    accumulateStats(cacheDir, stats)
+    accumulateStats(cacheDir, stats);
   } catch (error) {
-    console.error('[RegistryCache] Failed to get cache stats:', error)
+    console.error('[RegistryCache] Failed to get cache stats:', error);
   }
 
-  return stats
+  return stats;
 }
 
 /**
  * Recursively accumulate file count and size for a directory.
  */
-function accumulateStats(
-  dir: string,
-  stats: { totalFiles: number; totalSizeBytes: number }
-): void {
-  const entries = readdirSync(dir, { withFileTypes: true })
+function accumulateStats(dir: string, stats: { totalFiles: number; totalSizeBytes: number }): void {
+  const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    const fullPath = join(dir, entry.name)
+    const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      accumulateStats(fullPath, stats)
+      accumulateStats(fullPath, stats);
     } else if (entry.isFile()) {
-      stats.totalFiles++
+      stats.totalFiles++;
       try {
-        const fileStat = statSync(fullPath)
-        stats.totalSizeBytes += fileStat.size
+        const fileStat = statSync(fullPath);
+        stats.totalSizeBytes += fileStat.size;
       } catch {
         // Skip files we cannot stat
       }

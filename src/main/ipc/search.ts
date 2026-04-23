@@ -5,12 +5,13 @@
  * Supports cancellable async search with progress updates
  */
 
-import { ipcMain, BrowserWindow } from 'electron'
-import { searchService, SearchResult } from '../services/search.service'
-import { getMainWindow, onMainWindowChange } from '../services/window.service'
+import type { BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
+import { searchService, SearchResult } from '../services/search.service';
+import { getMainWindow, onMainWindowChange } from '../services/window.service';
 
-let mainWindow: BrowserWindow | null = null
-let currentSearchId: string | null = null
+let mainWindow: BrowserWindow | null = null;
+let currentSearchId: string | null = null;
 
 /**
  * Initialize search IPC handlers
@@ -18,8 +19,8 @@ let currentSearchId: string | null = null
 export function initializeSearchHandlers(): void {
   // Subscribe to window changes
   onMainWindowChange((window) => {
-    mainWindow = window
-  })
+    mainWindow = window;
+  });
 
   /**
    * Execute search across conversations
@@ -34,12 +35,12 @@ export function initializeSearchHandlers(): void {
    * Returns: SearchResult[]
    */
   ipcMain.handle('search:execute', async (_event, query, scope, conversationId, spaceId) => {
-    const searchId = Math.random().toString(36).slice(2)
-    currentSearchId = searchId
+    const searchId = Math.random().toString(36).slice(2);
+    currentSearchId = searchId;
 
     try {
       // Reset cancel token
-      searchService.cancel()
+      searchService.cancel();
 
       // Execute search with progress callback
       const results = await searchService.search(
@@ -53,35 +54,35 @@ export function initializeSearchHandlers(): void {
             mainWindow.webContents.send('search:progress', {
               current,
               total,
-              searchId
-            })
+              searchId,
+            });
           }
-        }
-      )
+        },
+      );
 
       // Return results only if this search is still active
       if (currentSearchId === searchId) {
-        currentSearchId = null
+        currentSearchId = null;
         return {
           success: true,
-          data: results
-        }
+          data: results,
+        };
       }
 
       return {
         success: false,
-        error: 'Search was cancelled'
-      }
+        error: 'Search was cancelled',
+      };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      console.error('Search execution error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Search execution error:', error);
 
       return {
         success: false,
-        error: errorMessage
-      }
+        error: errorMessage,
+      };
     }
-  })
+  });
 
   /**
    * Cancel ongoing search
@@ -90,19 +91,19 @@ export function initializeSearchHandlers(): void {
    * Returns: void
    */
   ipcMain.handle('search:cancel', () => {
-    currentSearchId = null
-    searchService.cancel()
+    currentSearchId = null;
+    searchService.cancel();
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('search:cancelled')
+      mainWindow.webContents.send('search:cancelled');
     }
-  })
+  });
 }
 
 /**
  * Cleanup search handlers (called when app closes)
  */
 export function cleanupSearchHandlers(): void {
-  currentSearchId = null
-  searchService.cancel()
+  currentSearchId = null;
+  searchService.cancel();
 }

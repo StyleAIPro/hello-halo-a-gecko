@@ -27,17 +27,17 @@
  *   }
  */
 
-import type { DatabaseManager } from '../../platform/store'
-import type { AppManagerService } from '../manager'
-import type { SchedulerService } from '../../platform/scheduler'
-import type { EventBusService } from '../../platform/event-bus'
-import type { MemoryService } from '../../platform/memory'
-import type { BackgroundService } from '../../platform/background'
-import { getSpace } from '../../services/space.service'
-import { ActivityStore } from './store'
-import { createAppRuntimeService } from './service'
-import { MIGRATION_NAMESPACE, migrations } from './migrations'
-import type { AppRuntimeService } from './types'
+import type { DatabaseManager } from '../../platform/store';
+import type { AppManagerService } from '../manager';
+import type { SchedulerService } from '../../platform/scheduler';
+import type { EventBusService } from '../../platform/event-bus';
+import type { MemoryService } from '../../platform/memory';
+import type { BackgroundService } from '../../platform/background';
+import { getSpace } from '../../services/space.service';
+import { ActivityStore } from './store';
+import { createAppRuntimeService } from './service';
+import { MIGRATION_NAMESPACE, migrations } from './migrations';
+import type { AppRuntimeService } from './types';
 
 // Re-export types for consumers
 export type {
@@ -55,7 +55,7 @@ export type {
   RunStatus,
   ActivationState,
   AppRuntimeDeps,
-} from './types'
+} from './types';
 
 // Re-export error types
 export {
@@ -64,10 +64,10 @@ export {
   ConcurrencyLimitError,
   EscalationNotFoundError,
   RunExecutionError,
-} from './errors'
+} from './errors';
 
 // Re-export concurrency for testing
-export { Semaphore } from './concurrency'
+export { Semaphore } from './concurrency';
 
 // Re-export app chat functions
 export {
@@ -78,15 +78,15 @@ export {
   getAppChatSessionState,
   getAppChatConversationId,
   cleanupAppChatBrowserContext,
-} from './app-chat'
-export type { AppChatRequest } from './app-chat'
+} from './app-chat';
+export type { AppChatRequest } from './app-chat';
 
 // ============================================
 // Module State
 // ============================================
 
-let runtimeService: AppRuntimeService | null = null
-let memoryServiceRef: MemoryService | null = null
+let runtimeService: AppRuntimeService | null = null;
+let memoryServiceRef: MemoryService | null = null;
 
 // ============================================
 // Initialization
@@ -95,17 +95,17 @@ let memoryServiceRef: MemoryService | null = null
 /** Dependencies required to initialize the App Runtime */
 interface InitAppRuntimeDeps {
   /** DatabaseManager from platform/store */
-  db: DatabaseManager
+  db: DatabaseManager;
   /** App Manager service */
-  appManager: AppManagerService
+  appManager: AppManagerService;
   /** Scheduler service */
-  scheduler: SchedulerService
+  scheduler: SchedulerService;
   /** Event Bus service */
-  eventBus: EventBusService
+  eventBus: EventBusService;
   /** Memory service */
-  memory: MemoryService
+  memory: MemoryService;
   /** Background service */
-  background: BackgroundService
+  background: BackgroundService;
 }
 
 /**
@@ -129,20 +129,18 @@ interface InitAppRuntimeDeps {
  * @param deps - Injected dependencies
  * @returns Initialized AppRuntimeService
  */
-export async function initAppRuntime(
-  deps: InitAppRuntimeDeps
-): Promise<AppRuntimeService> {
-  const start = performance.now()
-  console.log('[Runtime] Initializing App Runtime...')
+export async function initAppRuntime(deps: InitAppRuntimeDeps): Promise<AppRuntimeService> {
+  const start = performance.now();
+  console.log('[Runtime] Initializing App Runtime...');
 
   // Get the app-level database
-  const appDb = deps.db.getAppDatabase()
+  const appDb = deps.db.getAppDatabase();
 
   // Run migrations
-  deps.db.runMigrations(appDb, MIGRATION_NAMESPACE, migrations)
+  deps.db.runMigrations(appDb, MIGRATION_NAMESPACE, migrations);
 
   // Create the activity store
-  const store = new ActivityStore(appDb)
+  const store = new ActivityStore(appDb);
 
   // Create the runtime service
   const service = createAppRuntimeService({
@@ -153,21 +151,21 @@ export async function initAppRuntime(
     memory: deps.memory,
     background: deps.background,
     getSpacePath: (spaceId: string): string | null => {
-      const space = getSpace(spaceId)
-      return space?.path ?? null
+      const space = getSpace(spaceId);
+      return space?.path ?? null;
     },
-  })
+  });
 
   // Activate all active automation Apps
-  await service.activateAll()
+  await service.activateAll();
 
-  runtimeService = service
-  memoryServiceRef = deps.memory
+  runtimeService = service;
+  memoryServiceRef = deps.memory;
 
-  const duration = performance.now() - start
-  console.log(`[Runtime] App Runtime initialized in ${duration.toFixed(1)}ms`)
+  const duration = performance.now() - start;
+  console.log(`[Runtime] App Runtime initialized in ${duration.toFixed(1)}ms`);
 
-  return service
+  return service;
 }
 
 /**
@@ -175,7 +173,7 @@ export async function initAppRuntime(
  * Returns null if not yet initialized.
  */
 export function getAppRuntime(): AppRuntimeService | null {
-  return runtimeService
+  return runtimeService;
 }
 
 /**
@@ -183,7 +181,7 @@ export function getAppRuntime(): AppRuntimeService | null {
  * Used by app-chat.ts to build app-specific memory tools.
  */
 export function getAppMemoryService(): MemoryService | null {
-  return memoryServiceRef
+  return memoryServiceRef;
 }
 
 /**
@@ -194,13 +192,13 @@ export function getAppMemoryService(): MemoryService | null {
  * 3. Clears the module state
  */
 export async function shutdownAppRuntime(): Promise<void> {
-  console.log('[Runtime] Shutting down App Runtime...')
+  console.log('[Runtime] Shutting down App Runtime...');
 
   if (runtimeService) {
-    await runtimeService.deactivateAll()
-    runtimeService = null
-    memoryServiceRef = null
+    await runtimeService.deactivateAll();
+    runtimeService = null;
+    memoryServiceRef = null;
   }
 
-  console.log('[Runtime] App Runtime shutdown complete')
+  console.log('[Runtime] App Runtime shutdown complete');
 }

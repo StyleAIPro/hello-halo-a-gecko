@@ -8,5 +8,5 @@
  *   import { AISourceType, AISourceProvider } from '@shared'
  */
 
-export * from './types'
-export * from './interfaces'
+export * from './types';
+export * from './interfaces';

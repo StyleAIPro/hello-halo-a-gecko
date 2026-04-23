@@ -2,13 +2,13 @@
  * Backend Configuration Utilities
  */
 
-import type { BackendConfig } from '../types'
+import type { BackendConfig } from '../types';
 
 /**
  * Encode backend configuration to base64 string
  */
 export function encodeBackendConfig(config: BackendConfig): string {
-  return Buffer.from(JSON.stringify(config)).toString('base64')
+  return Buffer.from(JSON.stringify(config)).toString('base64');
 }
 
 /**
@@ -17,23 +17,23 @@ export function encodeBackendConfig(config: BackendConfig): string {
  */
 export function decodeBackendConfig(encoded: string): BackendConfig | null {
   try {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf-8')
-    const parsed = JSON.parse(decoded) as BackendConfig
+    const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
+    const parsed = JSON.parse(decoded) as BackendConfig;
     // Validate required fields
     if (parsed?.url && parsed?.key) {
-      return parsed
+      return parsed;
     }
   } catch {
     // Ignore decoding errors
   }
-  return null
+  return null;
 }
 
 /**
  * Validate backend configuration
  */
 export function isValidBackendConfig(config: unknown): config is BackendConfig {
-  if (!config || typeof config !== 'object') return false
-  const cfg = config as Record<string, unknown>
-  return typeof cfg.url === 'string' && typeof cfg.key === 'string'
+  if (!config || typeof config !== 'object') return false;
+  const cfg = config as Record<string, unknown>;
+  return typeof cfg.url === 'string' && typeof cfg.key === 'string';
 }

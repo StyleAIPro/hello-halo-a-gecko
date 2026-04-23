@@ -10,7 +10,12 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { SkillSpec, InstalledSkill, SkillLibraryConfig, SkillFileNode } from '../../shared/skill/skill-types';
+import type {
+  SkillSpec,
+  InstalledSkill,
+  SkillLibraryConfig,
+  SkillFileNode,
+} from '../../shared/skill/skill-types';
 import { getAgentsSkillsDir, getClaudeSkillsDir, getAllSkillsDirs } from '../config.service';
 
 export class SkillManager {
@@ -54,7 +59,13 @@ export class SkillManager {
     // 加载已安装的 skills
     await this.loadSkills();
 
-    console.log('[SkillManager] Initialized with', this.installedSkills.size, 'skills from', this.skillsDirs.length, 'directories');
+    console.log(
+      '[SkillManager] Initialized with',
+      this.installedSkills.size,
+      'skills from',
+      this.skillsDirs.length,
+      'directories',
+    );
   }
 
   /**
@@ -116,12 +127,24 @@ export class SkillManager {
             const existing = candidates.get(entry.name);
             if (!existing || mtime > existing.mtime) {
               candidates.set(entry.name, { dir: skillsDir, mtime, skill });
-              console.log('[SkillManager] Candidate skill:', entry.name,
-                'from', skillsDir, 'mtime:', new Date(mtime).toISOString(),
-                existing ? '(replacing older version)' : '');
+              console.log(
+                '[SkillManager] Candidate skill:',
+                entry.name,
+                'from',
+                skillsDir,
+                'mtime:',
+                new Date(mtime).toISOString(),
+                existing ? '(replacing older version)' : '',
+              );
             } else {
-              console.log('[SkillManager] Skipping older duplicate skill:', entry.name,
-                'from', skillsDir, 'mtime:', new Date(mtime).toISOString());
+              console.log(
+                '[SkillManager] Skipping older duplicate skill:',
+                entry.name,
+                'from',
+                skillsDir,
+                'mtime:',
+                new Date(mtime).toISOString(),
+              );
             }
           } catch (error) {
             console.error(`[SkillManager] Failed to load skill ${entry.name}:`, error);
@@ -145,7 +168,10 @@ export class SkillManager {
    * SKILL.md 是 Claude Code 原生格式（YAML frontmatter + markdown body）
    * SKILL.yaml 是 AICO-Bot 自有格式
    */
-  private async loadSkillFromDir(skillDir: string, skillId: string): Promise<InstalledSkill | null> {
+  private async loadSkillFromDir(
+    skillDir: string,
+    skillId: string,
+  ): Promise<InstalledSkill | null> {
     const mdFile = path.join(skillDir, 'SKILL.md');
     const yamlFile = path.join(skillDir, 'SKILL.yaml');
 
@@ -168,7 +194,7 @@ export class SkillManager {
           appId: skillId,
           spec,
           enabled: meta.enabled ?? true,
-          installedAt: meta.installedAt ?? new Date().toISOString()
+          installedAt: meta.installedAt ?? new Date().toISOString(),
         };
       }
     } catch {
@@ -183,7 +209,7 @@ export class SkillManager {
         appId: skillId,
         spec,
         enabled: meta.enabled ?? true,
-        installedAt: meta.installedAt ?? new Date().toISOString()
+        installedAt: meta.installedAt ?? new Date().toISOString(),
       };
     } catch {
       // SKILL.yaml 也不存在
@@ -208,7 +234,7 @@ export class SkillManager {
         system_prompt: content,
         version: '1.0',
         author: 'Unknown',
-        trigger_command: `/${skillId}`
+        trigger_command: `/${skillId}`,
       };
     }
 
@@ -224,7 +250,7 @@ export class SkillManager {
         version: (frontmatter.version as string) || '1.0',
         author: (frontmatter.author as string) || 'Unknown',
         trigger_command: (frontmatter.trigger_command as string) || `/${skillId}`,
-        tags: frontmatter.tags as string[] | undefined
+        tags: frontmatter.tags as string[] | undefined,
       };
     } catch {
       return null;
@@ -274,7 +300,7 @@ export class SkillManager {
             name: entry.name,
             type: 'directory',
             path: entryRelativePath,
-            children
+            children,
           });
         } else {
           // 获取文件信息
@@ -284,7 +310,7 @@ export class SkillManager {
             type: 'file',
             path: entryRelativePath,
             size: stats.size,
-            extension: path.extname(entry.name).toLowerCase()
+            extension: path.extname(entry.name).toLowerCase(),
           });
         }
       }
@@ -355,10 +381,13 @@ export class SkillManager {
   /**
    * 安装 skill（安装到主目录 ~/.agents/skills/）
    */
-  async installSkill(spec: SkillSpec, skillData: {
-    systemPrompt: string;
-    triggerCommand?: string;
-  }): Promise<string> {
+  async installSkill(
+    spec: SkillSpec,
+    skillData: {
+      systemPrompt: string;
+      triggerCommand?: string;
+    },
+  ): Promise<string> {
     const skillId = spec.name.toLowerCase().replace(/\s+/g, '-');
     const primaryDir = this.skillsDirs[0];
     const skillDir = path.join(primaryDir, skillId);
@@ -385,13 +414,9 @@ export class SkillManager {
       appId: skillId,
       spec: fullSpec,
       enabled: true,
-      installedAt: new Date().toISOString()
+      installedAt: new Date().toISOString(),
     };
-    await fs.writeFile(
-      path.join(skillDir, 'META.json'),
-      JSON.stringify(meta, null, 2),
-      'utf-8'
-    );
+    await fs.writeFile(path.join(skillDir, 'META.json'), JSON.stringify(meta, null, 2), 'utf-8');
 
     // 更新缓存
     this.installedSkills.set(skillId, meta);
@@ -492,7 +517,7 @@ export class SkillManager {
     // 安装 skill
     return this.installSkill(spec, {
       systemPrompt: spec.system_prompt,
-      triggerCommand: spec.trigger_command
+      triggerCommand: spec.trigger_command,
     });
   }
 

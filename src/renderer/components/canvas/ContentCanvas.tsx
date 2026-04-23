@@ -23,34 +23,38 @@
  * BrowserView lifecycle is managed centrally by CanvasLifecycle.
  */
 
-import { useCallback, useEffect } from 'react'
-import { X, ChevronLeft, Maximize2, Minimize2 } from 'lucide-react'
-import { useCanvasLifecycle, type TabState, type ContentType } from '../../hooks/useCanvasLifecycle'
-import { useSpaceStore } from '../../stores/space.store'
-import { useChatStore } from '../../stores/chat.store'
-import { CanvasTabBar } from './CanvasTabs'
-import { CodeViewer } from './viewers/CodeViewer'
-import { MarkdownViewer } from './viewers/MarkdownViewer'
-import { ImageViewer } from './viewers/ImageViewer'
-import { HtmlViewer } from './viewers/HtmlViewer'
-import { JsonViewer } from './viewers/JsonViewer'
-import { CsvViewer } from './viewers/CsvViewer'
-import { TextViewer } from './viewers/TextViewer'
-import { BrowserViewer, BrowserViewerFallback } from './viewers/BrowserViewer'
-import { api } from '../../api'
-import { useTranslation } from '../../i18n'
-import { SharedTerminalPanel } from '../layout/SharedTerminalPanel'
-import { RemoteTaskPanel } from '../remote-task-panel'
+import { useCallback, useEffect } from 'react';
+import { X, ChevronLeft, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  useCanvasLifecycle,
+  type TabState,
+  type ContentType,
+} from '../../hooks/useCanvasLifecycle';
+import { useSpaceStore } from '../../stores/space.store';
+import { useChatStore } from '../../stores/chat.store';
+import { CanvasTabBar } from './CanvasTabs';
+import { CodeViewer } from './viewers/CodeViewer';
+import { MarkdownViewer } from './viewers/MarkdownViewer';
+import { ImageViewer } from './viewers/ImageViewer';
+import { HtmlViewer } from './viewers/HtmlViewer';
+import { JsonViewer } from './viewers/JsonViewer';
+import { CsvViewer } from './viewers/CsvViewer';
+import { TextViewer } from './viewers/TextViewer';
+import { BrowserViewer, BrowserViewerFallback } from './viewers/BrowserViewer';
+import { api } from '../../api';
+import { useTranslation } from '../../i18n';
+import { SharedTerminalPanel } from '../layout/SharedTerminalPanel';
+import { RemoteTaskPanel } from '../remote-task-panel';
 
 // Default URL for new browser tabs
-const DEFAULT_NEW_TAB_URL = 'https://www.bing.com'
+const DEFAULT_NEW_TAB_URL = 'https://www.bing.com';
 
 interface ContentCanvasProps {
-  className?: string
+  className?: string;
 }
 
 export function ContentCanvas({ className = '' }: ContentCanvasProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
   const {
     activeTabId,
     activeTab,
@@ -66,94 +70,113 @@ export function ContentCanvas({ className = '' }: ContentCanvasProps) {
     switchToTabIndex,
     openUrl,
     setEditMode,
-  } = useCanvasLifecycle()
+  } = useCanvasLifecycle();
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl + T: New browser tab (works globally)
       if ((e.metaKey || e.ctrlKey) && e.key === 't') {
-        e.preventDefault()
-        openUrl(DEFAULT_NEW_TAB_URL, t('New Tab'))
-        return
+        e.preventDefault();
+        openUrl(DEFAULT_NEW_TAB_URL, t('New Tab'));
+        return;
       }
 
       // Only handle remaining shortcuts if canvas is open
-      if (!isOpen) return
+      if (!isOpen) return;
 
       // Cmd/Ctrl + W: Close current tab
       if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
-        e.preventDefault()
+        e.preventDefault();
         if (activeTabId) {
-          closeTab(activeTabId)
+          closeTab(activeTabId);
         }
       }
 
       // Cmd/Ctrl + Shift + W: Close all tabs
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'W') {
-        e.preventDefault()
-        closeAllTabs()
+        e.preventDefault();
+        closeAllTabs();
       }
 
       // Cmd/Ctrl + Tab: Next tab
       if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && !e.shiftKey) {
-        e.preventDefault()
-        switchToNextTab()
+        e.preventDefault();
+        switchToNextTab();
       }
 
       // Cmd/Ctrl + Shift + Tab: Previous tab
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Tab') {
-        e.preventDefault()
-        switchToPrevTab()
+        e.preventDefault();
+        switchToPrevTab();
       }
 
       // Cmd/Ctrl + 1-9: Switch to tab by index
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
-        e.preventDefault()
-        switchToTabIndex(parseInt(e.key))
+        e.preventDefault();
+        switchToTabIndex(parseInt(e.key));
       }
 
       // Escape: Collapse canvas (minimize to chat)
       if (e.key === 'Escape') {
-        e.preventDefault()
-        setOpen(false)
+        e.preventDefault();
+        setOpen(false);
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, activeTabId, closeTab, closeAllTabs, setOpen, switchToNextTab, switchToPrevTab, switchToTabIndex, openUrl])
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isOpen,
+    activeTabId,
+    closeTab,
+    closeAllTabs,
+    setOpen,
+    switchToNextTab,
+    switchToPrevTab,
+    switchToTabIndex,
+    openUrl,
+  ]);
 
   // Handle scroll position changes
-  const handleScrollChange = useCallback((position: number) => {
-    if (activeTabId) {
-      saveScrollPosition(activeTabId, position)
-    }
-  }, [activeTabId, saveScrollPosition])
+  const handleScrollChange = useCallback(
+    (position: number) => {
+      if (activeTabId) {
+        saveScrollPosition(activeTabId, position);
+      }
+    },
+    [activeTabId, saveScrollPosition],
+  );
 
   // Handle content changes (from CodeViewer edit mode)
-  const handleContentChange = useCallback((content: string) => {
-    if (activeTabId) {
-      updateTabContent(activeTabId, content)
-    }
-  }, [activeTabId, updateTabContent])
+  const handleContentChange = useCallback(
+    (content: string) => {
+      if (activeTabId) {
+        updateTabContent(activeTabId, content);
+      }
+    },
+    [activeTabId, updateTabContent],
+  );
 
   // Handle save complete (from CodeViewer - clears dirty flag)
-  const handleSaveComplete = useCallback((content: string) => {
-    if (activeTabId) {
-      markTabSaved(activeTabId, content)
-    }
-  }, [activeTabId, markTabSaved])
+  const handleSaveComplete = useCallback(
+    (content: string) => {
+      if (activeTabId) {
+        markTabSaved(activeTabId, content);
+      }
+    },
+    [activeTabId, markTabSaved],
+  );
 
   // Handle edit mode request (from MarkdownViewer)
   const handleEditRequest = useCallback(() => {
     if (activeTabId) {
-      setEditMode(activeTabId, true)
+      setEditMode(activeTabId, true);
     }
-  }, [activeTabId, setEditMode])
+  }, [activeTabId, setEditMode]);
 
   // Don't render if not open
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className={`flex flex-col h-full ${className}`}>
@@ -175,28 +198,34 @@ export function ContentCanvas({ className = '' }: ContentCanvasProps) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 /**
  * Tab Content - Renders appropriate viewer for content type
  */
 interface TabContentProps {
-  tab: TabState
-  onScrollChange?: (position: number) => void
-  onContentChange?: (content: string) => void
-  onSaveComplete?: (content: string) => void
-  onEditRequest?: () => void
+  tab: TabState;
+  onScrollChange?: (position: number) => void;
+  onContentChange?: (content: string) => void;
+  onSaveComplete?: (content: string) => void;
+  onEditRequest?: () => void;
 }
 
-function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEditRequest }: TabContentProps) {
-  const { t } = useTranslation()
+function TabContent({
+  tab,
+  onScrollChange,
+  onContentChange,
+  onSaveComplete,
+  onEditRequest,
+}: TabContentProps) {
+  const { t } = useTranslation();
   // Browser and PDF tabs use BrowserView (handle their own loading state)
   if (tab.type === 'browser' || tab.type === 'pdf') {
     if (api.isRemoteMode()) {
-      return <BrowserViewerFallback tab={tab} />
+      return <BrowserViewerFallback tab={tab} />;
     }
-    return <BrowserViewer tab={tab} />
+    return <BrowserViewer tab={tab} />;
   }
 
   // Handle loading state for non-browser tabs
@@ -208,7 +237,7 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
           <p className="text-sm text-muted-foreground">{t('Loading...')}</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Handle error state
@@ -223,7 +252,7 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
           <p className="text-sm text-muted-foreground">{tab.error}</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Render appropriate viewer based on content type
@@ -236,7 +265,7 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
           onContentChange={onContentChange}
           onSaveComplete={onSaveComplete}
         />
-      )
+      );
 
     case 'markdown':
       // Default to MarkdownViewer for preview, switch to CodeViewer when editing
@@ -248,21 +277,17 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
             onContentChange={onContentChange}
             onSaveComplete={onSaveComplete}
           />
-        )
+        );
       }
       return (
-        <MarkdownViewer
-          tab={tab}
-          onScrollChange={onScrollChange}
-          onEditRequest={onEditRequest}
-        />
-      )
+        <MarkdownViewer tab={tab} onScrollChange={onScrollChange} onEditRequest={onEditRequest} />
+      );
 
     case 'image':
-      return <ImageViewer tab={tab} />
+      return <ImageViewer tab={tab} />;
 
     case 'html':
-      return <HtmlViewer tab={tab} />
+      return <HtmlViewer tab={tab} />;
 
     case 'json':
       // Use CodeViewer for JSON too - enables editing with syntax highlighting
@@ -273,10 +298,10 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
           onContentChange={onContentChange}
           onSaveComplete={onSaveComplete}
         />
-      )
+      );
 
     case 'csv':
-      return <CsvViewer tab={tab} onScrollChange={onScrollChange} />
+      return <CsvViewer tab={tab} onScrollChange={onScrollChange} />;
 
     case 'text':
       // Use CodeViewer for text files too - enables editing even without syntax highlighting
@@ -287,18 +312,18 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
           onContentChange={onContentChange}
           onSaveComplete={onSaveComplete}
         />
-      )
+      );
 
     case 'terminal':
       // Terminal view - embedded shared terminal
-      return <TerminalView />
+      return <TerminalView />;
 
     case 'tasks':
       // Background tasks view
-      return <TasksView />
+      return <TasksView />;
 
     default:
-      return <TextViewer tab={tab} onScrollChange={onScrollChange} />
+      return <TextViewer tab={tab} onScrollChange={onScrollChange} />;
   }
 }
 
@@ -307,20 +332,22 @@ function TabContent({ tab, onScrollChange, onContentChange, onSaveComplete, onEd
  * Follows activeAgentId: when a worker is selected, shows that worker's terminal.
  */
 function TerminalView() {
-  const currentSpace = useSpaceStore(state => state.currentSpace)
-  const activeAgentId = useChatStore(state => state.activeAgentId)
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
+  const activeAgentId = useChatStore((state) => state.activeAgentId);
   // Subscribe to workerSessions so this re-renders when a worker gets its childConversationId
-  const workerSessions = useChatStore(state => state.workerSessions)
-  const getActiveTerminalConversationId = useChatStore(state => state.getActiveTerminalConversationId)
+  const workerSessions = useChatStore((state) => state.workerSessions);
+  const getActiveTerminalConversationId = useChatStore(
+    (state) => state.getActiveTerminalConversationId,
+  );
 
-  const conversationId = currentSpace?.id ? getActiveTerminalConversationId(currentSpace.id) : ''
+  const conversationId = currentSpace?.id ? getActiveTerminalConversationId(currentSpace.id) : '';
 
   if (!currentSpace?.id) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-sm text-muted-foreground">No space selected</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -331,28 +358,28 @@ function TerminalView() {
         isVisible={true}
       />
     </div>
-  )
+  );
 }
 
 /**
  * Tasks View - Background tasks for remote spaces
  */
 function TasksView() {
-  const currentSpace = useSpaceStore(state => state.currentSpace)
+  const currentSpace = useSpaceStore((state) => state.currentSpace);
 
   if (!currentSpace?.remoteServerId) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-sm text-muted-foreground">No remote server connected</p>
       </div>
-    )
+    );
   }
 
   return (
     <div className="h-full w-full">
       <RemoteTaskPanel serverId={currentSpace.remoteServerId} visible={true} />
     </div>
-  )
+  );
 }
 
 /**
@@ -371,21 +398,21 @@ function EmptyState() {
         </p>
       </div>
     </div>
-  )
+  );
 }
 
 /**
  * Collapsible Canvas Wrapper - Handles layout transitions
  */
 interface CollapsibleCanvasProps {
-  children?: React.ReactNode
+  children?: React.ReactNode;
 }
 
 export function CollapsibleCanvas({ children }: CollapsibleCanvasProps) {
-  const { isOpen, isTransitioning, tabs } = useCanvasLifecycle()
+  const { isOpen, isTransitioning, tabs } = useCanvasLifecycle();
 
   // Compute width based on state
-  const canvasWidth = isOpen ? 'flex-1' : 'w-0'
+  const canvasWidth = isOpen ? 'flex-1' : 'w-0';
 
   return (
     <div
@@ -402,18 +429,18 @@ export function CollapsibleCanvas({ children }: CollapsibleCanvasProps) {
     >
       {isOpen && <ContentCanvas />}
     </div>
-  )
+  );
 }
 
 /**
  * Canvas Toggle Button - Used to show/hide canvas
  */
 export function CanvasToggleButton() {
-  const { t } = useTranslation()
-  const { isOpen, tabs, toggleOpen } = useCanvasLifecycle()
+  const { t } = useTranslation();
+  const { isOpen, tabs, toggleOpen } = useCanvasLifecycle();
 
   // Don't show if no tabs
-  if (tabs.length === 0) return null
+  if (tabs.length === 0) return null;
 
   return (
     <button
@@ -427,5 +454,5 @@ export function CanvasToggleButton() {
         <Maximize2 className="w-4 h-4 text-muted-foreground" />
       )}
     </button>
-  )
+  );
 }

@@ -2,19 +2,19 @@
  * Splash Screen - Brand display on startup
  */
 
-import { useEffect, useState } from 'react'
-import { AicoBotLogo } from '../brand/AicoBotLogo'
-import { useTranslation } from '../../i18n'
+import { useEffect, useState } from 'react';
+import { AicoBotLogo } from '../brand/AicoBotLogo';
+import { useTranslation } from '../../i18n';
 
 export function SplashScreen() {
-  const { t } = useTranslation()
-  const [animate, setAnimate] = useState(false)
+  const { t } = useTranslation();
+  const [animate, setAnimate] = useState(false);
 
   useEffect(() => {
     // Trigger animation after mount
-    const timer = setTimeout(() => setAnimate(true), 100)
-    return () => clearTimeout(timer)
-  }, [])
+    const timer = setTimeout(() => setAnimate(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-background">
@@ -45,5 +45,5 @@ export function SplashScreen() {
         {t('AI that gets things done')}
       </p>
     </div>
-  )
+  );
 }

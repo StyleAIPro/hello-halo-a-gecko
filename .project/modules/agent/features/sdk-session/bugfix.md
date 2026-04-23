@@ -13,10 +13,23 @@
 
 ---
 
+## BUG-002: Windows 删除空间 EBUSY 错误
+- **日期**：2026-04-17
+- **严重程度**：Major
+- **发现人**：@zhaoyinqi
+- **问题**：删除空间时报 EBUSY 错误，因为 `closeSessionsBySpaceId()` 不等待 SDK 子进程退出
+- **根因**：`session.close()` 仅发送关闭信号，子进程终止是异步的。子进程 cwd 为空间目录，Windows 上 OS 释放文件句柄需要额外时间
+- **修复**：`closeSessionsBySpaceId()` 改为 async，新增 `waitForSessionExit()` 通过 PID 轮询等待子进程退出（100ms 间隔，5s 超时后 SIGKILL）
+- **PRD**：`prd/bugfix/space/bugfix-space-delete-ebusy-v1.md`
+- **影响文档**：
+  - [ ] design.md
+
+---
+
 ## 统计
 
 | 严重程度 | 数量 |
 |---------|------|
 | Critical | 1 |
-| Major | 0 |
+| Major | 1 |
 | Minor | 0 |

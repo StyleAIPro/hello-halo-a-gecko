@@ -1,12 +1,20 @@
-/**		      	    				  	  	  	 		 		       	 	 	         	 	    					 
+/**
  * Config Service - Manages application configuration
  */
 
-import { app } from 'electron'
-import { dirname, join } from 'path'
-import { homedir } from 'os'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, cpSync, rmSync } from 'fs'
-import { v4 as uuidv4 } from 'uuid'
+import { app } from 'electron';
+import { dirname, join } from 'path';
+import { homedir } from 'os';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  cpSync,
+  rmSync,
+} from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 import type {
   AISourcesConfig,
@@ -14,10 +22,10 @@ import type {
   LegacyAISourcesConfig,
   OAuthSourceConfig,
   CustomSourceConfig,
-  ModelOption
-} from '../../shared/types'
-import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants'
-import { decryptString } from './secure-storage.service'
+  ModelOption,
+} from '../../shared/types';
+import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants';
+import { decryptString } from './secure-storage.service';
 
 // ============================================================================
 // ENCRYPTED DATA MIGRATION
@@ -35,19 +43,19 @@ import { decryptString } from './secure-storage.service'
 // 4. Ensure subsequent reads get valid data
 // ============================================================================
 
-const ENCRYPTED_PREFIX = 'enc:'
+const ENCRYPTED_PREFIX = 'enc:';
 
 interface MigrationResult {
-  migrated: boolean
-  fields: string[]
-  failures: string[]
+  migrated: boolean;
+  fields: string[];
+  failures: string[];
 }
 
 /**
  * Check if a value is encrypted (has enc: prefix)
  */
 function isEncryptedValue(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith(ENCRYPTED_PREFIX)
+  return typeof value === 'string' && value.startsWith(ENCRYPTED_PREFIX);
 }
 
 /**
@@ -55,15 +63,15 @@ function isEncryptedValue(value: unknown): value is string {
  * @returns { success: true, value: decrypted } or { success: false }
  */
 function tryDecrypt(value: string): { success: true; value: string } | { success: false } {
-  const decrypted = decryptString(value)
+  const decrypted = decryptString(value);
 
   // decryptString returns empty string on failure, or the original value if not encrypted
   // For encrypted values, success means we got a non-empty, non-enc: prefixed result
   if (decrypted && !decrypted.startsWith(ENCRYPTED_PREFIX)) {
-    return { success: true, value: decrypted }
+    return { success: true, value: decrypted };
   }
 
-  return { success: false }
+  return { success: false };
 }
 
 /**
@@ -76,52 +84,52 @@ function tryDecrypt(value: string): { success: true; value: string } | { success
  * Called once at app startup, before any IPC handlers are registered.
  */
 function migrateEncryptedCredentials(): void {
-  const configPath = getConfigPath()
+  const configPath = getConfigPath();
 
   if (!existsSync(configPath)) {
-    return // No config file, nothing to migrate
+    return; // No config file, nothing to migrate
   }
 
-  let parsed: Record<string, any>
+  let parsed: Record<string, any>;
   try {
-    const content = readFileSync(configPath, 'utf-8')
-    parsed = JSON.parse(content)
+    const content = readFileSync(configPath, 'utf-8');
+    parsed = JSON.parse(content);
   } catch (error) {
-    console.error('[Config Migration] Failed to read config file:', error)
-    return // Don't block startup on migration failure
+    console.error('[Config Migration] Failed to read config file:', error);
+    return; // Don't block startup on migration failure
   }
 
   const result: MigrationResult = {
     migrated: false,
     fields: [],
-    failures: []
-  }
+    failures: [],
+  };
 
   // 1. Migrate legacy api.apiKey (if exists and encrypted)
   if (parsed.api && isEncryptedValue(parsed.api.apiKey)) {
-    const decryptResult = tryDecrypt(parsed.api.apiKey)
+    const decryptResult = tryDecrypt(parsed.api.apiKey);
     if (decryptResult.success) {
-      parsed.api.apiKey = decryptResult.value
-      result.migrated = true
-      result.fields.push('api.apiKey')
+      parsed.api.apiKey = decryptResult.value;
+      result.migrated = true;
+      result.fields.push('api.apiKey');
     } else {
-      parsed.api.apiKey = ''
-      result.migrated = true
-      result.failures.push('api.apiKey')
+      parsed.api.apiKey = '';
+      result.migrated = true;
+      result.failures.push('api.apiKey');
     }
   }
 
   // 2. Migrate aiSources.custom.apiKey
   if (parsed.aiSources?.custom && isEncryptedValue(parsed.aiSources.custom.apiKey)) {
-    const decryptResult = tryDecrypt(parsed.aiSources.custom.apiKey)
+    const decryptResult = tryDecrypt(parsed.aiSources.custom.apiKey);
     if (decryptResult.success) {
-      parsed.aiSources.custom.apiKey = decryptResult.value
-      result.migrated = true
-      result.fields.push('aiSources.custom.apiKey')
+      parsed.aiSources.custom.apiKey = decryptResult.value;
+      result.migrated = true;
+      result.fields.push('aiSources.custom.apiKey');
     } else {
-      parsed.aiSources.custom.apiKey = ''
-      result.migrated = true
-      result.failures.push('aiSources.custom.apiKey')
+      parsed.aiSources.custom.apiKey = '';
+      result.migrated = true;
+      result.failures.push('aiSources.custom.apiKey');
     }
   }
 
@@ -131,36 +139,36 @@ function migrateEncryptedCredentials(): void {
     for (const [key, value] of Object.entries(parsed.aiSources)) {
       // Skip non-provider keys
       if (key === 'current' || key === 'custom' || !value || typeof value !== 'object') {
-        continue
+        continue;
       }
 
-      const provider = value as Record<string, any>
+      const provider = value as Record<string, any>;
 
       // Migrate accessToken
       if (isEncryptedValue(provider.accessToken)) {
-        const decryptResult = tryDecrypt(provider.accessToken)
+        const decryptResult = tryDecrypt(provider.accessToken);
         if (decryptResult.success) {
-          provider.accessToken = decryptResult.value
-          result.migrated = true
-          result.fields.push(`aiSources.${key}.accessToken`)
+          provider.accessToken = decryptResult.value;
+          result.migrated = true;
+          result.fields.push(`aiSources.${key}.accessToken`);
         } else {
-          provider.accessToken = ''
-          result.migrated = true
-          result.failures.push(`aiSources.${key}.accessToken`)
+          provider.accessToken = '';
+          result.migrated = true;
+          result.failures.push(`aiSources.${key}.accessToken`);
         }
       }
 
       // Migrate refreshToken
       if (isEncryptedValue(provider.refreshToken)) {
-        const decryptResult = tryDecrypt(provider.refreshToken)
+        const decryptResult = tryDecrypt(provider.refreshToken);
         if (decryptResult.success) {
-          provider.refreshToken = decryptResult.value
-          result.migrated = true
-          result.fields.push(`aiSources.${key}.refreshToken`)
+          provider.refreshToken = decryptResult.value;
+          result.migrated = true;
+          result.fields.push(`aiSources.${key}.refreshToken`);
         } else {
-          provider.refreshToken = ''
-          result.migrated = true
-          result.failures.push(`aiSources.${key}.refreshToken`)
+          provider.refreshToken = '';
+          result.migrated = true;
+          result.failures.push(`aiSources.${key}.refreshToken`);
         }
       }
     }
@@ -169,19 +177,19 @@ function migrateEncryptedCredentials(): void {
   // Save migrated config if any changes were made
   if (result.migrated) {
     try {
-      writeFileSync(configPath, JSON.stringify(parsed, null, 2))
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2));
 
       if (result.fields.length > 0) {
-        console.log(`[Config Migration] Successfully migrated: ${result.fields.join(', ')}`)
+        console.log(`[Config Migration] Successfully migrated: ${result.fields.join(', ')}`);
       }
       if (result.failures.length > 0) {
         console.warn(
           `[Config Migration] Failed to decrypt (cleared): ${result.failures.join(', ')}. ` +
-            'User will need to re-enter these credentials.'
-        )
+            'User will need to re-enter these credentials.',
+        );
       }
     } catch (error) {
-      console.error('[Config Migration] Failed to save migrated config:', error)
+      console.error('[Config Migration] Failed to save migrated config:', error);
       // Don't throw - let the app continue, user can re-enter credentials
     }
   }
@@ -212,41 +220,41 @@ function migrateEncryptedCredentials(): void {
  * Safe to call multiple times — skips if already v2.
  */
 function migrateAiSourcesToV2OnDisk(): void {
-  const configPath = getConfigPath()
+  const configPath = getConfigPath();
 
   if (!existsSync(configPath)) {
-    return // No config file, nothing to migrate
+    return; // No config file, nothing to migrate
   }
 
-  let parsed: Record<string, any>
+  let parsed: Record<string, any>;
   try {
-    const content = readFileSync(configPath, 'utf-8')
-    parsed = JSON.parse(content)
+    const content = readFileSync(configPath, 'utf-8');
+    parsed = JSON.parse(content);
   } catch (error) {
-    console.error('[Config Migration] Failed to read config for v2 aiSources migration:', error)
-    return
+    console.error('[Config Migration] Failed to read config for v2 aiSources migration:', error);
+    return;
   }
 
   // Already v2 — nothing to do
   if (isV2AiSources(parsed?.aiSources)) {
-    return
+    return;
   }
 
   // Run the existing migration logic (produces v2 in-memory)
-  const migrated = migrateAiSourcesToV2(parsed)
+  const migrated = migrateAiSourcesToV2(parsed);
 
   // Only persist if migration produced sources or the file had v1 data
   // (even an empty sources array with version:2 is valid — means nothing to migrate)
-  parsed.aiSources = migrated
+  parsed.aiSources = migrated;
 
   try {
-    writeFileSync(configPath, JSON.stringify(parsed, null, 2))
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2));
     console.log('[Config Migration] Persisted v2 aiSources to disk:', {
       sourceCount: migrated.sources.length,
-      currentId: migrated.currentId
-    })
+      currentId: migrated.currentId,
+    });
   } catch (error) {
-    console.error('[Config Migration] Failed to persist v2 aiSources:', error)
+    console.error('[Config Migration] Failed to persist v2 aiSources:', error);
     // Non-fatal: getConfig() will still do in-memory migration as fallback
   }
 }
@@ -260,8 +268,8 @@ function migrateAiSourcesToV2OnDisk(): void {
 // config.service calls registered callbacks (no import from agent)
 // ============================================================================
 
-type ApiConfigChangeHandler = () => void
-const apiConfigChangeHandlers: ApiConfigChangeHandler[] = []
+type ApiConfigChangeHandler = () => void;
+const apiConfigChangeHandlers: ApiConfigChangeHandler[] = [];
 
 // ============================================================================
 // CREDENTIALS GENERATION COUNTER
@@ -273,14 +281,14 @@ const apiConfigChangeHandlers: ApiConfigChangeHandler[] = []
 // optimistic locking) that provides deterministic correctness regardless of async timing.
 // ============================================================================
 
-let credentialsGeneration = 0
+let credentialsGeneration = 0;
 
 /**
  * Get the current credentials generation counter.
  * Sessions compare this value to detect stale credentials.
  */
 export function getCredentialsGeneration(): number {
-  return credentialsGeneration
+  return credentialsGeneration;
 }
 
 /**
@@ -290,161 +298,161 @@ export function getCredentialsGeneration(): number {
  * @returns Unsubscribe function
  */
 export function onApiConfigChange(handler: ApiConfigChangeHandler): () => void {
-  apiConfigChangeHandlers.push(handler)
+  apiConfigChangeHandlers.push(handler);
   return () => {
-    const idx = apiConfigChangeHandlers.indexOf(handler)
-    if (idx >= 0) apiConfigChangeHandlers.splice(idx, 1)
-  }
+    const idx = apiConfigChangeHandlers.indexOf(handler);
+    if (idx >= 0) apiConfigChangeHandlers.splice(idx, 1);
+  };
 }
 
 // Types (shared with renderer)
 interface AicoBotConfig {
   api: {
-    provider: 'anthropic' | 'openai' | 'custom'
-    apiKey: string
-    apiUrl: string
-    model: string
-  }
+    provider: 'anthropic' | 'openai' | 'custom';
+    apiKey: string;
+    apiUrl: string;
+    model: string;
+  };
   // Multi-source AI configuration (OAuth + Custom API)
-  aiSources?: AISourcesConfig
+  aiSources?: AISourcesConfig;
   permissions: {
-    fileAccess: 'allow' | 'ask' | 'deny'
-    commandExecution: 'allow' | 'ask' | 'deny'
-    networkAccess: 'allow' | 'ask' | 'deny'
-    trustMode: boolean
-  }
+    fileAccess: 'allow' | 'ask' | 'deny';
+    commandExecution: 'allow' | 'ask' | 'deny';
+    networkAccess: 'allow' | 'ask' | 'deny';
+    trustMode: boolean;
+  };
   appearance: {
-    theme: 'light' | 'dark' | 'system'
-  }
+    theme: 'light' | 'dark' | 'system';
+  };
   system: {
-    autoLaunch: boolean
-  }
+    autoLaunch: boolean;
+  };
   // Agent behavior configuration
   agent?: {
-    maxTurns: number
-  }
+    maxTurns: number;
+  };
   remoteAccess: {
-    enabled: boolean
-    port: number
-  }
+    enabled: boolean;
+    port: number;
+  };
   onboarding: {
-    completed: boolean
-  }
+    completed: boolean;
+  };
   // MCP servers configuration (compatible with Cursor / Claude Desktop format)
-  mcpServers: Record<string, McpServerConfig>
-  isFirstLaunch: boolean
+  mcpServers: Record<string, McpServerConfig>;
+  isFirstLaunch: boolean;
   // Analytics configuration (auto-generated on first launch, no longer actively used)
-  analytics?: Record<string, unknown>
+  analytics?: Record<string, unknown>;
   // Global layout preferences (panel sizes and visibility)
   layout?: {
-    sidebarOpen?: boolean
-    sidebarWidth?: number
-    artifactRailWidth?: number
-  }
+    sidebarOpen?: boolean;
+    sidebarWidth?: number;
+    artifactRailWidth?: number;
+  };
   // Git Bash configuration (Windows only)
   gitBash?: {
-    installed: boolean
-    path: string | null
-    skipped: boolean
-  }
+    installed: boolean;
+    path: string | null;
+    skipped: boolean;
+  };
   // App Store / Registry configuration
   appStore?: {
     registries: Array<{
-      id: string
-      name: string
-      url: string
-      enabled: boolean
-      isDefault?: boolean
-    }>
-    cacheTtlMs: number
-    autoCheckUpdates: boolean
-  }
+      id: string;
+      name: string;
+      url: string;
+      enabled: boolean;
+      isDefault?: boolean;
+    }>;
+    cacheTtlMs: number;
+    autoCheckUpdates: boolean;
+  };
   // Remote servers configuration
   remoteServers?: Array<{
-    id: string
-    name: string
-    host: string
-    sshPort: number
-    username: string
-    password: string  // encrypted
-    authToken: string
-    status: 'disconnected' | 'connected' | 'deploying' | 'error'
-    error?: string
-    workDir?: string
-    claudeApiKey?: string
-    agentPath?: string  // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
-  }>
+    id: string;
+    name: string;
+    host: string;
+    sshPort: number;
+    username: string;
+    password: string; // encrypted
+    authToken: string;
+    status: 'disconnected' | 'connected' | 'deploying' | 'error';
+    error?: string;
+    workDir?: string;
+    claudeApiKey?: string;
+    agentPath?: string; // Path to claude-agent binary (e.g., '/usr/local/bin/claude-agent')
+  }>;
   // GitCode Personal Access Token
-  gitcodeToken?: string
+  gitcodeToken?: string;
   // GitHub Personal Access Token (direct, no gh CLI required)
-  githubToken?: string
+  githubToken?: string;
 }
 
 // MCP server configuration types
-type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig
+type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig;
 
 interface McpStdioServerConfig {
-  type?: 'stdio'  // Optional, defaults to stdio
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-  timeout?: number
-  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
+  type?: 'stdio'; // Optional, defaults to stdio
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  timeout?: number;
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 interface McpHttpServerConfig {
-  type: 'http'
-  url: string
-  headers?: Record<string, string>
-  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 interface McpSseServerConfig {
-  type: 'sse'
-  url: string
-  headers?: Record<string, string>
-  disabled?: boolean  // AICO-Bot extension: temporarily disable this server
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+  disabled?: boolean; // AICO-Bot extension: temporarily disable this server
 }
 
 // Paths
 // Use os.homedir() instead of app.getPath('home') to respect HOME environment variable
 // This is essential for E2E tests to run in isolated test directories
 export function getAicoBotDirLegacy(): string {
-  return getAicoBotDir()
+  return getAicoBotDir();
 }
 
 export function getAicoBotDir(): string {
   // 1. Support custom data directory via environment variable
   //    Useful for development to avoid conflicts with production data
   if (process.env.AICO_BOT_DATA_DIR) {
-    let dir = process.env.AICO_BOT_DATA_DIR
+    let dir = process.env.AICO_BOT_DATA_DIR;
     // Expand ~ to home directory (shell doesn't expand in env vars)
     if (dir.startsWith('~')) {
-      dir = join(homedir(), dir.slice(1))
+      dir = join(homedir(), dir.slice(1));
     }
-    return dir
+    return dir;
   }
 
   // 2. Auto-detect development mode: use separate directory
   //    app.isPackaged is false when running via electron-vite dev
   if (!app.isPackaged) {
-    return join(homedir(), '.aico-bot-dev')
+    return join(homedir(), '.aico-bot-dev');
   }
 
   // 3. Production: use default directory
-  return join(homedir(), '.aico-bot')
+  return join(homedir(), '.aico-bot');
 }
 
 export function getConfigPath(): string {
-  return join(getAicoBotDir(), 'config.json')
+  return join(getAicoBotDir(), 'config.json');
 }
 
 export function getTempSpacePath(): string {
-  return join(getAicoBotDir(), 'temp')
+  return join(getAicoBotDir(), 'temp');
 }
 
 export function getSpacesDir(): string {
-  return join(getAicoBotDir(), 'spaces')
+  return join(getAicoBotDir(), 'spaces');
 }
 
 /**
@@ -452,54 +460,54 @@ export function getSpacesDir(): string {
  * 用于存储全局共享的 skills
  */
 export function getAgentsDir(): string {
-  return join(homedir(), '.agents')
+  return join(homedir(), '.agents');
 }
 
 /**
  * 获取全局 skills 目录 (~/.agents/skills)
  */
 export function getAgentsSkillsDir(): string {
-  return join(getAgentsDir(), 'skills')
+  return join(getAgentsDir(), 'skills');
 }
 
 /**
  * GitCode PAT 管理
  */
 export function getGitCodeToken(): string | undefined {
-  return getConfig().gitcodeToken
+  return getConfig().gitcodeToken;
 }
 
 export function setGitCodeToken(token: string | undefined): void {
-  saveConfig({ gitcodeToken: token })
+  saveConfig({ gitcodeToken: token });
 }
 
 /**
  * GitHub PAT 管理（直连模式，不依赖 gh CLI）
  */
 export function getGitHubToken(): string | undefined {
-  return getConfig().githubToken
+  return getConfig().githubToken;
 }
 
 export function setGitHubToken(token: string | undefined): void {
-  saveConfig({ githubToken: token })
+  saveConfig({ githubToken: token });
 }
 
 /**
  * 获取 Claude 原生 skills 目录 (~/.claude/skills)
  */
 export function getClaudeSkillsDir(): string {
-  return join(homedir(), '.claude', 'skills')
+  return join(homedir(), '.claude', 'skills');
 }
 
 /**
  * 获取所有 skills 搜索目录列表
  */
 export function getAllSkillsDirs(): string[] {
-  return [getAgentsSkillsDir(), getClaudeSkillsDir()]
+  return [getAgentsSkillsDir(), getClaudeSkillsDir()];
 }
 
 // Default model (Opus 4.5)
-const DEFAULT_MODEL = 'claude-opus-4-5-20251101'
+const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
 
 // Default configuration
 const DEFAULT_CONFIG: AicoBotConfig = {
@@ -507,38 +515,38 @@ const DEFAULT_CONFIG: AicoBotConfig = {
     provider: 'anthropic',
     apiKey: '',
     apiUrl: 'https://api.anthropic.com',
-    model: DEFAULT_MODEL
+    model: DEFAULT_MODEL,
   },
   aiSources: {
     version: 2,
     currentId: null,
-    sources: []
+    sources: [],
   },
   permissions: {
     fileAccess: 'allow',
     commandExecution: 'ask',
     networkAccess: 'allow',
-    trustMode: false
+    trustMode: false,
   },
   appearance: {
-    theme: 'light'
+    theme: 'light',
   },
   system: {
-    autoLaunch: false
+    autoLaunch: false,
   },
   agent: {
-    maxTurns: 999
+    maxTurns: 999,
   },
   remoteAccess: {
     enabled: false,
-    port: 3456
+    port: 3456,
   },
   onboarding: {
-    completed: false
+    completed: false,
   },
-  mcpServers: {},  // Empty by default
-  isFirstLaunch: true
-}
+  mcpServers: {}, // Empty by default
+  isFirstLaunch: true,
+};
 
 // ============================================================================
 // AI SOURCES V2 MIGRATION
@@ -556,47 +564,49 @@ const DEFAULT_CONFIG: AicoBotConfig = {
  * Check if aiSources is already v2 format
  */
 function isV2AiSources(raw: unknown): raw is AISourcesConfig {
-  if (!raw || typeof raw !== 'object') return false
-  const obj = raw as Record<string, unknown>
-  return obj.version === 2 && Array.isArray(obj.sources)
+  if (!raw || typeof raw !== 'object') return false;
+  const obj = raw as Record<string, unknown>;
+  return obj.version === 2 && Array.isArray(obj.sources);
 }
 
 /**
  * Migrate legacy aiSources (v1) to v2 format
  */
 function migrateAiSourcesToV2(parsed: Record<string, any>): AISourcesConfig {
-  const raw = parsed?.aiSources
-  const now = new Date().toISOString()
+  const raw = parsed?.aiSources;
+  const now = new Date().toISOString();
 
   // Already v2 format - return as is
   if (isV2AiSources(raw)) {
-    return raw
+    return raw;
   }
 
   // Initialize empty v2 config
   const newConfig: AISourcesConfig = {
     version: 2,
     currentId: null,
-    sources: []
-  }
+    sources: [],
+  };
 
   // Check for pre-release format (custom_xxx keys) - clear these
   if (raw && typeof raw === 'object') {
-    const keys = Object.keys(raw)
-    const hasPreRelease = keys.some(k => k.startsWith('custom_'))
+    const keys = Object.keys(raw);
+    const hasPreRelease = keys.some((k) => k.startsWith('custom_'));
     if (hasPreRelease) {
-      console.log('[Config Migration] Pre-release format detected (custom_xxx keys), resetting aiSources')
-      return newConfig
+      console.log(
+        '[Config Migration] Pre-release format detected (custom_xxx keys), resetting aiSources',
+      );
+      return newConfig;
     }
   }
 
   // Migrate from legacy api field (no aiSources)
-  const legacyApi = parsed?.api
-  const hasLegacyApiOnly = !raw && legacyApi?.apiKey
+  const legacyApi = parsed?.api;
+  const hasLegacyApiOnly = !raw && legacyApi?.apiKey;
 
   if (hasLegacyApiOnly) {
-    const provider = legacyApi.provider === 'openai' ? 'openai' : 'anthropic'
-    const builtin = getBuiltinProvider(provider)
+    const provider = legacyApi.provider === 'openai' ? 'openai' : 'anthropic';
+    const builtin = getBuiltinProvider(provider);
 
     const source: AISource = {
       id: uuidv4(),
@@ -606,26 +616,28 @@ function migrateAiSourcesToV2(parsed: Record<string, any>): AISourcesConfig {
       apiUrl: legacyApi.apiUrl || builtin?.apiUrl || 'https://api.anthropic.com',
       apiKey: legacyApi.apiKey,
       model: legacyApi.model || DEFAULT_MODEL,
-      availableModels: builtin?.models || [{ id: legacyApi.model || DEFAULT_MODEL, name: legacyApi.model || 'Default' }],
+      availableModels: builtin?.models || [
+        { id: legacyApi.model || DEFAULT_MODEL, name: legacyApi.model || 'Default' },
+      ],
       createdAt: now,
-      updatedAt: now
-    }
+      updatedAt: now,
+    };
 
-    newConfig.sources.push(source)
-    newConfig.currentId = source.id
-    console.log('[Config Migration] Migrated legacy api field to v2 aiSources')
-    return newConfig
+    newConfig.sources.push(source);
+    newConfig.currentId = source.id;
+    console.log('[Config Migration] Migrated legacy api field to v2 aiSources');
+    return newConfig;
   }
 
   // Migrate from v1 aiSources format
   if (raw && typeof raw === 'object') {
-    const v1Config = raw as LegacyAISourcesConfig
+    const v1Config = raw as LegacyAISourcesConfig;
 
     // Migrate custom API source
     if (v1Config.custom?.apiKey) {
-      const custom = v1Config.custom
-      const provider = custom.provider === 'openai' ? 'openai' : 'anthropic'
-      const builtin = getBuiltinProvider(provider)
+      const custom = v1Config.custom;
+      const provider = custom.provider === 'openai' ? 'openai' : 'anthropic';
+      const builtin = getBuiltinProvider(provider);
 
       const source: AISource = {
         id: custom.id || uuidv4(),
@@ -635,17 +647,19 @@ function migrateAiSourcesToV2(parsed: Record<string, any>): AISourcesConfig {
         apiUrl: custom.apiUrl || builtin?.apiUrl || 'https://api.anthropic.com',
         apiKey: custom.apiKey,
         model: custom.model || DEFAULT_MODEL,
-        availableModels: custom.availableModels?.map(id => ({ id, name: id })) ||
-          builtin?.models || [{ id: custom.model || DEFAULT_MODEL, name: custom.model || 'Default' }],
+        availableModels: custom.availableModels?.map((id) => ({ id, name: id })) ||
+          builtin?.models || [
+            { id: custom.model || DEFAULT_MODEL, name: custom.model || 'Default' },
+          ],
         createdAt: now,
-        updatedAt: now
-      }
+        updatedAt: now,
+      };
 
-      newConfig.sources.push(source)
+      newConfig.sources.push(source);
 
       // Set as current if v1 current was 'custom'
       if (v1Config.current === 'custom') {
-        newConfig.currentId = source.id
+        newConfig.currentId = source.id;
       }
     }
 
@@ -708,16 +722,16 @@ function migrateAiSourcesToV2(parsed: Record<string, any>): AISourcesConfig {
 
     // If no currentId set but we have sources, use the first one
     if (!newConfig.currentId && newConfig.sources.length > 0) {
-      newConfig.currentId = newConfig.sources[0].id
+      newConfig.currentId = newConfig.sources[0].id;
     }
 
     console.log('[Config Migration] Migrated v1 aiSources to v2:', {
       sourceCount: newConfig.sources.length,
-      currentId: newConfig.currentId
-    })
+      currentId: newConfig.currentId,
+    });
   }
 
-  return newConfig
+  return newConfig;
 }
 
 /**
@@ -725,16 +739,16 @@ function migrateAiSourcesToV2(parsed: Record<string, any>): AISourcesConfig {
  */
 function normalizeAiSources(parsed: Record<string, any>): AISourcesConfig {
   // Migrate to v2 format (handles all legacy formats)
-  return migrateAiSourcesToV2(parsed)
+  return migrateAiSourcesToV2(parsed);
 }
 
 function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
-  if (!aiSources) return ''
+  if (!aiSources) return '';
 
   // v2 format: use currentId and sources array
   if (aiSources.version === 2 && Array.isArray(aiSources.sources)) {
-    const currentSource = aiSources.sources.find(s => s.id === aiSources.currentId)
-    if (!currentSource) return ''
+    const currentSource = aiSources.sources.find((s) => s.id === aiSources.currentId);
+    if (!currentSource) return '';
 
     // Model is included in signature: changing model triggers session rebuild.
     // The model is encoded into ANTHROPIC_API_KEY env var at session creation time
@@ -749,8 +763,8 @@ function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
         currentSource.apiUrl || '',
         currentSource.apiKey || '',
         currentSource.model || '',
-        currentSource.contextWindow || ''
-      ].join('|')
+        currentSource.contextWindow || '',
+      ].join('|');
     }
 
     // OAuth source
@@ -761,86 +775,87 @@ function getAiSourcesSignature(aiSources?: AISourcesConfig): string {
       currentSource.refreshToken || '',
       currentSource.tokenExpires || '',
       currentSource.model || '',
-      currentSource.contextWindow || ''
-    ].join('|')
+      currentSource.contextWindow || '',
+    ].join('|');
   }
 
   // Legacy v1 format fallback (should not happen after migration)
-  const legacy = aiSources as unknown as LegacyAISourcesConfig
-  const current = legacy.current || 'custom'
+  const legacy = aiSources as unknown as LegacyAISourcesConfig;
+  const current = legacy.current || 'custom';
 
   if (current === 'custom') {
-    const custom = legacy.custom
-    return [
-      'custom',
-      custom?.provider || '',
-      custom?.apiUrl || '',
-      custom?.apiKey || ''
-    ].join('|')
+    const custom = legacy.custom;
+    return ['custom', custom?.provider || '', custom?.apiUrl || '', custom?.apiKey || ''].join('|');
   }
 
-  const currentConfig = legacy[current] as Record<string, any> | undefined
+  const currentConfig = legacy[current] as Record<string, any> | undefined;
   if (currentConfig && typeof currentConfig === 'object') {
     return [
       'oauth',
       current,
       currentConfig.accessToken || '',
       currentConfig.refreshToken || '',
-      currentConfig.tokenExpires || ''
-    ].join('|')
+      currentConfig.tokenExpires || '',
+    ].join('|');
   }
 
-  return current
+  return current;
 }
 
 // Initialize app directories
 export async function initializeApp(): Promise<void> {
-  const aicoBotDir = getAicoBotDir()
-  const tempDir = getTempSpacePath()
-  const spacesDir = getSpacesDir()
-  const tempArtifactsDir = join(tempDir, 'artifacts')
-  const tempConversationsDir = join(tempDir, 'conversations')
-  const agentsSkillsDir = getAgentsSkillsDir()
+  const aicoBotDir = getAicoBotDir();
+  const tempDir = getTempSpacePath();
+  const spacesDir = getSpacesDir();
+  const tempArtifactsDir = join(tempDir, 'artifacts');
+  const tempConversationsDir = join(tempDir, 'conversations');
+  const agentsSkillsDir = getAgentsSkillsDir();
 
   // Create directories if they don't exist
-  const dirs = [aicoBotDir, tempDir, spacesDir, tempArtifactsDir, tempConversationsDir, agentsSkillsDir]
+  const dirs = [
+    aicoBotDir,
+    tempDir,
+    spacesDir,
+    tempArtifactsDir,
+    tempConversationsDir,
+    agentsSkillsDir,
+  ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
+      mkdirSync(dir, { recursive: true });
     }
   }
 
   // Create default config if it doesn't exist
-  const configPath = getConfigPath()
+  const configPath = getConfigPath();
   if (!existsSync(configPath)) {
-    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2))
+    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
   }
 
   // Migrate encrypted credentials to plaintext (v1.2.10 -> v1.2.12+)
   // This must run before any service reads the config to ensure decryption
   // happens at the file level, not at read time where failures cause issues.
-  migrateEncryptedCredentials()
+  migrateEncryptedCredentials();
 
   // Migrate aiSources from v1 to v2 format (one-time, persisted to disk)
   // This must run after migrateEncryptedCredentials() so apiKeys are already plaintext.
   // Previously, migration ran inside every getConfig() call without persisting,
   // generating new UUIDs each time and causing inconsistent currentIds.
-  migrateAiSourcesToV2OnDisk()
-
+  migrateAiSourcesToV2OnDisk();
 }
 
 // Get configuration
 export function getConfig(): AicoBotConfig {
-  const configPath = getConfigPath()
+  const configPath = getConfigPath();
 
   if (!existsSync(configPath)) {
-    return DEFAULT_CONFIG
+    return DEFAULT_CONFIG;
   }
 
   try {
-    const content = readFileSync(configPath, 'utf-8')
-    const parsed = JSON.parse(content)
-    const aiSources = normalizeAiSources(parsed)
+    const content = readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    const aiSources = normalizeAiSources(parsed);
     // Deep merge to ensure all nested defaults are applied
     return {
       ...DEFAULT_CONFIG,
@@ -857,98 +872,98 @@ export function getConfig(): AicoBotConfig {
       // analytics: keep as-is (no longer actively managed)
       analytics: parsed.analytics,
       // layout: keep persisted values (panel sizes and visibility)
-      layout: parsed.layout
-    }
+      layout: parsed.layout,
+    };
   } catch (error) {
-    console.error('Failed to read config:', error)
-    return DEFAULT_CONFIG
+    console.error('Failed to read config:', error);
+    return DEFAULT_CONFIG;
   }
 }
 
 // Save configuration
 export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
-  const currentConfig = getConfig()
-  const newConfig = { ...currentConfig, ...config }
-  const previousAiSourcesSignature = getAiSourcesSignature(currentConfig.aiSources)
+  const currentConfig = getConfig();
+  const newConfig = { ...currentConfig, ...config };
+  const previousAiSourcesSignature = getAiSourcesSignature(currentConfig.aiSources);
 
   // Deep merge for nested objects
   if (config.api) {
-    newConfig.api = { ...currentConfig.api, ...config.api }
+    newConfig.api = { ...currentConfig.api, ...config.api };
   }
   if (config.permissions) {
-    newConfig.permissions = { ...currentConfig.permissions, ...config.permissions }
+    newConfig.permissions = { ...currentConfig.permissions, ...config.permissions };
   }
   if (config.appearance) {
-    newConfig.appearance = { ...currentConfig.appearance, ...config.appearance }
+    newConfig.appearance = { ...currentConfig.appearance, ...config.appearance };
   }
   if (config.system) {
-    newConfig.system = { ...currentConfig.system, ...config.system }
+    newConfig.system = { ...currentConfig.system, ...config.system };
   }
   if (config.agent) {
-    newConfig.agent = { ...currentConfig.agent, ...config.agent }
+    newConfig.agent = { ...currentConfig.agent, ...config.agent };
   }
   if (config.onboarding) {
-    newConfig.onboarding = { ...currentConfig.onboarding, ...config.onboarding }
+    newConfig.onboarding = { ...currentConfig.onboarding, ...config.onboarding };
   }
   // mcpServers: replace entirely when provided (not merged)
   if (config.mcpServers !== undefined) {
-    newConfig.mcpServers = config.mcpServers
+    newConfig.mcpServers = config.mcpServers;
   }
   // analytics: replace entirely when provided (no longer actively managed)
   if (config.analytics !== undefined) {
-    newConfig.analytics = config.analytics
+    newConfig.analytics = config.analytics;
   }
   // gitBash: replace entirely when provided (Windows only)
   if ((config as any).gitBash !== undefined) {
-    (newConfig as any).gitBash = (config as any).gitBash
+    (newConfig as any).gitBash = (config as any).gitBash;
   }
   // layout: shallow merge (panel sizes and visibility)
   if (config.layout !== undefined) {
-    newConfig.layout = { ...currentConfig.layout, ...config.layout }
+    newConfig.layout = { ...currentConfig.layout, ...config.layout };
   }
 
-  const configPath = getConfigPath()
-  const configDir = dirname(configPath)
+  const configPath = getConfigPath();
+  const configDir = dirname(configPath);
   if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true })
+    mkdirSync(configDir, { recursive: true });
   }
-  writeFileSync(configPath, JSON.stringify(newConfig, null, 2))
+  writeFileSync(configPath, JSON.stringify(newConfig, null, 2));
 
   // Detect API config changes and notify subscribers
   // This allows agent.service to invalidate sessions when API config changes
-  const nextAiSourcesSignature = getAiSourcesSignature(newConfig.aiSources)
-  const aiSourcesChanged = previousAiSourcesSignature !== nextAiSourcesSignature
+  const nextAiSourcesSignature = getAiSourcesSignature(newConfig.aiSources);
+  const aiSourcesChanged = previousAiSourcesSignature !== nextAiSourcesSignature;
 
   if (config.api || config.aiSources) {
     const apiChanged =
       !!config.api &&
       (config.api.provider !== currentConfig.api.provider ||
         config.api.apiKey !== currentConfig.api.apiKey ||
-        config.api.apiUrl !== currentConfig.api.apiUrl)
+        config.api.apiUrl !== currentConfig.api.apiUrl);
 
     if (apiChanged || aiSourcesChanged) {
       // Increment credentials generation counter - sessions will detect stale credentials
-      credentialsGeneration++
-      console.log(`[Config] Credentials generation: ${credentialsGeneration}`)
+      credentialsGeneration++;
+      console.log(`[Config] Credentials generation: ${credentialsGeneration}`);
     }
 
     if ((apiChanged || aiSourcesChanged) && apiConfigChangeHandlers.length > 0) {
-      console.log('[Config] API config changed, notifying subscribers...')
+      console.log('[Config] API config changed, notifying subscribers...');
       // Use setTimeout to avoid blocking the save operation
       // and ensure all handlers are called asynchronously
       setTimeout(() => {
-        apiConfigChangeHandlers.forEach(handler => {
+        apiConfigChangeHandlers.forEach((handler) => {
           try {
-            handler()
+            handler();
           } catch (e) {
-            console.error('[Config] Error in API config change handler:', e)
+            console.error('[Config] Error in API config change handler:', e);
           }
-        })
-      }, 0)
+        });
+      }, 0);
     }
   }
 
-  return newConfig
+  return newConfig;
 }
 
 // ──────────────────────────────────────────────
@@ -961,29 +976,32 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
  * Moves decryption logic from IPC handler into service layer.
  */
 export function getDecryptedConfig(): Record<string, any> {
-  const config = getConfig() as Record<string, any>
-  const decryptedConfig = { ...config }
+  const config = getConfig() as Record<string, any>;
+  const decryptedConfig = { ...config };
 
-  if (decryptedConfig.aiSources?.version === 2 && Array.isArray(decryptedConfig.aiSources.sources)) {
+  if (
+    decryptedConfig.aiSources?.version === 2 &&
+    Array.isArray(decryptedConfig.aiSources.sources)
+  ) {
     decryptedConfig.aiSources = {
       ...decryptedConfig.aiSources,
       sources: decryptedConfig.aiSources.sources.map((source: AISource) => ({
         ...source,
         apiKey: source.apiKey ? decryptString(source.apiKey) : undefined,
         accessToken: source.accessToken ? decryptString(source.accessToken) : undefined,
-        refreshToken: source.refreshToken ? decryptString(source.refreshToken) : undefined
-      }))
-    }
+        refreshToken: source.refreshToken ? decryptString(source.refreshToken) : undefined,
+      })),
+    };
   }
 
   if (decryptedConfig.api?.apiKey) {
     decryptedConfig.api = {
       ...decryptedConfig.api,
-      apiKey: decryptString(decryptedConfig.api.apiKey)
-    }
+      apiKey: decryptString(decryptedConfig.api.apiKey),
+    };
   }
 
-  return decryptedConfig
+  return decryptedConfig;
 }
 
 /**
@@ -992,23 +1010,25 @@ export function getDecryptedConfig(): Record<string, any> {
  * Moves post-save orchestration from IPC handler into service layer.
  */
 export function saveConfigAndNotify(updates: Record<string, unknown>): Record<string, any> {
-  const incomingAiSources = updates.aiSources as AISourcesConfig | undefined
+  const incomingAiSources = updates.aiSources as AISourcesConfig | undefined;
 
-  const config = saveConfig(updates)
+  const config = saveConfig(updates);
 
   if (incomingAiSources) {
     // Dynamic import to avoid circular dependency
-    import('./health').then(({ emitConfigChange, runConfigProbe }) => {
-      emitConfigChange(['aiSources'])
-      runConfigProbe().catch(err => {
-        console.error('[Config] Post-save probe failed:', err)
+    import('./health')
+      .then(({ emitConfigChange, runConfigProbe }) => {
+        emitConfigChange(['aiSources']);
+        runConfigProbe().catch((err) => {
+          console.error('[Config] Post-save probe failed:', err);
+        });
       })
-    }).catch(() => {
-      // health module not available yet
-    })
+      .catch(() => {
+        // health module not available yet
+      });
   }
 
-  return config
+  return config;
 }
 
 /**
@@ -1020,17 +1040,17 @@ export function setAutoLaunch(enabled: boolean): void {
     openAsHidden: true, // Start minimized
     // On macOS, also set to open at login for all users (requires admin)
     // path: process.execPath, // Optional: specify executable path
-  })
+  });
 
   // Save to config
-  saveConfig({ system: { autoLaunch: enabled } })
-  console.log(`[Config] Auto launch set to: ${enabled}`)
+  saveConfig({ system: { autoLaunch: enabled } });
+  console.log(`[Config] Auto launch set to: ${enabled}`);
 }
 
 /**
  * Get current auto launch status
  */
 export function getAutoLaunch(): boolean {
-  const settings = app.getLoginItemSettings()
-  return settings.openAtLogin
+  const settings = app.getLoginItemSettings();
+  return settings.openAtLogin;
 }

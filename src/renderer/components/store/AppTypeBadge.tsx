@@ -10,28 +10,28 @@
  * Note: all t() calls use string literals so i18next-parser can extract them.
  */
 
-import { useState } from 'react'
-import { Bot, Plug, Wand2, Package } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
-import type { AppType } from '../../../shared/apps/spec-types'
-import { useTranslation } from '../../i18n'
+import { useState } from 'react';
+import { Bot, Plug, Wand2, Package } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { AppType } from '../../../shared/apps/spec-types';
+import { useTranslation } from '../../i18n';
 
 // ---------------------------------------------------------------------------
 // Resolved metadata (populated inside the hook so t() gets literal strings)
 // ---------------------------------------------------------------------------
 
 interface AppTypeMetaResolved {
-  Icon: LucideIcon
-  label: string
-  tooltipTitle: string
-  tooltipDesc: string
-  badgeClassName: string
-  iconClassName: string
-  textClassName: string
+  Icon: LucideIcon;
+  label: string;
+  tooltipTitle: string;
+  tooltipDesc: string;
+  badgeClassName: string;
+  iconClassName: string;
+  textClassName: string;
 }
 
 function useAppTypeMeta(type: AppType): AppTypeMetaResolved | null {
-  const { t } = useTranslation()
+  const { t } = useTranslation();
 
   switch (type) {
     case 'automation':
@@ -40,50 +40,50 @@ function useAppTypeMeta(type: AppType): AppTypeMetaResolved | null {
         label: t('Digital Human'),
         tooltipTitle: t('7×24 hrs Digital Human'),
         tooltipDesc: t(
-          'An always-on AI agent that runs autonomously on schedule or events — working for you around the clock.'
+          'An always-on AI agent that runs autonomously on schedule or events — working for you around the clock.',
         ),
         badgeClassName: 'bg-primary/10 border border-primary/30 hover:bg-primary/15',
         iconClassName: 'text-primary',
         textClassName: 'text-primary font-semibold',
-      }
+      };
     case 'mcp':
       return {
         Icon: Plug,
         label: t('MCP'),
         tooltipTitle: t('Model Context Protocol'),
         tooltipDesc: t(
-          'Extends AI capabilities with external tools, APIs, and data sources via the MCP standard.'
+          'Extends AI capabilities with external tools, APIs, and data sources via the MCP standard.',
         ),
         badgeClassName: 'bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/15',
         iconClassName: 'text-blue-500',
         textClassName: 'text-blue-500',
-      }
+      };
     case 'skill':
       return {
         Icon: Wand2,
         label: t('Skill'),
         tooltipTitle: t('AI Skill'),
         tooltipDesc: t(
-          'A reusable AI capability you can invoke on demand across any conversation or workflow.'
+          'A reusable AI capability you can invoke on demand across any conversation or workflow.',
         ),
         badgeClassName: 'bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/15',
         iconClassName: 'text-emerald-500',
         textClassName: 'text-emerald-500',
-      }
+      };
     case 'extension':
       return {
         Icon: Package,
         label: t('Extension'),
         tooltipTitle: t('AICO-Bot Extension'),
         tooltipDesc: t(
-          'Enhances the AICO-Bot platform with additional UI or system-level functionality.'
+          'Enhances the AICO-Bot platform with additional UI or system-level functionality.',
         ),
         badgeClassName: 'bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15',
         iconClassName: 'text-amber-500',
         textClassName: 'text-amber-500',
-      }
+      };
     default:
-      return null
+      return null;
   }
 }
 
@@ -92,26 +92,26 @@ function useAppTypeMeta(type: AppType): AppTypeMetaResolved | null {
 // ---------------------------------------------------------------------------
 
 interface AppTypeBadgeProps {
-  type: AppType
+  type: AppType;
   /**
    * Controls tooltip open direction.
    * 'down' (default) — tooltip below the badge, for card grids.
    * 'up'             — tooltip above the badge, for detail headers.
    */
-  tooltipDirection?: 'down' | 'up'
+  tooltipDirection?: 'down' | 'up';
 }
 
 export function AppTypeBadge({ type, tooltipDirection = 'down' }: AppTypeBadgeProps) {
-  const [showTooltip, setShowTooltip] = useState(false)
-  const meta = useAppTypeMeta(type)
+  const [showTooltip, setShowTooltip] = useState(false);
+  const meta = useAppTypeMeta(type);
 
-  if (!meta) return null
+  if (!meta) return null;
 
   const { Icon, label, tooltipTitle, tooltipDesc, badgeClassName, iconClassName, textClassName } =
-    meta
+    meta;
 
   const tooltipPositionClass =
-    tooltipDirection === 'up' ? 'bottom-full mb-1.5 left-0' : 'top-full mt-1.5 left-0'
+    tooltipDirection === 'up' ? 'bottom-full mb-1.5 left-0' : 'top-full mt-1.5 left-0';
 
   return (
     <div
@@ -140,5 +140,5 @@ export function AppTypeBadge({ type, tooltipDirection = 'down' }: AppTypeBadgePr
         </div>
       )}
     </div>
-  )
+  );
 }

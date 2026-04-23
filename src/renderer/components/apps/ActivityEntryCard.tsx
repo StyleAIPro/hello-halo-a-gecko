@@ -9,20 +9,28 @@
  * milestone, escalation, output.
  */
 
-import { CheckCircle2, SkipForward, XCircle, Bell, FileOutput, Clock, ChevronRight } from 'lucide-react'
-import type { ActivityEntry } from '../../../shared/apps/app-types'
-import { EscalationCard } from './EscalationCard'
-import { MarkdownRenderer } from '../chat/MarkdownRenderer'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import { useTranslation } from '../../i18n'
+import {
+  CheckCircle2,
+  SkipForward,
+  XCircle,
+  Bell,
+  FileOutput,
+  Clock,
+  ChevronRight,
+} from 'lucide-react';
+import type { ActivityEntry } from '../../../shared/apps/app-types';
+import { EscalationCard } from './EscalationCard';
+import { MarkdownRenderer } from '../chat/MarkdownRenderer';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import { useTranslation } from '../../i18n';
 
 interface ActivityEntryCardProps {
-  entry: ActivityEntry
-  appId: string
+  entry: ActivityEntry;
+  appId: string;
   /** Whether this is the last entry (hides the rail tail) */
-  isLast?: boolean
+  isLast?: boolean;
   /** Staggered animation delay in seconds (undefined = no animation) */
-  animationDelay?: number
+  animationDelay?: number;
 }
 
 // ──────────────────────────────────────────────
@@ -30,16 +38,16 @@ interface ActivityEntryCardProps {
 // ──────────────────────────────────────────────
 
 function formatTs(ts: number): string {
-  const d = new Date(ts)
-  const date = d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  return `${date}  ${time}`
+  const d = new Date(ts);
+  const date = d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${date}  ${time}`;
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  return `${Math.round(ms / 60_000)}m`
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  return `${Math.round(ms / 60_000)}m`;
 }
 
 // ──────────────────────────────────────────────
@@ -48,13 +56,20 @@ function formatDuration(ms: number): string {
 
 function nodeColorClass(type: ActivityEntry['type']): string {
   switch (type) {
-    case 'run_complete': return 'bg-green-500'
-    case 'run_skipped':  return 'bg-muted-foreground/40'
-    case 'run_error':    return 'bg-red-500'
-    case 'milestone':    return 'bg-blue-400'
-    case 'escalation':   return 'bg-orange-400'
-    case 'output':       return 'bg-purple-400'
-    default:             return 'bg-muted-foreground/40'
+    case 'run_complete':
+      return 'bg-green-500';
+    case 'run_skipped':
+      return 'bg-muted-foreground/40';
+    case 'run_error':
+      return 'bg-red-500';
+    case 'milestone':
+      return 'bg-blue-400';
+    case 'escalation':
+      return 'bg-orange-400';
+    case 'output':
+      return 'bg-purple-400';
+    default:
+      return 'bg-muted-foreground/40';
   }
 }
 
@@ -65,55 +80,67 @@ function nodeColorClass(type: ActivityEntry['type']): string {
 function EntryIcon({ type }: { type: ActivityEntry['type'] }) {
   switch (type) {
     case 'run_complete':
-      return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+      return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />;
     case 'run_skipped':
-      return <SkipForward className="w-3.5 h-3.5 text-muted-foreground" />
+      return <SkipForward className="w-3.5 h-3.5 text-muted-foreground" />;
     case 'run_error':
-      return <XCircle className="w-3.5 h-3.5 text-red-500" />
+      return <XCircle className="w-3.5 h-3.5 text-red-500" />;
     case 'milestone':
-      return <Bell className="w-3.5 h-3.5 text-blue-400" />
+      return <Bell className="w-3.5 h-3.5 text-blue-400" />;
     case 'escalation':
-      return <Clock className="w-3.5 h-3.5 text-orange-400" />
+      return <Clock className="w-3.5 h-3.5 text-orange-400" />;
     case 'output':
-      return <FileOutput className="w-3.5 h-3.5 text-purple-400" />
+      return <FileOutput className="w-3.5 h-3.5 text-purple-400" />;
     default:
-      return null
+      return null;
   }
 }
 
 function entryLabel(type: ActivityEntry['type']): string {
   switch (type) {
-    case 'run_complete': return 'Completed'
-    case 'run_skipped': return 'Skipped'
-    case 'run_error': return 'Failed'
-    case 'milestone': return 'Milestone'
-    case 'escalation': return 'Waiting for you'
-    case 'output': return 'Output'
-    default: return type
+    case 'run_complete':
+      return 'Completed';
+    case 'run_skipped':
+      return 'Skipped';
+    case 'run_error':
+      return 'Failed';
+    case 'milestone':
+      return 'Milestone';
+    case 'escalation':
+      return 'Waiting for you';
+    case 'output':
+      return 'Output';
+    default:
+      return type;
   }
 }
 
 /** Whether this entry type supports "View process" drill-down */
 function hasSessionLink(entry: ActivityEntry): boolean {
-  return (entry.type === 'run_complete' || entry.type === 'run_error') && !!entry.sessionKey
+  return (entry.type === 'run_complete' || entry.type === 'run_error') && !!entry.sessionKey;
 }
 
 // ──────────────────────────────────────────────
 // Component
 // ──────────────────────────────────────────────
 
-export function ActivityEntryCard({ entry, appId, isLast, animationDelay }: ActivityEntryCardProps) {
-  const { t } = useTranslation()
-  const openSessionDetail = useAppsPageStore(s => s.openSessionDetail)
-  const { content } = entry
-  const durationMs = content.durationMs
-  const canViewProcess = hasSessionLink(entry)
+export function ActivityEntryCard({
+  entry,
+  appId,
+  isLast,
+  animationDelay,
+}: ActivityEntryCardProps) {
+  const { t } = useTranslation();
+  const openSessionDetail = useAppsPageStore((s) => s.openSessionDetail);
+  const { content } = entry;
+  const durationMs = content.durationMs;
+  const canViewProcess = hasSessionLink(entry);
 
   const handleViewProcess = () => {
     if (entry.sessionKey) {
-      openSessionDetail(appId, entry.runId, entry.sessionKey)
+      openSessionDetail(appId, entry.runId, entry.sessionKey);
     }
-  }
+  };
 
   return (
     <div
@@ -131,11 +158,17 @@ export function ActivityEntryCard({ entry, appId, isLast, animationDelay }: Acti
       <div className="flex-1 min-w-0">
         {/* Meta row: timestamp + type indicator + optional "View process" link */}
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-mono text-[11px] text-muted-foreground/80 tabular-nums">{formatTs(entry.ts)}</span>
+          <span className="font-mono text-[11px] text-muted-foreground/80 tabular-nums">
+            {formatTs(entry.ts)}
+          </span>
           <EntryIcon type={entry.type} />
-          <span className="text-xs font-medium text-muted-foreground">{t(entryLabel(entry.type))}</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            {t(entryLabel(entry.type))}
+          </span>
           {durationMs != null && (
-            <span className="font-mono text-[11px] text-muted-foreground/60">{formatDuration(durationMs)}</span>
+            <span className="font-mono text-[11px] text-muted-foreground/60">
+              {formatDuration(durationMs)}
+            </span>
           )}
           {/* "View process" link — right-aligned */}
           {canViewProcess && (
@@ -183,5 +216,5 @@ export function ActivityEntryCard({ entry, appId, isLast, animationDelay }: Acti
         )}
       </div>
     </div>
-  )
+  );
 }

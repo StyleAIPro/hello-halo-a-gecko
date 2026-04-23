@@ -14,7 +14,7 @@
  * similar to BrowserTaskCard but optimized for long-running background tasks.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Bot,
   CheckCircle2,
@@ -26,29 +26,29 @@ import {
   Play,
   ChevronDown,
   ChevronUp,
-} from 'lucide-react'
-import { useAppsStore } from '../../stores/apps.store'
-import { useChatStore } from '../../stores/chat.store'
-import { useAppStore } from '../../stores/app.store'
-import { useAppsPageStore } from '../../stores/apps-page.store'
-import type { AutomationAppState, ActivityEntry } from '../../../shared/apps/app-types'
-import { useTranslation } from '../../i18n'
+} from 'lucide-react';
+import { useAppsStore } from '../../stores/apps.store';
+import { useChatStore } from '../../stores/chat.store';
+import { useAppStore } from '../../stores/app.store';
+import { useAppsPageStore } from '../../stores/apps-page.store';
+import type { AutomationAppState, ActivityEntry } from '../../../shared/apps/app-types';
+import { useTranslation } from '../../i18n';
 
 // ============================================
 // Types
 // ============================================
 
 export interface TaskMonitorInfo {
-  appId: string
-  taskName: string
-  description?: string
-  onCompletePrompt?: string  // Prompt to send to Claude when task completes
-  isRemote?: boolean  // True if app was created by remote Claude
+  appId: string;
+  taskName: string;
+  description?: string;
+  onCompletePrompt?: string; // Prompt to send to Claude when task completes
+  isRemote?: boolean; // True if app was created by remote Claude
 }
 
 interface TaskMonitorCardProps {
-  monitor: TaskMonitorInfo
-  isActive?: boolean  // True during streaming
+  monitor: TaskMonitorInfo;
+  isActive?: boolean; // True during streaming
 }
 
 // ============================================
@@ -58,84 +58,96 @@ interface TaskMonitorCardProps {
 const TASK_MONITOR_TOOL_NAMES = [
   'mcp__aico-bot-apps__create_automation_app',
   'create_task_monitor',
-]
+];
 
-const POLL_INTERVAL_MS = 15_000  // Poll app state every 15s
+const POLL_INTERVAL_MS = 15_000; // Poll app state every 15s
 
 // ============================================
 // Helpers
 // ============================================
 
 export function isTaskMonitorTool(toolName: string): boolean {
-  return TASK_MONITOR_TOOL_NAMES.some(t => toolName.includes(t))
+  return TASK_MONITOR_TOOL_NAMES.some((t) => toolName.includes(t));
 }
 
 /**
  * Extract TaskMonitorInfo from a tool_use thought.
  * The appId comes from the tool result (create_automation_app returns the app ID).
  */
-export function extractTaskMonitorFromThought(
-  thought: { toolName?: string; toolInput?: Record<string, unknown>; toolResult?: { output?: string } }
-): TaskMonitorInfo | null {
-  if (!thought.toolName || !isTaskMonitorTool(thought.toolName)) return null
+export function extractTaskMonitorFromThought(thought: {
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolResult?: { output?: string };
+}): TaskMonitorInfo | null {
+  if (!thought.toolName || !isTaskMonitorTool(thought.toolName)) return null;
 
-  const input = thought.toolInput || {}
-  const name = (input.name as string) || ''
-  const description = (input.description as string) || ''
-  const systemPrompt = (input.system_prompt as string) || ''
+  const input = thought.toolInput || {};
+  const name = (input.name as string) || '';
+  const description = (input.description as string) || '';
+  const systemPrompt = (input.system_prompt as string) || '';
 
   // Only treat it as a task monitor if the system_prompt contains monitoring-related keywords
   // or if it's called through the dedicated create_task_monitor tool
   if (!isTaskMonitorTool(thought.toolName!) && thought.toolName !== 'create_task_monitor') {
-    return null
+    return null;
   }
 
   // Try to extract appId from tool result
-  let appId = ''
+  let appId = '';
   if (thought.toolResult?.output) {
     try {
-      const output = JSON.parse(thought.toolResult.output)
-      appId = output.appId || output.id || output.data?.id || ''
+      const output = JSON.parse(thought.toolResult.output);
+      appId = output.appId || output.id || output.data?.id || '';
     } catch {
       // Try to parse as plain string ID
-      appId = thought.toolResult.output.trim()
+      appId = thought.toolResult.output.trim();
     }
   }
 
   // If no appId from result, try from input
   if (!appId) {
-    appId = (input.app_id as string) || ''
+    appId = (input.app_id as string) || '';
   }
 
-  if (!appId) return null
+  if (!appId) return null;
 
   return {
     appId,
     taskName: name,
     description: description || undefined,
-    onCompletePrompt: undefined,  // Will be set by the calling context
-  }
+    onCompletePrompt: undefined, // Will be set by the calling context
+  };
 }
 
 /**
  * Filter task monitor tool calls from thoughts list
  */
 export function filterTaskMonitorThoughts(
-  thoughts: Array<{ type: string; toolName?: string; toolInput?: Record<string, unknown>; toolResult?: { output?: string } }>
+  thoughts: Array<{
+    type: string;
+    toolName?: string;
+    toolInput?: Record<string, unknown>;
+    toolResult?: { output?: string };
+  }>,
 ): TaskMonitorInfo[] {
   return thoughts
-    .filter(t => t.type === 'tool_use')
-    .map(t => extractTaskMonitorFromThought(t))
-    .filter((m): m is TaskMonitorInfo => m !== null)
+    .filter((t) => t.type === 'tool_use')
+    .map((t) => extractTaskMonitorFromThought(t))
+    .filter((m): m is TaskMonitorInfo => m !== null);
 }
 
 /**
  * Filter task monitor tool calls from streaming thoughts (tool_use type)
  */
 export function filterStreamingTaskMonitors(
-  thoughts: Array<{ type: string; toolName?: string; toolInput?: Record<string, unknown>; toolResult?: { output?: string } }>
+  thoughts: Array<{
+    type: string;
+    toolName?: string;
+    toolInput?: Record<string, unknown>;
+    toolResult?: { output?: string };
+  }>,
 ): TaskMonitorInfo[] {
-  return filterTaskMonitorThoughts(thoughts)
+  return filterTaskMonitorThoughts(thoughts);
 }
 
 // ============================================
@@ -150,7 +162,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
       bgColor: 'bg-muted/20',
       borderColor: 'border-border/50',
       labelKey: 'Loading...',
-    }
+    };
   }
 
   switch (state.status) {
@@ -162,7 +174,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         borderColor: 'border-primary/30',
         spin: true,
         labelKey: 'Running',
-      }
+      };
     case 'queued':
       return {
         Icon: Clock,
@@ -170,7 +182,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-amber-500/10',
         borderColor: 'border-amber-500/30',
         labelKey: 'Queued',
-      }
+      };
     case 'idle':
       return {
         Icon: Bot,
@@ -178,7 +190,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-blue-500/10',
         borderColor: 'border-blue-500/30',
         labelKey: 'Idle',
-      }
+      };
     case 'paused':
       return {
         Icon: Pause,
@@ -186,7 +198,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-muted/20',
         borderColor: 'border-border/50',
         labelKey: 'Paused',
-      }
+      };
     case 'waiting_user':
       return {
         Icon: AlertCircle,
@@ -194,7 +206,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-amber-500/10',
         borderColor: 'border-amber-500/30',
         labelKey: 'Waiting for you',
-      }
+      };
     case 'error':
       return {
         Icon: AlertCircle,
@@ -202,7 +214,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-red-500/10',
         borderColor: 'border-red-500/30',
         labelKey: 'Error',
-      }
+      };
     default:
       return {
         Icon: Bot,
@@ -210,7 +222,7 @@ function getStatusConfig(state: AutomationAppState | undefined) {
         bgColor: 'bg-muted/20',
         borderColor: 'border-border/50',
         labelKey: 'Unknown',
-      }
+      };
   }
 }
 
@@ -218,16 +230,16 @@ function getStatusConfig(state: AutomationAppState | undefined) {
  * Format a timestamp to relative time string
  */
 function formatRelativeTime(ts: number, t: (key: string) => string): string {
-  const diff = Date.now() - ts
-  const seconds = Math.floor(diff / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
+  const diff = Date.now() - ts;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-  if (seconds < 60) return t('just now')
-  if (minutes < 60) return t('{{count}}m ago', { count: minutes })
-  if (hours < 24) return t('{{count}}h ago', { count: hours })
-  return t('{{count}}d ago', { count: days })
+  if (seconds < 60) return t('just now');
+  if (minutes < 60) return t('{{count}}m ago', { count: minutes });
+  if (hours < 24) return t('{{count}}h ago', { count: hours });
+  return t('{{count}}d ago', { count: days });
 }
 
 // ============================================
@@ -235,8 +247,14 @@ function formatRelativeTime(ts: number, t: (key: string) => string): string {
 // ============================================
 
 /** Single activity entry in the compact log */
-function ActivityLogItem({ entry, t }: { entry: ActivityEntry; t: (key: string, options?: Record<string, unknown>) => string }) {
-  const summary = entry.content?.summary || ''
+function ActivityLogItem({
+  entry,
+  t,
+}: {
+  entry: ActivityEntry;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const summary = entry.content?.summary || '';
 
   return (
     <div className="flex items-start gap-2 text-xs py-1">
@@ -256,7 +274,7 @@ function ActivityLogItem({ entry, t }: { entry: ActivityEntry; t: (key: string, 
         {entry.ts ? formatRelativeTime(entry.ts, t) : ''}
       </span>
     </div>
-  )
+  );
 }
 
 // ============================================
@@ -264,103 +282,113 @@ function ActivityLogItem({ entry, t }: { entry: ActivityEntry; t: (key: string, 
 // ============================================
 
 export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const { t } = useTranslation()
+  const [isExpanded, setIsExpanded] = useState(false);
+  const { t } = useTranslation();
 
   // Get app state from store
-  const appState = useAppsStore(state => state.appStates[monitor.appId])
-  const activityEntries = useAppsStore(state => state.activityEntries[monitor.appId])
-  const loadAppState = useAppsStore(state => state.loadAppState)
-  const loadActivity = useAppsStore(state => state.loadActivity)
-  const pauseApp = useAppsStore(state => state.pauseApp)
-  const resumeApp = useAppsStore(state => state.resumeApp)
-  const triggerApp = useAppsStore(state => state.triggerApp)
-  const deleteApp = useAppsStore(state => state.deleteApp)
+  const appState = useAppsStore((state) => state.appStates[monitor.appId]);
+  const activityEntries = useAppsStore((state) => state.activityEntries[monitor.appId]);
+  const loadAppState = useAppsStore((state) => state.loadAppState);
+  const loadActivity = useAppsStore((state) => state.loadActivity);
+  const pauseApp = useAppsStore((state) => state.pauseApp);
+  const resumeApp = useAppsStore((state) => state.resumeApp);
+  const triggerApp = useAppsStore((state) => state.triggerApp);
+  const deleteApp = useAppsStore((state) => state.deleteApp);
 
   // App navigation
-  const setView = useAppStore(state => state.setView)
-  const selectApp = useAppsPageStore(state => state.selectApp)
+  const setView = useAppStore((state) => state.setView);
+  const selectApp = useAppsPageStore((state) => state.selectApp);
 
   // Chat continuation
-  const sendMessage = useChatStore(state => state.sendMessage)
+  const sendMessage = useChatStore((state) => state.sendMessage);
 
   // Poll app state and activity periodically
   useEffect(() => {
     // Initial load
-    loadAppState(monitor.appId)
-    loadActivity(monitor.appId, { limit: 5 })
+    loadAppState(monitor.appId);
+    loadActivity(monitor.appId, { limit: 5 });
 
     const interval = setInterval(() => {
-      loadAppState(monitor.appId)
-    }, POLL_INTERVAL_MS)
+      loadAppState(monitor.appId);
+    }, POLL_INTERVAL_MS);
 
-    return () => clearInterval(interval)
-  }, [monitor.appId, loadAppState, loadActivity])
+    return () => clearInterval(interval);
+  }, [monitor.appId, loadAppState, loadActivity]);
 
-  const statusConfig = getStatusConfig(appState)
+  const statusConfig = getStatusConfig(appState);
 
   // Determine if task is "done" (idle and has successful last run)
-  const isCompleted = appState?.status === 'idle'
-    && appState?.lastStatus === 'ok'
-    && activityEntries?.some(e => e.content?.status === 'ok')
-  const isError = appState?.status === 'error'
+  const isCompleted =
+    appState?.status === 'idle' &&
+    appState?.lastStatus === 'ok' &&
+    activityEntries?.some((e) => e.content?.status === 'ok');
+  const isError = appState?.status === 'error';
 
   // Recent activity entries for display (max 3 when collapsed)
   const recentEntries = useMemo(() => {
-    if (!activityEntries || activityEntries.length === 0) return []
-    return isExpanded ? activityEntries.slice(0, 10) : activityEntries.slice(0, 3)
-  }, [activityEntries, isExpanded])
+    if (!activityEntries || activityEntries.length === 0) return [];
+    return isExpanded ? activityEntries.slice(0, 10) : activityEntries.slice(0, 3);
+  }, [activityEntries, isExpanded]);
 
   // Last run info
   const lastRunText = useMemo(() => {
-    if (!appState?.lastRunAtMs) return null
-    return formatRelativeTime(appState.lastRunAtMs, t)
-  }, [appState?.lastRunAtMs, t])
+    if (!appState?.lastRunAtMs) return null;
+    return formatRelativeTime(appState.lastRunAtMs, t);
+  }, [appState?.lastRunAtMs, t]);
 
   const nextRunText = useMemo(() => {
-    if (!appState?.nextRunAtMs) return null
-    const diff = appState.nextRunAtMs - Date.now()
-    if (diff <= 0) return t('Soon')
-    const minutes = Math.floor(diff / 60000)
-    if (minutes < 60) return t('in {{count}}m', { count: minutes })
-    const hours = Math.floor(minutes / 60)
-    return t('in {{count}}h {{min}}m', { count: hours, min: minutes % 60 })
-  }, [appState?.nextRunAtMs, t])
+    if (!appState?.nextRunAtMs) return null;
+    const diff = appState.nextRunAtMs - Date.now();
+    if (diff <= 0) return t('Soon');
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 60) return t('in {{count}}m', { count: minutes });
+    const hours = Math.floor(minutes / 60);
+    return t('in {{count}}h {{min}}m', { count: hours, min: minutes % 60 });
+  }, [appState?.nextRunAtMs, t]);
 
   // Navigate to AppsPage for this app
   const handleViewDetails = useCallback(() => {
-    selectApp(monitor.appId, 'automation')
-    setView('apps')
-  }, [monitor.appId, selectApp, setView])
+    selectApp(monitor.appId, 'automation');
+    setView('apps');
+  }, [monitor.appId, selectApp, setView]);
 
   // Send continuation prompt to Claude
   const handleContinue = useCallback(() => {
-    const prompt = monitor.onCompletePrompt
-      || `Background task "${monitor.taskName}" is complete. Please continue processing based on the results.`
-    sendMessage(prompt)
-  }, [monitor.taskName, monitor.onCompletePrompt, sendMessage])
+    const prompt =
+      monitor.onCompletePrompt ||
+      `Background task "${monitor.taskName}" is complete. Please continue processing based on the results.`;
+    sendMessage(prompt);
+  }, [monitor.taskName, monitor.onCompletePrompt, sendMessage]);
 
   // Toggle pause/resume
-  const handleTogglePause = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (appState?.status === 'paused') {
-      await resumeApp(monitor.appId)
-    } else {
-      await pauseApp(monitor.appId)
-    }
-  }, [appState?.status, monitor.appId, pauseApp, resumeApp])
+  const handleTogglePause = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (appState?.status === 'paused') {
+        await resumeApp(monitor.appId);
+      } else {
+        await pauseApp(monitor.appId);
+      }
+    },
+    [appState?.status, monitor.appId, pauseApp, resumeApp],
+  );
 
   // Manual trigger
-  const handleTriggerNow = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    await triggerApp(monitor.appId)
-  }, [monitor.appId, triggerApp])
+  const handleTriggerNow = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await triggerApp(monitor.appId);
+    },
+    [monitor.appId, triggerApp],
+  );
 
-  const StatusIcon = statusConfig.Icon
+  const StatusIcon = statusConfig.Icon;
 
   return (
     <div className="task-monitor-card mt-3 animate-fade-in">
-      <div className={`rounded-xl border ${statusConfig.borderColor} ${statusConfig.bgColor} overflow-hidden`}>
+      <div
+        className={`rounded-xl border ${statusConfig.borderColor} ${statusConfig.bgColor} overflow-hidden`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/20">
           <div className="flex items-center gap-2 min-w-0">
@@ -369,7 +397,7 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
                 size={16}
                 className={`${statusConfig.color} ${statusConfig.spin ? 'animate-spin' : ''}`}
               />
-              {(appState?.status === 'running') && (
+              {appState?.status === 'running' && (
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
               )}
             </div>
@@ -385,7 +413,9 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
 
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* Status label */}
-            <span className={`text-xs px-2 py-0.5 rounded-full ${statusConfig.bgColor} ${statusConfig.color}`}>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full ${statusConfig.bgColor} ${statusConfig.color}`}
+            >
               {t(statusConfig.labelKey)}
             </span>
 
@@ -396,11 +426,7 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
                 className="p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-white/5 transition-colors"
                 title={appState.status === 'paused' ? t('Resume') : t('Pause')}
               >
-                {appState.status === 'paused' ? (
-                  <Play size={13} />
-                ) : (
-                  <Pause size={13} />
-                )}
+                {appState.status === 'paused' ? <Play size={13} /> : <Pause size={13} />}
               </button>
             )}
           </div>
@@ -416,7 +442,7 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
         {/* Activity log */}
         {recentEntries.length > 0 && (
           <div className="px-4 py-1.5">
-            {recentEntries.map(entry => (
+            {recentEntries.map((entry) => (
               <ActivityLogItem key={entry.id} entry={entry} t={t} />
             ))}
             {activityEntries && activityEntries.length > 3 && (
@@ -459,13 +485,19 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
           {/* Run info */}
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {lastRunText && (
-              <span>{t('Last run')}: {lastRunText}</span>
+              <span>
+                {t('Last run')}: {lastRunText}
+              </span>
             )}
             {nextRunText && appState?.status !== 'paused' && (
-              <span>{t('Next')}: {nextRunText}</span>
+              <span>
+                {t('Next')}: {nextRunText}
+              </span>
             )}
             {appState?.lastDurationMs && (
-              <span>{t('Duration')}: {(appState.lastDurationMs / 1000).toFixed(1)}s</span>
+              <span>
+                {t('Duration')}: {(appState.lastDurationMs / 1000).toFixed(1)}s
+              </span>
             )}
           </div>
 
@@ -508,5 +540,5 @@ export function TaskMonitorCard({ monitor, isActive }: TaskMonitorCardProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }
