@@ -7,7 +7,7 @@
 
 ## 职责
 
-管理 AI Agent 的技能（Skill）生命周期，包括技能编辑器、技能市场、技能源管理（GitHub/GitCode）、技能存储和技能会话。技能是预构建的 Agent 能力扩展，可通过市场安装或本地创建。
+管理 AI Agent 的技能（Skill）生命周期，包括技能编辑器、技能市场、技能源管理（GitHub/GitCode）、技能存储、技能推送和技能会话。技能是预构建的 Agent 能力扩展，可通过市场安装、本地创建或推送（PR/MR）贡献到远程仓库。
 
 ## 架构
 
@@ -47,6 +47,8 @@
 | listSkills | `skill:list` | 无 | `{ success, data: Skill[] }` | 列出已安装技能 |
 | installSkill | `skill:install` | `{ source, name }` | `{ success, data? }` | 从源安装技能 |
 | uninstallSkill | `skill:uninstall` | `{ skillId }` | `{ success }` | 卸载技能 |
+| pushSkillToGitHub | `skill:market:push-to-github` | `{ skillId, targetRepo, targetPath? }` | `{ success, data?: { prUrl, warning? } }` | 推送技能到 GitHub（创建 PR） |
+| pushSkillToGitCode | `skill:market:push-to-gitcode` | `{ skillId, targetRepo, targetPath? }` | `{ success, data?: { mrUrl, warning? } }` | 推送技能到 GitCode（创建 MR） |
 
 ### Renderer Event 通道
 
@@ -63,8 +65,8 @@
 | skill-store | 技能持久化存储 | `services/skill/skill-store.ts` |
 | skill-market-service | 技能市场（浏览/搜索/安装） | `services/skill/skill-market-service.ts` |
 | skill-generator | 技能编辑器后端（生成/修改技能） | `services/skill/skill-generator.ts` |
-| github-skill-source | GitHub 技能源（拉取/安装） | `services/skill/github-skill-source.service.ts` |
-| gitcode-skill-source | GitCode 技能源（拉取/安装） | `services/skill/gitcode-skill-source.service.ts` |
+| github-skill-source | GitHub 技能源（拉取/安装/推送 PR） | `services/skill/github-skill-source.service.ts` |
+| gitcode-skill-source | GitCode 技能源（拉取/安装/推送 MR） | `services/skill/gitcode-skill-source.service.ts` |
 | skill-conversation | 技能对话分析（从对话提取技能模式） | `services/skill/skill-conversation.service.ts` |
 | conversation-analyzer | 对话模式分析器 | `services/skill/conversation-analyzer.ts` |
 | similarity-calculator | 技能相似度计算 | `services/skill/similarity-calculator.ts` |
@@ -95,6 +97,8 @@
 | skill-editor | 已完成 | features/skill-editor/design.md |
 | skill-market | 已完成 | features/skill-market/design.md |
 | skill-source | 已完成 | features/skill-source/design.md |
+| skill-push-github | 已完成 | 拉取/安装/推送 PR 到 GitHub（`pushSkillAsPR`） |
+| skill-push-gitcode | 已完成 | 拉取/安装/推送 MR 到 GitCode（`pushSkillAsMR`） |
 
 ## 绑定的 API
 
@@ -104,4 +108,5 @@
 
 | 日期 | 内容 | 指令人 |
 |------|------|--------|
+| 2026-04-20 | 补全推送功能（GitHub PR / GitCode MR）文档 | @moonseeker1 |
 | 2026-04-16 | 初始模块文档 | @moonseeker1 |

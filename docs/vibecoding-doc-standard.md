@@ -104,8 +104,33 @@
 要解决什么问题、目标用户
 
 ## 开发前必读
-- [ ] modules/<module>/design.md
-- [ ] modules/<module>/changelog.md
+
+### 模块设计文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/modules/<module>/<模块描述>-vN.md` | ... |
+
+### 源码文件
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `src/...` | ... |
+
+### API 文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/api/<resource>.md` | ... |
+
+### 编码规范
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `docs/Development-Standards-Guide.md` | 编码规范 |
+| 2 | `docs/vibecoding-doc-standard.md` | 文档管理规范 |
+
+> **Subagent 编写 PRD 时必须：**
+> 1. 搜索 `.project/modules/` 找到所有相关模块的概述文档和功能 design.md / changelog.md / bugfix.md
+> 2. 搜索 `.project/api/` 找到相关 API 文档
+> 3. 搜索 `src/` 找到需要修改的源码文件
+> 4. 按上述分类填入表格，每项注明阅读目的
 
 ## 需求列表
 | # | 需求 | 指令人 | 状态 | 功能设计 |
@@ -147,8 +172,33 @@
 一句话描述模块的职责边界
 
 ## 开发前必读
-- [ ] modules/<module-name>/<模块描述>-vN.md
-- [ ] modules/<module-name>/features/<feature>/design.md
+
+### 模块设计文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/modules/<module-name>/<模块描述>-vN.md` | ... |
+
+### 源码文件
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `src/...` | ... |
+
+### API 文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/api/<resource>.md` | ... |
+
+### 编码规范
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `docs/Development-Standards-Guide.md` | 编码规范 |
+| 2 | `docs/vibecoding-doc-standard.md` | 文档管理规范 |
+
+> **Subagent 编写 PRD 时必须：**
+> 1. 搜索 `.project/modules/` 找到所有相关模块的概述文档和功能 design.md / changelog.md / bugfix.md
+> 2. 搜索 `.project/api/` 找到相关 API 文档
+> 3. 搜索 `src/` 找到需要修改的源码文件
+> 4. 按上述分类填入表格，每项注明阅读目的
 
 ## 功能规划
 | # | 功能 | 优先级 | 功能设计 |
@@ -187,8 +237,37 @@
 做什么、为什么做、预期效果
 
 ## 开发前必读
-- [ ] modules/<module-name>/features/<feature-name>/design.md
-- [ ] modules/<module-name>/features/<feature-name>/changelog.md
+
+### 模块设计文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/modules/<module-name>/features/<feature-name>/design.md` | ... |
+| 2 | `.project/modules/<module-name>/features/<feature-name>/changelog.md` | ... |
+
+> 如涉及其他模块，也需列出对应的模块概述和功能文档。
+
+### 源码文件
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `src/...` | ... |
+
+### API 文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/api/<resource>.md` | ... |
+
+### 编码规范
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `docs/Development-Standards-Guide.md` | 编码规范 |
+| 2 | `docs/vibecoding-doc-standard.md` | 文档管理规范 |
+
+> **Subagent 编写 PRD 时必须：**
+> 1. 搜索 `.project/modules/<module-name>/` 找到相关功能的 design.md / changelog.md / bugfix.md
+> 2. 搜索 `.project/modules/` 其他相关模块的概述文档
+> 3. 搜索 `.project/api/` 找到相关 API 文档
+> 4. 搜索 `src/` 找到需要修改的源码文件
+> 5. 按上述分类填入表格，每项注明阅读目的
 
 ## 涉及文件
 开发完成后更新为实际修改清单：
@@ -229,9 +308,35 @@
 定位到哪个文件/函数/逻辑出了问题
 
 ## 开发前必读
-- [ ] modules/<module-name>/features/<feature>/design.md
-- [ ] modules/<module-name>/features/<feature>/changelog.md
-- [ ] modules/<module-name>/features/<feature>/bugfix.md
+
+### 模块设计文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/modules/<module-name>/features/<feature>/design.md` | ... |
+| 2 | `.project/modules/<module-name>/features/<feature>/changelog.md` | ... |
+| 3 | `.project/modules/<module-name>/features/<feature>/bugfix.md` | 已知问题 |
+
+### 源码文件
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `src/...` | ... |
+
+### API 文档
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `.project/api/<resource>.md` | ... |
+
+### 编码规范
+| # | 文档/文件 | 阅读目的 |
+|---|---------|---------|
+| 1 | `docs/Development-Standards-Guide.md` | 编码规范 |
+| 2 | `docs/vibecoding-doc-standard.md` | 文档管理规范 |
+
+> **Subagent 编写 PRD 时必须：**
+> 1. 搜索 `.project/modules/<module-name>/features/<feature>/` 找到 design.md / changelog.md / bugfix.md
+> 2. 搜索 `.project/api/` 找到相关 API 文档
+> 3. 搜索 `src/` 找到需要修改的源码文件
+> 4. 按上述分类填入表格，每项注明阅读目的
 
 ## 修复方案
 改什么、怎么改、为什么这样改
@@ -628,7 +733,11 @@
 3. 判断级别：
 
    功能级：
+   - 搜索 .project/modules/<module-name>/ 找到相关功能文档
+   - 搜索 .project/api/ 找到相关 API 文档
+   - 搜索 src/ 找到需修改的源码文件
    - 写 prd/feature/<module-name>/<feature-name>-v1.md
+     - 「开发前必读」按四类填写：模块设计文档、源码文件、API 文档、编码规范
    - 写 modules/<name>/features/<feature>/design.md
    - 写 modules/<name>/features/<feature>/changelog.md（初始行）
    - 更新 modules/<name>/<模块版本>.md 的功能列表
@@ -794,3 +903,4 @@ PRD 确认（confirmed）
 | 2026-04-16T16:00:00+08:00 | 新增跨模块变更规则、模块归属映射 | @moonseeker1 |
 | 2026-04-16T17:00:00+08:00 | 新增模块删除同步清理规则 | @moonseeker1 |
 | 2026-04-18T17:30:00+08:00 | PRD 模板增加时间戳/状态/开发前必读/涉及文件/验收标准；新增 Agent 预读协议、精准增量更新、Git 提交纪律；精简检查清单 | @MoonSeeker |
+| 2026-04-18T19:00:00+08:00 | PRD 模板「开发前必读」改为分类结构（模块设计文档/源码文件/API文档/编码规范）；新增 subagent 写 PRD 时的文档搜索要求；新功能开发流程同步更新 | @MoonSeeker |
