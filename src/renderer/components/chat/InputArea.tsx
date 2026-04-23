@@ -58,6 +58,7 @@ import { api } from '../../api';
 import { useMentionSystem, type AgentMember } from '../../hooks/useMentionSystem';
 import { useImageAttachments, MAX_IMAGES } from '../../hooks/useImageAttachments';
 import { useSlashCommand, type SlashCommandExecutionResult } from '../../hooks/slash-command';
+import { useInputHistory } from '../../hooks/useInputHistory';
 import { SlashCommandMenu } from './SlashCommandMenu';
 
 interface InputAreaProps {
@@ -225,6 +226,14 @@ function InputAreaInternal(
     onExecuteCommand: handleCommandResult,
   });
 
+  // Input history (arrow key navigation through user messages)
+  const { handleHistoryKeyDown, handleHistoryInputChange, resetHistory } = useInputHistory({
+    conversationId,
+    content,
+    setContent,
+    textareaRef,
+  });
+
   // Initialize AI Browser based on space type
   useEffect(() => {
     if (!spaceId || !currentSpaceType) return;
@@ -325,6 +334,7 @@ function InputAreaInternal(
 
     // Only check isProcessingImages, not isGenerating (queuing is handled in store)
     if (hasContent && !isProcessingImages) {
+      resetHistory(); // Reset history browsing on send
       onSend(
         textToSend,
         images.length > 0 ? images : undefined,
@@ -357,6 +367,8 @@ function InputAreaInternal(
     if (handleMentionKeyDown(e)) return;
     // Let slash command system handle keys (returns true if consumed)
     if (handleSlashKeyDown(e)) return;
+    // Let input history handle arrow keys (returns true if consumed)
+    if (handleHistoryKeyDown(e)) return;
 
     // Mobile: Enter for newline, send via button only
     // PC: Enter to send, Shift+Enter for newline
@@ -502,6 +514,7 @@ function InputAreaInternal(
               onChange={(e) => {
                 handleMentionTextChange(e);
                 handleSlashTextChange(e);
+                handleHistoryInputChange();
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
