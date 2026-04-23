@@ -498,6 +498,8 @@ export interface AicoBotAPI {
     cancelTask: (serverId: string, taskId: string) => Promise<IpcResponse>;
     getUpdateStatus: (serverId: string) => Promise<IpcResponse>;
     acknowledgeUpdate: (serverId: string) => Promise<IpcResponse>;
+    continueDeploy: (serverId: string) => Promise<IpcResponse>;
+    cancelDeploy: (serverId: string) => Promise<IpcResponse>;
   };
 
   // Remote Agent
@@ -1070,6 +1072,8 @@ const api: AicoBotAPI = {
     getUpdateStatus: (serverId) => ipcRenderer.invoke('remote-server:get-update-status', serverId),
     acknowledgeUpdate: (serverId) =>
       ipcRenderer.invoke('remote-server:acknowledge-update', serverId),
+    continueDeploy: (serverId) => ipcRenderer.invoke('remote-server:continue-deploy', serverId),
+    cancelDeploy: (serverId) => ipcRenderer.invoke('remote-server:cancel-deploy', serverId),
   },
 
   // Remote Agent

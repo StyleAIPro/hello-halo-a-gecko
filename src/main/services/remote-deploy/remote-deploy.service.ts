@@ -109,6 +109,13 @@ export interface UpdateOperationState {
   error?: string;
 }
 
+/** Network connectivity check result */
+export interface NetworkCheckResult {
+  npmReachable: boolean;
+  nodeMirrorReachable: boolean;
+  mirrorConfigured: boolean;
+}
+
 export class RemoteDeployService {
   private servers: Map<string, RemoteServerConfig> = new Map();
   private sshManagers: Map<string, SSHManager> = new Map();
@@ -121,6 +128,10 @@ export class RemoteDeployService {
   > = new Set();
   // Track update operations so the UI can restore state after component remount
   private updateOperations: Map<string, UpdateOperationState> = new Map();
+
+  // Precheck decision resolvers: store pending user decisions (continue/cancel)
+  private precheckDecisionResolvers: Map<string, (decision: 'continue' | 'cancel') => void> =
+    new Map();
 
   // Health monitor
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
@@ -159,23 +170,220 @@ export class RemoteDeployService {
   }
 
   /**
+   * 判断是否处于镜像源模式（内网环境）
+   * 镜像源模式下需要额外配置 strict-ssl false 等内网适配参数
+   */
+  private isMirrorMode(): boolean {
+    return !!this.getActiveMirrorUrls();
+  }
+
+  // ===== Network precheck before deployment =====
+
+  /**
+   * Check remote server network connectivity for deployment URLs.
+   * Runs two parallel curl checks (5s timeout each) via SSH.
+   */
+  private async checkRemoteNetworkConnectivity(id: string): Promise<NetworkCheckResult> {
+    const manager = this.sshManagers.get(id);
+    if (!manager || !manager.isConnected()) {
+      return { npmReachable: true, nodeMirrorReachable: true, mirrorConfigured: false };
+    }
+
+    this.emitDeployProgress(id, 'precheck', '检查远程服务器网络连通性...', -1);
+
+    const mirrorUrls = this.getActiveMirrorUrls();
+    const mirrorConfigured = !!mirrorUrls;
+    const npmRegistry = mirrorUrls?.npmRegistry || DEFAULT_MIRROR_URLS.npmRegistry;
+    const nodeMirror = mirrorUrls?.nodeDownloadMirror || DEFAULT_MIRROR_URLS.nodeDownloadMirror;
+
+    // Run two checks in parallel, each with 5s connect timeout
+    const [npmResult, nodeResult] = await Promise.all([
+      this.curlCheck(manager, id, npmRegistry),
+      this.curlCheck(manager, id, nodeMirror),
+    ]);
+
+    const npmReachable = npmResult.startsWith('2') || npmResult.startsWith('3');
+    const nodeMirrorReachable = nodeResult.startsWith('2') || nodeResult.startsWith('3');
+
+    this.emitCommandOutput(
+      id,
+      'output',
+      `网络预检: npm registry=${npmReachable ? 'OK' : 'FAIL'}, node mirror=${nodeMirrorReachable ? 'OK' : 'FAIL'}`,
+    );
+
+    return { npmReachable, nodeMirrorReachable, mirrorConfigured };
+  }
+
+  /**
+   * Execute curl on the remote server to check URL reachability.
+   * Returns the HTTP status code string (e.g. "200", "000" for failure).
+   */
+  private async curlCheck(manager: SSHManager, serverId: string, url: string): Promise<string> {
+    try {
+      const result = await manager.executeCommandFull(
+        `curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" "${escapeEnvValue(url)}" 2>/dev/null || echo "000"`,
+      );
+      return result.stdout.trim() || '000';
+    } catch {
+      return '000';
+    }
+  }
+
+  /**
+   * Run network precheck and wait for user decision if check fails.
+   * Returns true if deployment should proceed, false if cancelled.
+   */
+  private async runNetworkPrecheck(id: string): Promise<boolean> {
+    const checkResult = await this.checkRemoteNetworkConnectivity(id);
+    if (checkResult.npmReachable && checkResult.nodeMirrorReachable) {
+      return true; // All good, proceed
+    }
+
+    // Emit precheck-fail event — frontend will show dialog
+    this.emitDeployProgress(id, 'precheck-fail', JSON.stringify(checkResult));
+
+    // Wait for user decision via IPC
+    const decision = await this.waitForPrecheckDecision(id);
+    if (decision === 'cancel') {
+      this.emitDeployProgress(id, 'complete', '部署已取消（网络预检未通过）', 100);
+      return false;
+    }
+    // 'continue': user chose to proceed anyway
+    this.emitCommandOutput(id, 'output', '用户选择继续部署（可能因网络问题超时）');
+    return true;
+  }
+
+  /**
+   * Wait for user's decision on precheck failure.
+   * Frontend calls continueDeploy / cancelDeploy via IPC to resolve.
+   */
+  waitForPrecheckDecision(id: string): Promise<'continue' | 'cancel'> {
+    return new Promise((resolve) => {
+      // If there's an existing resolver, resolve it with 'cancel' first (clean up stale)
+      const existing = this.precheckDecisionResolvers.get(id);
+      if (existing) {
+        existing('cancel');
+      }
+      this.precheckDecisionResolvers.set(id, resolve);
+    });
+  }
+
+  /** Frontend calls: continue deployment after precheck warning */
+  async continueDeploy(id: string): Promise<void> {
+    const resolver = this.precheckDecisionResolvers.get(id);
+    if (resolver) {
+      this.precheckDecisionResolvers.delete(id);
+      resolver('continue');
+    }
+  }
+
+  /** Frontend calls: cancel deployment after precheck warning */
+  async cancelDeploy(id: string): Promise<void> {
+    const resolver = this.precheckDecisionResolvers.get(id);
+    if (resolver) {
+      this.precheckDecisionResolvers.delete(id);
+      resolver('cancel');
+    }
+  }
+
+  /**
+   * 配置 npm 镜像源 + 内网适配（strict-ssl false）
+   * 镜像源模式下自动禁用 SSL 证书校验，解决内网自签名证书代理问题
+   */
+  private async configureNpmMirror(manager: SSHManager): Promise<void> {
+    const registry = this.getNpmRegistry();
+    await manager.executeCommand(`npm config set registry ${escapeEnvValue(registry)}`);
+    if (this.isMirrorMode()) {
+      await manager.executeCommand('npm config set strict-ssl false');
+    }
+  }
+
+  /**
    * 构建可配置镜像的 Node.js 安装命令
    * 当配置了 nodeDownloadMirror 时，所有 Linux 发行版统一使用二进制 tarball 安装
    * 否则保持原有行为（Debian/RHEL 用 NodeSource，EulerOS 用 tarball）
+   */
+  private static readonly REQUIRED_NODE_VERSION = 'v20.18.1';
+  private static readonly REQUIRED_NODE_MAJOR = '20';
+
+  /**
+   * 构建二进制 tarball 安装子命令（从指定 mirror 下载 Node.js tarball 并安装）
+   */
+  private buildBinaryInstallSnippet(mirrorUrl: string, fallbackUrl: string): string {
+    return (
+      `rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/bin/node /usr/bin/npm /usr/bin/npx 2>/dev/null && ` +
+      `(curl -fsSL "${escapeEnvValue(mirrorUrl)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || ` +
+      `curl -fsSL "${escapeEnvValue(fallbackUrl)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && ` +
+      `tar -xJf /tmp/node.tar.xz -C /usr/local && rm -f /tmp/node.tar.xz && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/bin/node && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/bin/npm && ` +
+      `ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/bin/npx`
+    );
+  }
+
+  /**
+   * 构建可配置镜像的 Node.js 安装命令
+   * - 校验已安装的 Node.js 版本是否为目标版本（v20.x）
+   * - 配置镜像时：所有发行版统一使用二进制 tarball 安装
+   * - 未配置镜像时：优先 NodeSource，失败自动 fallback 到二进制 tarball
    */
   private buildNodeInstallCommand(): string {
     const mirrorUrls = this.getActiveMirrorUrls();
     const nodeMirror = mirrorUrls?.nodeDownloadMirror || DEFAULT_MIRROR_URLS.nodeDownloadMirror;
     const nodeFallback = 'https://npmmirror.com/mirrors/node/';
+    const nodeOfficial = 'https://nodejs.org/dist/';
     const useBinaryInstall = !!mirrorUrls?.nodeDownloadMirror;
 
+    // 公共前缀：检测架构 + 设置变量 + 版本校验
+    const prefix =
+      `ARCH=$(uname -m) && ` +
+      `NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && ` +
+      `NODE_VER="${RemoteDeployService.REQUIRED_NODE_VERSION}" && ` +
+      `NODE_MAJOR=$(node --version 2>/dev/null | sed 's/v\\([0-9]*\\).*/\\1/') && ` +
+      `if [ "$NODE_MAJOR" = "${RemoteDeployService.REQUIRED_NODE_MAJOR}" ]; then echo "Node.js ${RemoteDeployService.REQUIRED_NODE_VERSION} already installed"; else `;
+
+    const suffix = '; fi';
+
     if (useBinaryInstall) {
-      // 所有系统统一使用二进制 tarball 安装
-      return `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; else echo "Using configured mirror for Node.js installation..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "${escapeEnvValue(nodeMirror)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "${escapeEnvValue(nodeFallback)}$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; fi`;
+      // 镜像模式：所有系统统一使用二进制 tarball
+      const snippet = this.buildBinaryInstallSnippet(nodeMirror, nodeFallback);
+      return (
+        prefix + `echo "Using configured mirror for Node.js installation..." && ${snippet}` + suffix
+      );
     }
 
-    // 未配置镜像：保持原有行为
-    return `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
+    // 默认模式：优先 NodeSource，失败自动 fallback 到二进制 tarball
+    const binaryFallback = this.buildBinaryInstallSnippet(nodeOfficial, nodeFallback);
+    return (
+      prefix +
+      `echo "Installing Node.js ${RemoteDeployService.REQUIRED_NODE_VERSION}..." && ` +
+      // Debian/Ubuntu: NodeSource → verify version → fallback binary if wrong version
+      `if [ -f /etc/debian_version ]; then ` +
+      `(curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && ` +
+      `INSTALLED_MAJOR=$(node --version 2>/dev/null | sed 's/v\\([0-9]*\\).*/\\1/') && ` +
+      `[ "$INSTALLED_MAJOR" = "${RemoteDeployService.REQUIRED_NODE_MAJOR}" ]) || ` +
+      `(echo "NodeSource failed or installed wrong version, falling back to binary tarball..." && ${binaryFallback}); ` +
+      // RHEL/CentOS/Fedora: NodeSource → verify version → fallback binary if wrong version
+      `elif [ -f /etc/redhat-release ]; then ` +
+      `(curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs && ` +
+      `INSTALLED_MAJOR=$(node --version 2>/dev/null | sed 's/v\\([0-9]*\\).*/\\1/') && ` +
+      `[ "$INSTALLED_MAJOR" = "${RemoteDeployService.REQUIRED_NODE_MAJOR}" ]) || ` +
+      `(echo "NodeSource failed or installed wrong version, falling back to binary tarball..." && ${binaryFallback}); ` +
+      // EulerOS/openEuler: 直接 binary
+      `elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then ` +
+      `echo "Detected EulerOS/openEuler, using binary tarball..." && ${binaryFallback}; ` +
+      // Alpine
+      `elif command -v apk > /dev/null 2>&1; then ` +
+      `apk add nodejs npm; ` +
+      // 未知 OS: fallback binary
+      `else ` +
+      `echo "Unknown OS, falling back to binary tarball..." && ${binaryFallback}; ` +
+      `fi` +
+      suffix
+    );
   }
 
   /**
@@ -400,136 +608,12 @@ export class RemoteDeployService {
     this.servers.set(id, server);
     await this.saveServers();
 
-    const shared = this.toSharedConfig(server);
-    console.log('[RemoteDeployService] addServer - Shared config:', JSON.stringify(shared));
     console.log(`[RemoteDeployService] Added server: ${server.name} (${id})`);
 
+    // Connect SSH first so we can return a usable server
     this.emitDeployProgress(id, 'ssh', 'Establishing SSH connection...', 10);
-
-    // Only establish SSH connection, do NOT auto-deploy
-    // Deployment is handled separately via "Update Agent" button
     try {
       await this.connectServer(id);
-      console.log(
-        `[RemoteDeployService] Server ${server.name} connected (deployment skipped - use Update Agent)`,
-      );
-
-      // Resolve port after SSH is connected
-      const manager = this.sshManagers.get(id);
-      if (manager && manager.isConnected()) {
-        this.emitDeployProgress(id, 'port', 'Allocating port on remote server...', 50);
-        try {
-          const assignedPort = await resolvePort(manager, clientId);
-          await this.updateServer(id, { assignedPort });
-          console.log(`[RemoteDeployService] Assigned port ${assignedPort} for client ${clientId}`);
-        } catch (portError) {
-          console.warn(`[RemoteDeployService] Port resolution failed:`, portError);
-        }
-      }
-
-      // After SSH is connected, detect existing agent status (SDK + proxy)
-      try {
-        console.log(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`);
-        this.emitDeployProgress(id, 'detect', 'Detecting remote agent...', 55);
-
-        const deployCheck = await this.checkDeployFilesIntegrity(id);
-        const sdkOk = await this.checkRemoteSdkVersion(id);
-
-        console.log(
-          `[RemoteDeployService] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
-        );
-
-        if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
-          // Auto-deploy: files missing, version outdated, or SDK mismatch
-          const reasons: string[] = [];
-          if (!deployCheck.filesOk) reasons.push('files missing');
-          if (deployCheck.needsUpdate && deployCheck.filesOk) reasons.push('version outdated');
-          if (!sdkOk) reasons.push('SDK mismatch');
-          const reasonMsg = reasons.join(', ');
-
-          this.emitDeployProgress(id, 'deploy', `Deploying (${reasonMsg})...`, 60);
-          console.log(`[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`);
-
-          await this.updateServer(id, { status: 'deploying' });
-
-          try {
-            // Deploy SDK if needed
-            if (!sdkOk) {
-              await this.deployAgentSDK(id);
-            }
-
-            // Deploy code if needed
-            if (!deployCheck.filesOk || deployCheck.needsUpdate) {
-              await this.deployAgentCode(id);
-            }
-
-            await this.updateServer(id, { status: 'connected' });
-
-            // Verify after deploy
-            await this.verifyProxyHealth(id);
-
-            this.emitDeployProgress(id, 'complete', 'Server added and agent deployed', 100);
-            console.log(`[RemoteDeployService] Auto-deploy completed for ${server.name}`);
-          } catch (deployError) {
-            console.error(
-              `[RemoteDeployService] Auto-deploy failed for ${server.name}:`,
-              deployError,
-            );
-            await this.updateServer(id, {
-              status: 'connected',
-              error: `Auto-deploy failed: ${(deployError as Error).message}`,
-            });
-            this.emitDeployProgress(
-              id,
-              'complete',
-              `Server added but deploy failed: ${(deployError as Error).message}. Use Update Agent to retry.`,
-              100,
-            );
-          }
-        } else {
-          // Files and SDK are OK — check if proxy needs restart
-          const currentServer = this.servers.get(id);
-          if (currentServer?.proxyRunning && currentServer.assignedPort) {
-            // Proxy running — restart to sync new authToken
-            this.emitDeployProgress(id, 'restart', 'Restarting proxy with new credentials...', 90);
-            console.log(
-              `[RemoteDeployService] Proxy is running on ${server.name}, restarting to sync new auth token...`,
-            );
-            try {
-              await this.stopAgent(id);
-              await this.startAgent(id);
-              await this.verifyProxyHealth(id);
-              console.log(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
-            } catch (restartError) {
-              console.warn(
-                `[RemoteDeployService] Failed to restart proxy on ${server.name}:`,
-                restartError,
-              );
-            }
-          } else {
-            // Proxy not running — start it
-            this.emitDeployProgress(id, 'start', 'Starting proxy...', 90);
-            try {
-              await this.startAgent(id);
-              await this.verifyProxyHealth(id);
-              console.log(`[RemoteDeployService] Proxy started on ${server.name}`);
-            } catch (startError) {
-              console.warn(
-                `[RemoteDeployService] Failed to start proxy on ${server.name}:`,
-                startError,
-              );
-            }
-          }
-
-          this.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
-        }
-      } catch (detectError) {
-        // Detection failure should not block the server addition
-        console.warn(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError);
-        this.emitDeployProgress(id, 'complete', 'Server added (detection failed)', 100);
-      }
-
-      this.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
     } catch (error) {
       console.error('[RemoteDeployService] Connection failed:', error);
       this.emitDeployProgress(
@@ -542,9 +626,147 @@ export class RemoteDeployService {
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
       });
+      return id;
     }
 
+    // Return immediately — caller (frontend) can now close dialog and show the server card.
+    // Deployment runs in the background via the event-driven flow.
+    this.autoDetectAndDeploy(id).catch((err) => {
+      console.error(`[RemoteDeployService] Background auto-detect/deploy failed:`, err);
+    });
+
     return id;
+  }
+
+  /**
+   * Background task: detect existing agent, deploy if needed, start proxy.
+   * Called after addServer() returns so the IPC handler is not blocked.
+   */
+  private async autoDetectAndDeploy(id: string): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) return;
+
+    const clientId = server.clientId || getClientId(app.isPackaged ? 'packaged' : 'dev');
+
+    // Resolve port
+    const manager = this.sshManagers.get(id);
+    if (manager && manager.isConnected()) {
+      this.emitDeployProgress(id, 'port', 'Allocating port on remote server...', 50);
+      try {
+        const assignedPort = await resolvePort(manager, clientId);
+        await this.updateServer(id, { assignedPort });
+        console.log(`[RemoteDeployService] Assigned port ${assignedPort} for client ${clientId}`);
+      } catch (portError) {
+        console.warn(`[RemoteDeployService] Port resolution failed:`, portError);
+      }
+    }
+
+    // Network precheck before deployment
+    const precheckOk = await this.runNetworkPrecheck(id);
+    if (!precheckOk) return;
+
+    // Detect existing agent status (SDK + proxy)
+    try {
+      console.log(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`);
+      this.emitDeployProgress(id, 'detect', 'Detecting remote agent...', 55);
+
+      const deployCheck = await this.checkDeployFilesIntegrity(id);
+      const sdkOk = await this.checkRemoteSdkVersion(id);
+
+      console.log(
+        `[RemoteDeployService] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
+      );
+
+      if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
+        // Auto-deploy: files missing, version outdated, or SDK mismatch
+        const reasons: string[] = [];
+        if (!deployCheck.filesOk) reasons.push('files missing');
+        if (deployCheck.needsUpdate && deployCheck.filesOk) reasons.push('version outdated');
+        if (!sdkOk) reasons.push('SDK mismatch');
+        const reasonMsg = reasons.join(', ');
+
+        this.emitDeployProgress(id, 'deploy', `Deploying (${reasonMsg})...`, 60);
+        console.log(`[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`);
+
+        await this.updateServer(id, { status: 'deploying' });
+
+        try {
+          // Deploy SDK if needed
+          if (!sdkOk) {
+            await this.deployAgentSDK(id);
+          }
+
+          // Deploy code if needed
+          if (!deployCheck.filesOk || deployCheck.needsUpdate) {
+            await this.deployAgentCode(id);
+          }
+
+          await this.updateServer(id, { status: 'connected' });
+
+          // Verify after deploy: proxy health + SDK version
+          await this.verifyProxyHealth(id);
+          await this.verifySdkVersion(id);
+
+          this.emitDeployProgress(id, 'complete', 'Server added and agent deployed', 100);
+          console.log(`[RemoteDeployService] Auto-deploy completed for ${server.name}`);
+        } catch (deployError) {
+          console.error(
+            `[RemoteDeployService] Auto-deploy failed for ${server.name}:`,
+            deployError,
+          );
+          await this.updateServer(id, {
+            status: 'connected',
+            error: `Auto-deploy failed: ${(deployError as Error).message}`,
+          });
+          this.emitDeployProgress(
+            id,
+            'complete',
+            `Server added but deploy failed: ${(deployError as Error).message}. Use Update Agent to retry.`,
+            100,
+          );
+        }
+      } else {
+        // Files and SDK are OK — check if proxy needs restart
+        const currentServer = this.servers.get(id);
+        if (currentServer?.proxyRunning && currentServer.assignedPort) {
+          // Proxy running — restart to sync new authToken
+          this.emitDeployProgress(id, 'restart', 'Restarting proxy with new credentials...', 90);
+          console.log(
+            `[RemoteDeployService] Proxy is running on ${server.name}, restarting to sync new auth token...`,
+          );
+          try {
+            await this.stopAgent(id);
+            await this.startAgent(id);
+            await this.verifyProxyHealth(id);
+            console.log(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
+          } catch (restartError) {
+            console.warn(
+              `[RemoteDeployService] Failed to restart proxy on ${server.name}:`,
+              restartError,
+            );
+          }
+        } else {
+          // Proxy not running — start it
+          this.emitDeployProgress(id, 'start', 'Starting proxy...', 90);
+          try {
+            await this.startAgent(id);
+            await this.verifyProxyHealth(id);
+            console.log(`[RemoteDeployService] Proxy started on ${server.name}`);
+          } catch (startError) {
+            console.warn(
+              `[RemoteDeployService] Failed to start proxy on ${server.name}:`,
+              startError,
+            );
+          }
+        }
+
+        this.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
+      }
+    } catch (detectError) {
+      // Detection failure should not block the server addition
+      console.warn(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError);
+      this.emitDeployProgress(id, 'complete', 'Server added (detection failed)', 100);
+    }
   }
 
   /**
@@ -917,6 +1139,10 @@ export class RemoteDeployService {
     await this.updateServer(id, { status: 'deploying' });
 
     try {
+      // Network precheck before deployment
+      const precheckOk = await this.runNetworkPrecheck(id);
+      if (!precheckOk) return;
+
       // Deploy agent SDK
       await this.deployAgentSDK(id);
 
@@ -1007,21 +1233,21 @@ export class RemoteDeployService {
         fs.unlinkSync(localPackagePath);
       } catch {}
 
-      // Check if Node.js is installed before running npm commands
+      // Check if Node.js is installed with correct version (20.x)
       this.emitDeployProgress(id, 'prepare', '检查 Node.js 环境...', 42);
       const nodeCheck = await manager.executeCommandFull('node --version');
-      if (nodeCheck.exitCode !== 0 || !nodeCheck.stdout.trim()) {
-        // Node.js not installed, install it automatically
-        console.log('[RemoteDeployService] Node.js not found, installing...');
-        this.emitDeployProgress(id, 'prepare', 'Node.js 未安装，正在自动安装...', 43);
+      const nodeVersion = nodeCheck.stdout.trim();
+      const needsNodeInstall =
+        nodeCheck.exitCode !== 0 || !nodeVersion || !nodeVersion.startsWith('v20.');
+
+      if (needsNodeInstall) {
+        const reason = !nodeVersion
+          ? 'not installed'
+          : `wrong version (${nodeVersion}, need v20.x)`;
+        console.log(`[RemoteDeployService] Node.js ${reason}, installing...`);
+        this.emitDeployProgress(id, 'prepare', `Node.js ${reason}，正在安装...`, 43);
         this.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
 
-        // Detect OS and architecture, then install Node.js
-        // Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, EulerOS/openEuler, Amazon Linux, Alpine, Arch, SUSE
-        // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
-        // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
-        // Note: Check if node can actually execute (not just exists) to handle broken installations
-        // When mirror is configured, all distros use binary tarball (bypasses NodeSource for intranet)
         const installNodeCmd = this.buildNodeInstallCommand();
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
@@ -1037,9 +1263,17 @@ export class RemoteDeployService {
           throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`);
         }
 
-        this.emitCommandOutput(id, 'success', 'Node.js installed successfully');
+        // Verify installed version matches requirement
+        const verifyNode = await manager.executeCommandFull('node --version');
+        const verifyVersion = verifyNode.stdout.trim();
+        if (!verifyVersion.startsWith('v20.')) {
+          throw new Error(
+            `Node.js installation verification failed: got ${verifyVersion || 'unknown'}, need v20.x`,
+          );
+        }
+        this.emitCommandOutput(id, 'success', `Node.js ${verifyVersion} installed successfully`);
       } else {
-        this.emitCommandOutput(id, 'output', `Node.js: ${nodeCheck.stdout.trim()}`);
+        this.emitCommandOutput(id, 'output', `Node.js: ${nodeVersion}`);
       }
 
       // Check if npm is installed (usually comes with Node.js)
@@ -1109,12 +1343,16 @@ export class RemoteDeployService {
           // Find and create/fix symlink - always do this to ensure correct path
           const findAndLinkCmd = `
             NPX_BIN=""
+            NODE_VER="${RemoteDeployService.REQUIRED_NODE_VERSION}"
             # Try npm prefix location first (npm built-in npx)
             if [ -f "${npmPrefix}/bin/npx" ]; then
               NPX_BIN="${npmPrefix}/bin/npx"
-            # Try node installation directory
-            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
-              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
+            # Try node installation directory (arm64)
+            elif [ -f "/usr/local/node-$NODE_VER-linux-arm64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-$NODE_VER-linux-arm64/bin/npx"
+            # Try node installation directory (x64)
+            elif [ -f "/usr/local/node-$NODE_VER-linux-x64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-$NODE_VER-linux-x64/bin/npx"
             # Fallback: search for npx
             else
               NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
@@ -1163,9 +1401,7 @@ WRAPPER
 
       // Install dependencies on remote server
       this.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 50);
-      await manager.executeCommand(
-        `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-      );
+      await this.configureNpmMirror(manager);
 
       // Verify package.json exists before installing
       const packageJsonCheck = await manager.executeCommandFull(
@@ -1181,7 +1417,7 @@ WRAPPER
 
       // Run npm install with streaming output
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 55);
-      this.emitCommandOutput(id, 'command', `$ npm install`);
+      this.emitCommandOutput(id, 'command', `$ npm install --legacy-peer-deps`);
 
       // Connection health check before long-running npm install
       await this.ensureSshConnectionHealthy(id);
@@ -1445,9 +1681,7 @@ WRAPPER
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 45);
 
       // Configure npm registry from mirror source config
-      await manager.executeCommand(
-        `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-      );
+      await this.configureNpmMirror(manager);
 
       // Connection health check before long-running npm install
       await this.ensureSshConnectionHealthy(id);
@@ -1518,9 +1752,7 @@ WRAPPER
         );
         this.emitDeployProgress(id, 'install', '正在更新 SDK...', 57);
         // Configure npm registry from mirror source config
-        await manager.executeCommand(
-          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-        );
+        await this.configureNpmMirror(manager);
         // Connection health check before SDK install
         await this.ensureSshConnectionHealthy(id);
         await manager.executeCommandStreaming(
@@ -1940,9 +2172,7 @@ WRAPPER
         await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
 
         // Run npm install
-        await manager.executeCommand(
-          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-        );
+        await this.configureNpmMirror(manager);
         this.emitCommandOutput(id, 'output', '执行 npm install...');
         const repairResult = await manager.executeCommandStreaming(
           `cd ${deployPath} && export PATH="/usr/local/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
@@ -2334,6 +2564,18 @@ WRAPPER
       `[RemoteDeploy] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
     );
 
+    // Network precheck before deployment
+    const precheckOk = await this.runNetworkPrecheck(id);
+    if (!precheckOk) {
+      const localVersionInfo = this.getLocalAgentVersion();
+      return {
+        message: 'Deployment cancelled (network precheck failed)',
+        remoteVersion: REQUIRED_SDK_VERSION,
+        localVersion: localVersionInfo?.version || 'unknown',
+        localBuildTime: localVersionInfo?.buildTime,
+      };
+    }
+
     // Stop agent first (regardless of what needs updating)
     await this.stopAgent(id);
 
@@ -2366,8 +2608,9 @@ WRAPPER
       await this.startAgent(id);
     }
 
-    // Immediately verify proxy health
+    // Immediately verify proxy health + SDK version
     await this.verifyProxyHealth(id);
+    await this.verifySdkVersion(id);
 
     const localVersionInfo = this.getLocalAgentVersion();
     const result = {
@@ -2411,6 +2654,45 @@ WRAPPER
     } catch {
       await this.updateServer(id, { proxyRunning: false });
       console.warn(`[RemoteDeploy] Immediate health check failed for ${server.name}`);
+    }
+  }
+
+  /**
+   * Verify remote SDK version after deployment.
+   * Logs warning if version doesn't match REQUIRED_SDK_VERSION.
+   */
+  private async verifySdkVersion(id: string): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) return;
+
+    const manager = this.sshManagers.get(id);
+    if (!manager?.isConnected()) return;
+
+    try {
+      const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
+      const stdout = result.stdout.trim();
+      if (!stdout.includes('@anthropic-ai/claude-agent-sdk') || stdout.includes('NOT_INSTALLED')) {
+        console.warn(`[RemoteDeploy] SDK not installed after deployment for ${server.name}`);
+        this.emitDeployProgress(id, 'complete', 'Warning: SDK not installed on remote server', 100);
+        return;
+      }
+      const versionMatch = stdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/);
+      const installedVersion = versionMatch ? versionMatch[1] : 'unknown';
+      if (installedVersion === REQUIRED_SDK_VERSION) {
+        console.log(`[RemoteDeploy] SDK version verified: ${installedVersion}`);
+      } else {
+        console.warn(
+          `[RemoteDeploy] SDK version mismatch for ${server.name}: installed ${installedVersion}, required ${REQUIRED_SDK_VERSION}`,
+        );
+        this.emitDeployProgress(
+          id,
+          'complete',
+          `Warning: SDK version mismatch (installed ${installedVersion}, required ${REQUIRED_SDK_VERSION})`,
+          100,
+        );
+      }
+    } catch (err) {
+      console.warn(`[RemoteDeploy] Failed to verify SDK version for ${server.name}:`, err);
     }
   }
 
@@ -3156,6 +3438,11 @@ WRAPPER
       console.log(`[RemoteDeployService] Deploying agent SDK to ${server.name}`);
       this.emitCommandOutput(id, 'command', 'Starting deployment of claude-agent-sdk...');
 
+      // CRITICAL: Configure npm mirror + strict-ssl at the very beginning,
+      // BEFORE any conditional branches that might skip it.
+      // This ensures all npm install commands (Node.js, Claude CLI, SDK) use the correct registry.
+      await this.configureNpmMirror(manager);
+
       // First, test connection with a simple pwd command
       console.log(
         `[RemoteDeployService] Testing SSH connection to ${server.name} with pwd command...`,
@@ -3167,24 +3454,21 @@ WRAPPER
         this.emitCommandOutput(id, 'output', testResult.stdout.trim());
       }
 
-      // Check if Node.js is installed, install if not
+      // Check if Node.js is installed with correct version (20.x)
+      // NOTE: Must use executeCommandFull + manual exitCode check (not try/catch),
+      // because executeCommandFull never throws on non-zero exit codes.
       console.log('[RemoteDeployService] Checking Node.js installation...');
       this.emitCommandOutput(id, 'command', 'node --version');
-      try {
-        const nodeVersion = await manager.executeCommandFull('node --version');
-        console.log(`[RemoteDeployService] Node.js version: ${nodeVersion.stdout.trim()}`);
-        this.emitCommandOutput(id, 'output', nodeVersion.stdout.trim());
-      } catch {
-        // Node.js not installed, install it automatically
-        console.log('[RemoteDeployService] Node.js not found, installing...');
-        this.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
+      const nodeVersionResult = await manager.executeCommandFull('node --version');
+      const nodeVer = nodeVersionResult.stdout.trim();
+      const needsNodeInstall =
+        nodeVersionResult.exitCode !== 0 || !nodeVer || !nodeVer.startsWith('v20.');
 
-        // Detect OS and architecture, then install Node.js
-        // Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, EulerOS/openEuler, Amazon Linux, Alpine, Arch, SUSE
-        // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
-        // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
-        // Note: Check if node can actually execute (not just exists) to handle broken installations
-        // When mirror is configured, all distros use binary tarball (bypasses NodeSource for intranet)
+      if (needsNodeInstall) {
+        const reason = !nodeVer ? 'not installed' : `wrong version (${nodeVer}, need v20.x)`;
+        console.log(`[RemoteDeployService] Node.js ${reason}, installing...`);
+        this.emitCommandOutput(id, 'command', `Installing Node.js 20.x (${reason})...`);
+
         const installNodeCmd = this.buildNodeInstallCommand();
 
         const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
@@ -3200,23 +3484,26 @@ WRAPPER
           throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`);
         }
 
-        // Configure npm to use Chinese mirror after installation
-        await manager.executeCommand(
-          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-        );
+        // Verify installed version matches requirement
+        const verifyNode = await manager.executeCommandFull('node --version');
+        const verifyVer = verifyNode.stdout.trim();
+        if (!verifyVer.startsWith('v20.')) {
+          throw new Error(
+            `Node.js installation verification failed: got ${verifyVer || 'unknown'}, need v20.x`,
+          );
+        }
 
-        this.emitCommandOutput(id, 'success', 'Node.js installed successfully');
+        this.emitCommandOutput(id, 'success', `Node.js ${verifyVer} installed successfully`);
+      } else {
+        console.log(`[RemoteDeployService] Node.js version: ${nodeVer}`);
+        this.emitCommandOutput(id, 'output', nodeVer);
       }
 
       // Check if npm is installed (usually comes with Node.js)
       console.log('[RemoteDeployService] Checking npm installation...');
       this.emitCommandOutput(id, 'command', 'npm --version');
-      try {
-        const npmVersion = await manager.executeCommandFull('npm --version');
-        console.log(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`);
-        this.emitCommandOutput(id, 'output', npmVersion.stdout.trim());
-      } catch {
-        // npm not found - this shouldn't happen if Node.js was just installed
+      const npmVersion = await manager.executeCommandFull('npm --version');
+      if (npmVersion.exitCode !== 0 || !npmVersion.stdout.trim()) {
         this.emitCommandOutput(
           id,
           'error',
@@ -3224,15 +3511,14 @@ WRAPPER
         );
         throw new Error('npm is not installed on the remote server. Please reinstall Node.js.');
       }
+      console.log(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`);
+      this.emitCommandOutput(id, 'output', npmVersion.stdout.trim());
 
       // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
       console.log('[RemoteDeployService] Checking npx installation...');
       this.emitCommandOutput(id, 'command', 'npx --version');
-      try {
-        const npxVersion = await manager.executeCommandFull('npx --version');
-        console.log(`[RemoteDeployService] npx version: ${npxVersion.stdout.trim()}`);
-        this.emitCommandOutput(id, 'output', `npx: ${npxVersion.stdout.trim()}`);
-      } catch {
+      const npxVersion = await manager.executeCommandFull('npx --version');
+      if (npxVersion.exitCode !== 0 || !npxVersion.stdout.trim()) {
         // npx not found - install it using npm
         console.log('[RemoteDeployService] npx not found, installing...');
         this.emitCommandOutput(id, 'command', 'npm install -g npx --force');
@@ -3278,12 +3564,16 @@ WRAPPER
           // Find and create/fix symlink - always do this to ensure correct path
           const findAndLinkCmd = `
             NPX_BIN=""
+            NODE_VER="${RemoteDeployService.REQUIRED_NODE_VERSION}"
             # Try npm prefix location first (npm built-in npx)
             if [ -f "${npmPrefix}/bin/npx" ]; then
               NPX_BIN="${npmPrefix}/bin/npx"
-            # Try node installation directory
-            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
-              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
+            # Try node installation directory (arm64)
+            elif [ -f "/usr/local/node-$NODE_VER-linux-arm64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-$NODE_VER-linux-arm64/bin/npx"
+            # Try node installation directory (x64)
+            elif [ -f "/usr/local/node-$NODE_VER-linux-x64/bin/npx" ]; then
+              NPX_BIN="/usr/local/node-$NODE_VER-linux-x64/bin/npx"
             # Fallback: search for npx
             else
               NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
@@ -3333,11 +3623,8 @@ WRAPPER
       // Install Claude CLI globally (required for SDK to work)
       console.log('[RemoteDeployService] Checking Claude CLI installation...');
       this.emitCommandOutput(id, 'command', 'claude --version');
-      try {
-        const claudeVersion = await manager.executeCommandFull('claude --version');
-        console.log(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`);
-        this.emitCommandOutput(id, 'output', `Claude CLI: ${claudeVersion.stdout.trim()}`);
-      } catch {
+      const claudeVersion = await manager.executeCommandFull('claude --version');
+      if (claudeVersion.exitCode !== 0 || !claudeVersion.stdout.trim()) {
         // Claude CLI not installed, install it
         console.log('[RemoteDeployService] Claude CLI not found, installing...');
         this.emitCommandOutput(id, 'command', 'npm install -g @anthropic-ai/claude-code');
@@ -3356,6 +3643,9 @@ WRAPPER
           throw new Error(`Failed to install Claude CLI: ${claudeInstallResult.stderr}`);
         }
         this.emitCommandOutput(id, 'success', 'Claude CLI installed successfully');
+      } else {
+        console.log(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`);
+        this.emitCommandOutput(id, 'output', `Claude CLI: ${claudeVersion.stdout.trim()}`);
       }
 
       // Install claude-agent-sdk globally (skip if already at target version)
@@ -3389,12 +3679,6 @@ WRAPPER
 
       if (sdkNeedsInstall) {
         console.log('[RemoteDeployService] Installing @anthropic-ai/claude-agent-sdk globally...');
-
-        // Configure npm to use Chinese mirror for faster installation
-        console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
-        await manager.executeCommand(
-          `npm config set registry ${escapeEnvValue(this.getNpmRegistry())}`,
-        );
 
         const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
         this.emitCommandOutput(id, 'command', installCmd);

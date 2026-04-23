@@ -2065,6 +2065,20 @@ export const api = {
     return httpRequest('POST', `/api/remote-server/${serverId}/acknowledge-update`);
   },
 
+  remoteServerContinueDeploy: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.continueDeploy(serverId);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/continue-deploy`);
+  },
+
+  remoteServerCancelDeploy: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.cancelDeploy(serverId);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/cancel-deploy`);
+  },
+
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.remoteServer.startAgent(serverId);

@@ -620,6 +620,18 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle('remote-server:continue-deploy', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:continue-deploy - serverId:', serverId);
+  deployService.continueDeploy(serverId);
+  return { success: true };
+});
+
+ipcMain.handle('remote-server:cancel-deploy', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:cancel-deploy - serverId:', serverId);
+  deployService.cancelDeploy(serverId);
+  return { success: true };
+});
+
 export function getRemoteDeployService(): RemoteDeployService {
   return deployService;
 }
