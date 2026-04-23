@@ -15,6 +15,7 @@
 - `stores/space.store.ts` -- 当前空间信息和 Agent 列表
 - `stores/onboarding.store.ts` -- 新用户引导模式
 - `stores/ai-browser.store.ts` -- AI 浏览器状态
+- `hooks/useInputHistory.ts` -- 输入历史翻阅（上/下键浏览用户消息）
 - `components/chat/ImageAttachmentPreview.tsx` -- 图片附件预览
 - `components/chat/AgentMentionInput.tsx` -- Agent @提及输入
 - `components/chat/SlashCommandMenu.tsx` -- 斜杠命令下拉菜单
@@ -42,6 +43,12 @@
    b. AI 浏览器模式（Globe 图标）：启用 AI Browser MCP
    c. Hyper Space 信息（Boxes 图标）：显示空间类型和 Agent 数量
 5. **待处理消息**：生成进行中时，新消息加入 pendingMessages 队列，显示排队数量
+6. **输入历史翻阅**（useInputHistory）：
+   a. 按 ArrowUp 从最新用户消息开始往前翻阅
+   b. 按 ArrowDown 从较早消息往回翻阅，翻出最新时恢复草稿
+   c. 仅在输入框无选中文本时生效，不干扰正常光标移动
+   d. 优先级：mention > slash command > input history > send
+   e. 用户手动输入、发送消息、切换对话时自动退出翻阅模式
 
 ### 异常流程
 
