@@ -96,7 +96,7 @@
 | aico-bot-mcp-bridge | MCP 工具桥接（收集本地 MCP 工具定义、处理远端工具调用请求） | `services/remote-ws/aico-bot-mcp-bridge.ts` |
 | ssh-tunnel.service | SSH 端口转发服务（动态端口分配、冲突解决、自动清理、健康检查） | `services/remote-ssh/ssh-tunnel.service.ts` |
 | ssh-manager | SSH2 连接管理器（连接建立、命令执行、文件操作） | `services/remote-ssh/ssh-manager.ts` |
-| remote-deploy.service | 远程部署服务（服务器配置管理、代码部署、进程启停、技能同步） | `services/remote-deploy/remote-deploy.service.ts` |
+| remote-deploy.service | 远程部署服务（服务器配置管理、代码部署、进程启停、技能同步、网络预检） | `services/remote-deploy/remote-deploy.service.ts` |
 | remote-agent-proxy | 远程 Agent Proxy 独立 Node.js 服务（SDK 集成、WebSocket 服务、运行时 SDK Patch） | `packages/remote-agent-proxy/` |
 
 ## 功能列表

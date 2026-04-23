@@ -18,6 +18,7 @@
 - `src/shared/constants/sdk.ts` — `CLAUDE_AGENT_SDK_VERSION` 统一 SDK 版本常量
 - `src/main/services/remote-deploy/machine-id.ts` — `getClientId()` 生成每台 PC 的唯一标识
 - `src/main/services/remote-deploy/port-allocator.ts` — `resolvePort()` 按 clientId 分配远程端口
+- `src/shared/types/mirror-source.ts` — `DEFAULT_MIRROR_URLS`、`MirrorSourceUrls` 镜像源配置类型和默认值
 
 ## 实现逻辑
 
@@ -28,7 +29,11 @@
 2. 构建 `RemoteServerConfig`，设置按 PC 隔离的 `deployPath: /opt/claude-deployment-{clientId}`
 3. 持久化到配置文件（`saveServers()`）
 4. 建立 SSH 连接（`connectServer()`），分配端口（`resolvePort()`）
-5. 自动检测远程环境（`checkDeployFilesIntegrity()` + `checkRemoteSdkVersion()`）
+5. **网络连通性预检**（`runNetworkPrecheck()`）— 通过 SSH 在远程服务器上并行 curl 检查 npm registry 和 Node.js 下载镜像可达性（5s 超时）
+   - 全部可达 → 静默继续
+   - 不可达 → emit `precheck-fail` 事件，等待前端用户决策（配置镜像源 / 继续部署 / 取消）
+   - 用户取消 → 中止部署，返回
+6. 自动检测远程环境（`checkDeployFilesIntegrity()` + `checkRemoteSdkVersion()`）
 6. 根据检测结果自动按需部署：
    - 文件缺失 → 自动 `deployAgentCode()`（完整部署，含 Node.js 环境检查、npm install、SDK 补丁上传）
    - `buildTimestamp` 比对发现远程版本旧 → 自动 `deployAgentCode()` 更新代码
@@ -41,14 +46,16 @@
 
 **部署 Agent（`deployToServer()`）**
 1. 确保服务器已连接，设置状态为 `deploying`
-2. 调用 `deployAgentSDK()` 安装 Claude Agent SDK
-3. 调用 `deployAgentCode()` 上传并安装代理代码
-4. 部署完成，恢复状态为 `connected`
+2. **网络连通性预检**（`runNetworkPrecheck()`）— 同上
+3. 调用 `deployAgentSDK()` 安装 Claude Agent SDK
+4. 调用 `deployAgentCode()` 上传并安装代理代码
+5. 部署完成，恢复状态为 `connected`
 
 **更新 Agent（`updateAgent()`）— 按需更新**
 1. 检查远程环境：`checkDeployFilesIntegrity()` → `{ filesOk, needsUpdate }` + `checkRemoteSdkVersion()`
 2. 判断是否需要代码部署：`needsCodeDeploy = !filesOk || needsUpdate`
-3. 停止 Agent（`stopAgent()`）
+3. **网络连通性预检**（`runNetworkPrecheck()`）— 同上，预检在 stopAgent 之前执行（不需要停 agent）
+4. 停止 Agent（`stopAgent()`）
 4. 按需部署：
    - SDK 不匹配 → `deployAgentSDK()`
    - 需要代码部署 → `deployAgentCode()`
@@ -140,13 +147,17 @@
 7. **进程停止失败** — `pkill` 直接终止（`stopAgent` 不做 SIGTERM → SIGKILL 分级）
 8. **SSH 连接静默断开** — `ensureSshConnectionHealthy()` 在长操作前检测并自动重连
 9. **自动部署失败** — 不阻塞服务器添加，记录错误并提示用户手动 Update Agent
+10. **网络预检失败** — 内网环境未配置镜像源时，部署前自动检测 npm registry / Node.js 镜像不可达（5s 超时），弹窗提示用户配置镜像源或取消部署
+11. **镜像源配置错误** — 已配置镜像源但镜像 URL 不可达时，提示用户检查配置，不提供继续部署选项（必然失败）
 
 ## 涉及 API
 - `RemoteDeployService` 单例方法：`addServer()`、`getServers()`、`getServer()`、`updateServer()`、`removeServer()`、`deployToServer()`、`deployAgentCode()`、`updateAgentCode()`、`startAgent()`、`stopAgent()`、`updateAgent()`、`checkAgentInstalled()`、`detectAgentInstalled()`、`deployAgentSDK()`、`installRemoteSkill()`、`updateServerAiSource()`、`updateServerModel()`、`verifyProxyHealth()`、`checkDeployFilesIntegrity()`、`checkRemoteSdkVersion()`、`getLocalAgentVersion()`、`restartAgentWithNewConfig()`、`cleanupOrphanDeployments()`、`deleteDeployment()`
+- 网络预检：`checkRemoteNetworkConnectivity()`、`curlCheck()`、`runNetworkPrecheck()`、`waitForPrecheckDecision()`、`continueDeploy()`、`cancelDeploy()`
 - 健康监控：`startHealthMonitor()`、`stopHealthMonitor()`、`runHealthCheck()`、`checkServerHealth()`
 
 ## 涉及数据
 - `~/.aico-bot/config.json` — `remoteServers[]` 服务器配置持久化
+- `~/.aico-bot/config.json` — `deployMirror.activeProfileId` / `deployMirror.profiles[]` 镜像源配置
 - `/opt/claude-deployment-{clientId}/` — 远程部署目录（dist/、logs/、data/、config/、version.json）
 - `packages/remote-agent-proxy/dist/version.json` — 本地构建版本信息（含 `buildTimestamp`）
 - `packages/remote-agent-proxy/dist/` — 本地预构建产物

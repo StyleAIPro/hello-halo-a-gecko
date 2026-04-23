@@ -2,7 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- 输入框历史翻阅：上/下键浏览当前对话用户消息，支持草稿暂存与恢复、与 mention/slash 系统兼容 — `src/renderer/hooks/useInputHistory.ts`、`src/renderer/components/chat/InputArea.tsx` — PRD: `prd/feature/chat/input-history-v1.md`
+- 部署前网络连通性预检：SSH 连接后通过 curl 检查 npm registry 和 Node.js 镜像可达性（5s 超时），不可达时弹窗提示用户配置镜像源 — PRD: `prd/feature/feature-deploy-network-precheck-v1.md`
+
 ### Fixed
+- MirrorSourceSection extractDomain 重复 return 死代码 — `src/renderer/components/settings/MirrorSourceSection.tsx` — PRD: `prd/bugfix/remote-deploy/bugfix-mirror-section-minor-bugs-v1.md`
+- addServer 后前端重复调用 remoteServerConnect 导致连接竞态 — `src/renderer/components/settings/RemoteServersSection.tsx` — PRD: `prd/bugfix/remote-deploy/bugfix-addserver-duplicate-connect-v1.md`
+- SDK 版本硬编码 0.2.104 在 UI 徽标中，Node.js 版本硬编码 v20.18.1 在 Shell 脚本中 — `src/renderer/components/settings/RemoteServersSection.tsx`、`src/main/services/remote-deploy/remote-deploy.service.ts` — PRD: `prd/bugfix/remote-deploy/bugfix-sdk-version-hardcoded-ui-v1.md`
+- BUG-001: GitCode 技能获取全面失败（rate limiter 失效 + 无超时 + getSkills()/searchSkills() 吞没错误 + 缓存空结果 + UI 无错误展示 + 代理不刷新） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/skill-market-service.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-gitcode-skill-fetch-v1.md`
 - BUG-001: GitCode 技能获取全面失败（rate limiter 失效 + 无超时 + getSkills()/searchSkills() 吞没错误 + 缓存空结果 + UI 无错误展示 + 代理不刷新） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/skill-market-service.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-gitcode-skill-fetch-v1.md`
 - BUG-003: 技能市场 UX 精修（GitCode 顺序获取进度均匀化 + 前端源选择同步后端 activeSourceId + GitHub 恢复并行获取减少请求延迟） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/github-skill-source.service.ts`、`src/renderer/stores/skill/skill.store.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-skill-market-ux-v1.md`
 - BUG-004: 技能市场 GitHub/GitCode 平台隔离（`githubRepo`/`githubPath` → `remoteRepo`/`remotePath` 类型重命名 + Push 流程平台校验 + i18n 硬编码修复 + Controller 返回值统一） — `src/shared/skill/skill-types.ts`、`src/main/services/skill/`、`src/main/controllers/skill.controller.ts`、`src/renderer/api/index.ts`、`src/renderer/stores/skill/skill.store.ts`、`src/renderer/components/skill/SkillMarket.tsx`、`src/renderer/components/skill/SkillLibrary.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/refactor/skill/refactor-skill-market-platform-isolation-v1.md`

@@ -2,6 +2,10 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-04-22 | 新增部署前网络连通性预检：SSH 连接后通过 curl 检查 npm registry 和 Node.js 镜像可达性（5s 超时），不可达时弹窗提示用户配置镜像源或取消部署 | StyleAIPro | feature-deploy-network-precheck-v1 |
+| 2026-04-22 | 修复 `findAndLinkCmd` 中 Node.js 版本硬编码为 `v20.18.1`，改用 `$NODE_VER` 变量动态拼接，补充 x64 架构支持 | StyleAIPro | bugfix-sdk-version-hardcoded-ui-v1 |
+| 2026-04-22 | 修复 addServer 后前端重复调用 remoteServerConnect 导致连接竞态 | StyleAIPro | bugfix-addserver-duplicate-connect-v1 |
+| 2026-04-22 | 修复 MirrorSourceSection extractDomain 重复 return 语句 | StyleAIPro | bugfix-mirror-section-minor-bugs-v1 |
 | 2026-04-17 | 修复 `checkAgentInstalled` 未做版本精确匹配：增加 `version === REQUIRED_SDK_VERSION` 校验，不匹配时设置 `sdkVersionMismatch: true`，UI 据此显示版本不匹配警告 | @zhaoyinqi | bugfix-sdk-version-check-v1 |
 | 2026-04-17 | 修复 SDK 安装命令模板字符串未插值：3 处 npm install 单引号字符串改为反引号模板字符串，确保 `${REQUIRED_SDK_VERSION}` 正确插值，避免安装最新版而非指定版本 | @zhaoyinqi | bugfix-sdk-version-interpolation-v1 |
 | 2026-04-17 | 修复 WebSocket 客户端认证 token 不一致：`createWsClient` 中 `authToken` 从 `server.password` 改为 `server.authToken`，与 Proxy 服务端保持一致 | @zhaoyinqi | bugfix-ws-auth-token-mismatch-v1 |

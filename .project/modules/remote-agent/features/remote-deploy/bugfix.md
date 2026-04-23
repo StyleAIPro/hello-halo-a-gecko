@@ -52,12 +52,47 @@
 
 ---
 
+## BUG-005: MirrorSourceSection extractDomain 重复 return 死代码
+- **日期**：2026-04-22
+- **严重程度**：Minor
+- **发现人**：StyleAIPro
+- **问题**：`extractDomain()` 函数 `catch` 块内存在两条 `return url;`，第二行为死代码
+- **根因**：编辑残留
+- **修复**：删除重复的 `return` 语句
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-mirror-section-minor-bugs-v1.md`
+
+---
+
+## BUG-006: addServer 后前端重复调用 connectServer 导致连接竞态
+- **日期**：2026-04-22
+- **严重程度**：Major
+- **发现人**：StyleAIPro
+- **问题**：前端 `handleAddServer` 在 `addServer()` 返回后手动调用 `remoteServerConnect()`，但 `addServer()` 内部已调用 `connectServer()` 并启动 `autoDetectAndDeploy()` 后台任务，两次连接产生竞态
+- **根因**：前端不了解后端 `addServer` 已包含完整连接+部署流程
+- **修复**：删除 `handleAddServer` 中冗余的 `remoteServerConnect` 调用及延迟 reload
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-addserver-duplicate-connect-v1.md`
+
+---
+
+## BUG-007: SDK 版本和 Node.js 版本硬编码，升级时需多处手动同步
+- **日期**：2026-04-22
+- **严重程度**：Major
+- **发现人**：StyleAIPro
+- **问题**：
+  1. UI 版本不匹配徽标中 SDK 版本 `0.2.104` 硬编码在 JSX 中，未引用 `CLAUDE_AGENT_SDK_VERSION` 常量
+  2. npx 路径查找 Shell 脚本中 Node.js 版本 `v20.18.1` 硬编码，未使用已有的 `$NODE_VER` 变量；且只覆盖 arm64 架构
+- **根因**：拼接版本相关字符串时直接写死字面量
+- **修复**：UI 改用共享常量引用；Shell 中用 `$NODE_VER` 动态拼接，补充 x64 架构
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-sdk-version-hardcoded-ui-v1.md`
+
+---
+
 ## 统计
 | 严重程度 | 数量 |
 |---------|------|
 | Critical | 3 |
-| Major | 2 |
-| Minor | 0 |
+| Major | 4 |
+| Minor | 1 |
 
 ### remote-deploy 多实例 token 冲突
 - **严重程度**：Major
