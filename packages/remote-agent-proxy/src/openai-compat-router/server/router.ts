@@ -96,5 +96,27 @@ export function createApp(options: RouterOptions = {}): Express {
     res.json(result)
   })
 
+  // Model listing — SDK/CLI validates model existence by querying this endpoint.
+  // Return a list containing common Claude model names so validation passes.
+  app.get('/v1/models', (_req: Request, res: Response) => {
+    res.json({
+      data: [
+        { id: 'claude-sonnet-4-6', type: 'model', display_name: 'Claude Sonnet 4.6' },
+        { id: 'claude-opus-4-6', type: 'model', display_name: 'Claude Opus 4.6' },
+        { id: 'claude-haiku-4-5-20251001', type: 'model', display_name: 'Claude Haiku 4.5' },
+      ],
+      object: 'list',
+    })
+  })
+
+  // Catch-all: return valid Anthropic API error for unrecognized endpoints.
+  // This prevents the SDK/CLI from treating unhandled routes as connection failures.
+  app.all('*', (_req: Request, res: Response) => {
+    res.status(404).json({
+      type: 'error',
+      error: { type: 'not_found_error', message: 'Not found' },
+    })
+  })
+
   return app
 }

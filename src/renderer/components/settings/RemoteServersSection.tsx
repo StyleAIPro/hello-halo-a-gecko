@@ -28,6 +28,7 @@ import { useConfirm } from '../ui/ConfirmDialog';
 import { useChatStore } from '../../stores/chat.store';
 import { useSpaceStore } from '../../stores/space.store';
 import { MirrorSourceSection } from './MirrorSourceSection';
+import { CLAUDE_AGENT_SDK_VERSION } from '../../../shared/constants/sdk';
 import type { ModelOption } from '../../types';
 
 interface TerminalEntry {
@@ -48,6 +49,13 @@ export function RemoteServersSection() {
     serverId: string;
     serverName: string;
     activeCount: number;
+  } | null>(null);
+  // Network precheck failure dialog state
+  const [precheckWarning, setPrecheckWarning] = React.useState<{
+    serverId: string;
+    mirrorConfigured: boolean;
+    npmReachable: boolean;
+    nodeMirrorReachable: boolean;
   } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [showAddDialog, setShowAddDialog] = React.useState(false);
@@ -80,6 +88,7 @@ export function RemoteServersSection() {
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
   // Add server progress tracking
   const [addProgress, setAddProgress] = React.useState<{
+    serverId?: string;
     serverName: string;
     stage: string;
     message: string;
@@ -286,6 +295,25 @@ export function RemoteServersSection() {
       timestamp: number;
     }) => {
       console.log('[RemoteServersSection] Deploy progress:', data);
+
+      // Handle precheck failure — show dialog, don't update addProgress
+      if (data.stage === 'precheck-fail') {
+        try {
+          const checkResult = JSON.parse(data.message) as {
+            npmReachable: boolean;
+            nodeMirrorReachable: boolean;
+            mirrorConfigured: boolean;
+          };
+          setPrecheckWarning({
+            serverId: data.serverId,
+            ...checkResult,
+          });
+        } catch (e) {
+          console.error('[RemoteServersSection] Failed to parse precheck result:', e);
+        }
+        return;
+      }
+
       // Map stage to terminal type
       let type: TerminalEntry['type'] = 'output';
       if (data.stage === 'complete') type = 'success';
@@ -312,6 +340,7 @@ export function RemoteServersSection() {
         const server = serversRef.current.find((s) => s.id === data.serverId);
         const serverName = server?.name || addProgress?.serverName || data.serverId;
         setAddProgress({
+          serverId: data.serverId,
           serverName,
           stage: data.stage,
           message: data.message,
@@ -320,6 +349,19 @@ export function RemoteServersSection() {
         });
         // Auto-expand the server to show terminal
         setExpandedServers((prev) => new Set([...prev, data.serverId]));
+
+        // Clean up add-state when deployment finishes (complete or error)
+        if (data.stage === 'complete' || data.stage === 'error') {
+          isAddingRef.current = false;
+          addingServerIdRef.current = null;
+          // Keep addProgress visible briefly so user sees the final state, then clear
+          setTimeout(() => {
+            setAddProgress((prev) => {
+              if (prev?.serverId === data.serverId) return null;
+              return prev;
+            });
+          }, 5000);
+        }
       }
     };
 
@@ -540,15 +582,15 @@ export function RemoteServersSection() {
         // Reload servers to get full server data (including detection results)
         await loadServers();
 
-        // Auto-connect the newly added server
-        console.log('[RemoteServersSection] Auto-connecting newly added server:', result.data.id);
-        await api.remoteServerConnect(result.data.id);
-
-        // Reload servers to update connection status
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        await loadServers();
+        // Server card now exists — close dialog, progress continues inline on the card
+        // Note: addServer() internally calls connectServer() + autoDetectAndDeploy(),
+        // so no need to call remoteServerConnect again here.
+        setShowAddDialog(false);
+        setSaving(false);
       } else {
         console.error('[RemoteServersSection] Add failed:', result.error);
+        isAddingRef.current = false;
+        addingServerIdRef.current = null;
         setAddProgress({
           serverName: formData.name,
           stage: 'error',
@@ -556,11 +598,12 @@ export function RemoteServersSection() {
           progress: 0,
           error: true,
         });
-        // Stay in dialog showing error, user clicks Cancel to dismiss
         return;
       }
     } catch (error) {
       console.error('[RemoteServersSection] Add error:', error);
+      isAddingRef.current = false;
+      addingServerIdRef.current = null;
       setAddProgress((prev) =>
         prev
           ? {
@@ -570,15 +613,22 @@ export function RemoteServersSection() {
               progress: 0,
               error: true,
             }
-          : null,
+          : {
+              serverName: formData.name,
+              stage: 'error',
+              message: t('Failed to add server'),
+              progress: 0,
+              error: true,
+            },
       );
       return;
     } finally {
       setSaving(false);
-      isAddingRef.current = false;
-      addingServerIdRef.current = null;
-      setAddProgress(null);
       setShowAddDialog(false);
+      // NOTE: Do NOT clear addProgress / isAddingRef here.
+      // The backend deploys in the background after addServer() returns.
+      // deployProgress events will continue updating addProgress on the server card.
+      // Cleanup happens in handleDeployProgress when stage is 'complete' or 'error'.
       setFormData({
         name: '',
         host: '',
@@ -951,7 +1001,7 @@ export function RemoteServersSection() {
         >
           <AlertTriangle className="w-3 h-3" />
           <span>
-            {t('SDK')} {server.sdkVersion} (need 0.2.104)
+            {t('SDK')} {server.sdkVersion} (need {CLAUDE_AGENT_SDK_VERSION})
           </span>
         </span>,
       );
@@ -1033,6 +1083,80 @@ export function RemoteServersSection() {
                 className="px-4 py-2 text-sm rounded-lg bg-yellow-600 text-white hover:bg-yellow-700 transition-colors"
               >
                 {t('Force Stop & Update')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Network precheck failure dialog */}
+      {precheckWarning && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+          onClick={() => setPrecheckWarning(null)}
+        >
+          <div
+            className="relative w-full max-w-md mx-4 bg-background border border-border rounded-xl shadow-xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle
+                className={`w-5 h-5 mt-0.5 flex-shrink-0 ${precheckWarning.mirrorConfigured ? 'text-red-500' : 'text-yellow-500'}`}
+              />
+              <div>
+                <h3 className="text-sm font-semibold">
+                  {precheckWarning.mirrorConfigured
+                    ? t('Mirror Source Unreachable')
+                    : t('Network Connectivity Check Failed')}
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                  {precheckWarning.mirrorConfigured
+                    ? t(
+                        'The configured mirror source is unreachable. Please check your mirror configuration.',
+                      )
+                    : t(
+                        'Cannot connect to npm registry. You may be on an internal network. It is recommended to configure a mirror source. Continue anyway? (May timeout)',
+                      )}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              {!precheckWarning.mirrorConfigured && (
+                <button
+                  onClick={() => {
+                    document
+                      .getElementById('mirror-source')
+                      ?.scrollIntoView({ behavior: 'smooth' });
+                    api.remoteServerCancelDeploy(precheckWarning.serverId);
+                    setPrecheckWarning(null);
+                    isAddingRef.current = false;
+                    addingServerIdRef.current = null;
+                  }}
+                  className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  {t('Configure Mirror Source')}
+                </button>
+              )}
+              {!precheckWarning.mirrorConfigured && (
+                <button
+                  onClick={() => {
+                    api.remoteServerContinueDeploy(precheckWarning.serverId);
+                    setPrecheckWarning(null);
+                  }}
+                  className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary transition-colors"
+                >
+                  {t('Continue')}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  api.remoteServerCancelDeploy(precheckWarning.serverId);
+                  setPrecheckWarning(null);
+                  isAddingRef.current = false;
+                  addingServerIdRef.current = null;
+                }}
+                className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-secondary transition-colors"
+              >
+                {t('Cancel')}
               </button>
             </div>
           </div>
@@ -1152,6 +1276,52 @@ export function RemoteServersSection() {
                       </div>
                     </div>
 
+                    {/* Inline Deploy Progress Bar */}
+                    {addProgress &&
+                      addProgress.serverId === server.id &&
+                      addProgress.stage !== 'complete' &&
+                      !addProgress.error && (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 text-primary animate-spin flex-shrink-0" />
+                            <span className="text-xs text-muted-foreground truncate flex-1">
+                              {addProgress.message}
+                            </span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">
+                              {addProgress.progress}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                              style={{ width: `${Math.max(addProgress.progress || 2, 2)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Inline Deploy Error */}
+                    {addProgress && addProgress.serverId === server.id && addProgress.error && (
+                      <div className="mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-500 break-all">{addProgress.message}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Inline Deploy Success */}
+                    {addProgress &&
+                      addProgress.serverId === server.id &&
+                      addProgress.stage === 'complete' && (
+                        <div className="mt-3 p-2.5 bg-green-500/10 border border-green-500/20 rounded-lg">
+                          <div className="flex items-start gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                            <p className="text-xs text-green-500">{addProgress.message}</p>
+                          </div>
+                        </div>
+                      )}
+
                     <div className="flex items-center justify-between mt-3">
                       <div className="flex items-center gap-2">
                         {server.status === 'connected' ? (
@@ -1259,87 +1429,28 @@ export function RemoteServersSection() {
               className="bg-card border border-border rounded-xl p-6 w-full max-w-md relative z-[101]"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Progress view (shown during add server operation) */}
-              {saving && !editingServer && addProgress ? (
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">{t('Adding Remote Server')}</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      {addProgress.stage === 'complete' ? (
-                        <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                      ) : addProgress.error ? (
-                        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                      ) : (
-                        <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{addProgress.serverName}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {addProgress.message}
-                        </p>
-                      </div>
-                      {addProgress.progress > 0 && (
-                        <span className="text-xs text-muted-foreground flex-shrink-0">
-                          {addProgress.progress}%
-                        </span>
-                      )}
-                    </div>
-                    {/* Progress bar */}
-                    {addProgress.stage !== 'complete' && !addProgress.error && (
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-                          style={{ width: `${Math.max(addProgress.progress, 2)}%` }}
-                        />
-                      </div>
-                    )}
-                    {/* Error message */}
-                    {addProgress.error && (
-                      <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                        <p className="text-sm text-red-500">{addProgress.message}</p>
-                      </div>
-                    )}
-                    {/* Complete message */}
-                    {addProgress.stage === 'complete' && (
-                      <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-                        <p className="text-sm text-green-500">{addProgress.message}</p>
-                      </div>
-                    )}
-                  </div>
-                  {/* Only show Close button when complete or error */}
-                  {(addProgress.stage === 'complete' || addProgress.error) && (
-                    <div className="flex justify-end mt-6">
-                      <button
-                        onClick={() => {
-                          setSaving(false);
-                          isAddingRef.current = false;
-                          addingServerIdRef.current = null;
-                          setAddProgress(null);
-                          setShowAddDialog(false);
-                          setFormData({
-                            name: '',
-                            host: '',
-                            sshPort: 22,
-                            username: '',
-                            password: '',
-                            claudeApiKey: '',
-                            claudeBaseUrl: '',
-                            claudeModel: '',
-                            aiSourceId: '',
-                          });
-                        }}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                      >
-                        {t('Close')}
-                      </button>
-                    </div>
-                  )}
+              {saving && !editingServer ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
+                  <p className="text-sm font-medium">{addProgress?.serverName || ''}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {addProgress?.message || t('Adding server...')}
+                  </p>
                 </div>
               ) : (
                 <>
                   <h3 className="text-lg font-semibold mb-4">
                     {editingServer ? t('Edit Server') : t('Add Remote Server')}
                   </h3>
+                  {/* Show error in dialog when add failed (no server created yet) */}
+                  {addProgress?.error && !addProgress.serverId && (
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-500">{addProgress.message}</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium mb-1 block">{t('Server Name')}</label>
@@ -1525,51 +1636,52 @@ export function RemoteServersSection() {
                           })()}
                       </div>
                     </div>
-                  </div>
-                  <div className="flex justify-end gap-3 mt-6">
-                    <button
-                      onClick={() => {
-                        setShowAddDialog(false);
-                        setEditingServer(null);
-                        setModelPickerExpanded(null);
-                        setFormData({
-                          name: '',
-                          host: '',
-                          sshPort: 22,
-                          username: '',
-                          password: '',
-                          claudeApiKey: '',
-                          claudeBaseUrl: '',
-                          claudeModel: '',
-                          aiSourceId: '',
-                        });
-                      }}
-                      disabled={saving}
-                      className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
-                    >
-                      {t('Cancel')}
-                    </button>
-                    <button
-                      onClick={editingServer ? handleEditServer : handleAddServer}
-                      disabled={
-                        saving ||
-                        !formData.name.trim() ||
-                        !formData.host.trim() ||
-                        (!editingServer && !formData.password.trim())
-                      }
-                      className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground transition-colors"
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {editingServer ? t('Saving...') : t('Adding...')}
-                        </>
-                      ) : editingServer ? (
-                        t('Save')
-                      ) : (
-                        t('Add Server')
-                      )}
-                    </button>
+                    <div className="flex justify-end gap-3 mt-6">
+                      <button
+                        onClick={() => {
+                          setShowAddDialog(false);
+                          setEditingServer(null);
+                          setModelPickerExpanded(null);
+                          setAddProgress(null);
+                          setFormData({
+                            name: '',
+                            host: '',
+                            sshPort: 22,
+                            username: '',
+                            password: '',
+                            claudeApiKey: '',
+                            claudeBaseUrl: '',
+                            claudeModel: '',
+                            aiSourceId: '',
+                          });
+                        }}
+                        disabled={saving}
+                        className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
+                      >
+                        {t('Cancel')}
+                      </button>
+                      <button
+                        onClick={editingServer ? handleEditServer : handleAddServer}
+                        disabled={
+                          saving ||
+                          !formData.name.trim() ||
+                          !formData.host.trim() ||
+                          (!editingServer && !formData.password.trim())
+                        }
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground transition-colors"
+                      >
+                        {saving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {editingServer ? t('Saving...') : t('Adding...')}
+                          </>
+                        ) : editingServer ? (
+                          t('Save')
+                        ) : (
+                          t('Add Server')
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
@@ -1578,7 +1690,9 @@ export function RemoteServersSection() {
         )}
 
         {/* Mirror Source Configuration */}
-        <MirrorSourceSection />
+        <div id="mirror-source">
+          <MirrorSourceSection />
+        </div>
       </section>
     </>
   );

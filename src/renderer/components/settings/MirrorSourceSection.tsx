@@ -156,7 +156,6 @@ export function MirrorSourceSection() {
       return new URL(url).hostname;
     } catch {
       return url;
-      return url;
     }
   };
 
