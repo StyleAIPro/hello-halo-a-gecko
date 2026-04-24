@@ -2888,6 +2888,27 @@ WRAPPER
         versionMatched = version === REQUIRED_SDK_VERSION;
       }
 
+      // Level 1.5: Fallback — check file existence directly
+      // npm list -g may not find packages installed via cp (offline deploy)
+      if (!installed) {
+        const deployPath = getDeployPath(server);
+        const fallbackCheck = await manager.executeCommandFull(
+          `cat $(npm root -g 2>/dev/null)/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
+          `cat ${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
+          `echo ""`,
+        );
+        const versionLine = fallbackCheck.stdout.trim();
+        const fbVersionMatch = versionLine.match(/"version":\s*"([\d.]+)"/);
+        if (fbVersionMatch) {
+          version = fbVersionMatch[1];
+          versionMatched = version === REQUIRED_SDK_VERSION;
+          installed = true;
+          console.log(
+            `[RemoteDeployService] SDK found via file existence check, version=${version}`,
+          );
+        }
+      }
+
       // Level 2: Check if proxy is running via health endpoint
       let proxyRunning = false;
       if (server.assignedPort) {
@@ -4389,6 +4410,11 @@ WRAPPER
       const tarFlag = archiveType.stdout.trim() === 'XZ' ? '-xJf' : '-xzf';
       const extractCmd = `cd ${deployPath} && tar ${tarFlag} aico-bot-offline.tar.gz && rm -f aico-bot-offline.tar.gz`;
       await manager.executeCommand(extractCmd);
+
+      // Fix file permissions: SFTP upload can strip execute bits
+      await manager.executeCommand(
+        `chmod +x ${deployPath}/node-v*/bin/* 2>/dev/null || true`,
+      );
       this.emitCommandOutput(id, 'success', '✓ 解压完成');
 
       // Step 4: Configure environment (bundled Node.js + SDK symlink)
@@ -4408,11 +4434,31 @@ WRAPPER
       const nodeVersionResult = await manager.executeCommandFull(`${bundledNodePath} --version`);
       this.emitCommandOutput(id, 'output', `Bundled Node.js: ${nodeVersionResult.stdout.trim()}`);
 
-      // Create SDK global symlink
-      this.emitCommandOutput(id, 'output', '正在创建 SDK 全局链接...');
-      await manager.executeCommand(
-        `mkdir -p /usr/local/lib/node_modules 2>/dev/null; ln -sf ${deployPath}/node_modules/@anthropic-ai /usr/local/lib/node_modules/@anthropic-ai 2>/dev/null || true`,
+      // Install SDK into npm global node_modules so `npm list -g` can find it
+      // Only copy claude-agent-sdk, preserve existing claude-code CLI
+      this.emitCommandOutput(id, 'output', '正在安装 SDK 到全局目录...');
+      // First detect the actual npm global prefix
+      const npmRootResult = await manager.executeCommandFull(
+        `export PATH="/usr/local/bin:/usr/local/node-v*/bin:/usr/bin:/bin:$PATH" && npm root -g 2>/dev/null`,
       );
+      const globalNpmRoot = (npmRootResult.stdout || '').trim().split('\n').pop()?.trim() || '/usr/local/lib/node_modules';
+      this.emitCommandOutput(id, 'output', `npm global root: ${globalNpmRoot}`);
+
+      await manager.executeCommand(
+        `mkdir -p "${globalNpmRoot}/@anthropic-ai" && ` +
+        `rm -rf "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk" && ` +
+        `cp -r "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk" "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk"`,
+      );
+
+      // Verify the copy succeeded
+      const verifyResult = await manager.executeCommandFull(
+        `test -f "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk/package.json" && echo "OK" || echo "FAIL"`,
+      );
+      if (verifyResult.stdout.trim() !== 'OK') {
+        this.emitCommandOutput(id, 'error', '⚠ SDK 复制到全局目录失败，但离线部署的 node_modules 中仍可用');
+      } else {
+        this.emitCommandOutput(id, 'success', '✓ SDK 已安装到全局目录');
+      }
       this.emitCommandOutput(id, 'success', '✓ 环境配置完成');
 
       // Step 5: Generate .env config + sync system prompt
@@ -4435,6 +4481,14 @@ WRAPPER
       this.emitCommandOutput(id, 'success', '========================================');
       this.emitCommandOutput(id, 'success', '离线部署成功完成!');
       this.emitCommandOutput(id, 'success', '========================================');
+
+      // Mark SDK as installed — offline bundle includes the SDK,
+      // and npm list -g may not detect it (installed via cp, not npm install)
+      await this.updateServer(id, {
+        sdkInstalled: true,
+        sdkVersion: REQUIRED_SDK_VERSION,
+        sdkVersionMismatch: false,
+      });
     } catch (error) {
       this.emitDeployProgress(id, 'error', `离线部署失败: ${error}`, 0);
       this.emitCommandOutput(id, 'error', `✗ 离线部署失败: ${error}`);
@@ -4605,7 +4659,7 @@ WRAPPER
       .filter(Boolean)
       .join(' ');
 
-    const startCommand = `nohup env ${envVars} ${bundledNodePath} ${deployPath}/dist/index.js > ${deployPath}/logs/output.log 2>&1 &`;
+    const startCommand = `nohup env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY ${envVars} ${bundledNodePath} ${deployPath}/dist/index.js > ${deployPath}/logs/output.log 2>&1 &`;
     await manager.executeCommand(startCommand);
 
     // Wait for startup
