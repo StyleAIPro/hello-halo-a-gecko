@@ -106,33 +106,19 @@ const _rateLimiter = new RateLimiter();
 
 // Telemetry counters
 let _requestCount = 0;
-let _rateLimitWaits = 0;
-let _rateLimitWaitMs = 0;
 
 /**
- * Run an async function with global concurrency and rate-limit control.
- * All GitCode API calls should go through this.
+ * Run an async function with global concurrency control (semaphore only).
+ * Rate limiting is handled at the gitcodeApiFetch level to avoid double-limiting
+ * and to prevent semaphore deadlock from nested calls.
  */
 async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
-  // Rate limit first
-  const beforeRateLimit = Date.now();
-  await _rateLimiter.acquire();
-  const rateLimitElapsed = Date.now() - beforeRateLimit;
-  if (rateLimitElapsed > 50) {
-    _rateLimitWaits++;
-    _rateLimitWaitMs += rateLimitElapsed;
-  }
-  _requestCount++;
-
   // Log telemetry every 10 requests
+  _requestCount++;
   if (_requestCount % 10 === 0) {
-    console.log(
-      `[GitCodeSkillSource] Rate limit telemetry: ` +
-        `${_requestCount} requests, ${_rateLimitWaits} waits (${_rateLimitWaitMs}ms total)`,
-    );
+    console.log(`[GitCodeSkillSource] Concurrency telemetry: ${_requestCount} requests`);
   }
 
-  // Then concurrency semaphore
   await _apiSemaphore.acquire();
   try {
     return await fn();
@@ -204,6 +190,11 @@ export async function gitcodeFetch(url: string, init?: RequestInit): Promise<Res
 }
 
 async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promise<any> {
+  // Rate limit all API calls at the entry point to prevent semaphore deadlock
+  // from nested withConcurrency calls in recursive findSkillDirs.
+  await _rateLimiter.acquire();
+  _requestCount++;
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -371,20 +362,48 @@ async function findSkillDirs(
   let scannedCount = 0;
   const totalDirs = dirs.length;
 
-  const subResults = await Promise.all(
+  // Short-circuit optimization: once any child directory is confirmed to contain
+  // SKILL.md, treat the current directory as a "skill category" (equivalent to
+  // skills/) and promote ALL remaining sibling directories as skill candidates.
+  // This avoids N-1 additional recursive API calls for category-based repos like
+  // Inference/skill-name/SKILL.md, Operation/skill-name/SKILL.md.
+  let foundCategory = false;
+
+  await Promise.all(
     dirs.map(async (dir: any) => {
       const subPath = path === '/' ? `${dir.name}/` : `${path}${dir.name}/`;
-      // Do NOT pass onProgress to recursive calls — avoids misleading counts
-      const sub = await withConcurrency(() => findSkillDirs(repo, subPath, token, maxDepth - 1));
+      // Check foundCategory — by this point, other concurrent callbacks may have
+      // already set foundCategory (avoiding unnecessary recursive calls).
+      if (foundCategory) {
+        scannedCount++;
+        onProgress?.({ phase: 'scanning', current: scannedCount, total: totalDirs });
+        return;
+      }
+
+      const sub = await findSkillDirs(repo, subPath, token, maxDepth - 1);
       scannedCount++;
       onProgress?.({ phase: 'scanning', current: scannedCount, total: totalDirs });
+
+      // If this child is a skill (has SKILL.md), promote all siblings as candidates
+      if (sub.length > 0 && !foundCategory) {
+        foundCategory = true;
+        results.push(...sub);
+        // Return remaining siblings as skill candidates (their SKILL.md will be
+        // validated later during metadata fetch)
+        const promotedSiblings = dirs
+          .filter((d: any) => d.name !== dir.name)
+          .map((d: any) => ({
+            path: (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + d.name,
+            name: d.name,
+          }));
+        results.push(...promotedSiblings);
+      } else {
+        results.push(...sub);
+      }
+
       return sub;
     }),
   );
-
-  for (const sub of subResults) {
-    results.push(...sub);
-  }
 
   return results;
 }
@@ -814,6 +833,7 @@ export async function getSkillDetailFromRepo(
 
 /**
  * Validate that a GitCode repo exists and contains skill directories.
+ * Uses lightweight probing instead of full scan to avoid slow recursive traversal.
  */
 export async function validateRepo(
   repo: string,
@@ -825,20 +845,67 @@ export async function validateRepo(
       return { valid: false, error: 'Repository not found or access denied' };
     }
 
-    // Check if skills/ directory exists
-    let hasSkillsDir = false;
+    // Check if skills/ directory exists (fast path)
     const skillsProbe = await gitcodeApiFetch(`/repos/${repo}/contents/skills`, { token });
     if (Array.isArray(skillsProbe)) {
-      hasSkillsDir = true;
+      const skillDirs = skillsProbe.filter(
+        (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+      );
+      return { valid: true, hasSkillsDir: true, skillCount: skillDirs.length };
     }
 
-    const skills = await listSkillsFromRepo(repo, token);
-    return {
-      valid: true,
-      hasSkillsDir,
-      skillCount: skills.length,
-      error: skills.length === 0 ? 'No skills found in this repository' : undefined,
-    };
+    // No skills/ directory — sample up to 3 root-level subdirectories to detect
+    // category-based structure (e.g., Inference/skill-name/SKILL.md)
+    const rootContents = await gitcodeApiFetch(`/repos/${repo}/contents`, { token });
+    if (!Array.isArray(rootContents)) {
+      return { valid: true, skillCount: 0, error: 'Could not list repository contents' };
+    }
+
+    const rootDirs = rootContents.filter(
+      (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+    );
+    if (rootDirs.length === 0) {
+      return { valid: true, skillCount: 0, error: 'No directories found in repository' };
+    }
+
+    // Sample up to 3 root directories, check their children for SKILL.md
+    const sampleDirs = rootDirs.slice(0, 3);
+    let totalSkillCount = 0;
+    let foundAny = false;
+
+    for (const dir of sampleDirs) {
+      const children = await gitcodeApiFetch(`/repos/${repo}/contents/${dir.name}`, { token });
+      if (!Array.isArray(children)) continue;
+
+      // Check if any child has SKILL.md (indicates category-based structure)
+      const childDirs = children.filter(
+        (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+      );
+      // Count children — they're likely all skills in a category structure
+      if (childDirs.length > 0) {
+        // Probe first child to confirm it has SKILL.md
+        const probe = await gitcodeApiFetch(
+          `/repos/${repo}/contents/${dir.name}/${childDirs[0].name}`,
+          { token },
+        );
+        if (Array.isArray(probe) && probe.some((f: any) => f.name.toUpperCase() === 'SKILL.MD')) {
+          foundAny = true;
+          totalSkillCount += childDirs.length;
+        }
+      }
+    }
+
+    // Estimate total: extrapolate from sampled directories
+    if (foundAny && sampleDirs.length < rootDirs.length) {
+      const avgPerDir = totalSkillCount / sampleDirs.length;
+      totalSkillCount = Math.round(avgPerDir * rootDirs.length);
+    }
+
+    if (totalSkillCount === 0) {
+      return { valid: true, skillCount: 0, error: 'No skills found in this repository' };
+    }
+
+    return { valid: true, hasSkillsDir: false, skillCount: totalSkillCount };
   } catch (error: any) {
     console.error('[GitCodeService] validateRepo error:', error.message);
     return { valid: false, error: error.message || 'Failed to validate repository' };
