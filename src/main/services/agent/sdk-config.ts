@@ -106,6 +106,8 @@ export interface BaseSdkOptionsParams {
   agentId?: string;
   /** Optional agent name for Hyper Space worker routing */
   agentName?: string;
+  /** Additional tools to disallow (merged with the default disallowedTools list) */
+  additionalDisallowedTools?: string[];
 }
 
 // ============================================
@@ -585,7 +587,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
     // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
-    disallowedTools: ['WebFetch', 'WebSearch'],
+    disallowedTools: ['WebFetch', 'WebSearch', ...(params.additionalDisallowedTools ?? [])],
     // Enable both 'user' and 'project' setting sources for skill loading.
     // The SDK in bare mode (Y9() check) only loads skills via the project path
     // (<add-dir>/.claude/skills/), not the user path. We pass configDir as an

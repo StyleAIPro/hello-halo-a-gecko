@@ -2508,6 +2508,21 @@ export const api = {
     return httpRequest('POST', '/api/skills/refresh');
   },
 
+  skillGenerateFromPrompt: async (input: {
+    spaceId: string;
+    name: string;
+    description: string;
+    triggerCommand?: string;
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillGenerate({
+        mode: 'prompt',
+        ...input,
+      });
+    }
+    return httpRequest('POST', '/api/skills/generate', { mode: 'prompt', ...input });
+  },
+
   skillFiles: async (skillId: string): Promise<ApiResponse<SkillFileNode[]>> => {
     if (isElectron()) {
       return window.aicoBot.skillFiles(skillId);
