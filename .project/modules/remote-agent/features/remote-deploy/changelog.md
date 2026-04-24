@@ -2,6 +2,8 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-04-23 | 新增离线部署支持：`deployAgentCodeOffline()`、`updateAgentCodeOffline()`、`startAgentOffline()` 方法，前端 UI 新增在线/离线模式切换和平台选择 | @MoonSeeker | offline-deploy-bundle-v1 |
+|------|------|--------|---------|
 | 2026-04-17 | 修复 `checkAgentInstalled` 未做版本精确匹配：增加 `version === REQUIRED_SDK_VERSION` 校验，不匹配时设置 `sdkVersionMismatch: true`，UI 据此显示版本不匹配警告 | @zhaoyinqi | bugfix-sdk-version-check-v1 |
 | 2026-04-17 | 修复 SDK 安装命令模板字符串未插值：3 处 npm install 单引号字符串改为反引号模板字符串，确保 `${REQUIRED_SDK_VERSION}` 正确插值，避免安装最新版而非指定版本 | @zhaoyinqi | bugfix-sdk-version-interpolation-v1 |
 | 2026-04-17 | 修复 WebSocket 客户端认证 token 不一致：`createWsClient` 中 `authToken` 从 `server.password` 改为 `server.authToken`，与 Proxy 服务端保持一致 | @zhaoyinqi | bugfix-ws-auth-token-mismatch-v1 |
