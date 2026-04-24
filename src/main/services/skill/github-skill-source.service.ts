@@ -361,20 +361,41 @@ async function findSkillDirs(
   // Track scanning progress
   const tracker = scanned || { count: 0, total: dirs.length };
 
+  // Short-circuit optimization: once any child directory is confirmed to contain
+  // SKILL.md, treat the current directory as a "skill category" (equivalent to
+  // skills/) and promote ALL remaining sibling directories as skill candidates.
+  // This avoids N-1 additional recursive API calls for category-based repos.
+  let foundCategory = false;
+
   // Not a skill directory — recurse into subdirectories (in parallel)
-  const subResults = await Promise.all(
+  await Promise.all(
     dirs.map(async (dir: any) => {
       const subPath = path === '/' ? `${dir.name}/` : `${path}${dir.name}/`;
+      // Check foundCategory after awaiting — by the time we get here,
+      // other callbacks may have already set foundCategory
+      if (foundCategory) return [] as Array<{ path: string; name: string }>;
       const sub = await findSkillDirs(repo, subPath, token, maxDepth - 1, undefined, tracker);
       tracker.count++;
       onProgress?.({ phase: 'scanning', current: tracker.count, total: tracker.total });
+
+      // If this child is a skill (has SKILL.md), promote all siblings as candidates
+      if (sub.length > 0 && !foundCategory) {
+        foundCategory = true;
+        results.push(...sub);
+        const promotedSiblings = dirs
+          .filter((d: any) => d.name !== dir.name)
+          .map((d: any) => ({
+            path: (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + d.name,
+            name: d.name,
+          }));
+        results.push(...promotedSiblings);
+      } else {
+        results.push(...sub);
+      }
+
       return sub;
     }),
   );
-
-  for (const sub of subResults) {
-    results.push(...sub);
-  }
 
   return results;
 }
@@ -635,6 +656,7 @@ export async function getSkillDetailFromRepo(
 
 /**
  * Validate that a GitHub repo exists and contains skills (directories with SKILL.md).
+ * Uses lightweight probing instead of full scan to avoid slow recursive traversal.
  */
 export async function validateRepo(
   repo: string,
@@ -652,26 +674,72 @@ export async function validateRepo(
       };
     }
 
-    // Recursively find skill directories (with SKILL.md)
-    let hasSkillsDir = false;
-    let skillCount = 0;
-
-    // Check skills/ first
+    // Check if skills/ directory exists (fast path)
     const skillsProbe = await githubApiFetch(`/repos/${repo}/contents/skills`, { token });
     if (Array.isArray(skillsProbe)) {
-      hasSkillsDir = true;
-      const skillDirs = await findSkillDirs(repo, 'skills/', token);
-      skillCount = skillDirs.length;
+      const skillDirs = skillsProbe.filter(
+        (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+      );
+      return { valid: true, hasSkillsDir: true, skillCount: skillDirs.length };
     }
 
-    // If no skills in skills/, check root
-    if (skillCount === 0) {
-      hasSkillsDir = false;
-      const rootSkillDirs = await findSkillDirs(repo, '/', token);
-      skillCount = rootSkillDirs.length;
+    // No skills/ directory — sample root directories to detect category structure
+    const rootContents = await githubApiFetch(`/repos/${repo}/contents`, { token });
+    if (!Array.isArray(rootContents)) {
+      return {
+        valid: true,
+        hasSkillsDir: false,
+        skillCount: 0,
+        error: 'Could not list repository contents',
+      };
     }
 
-    return { valid: true, hasSkillsDir, skillCount };
+    const rootDirs = rootContents.filter(
+      (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+    );
+    if (rootDirs.length === 0) {
+      return { valid: true, hasSkillsDir: false, skillCount: 0, error: 'No directories found' };
+    }
+
+    // Sample up to 3 root directories
+    const sampleDirs = rootDirs.slice(0, 3);
+    let totalSkillCount = 0;
+    let foundAny = false;
+
+    for (const dir of sampleDirs) {
+      const children = await githubApiFetch(`/repos/${repo}/contents/${dir.name}`, { token });
+      if (!Array.isArray(children)) continue;
+
+      const childDirs = children.filter(
+        (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+      );
+      if (childDirs.length > 0) {
+        const probe = await githubApiFetch(
+          `/repos/${repo}/contents/${dir.name}/${childDirs[0].name}`,
+          { token },
+        );
+        if (Array.isArray(probe) && probe.some((f: any) => f.name.toUpperCase() === 'SKILL.MD')) {
+          foundAny = true;
+          totalSkillCount += childDirs.length;
+        }
+      }
+    }
+
+    if (foundAny && sampleDirs.length < rootDirs.length) {
+      const avgPerDir = totalSkillCount / sampleDirs.length;
+      totalSkillCount = Math.round(avgPerDir * rootDirs.length);
+    }
+
+    if (totalSkillCount === 0) {
+      return {
+        valid: true,
+        hasSkillsDir: false,
+        skillCount: 0,
+        error: 'No skills found in this repository',
+      };
+    }
+
+    return { valid: true, hasSkillsDir: false, skillCount: totalSkillCount };
   } catch (error: any) {
     return {
       valid: false,
