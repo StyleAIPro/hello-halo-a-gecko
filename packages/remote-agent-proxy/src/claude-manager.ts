@@ -183,6 +183,7 @@ export interface ChatOptions {
   model?: string
   apiKey?: string
   baseUrl?: string
+  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough'  // Backend API type from client-side AISource
   maxThinkingTokens?: number
   workDir?: string  // Per-session working directory override
   hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
@@ -714,7 +715,12 @@ export class ClaudeManager {
    * Detect whether the backend API is native Anthropic or OpenAI-compatible.
    * Used to decide whether to route requests through the local protocol translator.
    */
-  private detectBackendType(baseUrl?: string): 'anthropic' | 'openai_compat' {
+  private detectBackendType(
+    baseUrl?: string,
+    apiType?: string,
+  ): 'anthropic' | 'openai_compat' {
+    // Explicit override: apiType from client-side AISource config takes highest priority
+    if (apiType === 'anthropic_passthrough') return 'anthropic'
     // Explicit override via env var (e.g., for Anthropic-compatible proxies)
     if (process.env.REMOTE_AGENT_API_TYPE === 'anthropic_passthrough') return 'anthropic'
     // No custom URL = default Anthropic
@@ -893,7 +899,7 @@ export class ClaudeManager {
     workDir?: string,
     customSystemPrompt?: string,
     contextWindow?: number,
-    credentials?: { apiKey?: string; baseUrl?: string; model?: string }
+    credentials?: { apiKey?: string; baseUrl?: string; model?: string; apiType?: string }
   ): Promise<any> {
     // Resolve effective credentials: per-request overrides instance config
     const effectiveApiKey = credentials?.apiKey || this.apiKey
@@ -948,7 +954,7 @@ export class ClaudeManager {
     options.env = cleanEnv
 
     // ── Route through OpenAI Compat Router for non-Anthropic backends ──
-    const backendType = this.detectBackendType(effectiveBaseUrl)
+    const backendType = this.detectBackendType(effectiveBaseUrl, credentials?.apiType)
 
     if (backendType === 'openai_compat') {
       // Start local protocol translator (lazy, once per process lifetime)
@@ -1687,8 +1693,8 @@ export class ClaudeManager {
 
     // Pass client-sent credentials (apiKey/baseUrl/model) to session creation.
     // These override the server's instance-level config for per-request routing.
-    const clientCredentials = (options.apiKey || options.baseUrl || options.model)
-      ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model }
+    const clientCredentials = (options.apiKey || options.baseUrl || options.model || options.apiType)
+      ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model, apiType: options.apiType }
       : undefined
 
     // Build canUseTool for AskUserQuestion support
