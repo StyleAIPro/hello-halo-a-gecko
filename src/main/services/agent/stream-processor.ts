@@ -1405,15 +1405,20 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         subagentStates.set(taskId, state);
         if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId);
 
-        sendToRenderer('worker:started', spaceId, rendererConvId, {
-          agentId,
-          agentName,
-          taskId,
-          task: description,
-          type: 'local',
-        });
+        // When a Worker uses SDK Agent/Task tool internally, don't create an extra
+        // Worker Tab — the Worker already has its own tab. Only send worker:started
+        // for subagents spawned by the Leader (or non-Hyper-Space sessions).
+        if (!workerTag) {
+          sendToRenderer('worker:started', spaceId, rendererConvId, {
+            agentId,
+            agentName,
+            taskId,
+            task: description,
+            type: 'local',
+          });
+        }
         console.log(
-          `[Agent][${conversationId}] Subagent started: ${taskId} - ${description.substring(0, 80)}`,
+          `[Agent][${conversationId}] Subagent started: ${taskId} - ${description.substring(0, 80)}${workerTag ? ' (internal to worker, tab suppressed)' : ''}`,
         );
 
         // Flush any buffered events that arrived before task_started
@@ -1447,14 +1452,16 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           subagentState.status = notifStatus === 'completed' ? 'completed' : 'failed';
           subagentState.isComplete = true;
 
-          sendToRenderer('worker:completed', spaceId, rendererConvId, {
-            agentId: subagentState.agentId,
-            agentName: subagentState.agentName,
-            taskId: notifTaskId,
-            result: (msg.summary as string) || '',
-            error: notifStatus === 'failed' ? 'Subagent task failed' : undefined,
-            status: notifStatus === 'completed' ? ('completed' as const) : ('failed' as const),
-          });
+          if (!workerTag) {
+            sendToRenderer('worker:completed', spaceId, rendererConvId, {
+              agentId: subagentState.agentId,
+              agentName: subagentState.agentName,
+              taskId: notifTaskId,
+              result: (msg.summary as string) || '',
+              error: notifStatus === 'failed' ? 'Subagent task failed' : undefined,
+              status: notifStatus === 'completed' ? ('completed' as const) : ('failed' as const),
+            });
+          }
           console.log(`[Agent][${conversationId}] Subagent ${notifTaskId} ${notifStatus}`);
         }
         continue;
