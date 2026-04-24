@@ -245,120 +245,149 @@ export async function installSkillFromMarket(
   skillId: string,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
-  try {
-    await ensureInitialized();
+  const INSTALL_TIMEOUT = 60_000; // 60 seconds
 
-    console.log('[SkillController] Installing skill from market:', skillId);
+  const doInstall = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await ensureInitialized();
 
-    // 1. 获取技能安装信息
-    const downloadResult = await skillMarket.downloadSkill(skillId);
+      console.log('[SkillController] Installing skill from market:', skillId);
 
-    if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
-      const error = downloadResult.error || 'Failed to download skill';
-      onOutput?.({ type: 'error', content: error });
-      return { success: false, error };
-    }
-
-    console.log('[SkillController] Skill info:', {
-      remoteRepo: downloadResult.remoteRepo,
-      skillName: downloadResult.skillName,
-    });
-
-    // 2. 根据 sourceType 选择安装方式
-    const { remoteRepo: repo, skillName, sourceType } = downloadResult;
-
-    // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
-    if (sourceType === 'gitcode') {
-      return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput);
-    }
-
-    // GitHub / skills.sh: npx 安装 + GitHub fallback
-    const { spawn } = await import('child_process');
-
-    const command = 'npx';
-    const args = [
-      '--yes',
-      'skills',
-      'add',
-      `https://github.com/${repo}`,
-      '--skill',
-      skillName,
-      '-y',
-      '--global',
-    ];
-
-    const fullCommand = `${command} ${args.join(' ')}`;
-    console.log('[SkillController] Executing command:', fullCommand);
-    onOutput?.({ type: 'stdout', content: `$ ${fullCommand}\n` });
-
-    return new Promise((resolve) => {
-      const childProcess = spawn(command, args, {
-        env: { ...process.env },
-        timeout: 120000, // 2 分钟超时
-        shell: true, // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
+      // 1. 获取技能安装信息（pass onOutput for progress feedback）
+      const downloadResult = await skillMarket.downloadSkill(skillId, (data) => {
+        onOutput?.(data);
       });
 
-      let hasError = false;
+      if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
+        const error = downloadResult.error || 'Failed to download skill';
+        onOutput?.({ type: 'error', content: error });
+        return { success: false, error };
+      }
 
-      childProcess.stdout?.on('data', (data: Buffer) => {
-        const content = data.toString();
-        console.log('[SkillController] stdout:', content);
-        onOutput?.({ type: 'stdout', content });
+      console.log('[SkillController] Skill info:', {
+        remoteRepo: downloadResult.remoteRepo,
+        skillName: downloadResult.skillName,
       });
 
-      childProcess.stderr?.on('data', (data: Buffer) => {
-        const content = data.toString();
-        // 忽略 npm 警告
-        if (!content.toLowerCase().includes('npm warn')) {
-          console.warn('[SkillController] stderr:', content);
-          onOutput?.({ type: 'stderr', content });
-        }
-      });
+      // 2. 根据 sourceType 选择安装方式
+      const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
-      childProcess.on('error', (error: Error) => {
-        console.error('[SkillController] Process error:', error);
-        hasError = true;
-        const msg = error.message;
-        onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
-        // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
-        onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-        installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
-          .then(resolve)
-          .catch(() => resolve({ success: false, error: msg }));
-      });
+      // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
+      if (sourceType === 'gitcode') {
+        return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput);
+      }
 
-      childProcess.on('close', async (code: number) => {
-        console.log('[SkillController] Process exited with code:', code);
+      // GitHub / skills.sh: npx 安装 + GitHub fallback
+      const { spawn } = await import('child_process');
 
-        if (code === 0 && !hasError) {
-          onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
+      const command = 'npx';
+      const args = [
+        '--yes',
+        'skills',
+        'add',
+        `https://github.com/${repo}`,
+        '--skill',
+        skillName,
+        '-y',
+        '--global',
+      ];
 
-          try {
-            await skillManager.refresh();
-          } catch (refreshError) {
-            console.warn('[SkillController] Failed to refresh skills:', refreshError);
+      const fullCommand = `${command} ${args.join(' ')}`;
+      console.log('[SkillController] Executing command:', fullCommand);
+      onOutput?.({ type: 'stdout', content: `$ ${fullCommand}\n` });
+
+      return new Promise((resolve) => {
+        const childProcess = spawn(command, args, {
+          env: { ...process.env },
+          timeout: 120000, // 2 分钟超时
+          shell: true, // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
+        });
+
+        let hasError = false;
+
+        childProcess.stdout?.on('data', (data: Buffer) => {
+          const content = data.toString();
+          console.log('[SkillController] stdout:', content);
+          onOutput?.({ type: 'stdout', content });
+        });
+
+        childProcess.stderr?.on('data', (data: Buffer) => {
+          const content = data.toString();
+          // 忽略 npm 警告
+          if (!content.toLowerCase().includes('npm warn')) {
+            console.warn('[SkillController] stderr:', content);
+            onOutput?.({ type: 'stderr', content });
           }
+        });
 
-          resolve({ success: true });
-        } else {
-          // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
+        childProcess.on('error', (error: Error) => {
+          console.error('[SkillController] Process error:', error);
+          hasError = true;
+          const msg = error.message;
+          onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
+          // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
           onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-          const result = await installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput);
-          if (result.success) {
+          installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
+            .then(resolve)
+            .catch(() => resolve({ success: false, error: msg }));
+        });
+
+        childProcess.on('close', async (code: number) => {
+          console.log('[SkillController] Process exited with code:', code);
+
+          if (code === 0 && !hasError) {
+            onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
+
+            try {
+              await skillManager.refresh();
+            } catch (refreshError) {
+              console.warn('[SkillController] Failed to refresh skills:', refreshError);
+            }
+
             resolve({ success: true });
           } else {
-            onOutput?.({ type: 'error', content: `\n✗ Both npx and GitHub download failed.\n` });
-            resolve({ success: false, error: result.error });
+            // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
+            onOutput?.({
+              type: 'stdout',
+              content: '\n--- Fallback: downloading from GitHub ---\n',
+            });
+            const result = await installSkillFromSource(
+              repo!,
+              skillName!,
+              GITHUB_ADAPTER,
+              onOutput,
+            );
+            if (result.success) {
+              resolve({ success: true });
+            } else {
+              onOutput?.({ type: 'error', content: `\n✗ Both npx and GitHub download failed.\n` });
+              resolve({ success: false, error: result.error });
+            }
           }
-        }
+        });
       });
+    } catch (error) {
+      console.error('[SkillController] Failed to install skill:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to install skill';
+      onOutput?.({ type: 'error', content: errorMessage });
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  // Apply overall timeout with clearTimeout to avoid spurious messages
+  return new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      const msg = 'Installation timed out (60s). Please check your network and try again.';
+      console.warn('[SkillController]', msg);
+      onOutput?.({ type: 'error', content: msg });
+      resolve({ success: false, error: msg });
+    }, INSTALL_TIMEOUT);
+
+    doInstall().then((result) => {
+      clearTimeout(timeoutId);
+      resolve(result);
     });
-  } catch (error) {
-    console.error('[SkillController] Failed to install skill:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Failed to install skill';
-    onOutput?.({ type: 'error', content: errorMessage });
-    return { success: false, error: errorMessage };
-  }
+  });
 }
 
 export async function installSkillFromYaml(

@@ -128,6 +128,8 @@ async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // Proxy support for internal networks
+// GitCode is a domestic (Chinese) platform — skip proxy for gitcode.com to avoid
+// unnecessary latency. Proxy is only used for non-gitcode.com hosts.
 let _proxyDispatcher: any = null;
 
 /** Reset cached proxy so next call re-reads env vars (e.g. after VPN change). */
@@ -137,25 +139,9 @@ export function resetProxyDispatcher(): void {
 
 async function getProxyDispatcher(): Promise<any> {
   if (_proxyDispatcher !== null) return _proxyDispatcher;
-  const proxyUrl =
-    process.env.HTTPS_PROXY ||
-    process.env.HTTP_PROXY ||
-    process.env.https_proxy ||
-    process.env.http_proxy;
-  if (!proxyUrl) {
-    _proxyDispatcher = false;
-    return false;
-  }
-  try {
-    const { ProxyAgent } = await import('undici');
-    _proxyDispatcher = new ProxyAgent(proxyUrl);
-    console.log('[GitCodeAPI] using proxy:', proxyUrl);
-    return _proxyDispatcher;
-  } catch {
-    console.warn('[GitCodeAPI] failed to create proxy agent, proceeding without proxy');
-    _proxyDispatcher = false;
-    return false;
-  }
+  // GitCode is domestic — never use proxy
+  _proxyDispatcher = false;
+  return false;
 }
 
 /** Default request timeout for GitCode API calls (ms). */
@@ -534,9 +520,36 @@ export async function findSkillDirectoryPath(
     }
   }
 
-  // Case-insensitive fallback: list all skill dirs and compare lowercased paths
+  // Case-insensitive fallback: list skill dirs (limited depth + timeout)
+  console.warn('[GitCodeSkillSource] Exact match failed, falling back to recursive scan for', {
+    repo,
+    skillName,
+    triedPaths: dirVariants,
+  });
+
   try {
-    const allDirs = await findSkillDirs(repo, '/', token);
+    const FALLBACK_TIMEOUT = 15_000;
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => {
+        console.warn(
+          '[GitCodeSkillSource] findSkillDirs fallback timed out (15s) for',
+          repo,
+          skillName,
+        );
+        resolve(null);
+      }, FALLBACK_TIMEOUT),
+    );
+    const dirsPromise = findSkillDirs(repo, '/', token, 2);
+    const allDirs = await Promise.race([dirsPromise, timeoutPromise]);
+
+    if (!allDirs) {
+      console.warn(
+        '[GitCodeSkillSource] Fallback scan timed out, tried paths:',
+        dirVariants.join(', '),
+      );
+      return null;
+    }
+
     const normalizedTarget = skillName.toLowerCase();
     for (const { path: dirPath } of allDirs) {
       if (
@@ -554,8 +567,8 @@ export async function findSkillDirectoryPath(
         return dirPath;
       }
     }
-  } catch {
-    // give up
+  } catch (error) {
+    console.error('[GitCodeSkillSource] Fallback scan failed for', repo, skillName, error);
   }
 
   return null;

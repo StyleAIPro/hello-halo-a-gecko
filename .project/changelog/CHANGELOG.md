@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- BUG-006: GitCode 技能安装长时间挂起（downloadSkill 无进度回调 + getSkillDetail 失败路径大小写不匹配 + findSkillDirectoryPath fallback 递归深度过大 + 无整体超时） — `src/main/services/skill/skill-market-service.ts`、`src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/controllers/skill.controller.ts` — PRD: `prd/bugfix/skill/bugfix-skill-install-hang-v1.md`
 - BUG-001: Worker 内部 SDK 子 agent 产生多余 Worker Tab（复杂任务时 Worker 调用 Agent/Task 工具，stream-processor 无条件发送 worker:started 到前端） — `src/main/services/agent/stream-processor.ts` — PRD: `prd/bugfix/agent/bugfix-excessive-subagents-v2`
 - BUG-001: Hyper Space Leader 创建过多子 Agent（声明 N 个实际创建 N+2，SDK 内置 Agent/Task 工具与 spawn_subagent 冲突） — `src/main/services/agent/sdk-config.ts`、`src/main/services/agent/orchestrator.ts`、`src/main/services/agent/system-prompt.ts` — PRD: `prd/bugfix/agent/bugfix-excessive-subagents-v1`
 - BUG-001: GitCode 技能获取全面失败（rate limiter 失效 + 无超时 + getSkills()/searchSkills() 吞没错误 + 缓存空结果 + UI 无错误展示 + 代理不刷新） — `src/main/services/skill/gitcode-skill-source.service.ts`、`src/main/services/skill/skill-market-service.ts`、`src/renderer/components/skill/SkillMarket.tsx` — modules/skill/features/skill-market/bugfix.md — PRD: `prd/bugfix/skill/bugfix-gitcode-skill-fetch-v1.md`

@@ -9,3 +9,5 @@
 | 2026-04-18 | UX 精修：GitCode 顺序获取进度均匀、前端源选择同步后端、GitHub 恢复并行获取 | @MoonSeeker | bugfix-skill-market-ux-v1 |
 | 2026-04-18 | 平台隔离：`githubRepo`/`githubPath` → `remoteRepo`/`remotePath`、Push 流程平台校验、i18n 修复、Controller 返回值统一 | @MoonSeeker | refactor-skill-market-platform-isolation-v1 |
 | 2026-04-18 | Bug 修复：Push 按钮文案动态化 + 同名仓库 select value 唯一性修复 + SkillDetail prop 传递修复 | @MoonSeeker | bugfix-skill-push-ui-and-repo-routing-v1 |
+| 2026-04-24 | 修复安装超时定时器未清除：Promise.race + setTimeout 改为 clearTimeout 模式，安装完成后不再误报超时 | 用户 | bugfix-install-timeout-always-fires-v1 |
+| 2026-04-24 | 修复 GitCode 技能安装长时间挂起：downloadSkill 添加进度回调 + getSkillDetail 失败时缓存路径兜底 + installSkillFromMarket 60s 整体超时 | 用户 | bugfix-skill-install-hang-v1 |
