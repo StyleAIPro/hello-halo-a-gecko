@@ -251,6 +251,119 @@ async function executeSkillCommand(parsed: ParsedCommand): Promise<SlashCommandE
       }
     }
 
+    case 'enable': {
+      const skillId = parsed.args[0];
+      if (!skillId) {
+        return {
+          success: false,
+          message: t('Missing required argument: {{arg}}', { arg: 'skillId' }),
+        };
+      }
+      try {
+        const result = await api.skillToggle(skillId, true);
+        if (result.success) {
+          return { success: true, message: t('Skill "{{name}}" enabled', { name: skillId }) };
+        }
+        return {
+          success: false,
+          message: t('Failed to enable: {{error}}', { error: result.error ?? 'Unknown error' }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: t('Failed to enable: {{error}}', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        };
+      }
+    }
+
+    case 'disable': {
+      const skillId = parsed.args[0];
+      if (!skillId) {
+        return {
+          success: false,
+          message: t('Missing required argument: {{arg}}', { arg: 'skillId' }),
+        };
+      }
+      try {
+        const result = await api.skillToggle(skillId, false);
+        if (result.success) {
+          return { success: true, message: t('Skill "{{name}}" disabled', { name: skillId }) };
+        }
+        return {
+          success: false,
+          message: t('Failed to disable: {{error}}', { error: result.error ?? 'Unknown error' }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: t('Failed to disable: {{error}}', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        };
+      }
+    }
+
+    case 'refresh': {
+      try {
+        const result = await api.skillRefresh();
+        if (result.success) {
+          return { success: true, message: t('Skills list refreshed successfully') };
+        }
+        return {
+          success: false,
+          message: t('Failed to refresh: {{error}}', { error: result.error ?? 'Unknown error' }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: t('Failed to refresh: {{error}}', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        };
+      }
+    }
+
+    case 'create': {
+      const name = parsed.args[0];
+      const description = parsed.args.slice(1).join(' ');
+      if (!name) {
+        return {
+          success: false,
+          message: t('Missing required argument: {{arg}}', { arg: 'name' }),
+        };
+      }
+      if (!description) {
+        return {
+          success: false,
+          message: t('Missing required argument: {{arg}}', { arg: 'description' }),
+        };
+      }
+      try {
+        const result = await api.skillGenerateFromPrompt({
+          spaceId: '',
+          name,
+          description,
+          triggerCommand: `/${name.toLowerCase().replace(/\s+/g, '-')}`,
+        });
+        if (result.success) {
+          return { success: true, message: t('Skill "{{name}}" created successfully', { name }) };
+        }
+        return {
+          success: false,
+          message: t('Failed to create: {{error}}', { error: result.error ?? 'Unknown error' }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: t('Failed to create: {{error}}', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        };
+      }
+    }
+
     default:
       return {
         success: false,

@@ -449,6 +449,9 @@ class AgentOrchestrator extends EventEmitter {
     const abortController = new AbortController();
 
     // Build SDK options
+    // For Leader agents, disable the SDK built-in Agent/Task tool to prevent
+    // duplicate sub-agents (Leader should only use spawn_subagent MCP tool)
+    const isLeader = agent.config.role === 'leader';
     const sdkOptions = buildBaseSdkOptions({
       credentials: resolvedCredentials,
       workDir,
@@ -461,6 +464,7 @@ class AgentOrchestrator extends EventEmitter {
       },
       mcpServers,
       contextWindow: resolvedCredentials.contextWindow,
+      ...(isLeader ? { additionalDisallowedTools: ['Agent', 'Task'] } : {}),
     });
 
     // Apply custom system prompt if provided
@@ -2969,12 +2973,12 @@ just complete the task normally — the orchestrator will collect your results a
     context += `You are the **LEADER** of a multi-agent team. You have ${team.workers.length} worker agent(s) available to execute tasks.\n\n`;
 
     // ====================================================================
-    // CRITICAL: spawn_subagent vs Agent tool
+    // CRITICAL: Task Delegation
     // ====================================================================
-    context += '### CRITICAL: When to use spawn_subagent vs Agent Tool\n\n';
-    context += 'You have TWO ways to delegate work:\n\n';
+    context += '### CRITICAL: Task Delegation\n\n';
+    context += 'You have ONE way to delegate work:\n\n';
     context +=
-      '1. **`spawn_subagent` (MCP tool)** — Assigns a task to a **team Worker**. The worker executes the task in its own Claude Code session on its own machine.\n';
+      '**`spawn_subagent` (MCP tool)** — Assigns a task to a **team Worker**. The worker executes the task in its own Claude Code session on its own machine.\n';
     context +=
       '   - For **remote** workers: the task runs directly on the remote server. The worker does NOT need SSH — it is already there.\n';
     context +=
@@ -2982,13 +2986,7 @@ just complete the task normally — the orchestrator will collect your results a
     context +=
       "   - Use when the task matches a Worker's **capabilities** or needs to run on a specific machine.\n\n";
     context +=
-      '2. **Agent tool (built-in)** — Spawns a sub-agent on YOUR OWN machine. Use this ONLY when the task:\n';
-    context += '   - Is purely analytical/planning work on local files\n';
-    context += "   - Does NOT require any Worker's special capabilities\n";
-    context +=
-      '   - Is a simple local operation like reading code, writing documentation, etc.\n\n';
-    context +=
-      "**RULE: If a task should run on a specific machine or matches a Worker's capabilities, use `spawn_subagent`. NEVER use the Agent tool for tasks that belong to a Worker.**\n\n";
+      '**RULE: NEVER use the built-in Agent/Task tool — all delegation MUST go through `spawn_subagent`. The Agent/Task tool is DISABLED for your session.**\n\n';
 
     // ====================================================================
     // CRITICAL: Capability-based routing
@@ -3080,7 +3078,7 @@ just complete the task normally — the orchestrator will collect your results a
     // Important rules
     context += '### Important Rules:\n\n';
     context +=
-      "1. **NEVER use Agent tool for tasks that belong to Workers** — If a task should run on a specific machine or matches a Worker's capabilities, use `spawn_subagent` with the matching `targetAgentId`. The Agent tool runs on YOUR local machine only.\n";
+      '1. **NEVER use the built-in Agent/Task tool** — These tools are DISABLED for your session. All task delegation MUST use `spawn_subagent` with the matching `targetAgentId`.\n';
     context +=
       '2. **Remote workers execute directly on their server** — A remote worker is already running on its server. When you assign a task to it, the worker executes commands directly there. Do NOT instruct workers to SSH anywhere.\n';
     context +=
