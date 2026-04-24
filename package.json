@@ -11,7 +11,8 @@
     "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build:patch-sdk": "node scripts/patch-sdk.mjs",
-    "build": "npm run build:proxy && npm run build:patch-sdk && electron-vite build",
+    "build:offline-bundle": "node packages/remote-agent-proxy/scripts/build-offline-bundle.mjs",
+    "build": "npm run build:proxy && npm run build:patch-sdk && npm run build:offline-bundle && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "patch-package",
     "build:mac": "npm run build && electron-builder --mac",
@@ -196,6 +197,13 @@
       "node_modules/@parcel/watcher-*/**/*",
       "node_modules/better-sqlite3/build/Release/*.node",
       "resources/gh/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/offline-bundles",
+        "to": "offline-bundles",
+        "filter": ["**/*.tar.gz", "**/*.tar.xz"]
+      }
     ],
     "publish": {
       "provider": "github",

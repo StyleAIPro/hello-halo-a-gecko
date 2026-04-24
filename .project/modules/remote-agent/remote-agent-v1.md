@@ -107,6 +107,7 @@
 | ssh-tunnel | 已完成 | features/ssh-tunnel/design.md |
 | remote-deploy | 已完成 | features/remote-deploy/design.md |
 | mcp-bridge | 已完成 | features/mcp-bridge/design.md |
+| offline-deploy | 已完成 | features/offline-deploy/design.md |
 
 ## 绑定的 API
 

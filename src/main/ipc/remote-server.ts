@@ -537,6 +537,66 @@ ipcMain.handle('remote-server:acknowledge-update', async (_event, serverId: stri
   return { success: true };
 });
 
+// Deploy agent using embedded offline bundle (no remote network needed)
+ipcMain.handle(
+  'remote-server:deploy-offline',
+  async (_event, serverId: string, platform: 'x64' | 'arm64' = 'x64') => {
+    console.log(
+      '[IPC] remote-server:deploy-offline - Deploying offline to:',
+      serverId,
+      'platform:',
+      platform,
+    );
+    deployService.startUpdate(serverId);
+
+    const sendCompleteEvent = (success: boolean, data?: unknown, error?: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('remote-server:update-complete', {
+          serverId,
+          success,
+          data,
+          error,
+        });
+      }
+      try {
+        const { Notification } = require('electron');
+        const server = deployService.getServer(serverId);
+        const serverName = server?.name || serverId;
+        new Notification({
+          title: success ? '离线部署完成' : '离线部署失败',
+          body: success
+            ? `${serverName} 已成功离线部署`
+            : `${serverName} 离线部署失败: ${error || '未知错误'}`,
+        }).show();
+      } catch {
+        /* Notification may not be available */
+      }
+    };
+
+    try {
+      await deployService.deployAgentCodeOffline(serverId, platform);
+      deployService.completeUpdate(serverId);
+      sendCompleteEvent(true);
+      return { success: true };
+    } catch (error) {
+      const msg = (error as Error).message;
+      deployService.failUpdate(serverId, msg);
+      sendCompleteEvent(false, undefined, msg);
+      return { success: false, error: msg };
+    }
+  },
+);
+
+// Check if offline deployment bundle is available
+ipcMain.handle(
+  'remote-server:check-offline-bundle',
+  async (_event, platform: 'x64' | 'arm64' = 'x64') => {
+    const available = deployService.isOfflineBundleAvailable(platform);
+    const bundlePath = deployService.getOfflineBundlePath(platform);
+    return { success: true, data: { available, path: bundlePath } };
+  },
+);
+
 ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:list-skills - Listing skills on server:', serverId);
   try {
