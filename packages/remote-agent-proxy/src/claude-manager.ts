@@ -189,6 +189,7 @@ export interface ChatOptions {
   aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
   contextWindow?: number   // Context window size for compression threshold and usage display
+  isWorkerTask?: boolean   // When true, suppress worker:started/completed for SDK internal subagents
 }
 
 export interface ToolCall {
@@ -444,6 +445,7 @@ You can use the following tools without requiring user approval: Read, Write, Ed
 - Don't create files unless absolutely necessary
 - Avoid over-engineering solutions
 - Be careful not to introduce security vulnerabilities
+- NEVER spawn a sub-agent for build, test, lint, or type-check commands. Always run these directly via Bash (e.g., npm run build, npm test, cargo build).
 
 <env>
 Working directory: ${workDir}
@@ -1639,6 +1641,10 @@ export class ClaudeManager {
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
 
+    // When running as a Worker task, suppress worker:started/completed events for
+    // SDK internal sub-agents to avoid creating extra Worker tabs on the frontend.
+    const suppressWorkerEvents = !!options.isWorkerTask
+
     // Update AICO-Bot MCP proxy URL from chat options (per-request, may change across turns)
     if (options.aicoBotMcpUrl) {
       this.aicoBotMcpUrl = options.aicoBotMcpUrl
@@ -2225,8 +2231,10 @@ export class ClaudeManager {
             subagentStates.set(taskId, state)
             if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId)
 
-            // Yield worker:started event for the frontend
-            yield { type: 'worker:started', data: { agentId, agentName, taskId, task: description, type: 'remote' } }
+            // Yield worker:started event for the frontend (suppress when running as Worker)
+            if (!suppressWorkerEvents) {
+              yield { type: 'worker:started', data: { agentId, agentName, taskId, task: description, type: 'remote' } }
+            }
 
             // Flush any buffered events that arrived before task_started
             const buffered = pendingSubagentEvents.get(toolUseId || taskId)
@@ -2249,12 +2257,14 @@ export class ClaudeManager {
             if (subagentState) {
               subagentState.status = evt.status === 'completed' ? 'completed' : 'failed'
               subagentState.isComplete = true
-              yield { type: 'worker:completed', data: {
-                agentId: subagentState.agentId, agentName: subagentState.agentName,
-                taskId: notifTaskId, result: evt.summary || '',
-                error: evt.status === 'failed' ? 'Subagent task failed' : undefined,
-                status: evt.status === 'completed' ? 'completed' : 'failed'
-              }}
+              if (!suppressWorkerEvents) {
+                yield { type: 'worker:completed', data: {
+                  agentId: subagentState.agentId, agentName: subagentState.agentName,
+                  taskId: notifTaskId, result: evt.summary || '',
+                  error: evt.status === 'failed' ? 'Subagent task failed' : undefined,
+                  status: evt.status === 'completed' ? 'completed' : 'failed'
+                }}
+              }
               console.log(`[ClaudeManager] Subagent completed: ${notifTaskId} status=${evt.status}`)
             }
             continue
@@ -2524,7 +2534,7 @@ export class ClaudeManager {
       // Sending failure here on normal completion would cause false "Stream interrupted" errors.
       for (const [taskId, state] of subagentStates) {
         if (!state.isComplete) {
-          if (wasAborted) {
+          if (wasAborted && !suppressWorkerEvents) {
             yield { type: 'worker:completed', data: {
               agentId: state.agentId, agentName: state.agentName, taskId,
               result: '', error: 'Stopped by user', status: 'failed'
