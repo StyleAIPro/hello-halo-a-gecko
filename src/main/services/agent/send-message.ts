@@ -1586,7 +1586,6 @@ async function executeRemoteMessage(
         apiKey,
         baseUrl: baseUrl || undefined,
         model,
-        apiType: currentSource?.apiType, // Pass apiType so remote proxy can classify backend correctly
         maxTokens: config.agent?.maxTokens || 8192,
         system: systemPrompt || undefined, // Custom system prompt from space config
         maxThinkingTokens: thinkingEnabled ? 10240 : undefined,

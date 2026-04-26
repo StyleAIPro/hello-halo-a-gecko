@@ -142,6 +142,13 @@ export const api = {
     return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl });
   },
 
+  testProxy: async (proxyUrl: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.testProxy(proxyUrl);
+    }
+    return httpRequest('POST', '/api/config/test-proxy', { proxyUrl });
+  },
+
   refreshAISourcesConfig: async (): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.refreshAISourcesConfig();

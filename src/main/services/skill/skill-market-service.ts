@@ -16,6 +16,7 @@ import type {
   SkillMarketConfig,
 } from '../../shared/skill/skill-types';
 import { getAgentsSkillsDir } from '../config.service';
+import { proxyFetch } from '../proxy';
 import * as githubSkillSource from './github-skill-source.service';
 import * as gitcodeSkillSource from './gitcode-skill-source.service';
 
@@ -299,7 +300,7 @@ export class SkillMarketService {
    */
   private async fetchFromSkillsShHomepage(): Promise<RemoteSkillItem[]> {
     try {
-      const response = await fetch('https://skills.sh', {
+      const response = await proxyFetch('https://skills.sh', {
         headers: {
           Accept: 'text/html',
           'User-Agent': 'AICO-Bot-App',
@@ -396,7 +397,7 @@ export class SkillMarketService {
       const url = `https://skills.sh/api/search?q=${encodeURIComponent(searchTerm)}&limit=${limit}`;
       console.log('[SkillMarketService] Fetching from skills.sh API:', url);
 
-      const response = await fetch(url, {
+      const response = await proxyFetch(url, {
         headers: {
           Accept: 'application/json',
           'User-Agent': 'AICO-Bot-App',
@@ -674,7 +675,7 @@ export class SkillMarketService {
       for (const bp of basePaths) {
         try {
           const skillMdUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${bp}/SKILL.md`;
-          const response = await fetch(skillMdUrl);
+          const response = await proxyFetch(skillMdUrl);
           if (response.ok) {
             return await response.text();
           }
@@ -684,7 +685,7 @@ export class SkillMarketService {
 
         try {
           const readmeUrl = `https://raw.githubusercontent.com/${repo}/${branch}/${bp}/README.md`;
-          const response = await fetch(readmeUrl);
+          const response = await proxyFetch(readmeUrl);
           if (response.ok) {
             return await response.text();
           }

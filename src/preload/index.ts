@@ -31,6 +31,7 @@ export interface AicoBotAPI {
   setConfig: (updates: Record<string, unknown>) => Promise<IpcResponse>;
   validateApi: (apiKey: string, apiUrl: string, provider: string) => Promise<IpcResponse>;
   fetchModels: (apiKey: string, apiUrl: string) => Promise<IpcResponse>;
+  testProxy: (proxyUrl: string) => Promise<IpcResponse>;
   refreshAISourcesConfig: () => Promise<IpcResponse>;
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
@@ -755,6 +756,7 @@ const api: AicoBotAPI = {
   validateApi: (apiKey, apiUrl, provider, model?) =>
     ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model),
   fetchModels: (apiKey, apiUrl) => ipcRenderer.invoke('config:fetch-models', apiKey, apiUrl),
+  testProxy: (proxyUrl) => ipcRenderer.invoke('config:test-proxy', proxyUrl),
   refreshAISourcesConfig: () => ipcRenderer.invoke('config:refresh-ai-sources'),
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)

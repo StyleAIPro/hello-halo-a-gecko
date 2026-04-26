@@ -103,6 +103,12 @@ export interface SystemConfig {
   autoLaunch: boolean; // Launch on system startup
 }
 
+// Network proxy configuration
+export interface NetworkConfig {
+  proxyUrl: string; // http://host:port / https://host:port / socks5://host:port
+  enabled: boolean;
+}
+
 // Agent behavior configuration
 export interface AgentConfig {
   maxTurns: number; // Maximum tool call turns per message
@@ -187,6 +193,7 @@ export interface AicoBotConfig {
   mcpServers: McpServersConfig; // MCP servers configuration
   notifications?: NotificationConfig; // Notification preferences
   agent?: AgentConfig; // Agent behavior settings
+  network?: NetworkConfig; // Network proxy settings
   layout?: LayoutConfig; // Global layout preferences (panel sizes and visibility)
   isFirstLaunch: boolean;
 }

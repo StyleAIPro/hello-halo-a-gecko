@@ -14,6 +14,7 @@
 
 import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { app } from 'electron';
+import { proxyFetch } from './proxy';
 import {
   ensureOpenAICompatRouter,
   encodeBackendConfig,
@@ -67,14 +68,17 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
 
   console.log('[API Validator] Fetching models from:', modelsUrl);
 
-  const response = await fetch(modelsUrl, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+  const response = await proxyFetch(
+    modelsUrl,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
     },
-    signal: AbortSignal.timeout(15000),
-  });
+    15_000,
+  );
 
   if (!response.ok) {
     throw new Error(`Failed to fetch models (${response.status})`);
