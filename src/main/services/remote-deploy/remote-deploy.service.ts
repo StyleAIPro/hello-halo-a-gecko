@@ -3720,7 +3720,8 @@ WRAPPER
 
   /**
    * Install a skill on a remote server via SSH.
-   * Executes `npx skills add <repo> --skill <name> -y --global` on the remote server.
+   * For GitHub/skills.sh: tries `npx skills add` first, falls back to direct upload.
+   * For GitCode: always uses direct upload (npx only supports GitHub URLs).
    * Streams stdout/stderr back through onOutput callback.
    */
   async installRemoteSkill(
@@ -3732,6 +3733,9 @@ WRAPPER
       type: 'stdout' | 'stderr' | 'complete' | 'error';
       content: string;
     }) => void,
+    options?: {
+      sourceType?: 'github' | 'gitcode' | 'skills.sh';
+    },
   ): Promise<{ success: boolean; error?: string }> {
     const server = this.servers.get(id);
     if (!server) throw new Error(`Server not found: ${id}`);
@@ -3757,7 +3761,25 @@ WRAPPER
       return { success: false, error: err.message };
     }
 
-    // Execute npx command on remote server
+    const sourceType = options?.sourceType || 'github';
+
+    // GitCode: skip npx (npx only supports GitHub URLs), go straight to direct upload
+    if (sourceType === 'gitcode') {
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] GitCode 源，使用 Direct Upload 模式安装...\n`,
+      });
+      return this.installRemoteSkillDirect(
+        id,
+        skillId,
+        remoteRepo,
+        skillName,
+        sourceType,
+        onOutput,
+      );
+    }
+
+    // GitHub / skills.sh: try npx first, fallback to direct upload
     const command = `cd ~ && npx --yes skills add https://github.com/${remoteRepo} --skill ${skillName} -y --global 2>&1`;
     onOutput?.({
       type: 'stdout',
@@ -3771,7 +3793,6 @@ WRAPPER
         onOutput?.({ type: 'stdout', content: result.stdout });
       }
       if (result.stderr) {
-        // Filter out npm warnings
         const filtered = result.stderr
           .split('\n')
           .filter((line) => !line.toLowerCase().includes('npm warn'))
@@ -3788,15 +3809,203 @@ WRAPPER
           content: `[${server.name}] ✓ Skill installed successfully!\n`,
         });
         return { success: true };
-      } else {
-        const error = `[${server.name}] Installation failed with exit code ${result.exitCode}`;
-        onOutput?.({ type: 'error', content: error + '\n' });
-        return { success: false, error };
       }
+      // npx failed — fallback to direct upload
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] npx 安装失败 (exit code ${result.exitCode})，切换到 Direct Upload...\n`,
+      });
+    } catch (error) {
+      // npx timed out or connection error — fallback to direct upload
+      const err = error as Error;
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] npx 安装异常 (${err.message})，切换到 Direct Upload...\n`,
+      });
+    }
+
+    return this.installRemoteSkillDirect(id, skillId, remoteRepo, skillName, sourceType, onOutput);
+  }
+
+  /**
+   * Download skill files from the source API on local machine, then upload to remote via SSH.
+   * This works for all source types (GitHub, GitCode, skills.sh) and does not require Node.js on the remote.
+   */
+  private async installRemoteSkillDirect(
+    id: string,
+    skillId: string,
+    remoteRepo: string,
+    skillName: string,
+    sourceType: 'github' | 'gitcode' | 'skills.sh',
+    onOutput?: (data: {
+      type: 'stdout' | 'stderr' | 'complete' | 'error';
+      content: string;
+    }) => void,
+  ): Promise<{ success: boolean; error?: string }> {
+    const server = this.servers.get(id);
+    if (!server) throw new Error(`Server not found: ${id}`);
+
+    let manager: SSHManager;
+    try {
+      manager = await this.ensureFreshConnection(id, server.name, onOutput);
     } catch (error) {
       const err = error as Error;
-      onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` });
+      onOutput?.({ type: 'error', content: `[${server.name}] ${err.message}\n` });
       return { success: false, error: err.message };
+    }
+
+    const label = sourceType === 'gitcode' ? 'GitCode' : 'GitHub';
+    const tmpDir = path.join(os.tmpdir(), `aico-skill-upload-${Date.now()}`);
+
+    try {
+      // Step 1: Import adapter from skill.controller (dynamic import to avoid circular deps)
+      const { GITHUB_ADAPTER, GITCODE_ADAPTER } =
+        await import('../../controllers/skill.controller');
+      const adapter = sourceType === 'gitcode' ? GITCODE_ADAPTER : GITHUB_ADAPTER;
+
+      // Step 2: Find the skill directory on the source
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] [Direct Upload] 从 ${label} 定位技能目录...\n`,
+      });
+      const token = await adapter.getToken();
+      if (token) {
+        onOutput?.({
+          type: 'stdout',
+          content: `  Using authenticated ${label} access\n`,
+        });
+      }
+
+      const dirPath = await adapter.findSkillDirectoryPath(remoteRepo, skillName, token);
+      if (!dirPath) {
+        const error = `Could not find skill directory for "${skillName}" in repo ${remoteRepo}`;
+        onOutput?.({ type: 'error', content: `[${server.name}] ${error}\n` });
+        return { success: false, error };
+      }
+      onOutput?.({ type: 'stdout', content: `  Found skill at: ${dirPath}/\n` });
+
+      // Step 3: Download all files
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] [Direct Upload] 下载技能文件...\n`,
+      });
+      const files = await adapter.fetchSkillDirectoryContents(remoteRepo, dirPath, token);
+      if (files.length === 0) {
+        const error = `No files found in skill directory: ${dirPath}`;
+        onOutput?.({ type: 'error', content: `[${server.name}] ${error}\n` });
+        return { success: false, error };
+      }
+      onOutput?.({ type: 'stdout', content: `  Downloaded ${files.length} file(s)\n` });
+
+      // Step 4: Write to local temp directory
+      await fs.promises.mkdir(tmpDir, { recursive: true });
+      for (const file of files) {
+        const filePath = path.join(tmpDir, file.path);
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.promises.writeFile(filePath, file.content, 'utf-8');
+      }
+
+      // Step 5: Upload to remote via SSH (base64 encoding)
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] [Direct Upload] 上传文件到远程服务器...\n`,
+      });
+      const remoteHome = (await manager.executeCommand('echo $HOME')).trim();
+
+      // Derive a short directory-safe name from skillName (same logic as local installSkillFromSource)
+      const lastSegment = skillName.split('/').pop() || skillName;
+      const dirName = lastSegment
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '-');
+
+      const remoteSkillDir = `${remoteHome}/.agents/skills/${dirName}`;
+      await manager.executeCommand(`mkdir -p "${remoteSkillDir}"`);
+
+      for (const file of files) {
+        const remoteFilePath = `${remoteSkillDir}/${file.path}`;
+        const remoteDir = path.dirname(remoteFilePath);
+        await manager.executeCommand(`mkdir -p "${remoteDir}"`);
+        const base64Content = Buffer.from(file.content).toString('base64');
+        await this.executeWithTimeout(
+          manager,
+          `echo "${base64Content}" | base64 -d > "${remoteFilePath}"`,
+          30000,
+        );
+        onOutput?.({ type: 'stdout', content: `  ✓ ${file.path}\n` });
+      }
+
+      // Step 6: Generate META.json on remote
+      const skillMdFile = files.find(
+        (f) => f.path === 'SKILL.md' || f.path.toUpperCase() === 'SKILL.MD',
+      );
+      const skillYamlFile = files.find(
+        (f) => f.path === 'SKILL.yaml' || f.path.toUpperCase() === 'SKILL.YAML',
+      );
+
+      let metaJson = JSON.stringify({
+        appId: dirName,
+        enabled: true,
+        installedAt: new Date().toISOString(),
+      });
+
+      if (skillMdFile) {
+        const frontmatterMatch = skillMdFile.content.match(/^---\n([\s\S]*?)\n---/);
+        if (frontmatterMatch) {
+          try {
+            const meta = parseYaml(frontmatterMatch[1]);
+            metaJson = JSON.stringify({
+              appId: skillId,
+              spec: meta,
+              enabled: true,
+              installedAt: new Date().toISOString(),
+            });
+          } catch {
+            // frontmatter parse failed, use basic meta
+          }
+        }
+      } else if (skillYamlFile) {
+        try {
+          const meta = parseYaml(skillYamlFile.content);
+          const spec = meta?.skill || meta;
+          metaJson = JSON.stringify({
+            appId: skillId,
+            spec,
+            enabled: true,
+            installedAt: new Date().toISOString(),
+          });
+        } catch {
+          // yaml parse failed, use basic meta
+        }
+      }
+
+      const metaBase64 = Buffer.from(metaJson).toString('base64');
+      await this.executeWithTimeout(
+        manager,
+        `echo "${metaBase64}" | base64 -d > "${remoteSkillDir}/META.json"`,
+        30000,
+      );
+      onOutput?.({ type: 'stdout', content: `  ✓ META.json\n` });
+
+      onOutput?.({
+        type: 'complete',
+        content: `[${server.name}] ✓ Skill installed successfully via Direct Upload (${files.length} files)!\n`,
+      });
+      return { success: true };
+    } catch (error) {
+      const err = error as Error;
+      onOutput?.({
+        type: 'error',
+        content: `[${server.name}] Direct Upload failed: ${err.message}\n`,
+      });
+      return { success: false, error: err.message };
+    } finally {
+      // Clean up temp directory
+      try {
+        await fs.promises.rm(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 

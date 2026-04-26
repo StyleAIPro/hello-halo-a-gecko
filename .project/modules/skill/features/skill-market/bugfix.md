@@ -72,5 +72,29 @@
 | 严重程度 | 数量 |
 |---------|------|
 | Critical | 1 |
-| Major | 4 |
+| Major | 5 |
+| Minor | 1 |
+
+---
+
+## BUG-007: 安装完成后误报超时错误
+
+- **日期**：2026-04-24
+- **严重程度**：Minor
+- **问题**：技能安装完成后（无论成功或失败），终端始终输出 "Installation timed out (60s)"，即使安装在数秒内完成
+- **根因**：`installSkillFromMarket` 使用 `Promise.race` + `setTimeout` 实现超时，但 `doInstall` 完成后未调用 `clearTimeout` 清除定时器，60s 后定时器仍触发 `onOutput` 发送超时消息
+- **修复**：`Promise.race` 替换为 `new Promise` + `clearTimeout` 模式，`doInstall` 完成时清除定时器
+- **PRD**：`.project/prd/bugfix/skill/bugfix-install-timeout-always-fires-v1.md`
+- **回归来源**：`bugfix-skill-install-hang-v1`（添加 60s 整体超时）引入
 | Minor | 0 |
+
+---
+
+## BUG-006: GitCode 技能安装长时间挂起
+
+- **日期**：2026-04-24
+- **严重程度**：Major
+- **问题**：从 GitCode 技能市场安装任意技能时，点击安装后界面一直显示 "Installing..." 转圈，长时间无响应
+- **根因**：4 个问题叠加 — ①`downloadSkill` 阶段无进度反馈（无 `onOutput` 回调）；②`getSkillDetail` 失败后路径大小写不匹配触发递归扫描；③`findSkillDirectoryPath` fallback 的 `findSkillDirs` 递归深度默认 5，可能耗时数分钟；④`installSkillFromMarket` 无整体超时
+- **修复**：①`downloadSkill` 添加可选 `onOutput` 参数，安装流程传入回调；②`getSkillDetail` 失败时优先使用 `findSkillInCache` 缓存的原始大小写路径；③`findSkillDirectoryPath` fallback 的 `findSkillDirs` maxDepth 降至 2 + 15s 超时 + 诊断日志；④`installSkillFromMarket` 添加 60s 整体超时
+- **PRD**：`.project/prd/bugfix/skill/bugfix-skill-install-hang-v1.md`
