@@ -16,6 +16,7 @@ import {
   FileText,
   RotateCcw,
   RefreshCw,
+  Globe,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { api } from '../../api';
@@ -36,6 +37,17 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
     config?.notifications?.taskComplete || false,
   );
   const [maxTurns, setMaxTurnsState] = useState(config?.agent?.maxTurns ?? 50);
+
+  // Network proxy state
+  const [proxyEnabled, setProxyEnabled] = useState(config?.network?.enabled ?? false);
+  const [proxyUrl, setProxyUrl] = useState(config?.network?.proxyUrl ?? '');
+  const [proxyUrlDraft, setProxyUrlDraft] = useState(config?.network?.proxyUrl ?? '');
+  const [proxyTesting, setProxyTesting] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [proxyUrlError, setProxyUrlError] = useState('');
 
   // Health diagnostics state
   const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
@@ -106,6 +118,73 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
     } catch (error) {
       console.error('[SystemSection] Failed to update maxTurns:', error);
       setMaxTurnsState(config?.agent?.maxTurns ?? 50);
+    }
+  };
+
+  // Handle proxy toggle
+  const handleProxyToggle = async (enabled: boolean) => {
+    setProxyEnabled(enabled);
+    try {
+      const updatedConfig = {
+        ...config,
+        network: { proxyUrl: proxyUrl, enabled },
+      } as AicoBotConfig;
+      await api.setConfig({ network: updatedConfig.network });
+      setConfig(updatedConfig);
+    } catch (error) {
+      console.error('[SystemSection] Failed to update proxy toggle:', error);
+      setProxyEnabled(!enabled);
+    }
+  };
+
+  // Handle proxy URL save
+  const handleProxyUrlSave = async () => {
+    const trimmed = proxyUrlDraft.trim();
+    if (trimmed && !/^https?:\/\/.+|socks5:\/\/.+/i.test(trimmed)) {
+      setProxyUrlError('Invalid proxy URL format');
+      return;
+    }
+    setProxyUrlError('');
+    setProxyUrl(trimmed);
+    setProxyTestResult(null);
+    try {
+      const updatedConfig = {
+        ...config,
+        network: { proxyUrl: trimmed, enabled: proxyEnabled },
+      } as AicoBotConfig;
+      await api.setConfig({ network: updatedConfig.network });
+      setConfig(updatedConfig);
+    } catch (error) {
+      console.error('[SystemSection] Failed to save proxy URL:', error);
+    }
+  };
+
+  // Handle proxy test
+  const handleProxyTest = async () => {
+    const trimmed = (proxyUrlDraft.trim() || proxyUrl).trim();
+    if (!trimmed) return;
+    setProxyTesting(true);
+    setProxyTestResult(null);
+    try {
+      const result = await api.testProxy(trimmed);
+      if (result.success && result.data) {
+        const { ip, proxyIp } = result.data as { ip?: string; proxyIp?: string };
+        setProxyTestResult({
+          success: true,
+          message: proxyIp
+            ? `Proxy IP: ${proxyIp}${ip ? ` (Direct: ${ip})` : ''}`
+            : 'Proxy is working',
+        });
+      } else {
+        setProxyTestResult({
+          success: false,
+          message: (result as any).error || 'Proxy test failed',
+        });
+      }
+    } catch {
+      setProxyTestResult({ success: false, message: 'Connection failed' });
+    } finally {
+      setProxyTesting(false);
     }
   };
 
@@ -335,6 +414,95 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
               }}
               className="w-24 px-3 py-1.5 text-sm bg-secondary border border-border rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
+          </div>
+
+          {/* Network Proxy */}
+          <div className="pt-4 border-t border-border">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-muted-foreground" />
+                  <p className="font-medium">{t('Network Proxy')}</p>
+                </div>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {t('Route external API requests through a proxy server')}
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={proxyEnabled}
+                  onChange={(e) => handleProxyToggle(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-secondary rounded-full peer peer-checked:bg-primary transition-colors">
+                  <div
+                    className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${
+                      proxyEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                    } mt-0.5`}
+                  />
+                </div>
+              </label>
+            </div>
+
+            {proxyEnabled && (
+              <div className="flex items-center gap-2 animate-in slide-in-from-top-1 duration-150">
+                <input
+                  type="text"
+                  value={proxyUrlDraft}
+                  onChange={(e) => {
+                    setProxyUrlDraft(e.target.value);
+                    setProxyUrlError('');
+                    setProxyTestResult(null);
+                  }}
+                  onBlur={handleProxyUrlSave}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleProxyUrlSave();
+                  }}
+                  placeholder="http://host:port"
+                  className={`flex-1 px-3 py-1.5 text-sm bg-secondary border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                    proxyUrlError ? 'border-red-500' : 'border-border'
+                  }`}
+                />
+                <button
+                  onClick={handleProxyTest}
+                  disabled={proxyTesting || !proxyUrlDraft.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {proxyTesting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Activity className="w-3.5 h-3.5" />
+                  )}
+                  {t('Test')}
+                </button>
+              </div>
+            )}
+
+            {proxyUrlError && <p className="text-xs text-red-500 mt-1.5">{proxyUrlError}</p>}
+            {proxyTestResult && (
+              <p
+                className={`text-xs mt-1.5 ${proxyTestResult.success ? 'text-green-500' : 'text-red-500'}`}
+              >
+                {proxyTestResult.success ? (
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    {proxyTestResult.message}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <XOctagon className="w-3 h-3" />
+                    {proxyTestResult.message}
+                  </span>
+                )}
+              </p>
+            )}
+
+            {proxyEnabled && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {t('Supports HTTP/HTTPS/SOCKS5 proxies. Applies to all external requests.')}
+              </p>
+            )}
           </div>
 
           {/* Open Log Folder */}

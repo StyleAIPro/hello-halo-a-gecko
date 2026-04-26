@@ -54,7 +54,6 @@ export interface ChatOptions {
   model?: string
   apiKey?: string
   baseUrl?: string
-  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough'  // Backend API type from client-side AISource
   maxThinkingTokens?: number
   workDir?: string  // Dynamic working directory from client
   hyperSpaceTools?: HyperSpaceToolsConfig  // Enable Hyper Space MCP tools for remote workers

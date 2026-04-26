@@ -8,6 +8,8 @@
 
 import { parse as parseYaml } from 'yaml';
 import { getGitCodeToken } from '../config.service';
+import { proxyFetch } from '../proxy';
+import { invalidateProxyCache } from '../proxy';
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types';
 
 // ── GitCode API fetch ──────────────────────────────────────────────
@@ -127,22 +129,8 @@ async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-// Proxy support for internal networks
-// GitCode is a domestic (Chinese) platform — skip proxy for gitcode.com to avoid
-// unnecessary latency. Proxy is only used for non-gitcode.com hosts.
-let _proxyDispatcher: any = null;
-
-/** Reset cached proxy so next call re-reads env vars (e.g. after VPN change). */
-export function resetProxyDispatcher(): void {
-  _proxyDispatcher = null;
-}
-
-async function getProxyDispatcher(): Promise<any> {
-  if (_proxyDispatcher !== null) return _proxyDispatcher;
-  // GitCode is domestic — never use proxy
-  _proxyDispatcher = false;
-  return false;
-}
+/** Re-export invalidateProxyCache for backward compatibility. */
+export { invalidateProxyCache as resetProxyDispatcher };
 
 /** Default request timeout for GitCode API calls (ms). */
 const GITCODE_FETCH_TIMEOUT_MS = 30_000;
@@ -151,28 +139,7 @@ const GITCODE_FETCH_TIMEOUT_MS = 30_000;
  * Proxy-aware fetch for GitCode API with 30s timeout. Exported for reuse by gitcode-auth.service.
  */
 export async function gitcodeFetch(url: string, init?: RequestInit): Promise<Response> {
-  const dispatcher = await getProxyDispatcher();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GITCODE_FETCH_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      ...(dispatcher ? ({ dispatcher } as any) : {}),
-    });
-    return response;
-  } catch (error: unknown) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(
-        `GitCode API request timed out after ${GITCODE_FETCH_TIMEOUT_MS / 1000}s: ${url}`,
-        { cause: error },
-      );
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return proxyFetch(url, init, GITCODE_FETCH_TIMEOUT_MS);
 }
 
 async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promise<any> {

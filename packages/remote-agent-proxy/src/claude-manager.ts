@@ -183,7 +183,6 @@ export interface ChatOptions {
   model?: string
   apiKey?: string
   baseUrl?: string
-  apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough'  // Backend API type from client-side AISource
   maxThinkingTokens?: number
   workDir?: string  // Per-session working directory override
   hyperSpaceTools?: HyperSpaceToolsConfig  // Hyper Space MCP tools for remote workers
@@ -715,12 +714,7 @@ export class ClaudeManager {
    * Detect whether the backend API is native Anthropic or OpenAI-compatible.
    * Used to decide whether to route requests through the local protocol translator.
    */
-  private detectBackendType(
-    baseUrl?: string,
-    apiType?: string,
-  ): 'anthropic' | 'openai_compat' {
-    // Explicit override: apiType from client-side AISource config takes highest priority
-    if (apiType === 'anthropic_passthrough') return 'anthropic'
+  private detectBackendType(baseUrl?: string): 'anthropic' | 'openai_compat' {
     // Explicit override via env var (e.g., for Anthropic-compatible proxies)
     if (process.env.REMOTE_AGENT_API_TYPE === 'anthropic_passthrough') return 'anthropic'
     // No custom URL = default Anthropic
@@ -899,7 +893,7 @@ export class ClaudeManager {
     workDir?: string,
     customSystemPrompt?: string,
     contextWindow?: number,
-    credentials?: { apiKey?: string; baseUrl?: string; model?: string; apiType?: string }
+    credentials?: { apiKey?: string; baseUrl?: string; model?: string }
   ): Promise<any> {
     // Resolve effective credentials: per-request overrides instance config
     const effectiveApiKey = credentials?.apiKey || this.apiKey
@@ -954,7 +948,7 @@ export class ClaudeManager {
     options.env = cleanEnv
 
     // ── Route through OpenAI Compat Router for non-Anthropic backends ──
-    const backendType = this.detectBackendType(effectiveBaseUrl, credentials?.apiType)
+    const backendType = this.detectBackendType(effectiveBaseUrl)
 
     if (backendType === 'openai_compat') {
       // Start local protocol translator (lazy, once per process lifetime)
@@ -963,12 +957,16 @@ export class ClaudeManager {
       // Encode real backend config into the API key (same as local AICO-Bot)
       const { encodeBackendConfig } = await import('./openai-compat-router/utils/config.js')
       const { getApiTypeFromUrl } = await import('./openai-compat-router/server/api-type.js')
+      const { normalizeApiUrl } = await import('./openai-compat-router/utils/url.js')
+
+      // Normalize URL: auto-append /v1/chat/completions for bare host URLs (e.g., http://IP:port)
+      const normalizedUrl = normalizeApiUrl(effectiveBaseUrl || '', 'openai')
 
       // Determine API type from URL suffix, default to chat_completions
-      const apiType = getApiTypeFromUrl(effectiveBaseUrl || '') || 'chat_completions'
+      const apiType = getApiTypeFromUrl(normalizedUrl) || 'chat_completions'
 
       const encodedConfig = encodeBackendConfig({
-        url: effectiveBaseUrl || '',
+        url: normalizedUrl,
         key: effectiveApiKey || '',
         model: effectiveModel,
         apiType,
@@ -988,7 +986,7 @@ export class ClaudeManager {
       // which then converts to OpenAI format and replaces the model name with the real one.
       options.model = 'claude-sonnet-4-6'
 
-      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${effectiveBaseUrl} (apiType=${apiType}, model=${effectiveModel})`)
+      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${normalizedUrl} (apiType=${apiType}, model=${effectiveModel})`)
     } else {
       // Native Anthropic / Anthropic-compatible proxy — direct passthrough
       // CRITICAL: Must set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN.
@@ -1693,8 +1691,8 @@ export class ClaudeManager {
 
     // Pass client-sent credentials (apiKey/baseUrl/model) to session creation.
     // These override the server's instance-level config for per-request routing.
-    const clientCredentials = (options.apiKey || options.baseUrl || options.model || options.apiType)
-      ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model, apiType: options.apiType }
+    const clientCredentials = (options.apiKey || options.baseUrl || options.model)
+      ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model }
       : undefined
 
     // Build canUseTool for AskUserQuestion support

@@ -13,6 +13,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { getAgentsSkillsDir } from '../config.service';
+import { proxyFetch } from '../proxy';
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types';
 
 const execAsync = promisify(exec);
@@ -21,10 +22,10 @@ const execAsync = promisify(exec);
  * Resolve the bundled gh CLI binary path.
  * Mirrors the logic in github-auth.service.ts.
  */
-function getGhBin(): string {
+async function getGhBin(): Promise<string> {
   try {
-    const os = require('os');
-    const { app } = require('electron');
+    const os = await import('os');
+    const { app } = await import('electron');
     const platform = os.platform();
     const arch = os.arch();
 
@@ -68,7 +69,7 @@ async function githubApiFetch(path: string, options?: GitHubApiOptions): Promise
     headers['Authorization'] = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(`https://api.github.com${path}`, { headers });
+  const response = await proxyFetch(`https://api.github.com${path}`, { headers });
 
   if (response.status === 403) {
     const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
@@ -155,7 +156,7 @@ export async function fetchSkillFileContent(
     const url = `https://raw.githubusercontent.com/${repo}/${branch}/${path}`;
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     try {
-      const resp = await fetch(url, { headers });
+      const resp = await proxyFetch(url, { headers });
       if (resp.ok) return await resp.text();
     } catch {
       // continue
@@ -266,7 +267,7 @@ export async function findSkillDirectoryPath(
  */
 export async function getGitHubToken(): Promise<string | undefined> {
   try {
-    const ghBin = getGhBin();
+    const ghBin = await getGhBin();
     const { stdout } = await execAsync(`"${ghBin}" auth token`, { timeout: 10_000 });
     return stdout.trim() || undefined;
   } catch {
@@ -878,7 +879,7 @@ export async function pushSkillAsPR(
       console.log(`[GitHubSkillSource]   Committing ${filePath}`);
 
       const putUrl = `https://api.github.com/repos/${targetRepo}/contents/${filePath}`;
-      const putResp = await fetch(putUrl, {
+      const putResp = await proxyFetch(putUrl, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -921,7 +922,7 @@ export async function pushSkillAsPR(
 
     let prUrl = branchUrl;
     try {
-      const prResp = await fetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
+      const prResp = await proxyFetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
