@@ -585,7 +585,10 @@ export class SkillMarketService {
   /**
    * 下载技能并返回安装信息（仓库路径和技能名称）
    */
-  async downloadSkill(skillId: string): Promise<{
+  async downloadSkill(
+    skillId: string,
+    onOutput?: (data: { type: 'stdout' | 'stderr'; content: string }) => void,
+  ): Promise<{
     success: boolean;
     remoteRepo?: string;
     skillName?: string;
@@ -600,10 +603,29 @@ export class SkillMarketService {
       sourceType = 'gitcode';
     }
 
+    onOutput?.({ type: 'stdout', content: '  Resolving skill metadata...\n' });
     const skill = await this.getSkillDetail(skillId);
 
     if (!skill) {
-      // getSkillDetail failed, but we can still extract repo/skillName from the ID
+      // getSkillDetail failed — try cache first to preserve original-case path
+      const cachedItem = this.findSkillInCache(skillId);
+      if (cachedItem?.remotePath && cachedItem?.remoteRepo) {
+        onOutput?.({ type: 'stdout', content: '  Using cached skill path (API unavailable)\n' });
+        const cachedSourceType: 'github' | 'gitcode' | 'skills.sh' = cachedItem.sourceId.startsWith(
+          'gitcode:',
+        )
+          ? 'gitcode'
+          : cachedItem.sourceId.startsWith('github:')
+            ? 'github'
+            : 'skills.sh';
+        return {
+          success: true,
+          remoteRepo: cachedItem.remoteRepo,
+          skillName: cachedItem.remotePath,
+          sourceType: cachedSourceType || sourceType,
+        };
+      }
+      // Fallback: extract repo/skillName from the ID (lowercase path)
       if (
         (skillId.startsWith('gitcode:') || skillId.startsWith('github:')) &&
         skillId.split(':').length >= 3
