@@ -2,6 +2,10 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-04-27 | 修复 SSH 命令执行无超时导致部署/更新卡死：`SSHManager` 三个执行方法添加默认超时（30s/600s），`disconnect()` 改为强制断开不排队，部署流程关键调用（npm install 5min、Node.js 安装 5min、tar 解压 2-5min）添加显式超时覆盖 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
+| 2026-04-27 | 修复端口分配无总超时：`resolvePort()` 添加 2 分钟累积超时保护 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
+| 2026-04-27 | 修复离线部署无架构预检：`deployAgentCodeOffline()` 上传前执行 `uname -m` 检测 CPU 架构，选错立即报错；新增 `RemoteServer.detectedArch` 字段，UI 自动预选正确架构 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
+| 2026-04-27 | 新增操作看门狗和取消机制：`startUpdate()` 启动 10 分钟看门狗自动失败，新增 `cancelOperation()` IPC 通道和 UI 取消按钮 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
 | 2026-04-23 | 新增离线部署支持：`deployAgentCodeOffline()`、`updateAgentCodeOffline()`、`startAgentOffline()` 方法，前端 UI 新增在线/离线模式切换和平台选择 | @MoonSeeker | offline-deploy-bundle-v1 |
 |------|------|--------|---------|
 | 2026-04-17 | 修复 `checkAgentInstalled` 未做版本精确匹配：增加 `version === REQUIRED_SDK_VERSION` 校验，不匹配时设置 `sdkVersionMismatch: true`，UI 据此显示版本不匹配警告 | @zhaoyinqi | bugfix-sdk-version-check-v1 |

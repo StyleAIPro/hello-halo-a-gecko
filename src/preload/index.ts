@@ -2,6 +2,9 @@
  * Preload Script - Exposes IPC to renderer
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- IPC bridge uses dynamic payload types */
+/* eslint-disable no-console -- preload needs debug logging */
+
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   HealthStatusResponse,
@@ -499,7 +502,7 @@ export interface AicoBotAPI {
     cancelTask: (serverId: string, taskId: string) => Promise<IpcResponse>;
     getUpdateStatus: (serverId: string) => Promise<IpcResponse>;
     acknowledgeUpdate: (serverId: string) => Promise<IpcResponse>;
-    deployOffline: (serverId: string, platform: 'x64' | 'arm64') => Promise<IpcResponse>;
+    deployOffline: (serverId: string, platform?: 'x64' | 'arm64') => Promise<IpcResponse>;
     checkOfflineBundle: (platform: 'x64' | 'arm64') => Promise<IpcResponse>;
   };
 
@@ -1078,6 +1081,7 @@ const api: AicoBotAPI = {
       ipcRenderer.invoke('remote-server:deploy-offline', serverId, platform),
     checkOfflineBundle: (platform) =>
       ipcRenderer.invoke('remote-server:check-offline-bundle', platform),
+    cancelOperation: (serverId) => ipcRenderer.invoke('remote-server:cancel-operation', serverId),
   },
 
   // Remote Agent

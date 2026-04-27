@@ -3,6 +3,11 @@
  * Manages remote server configurations and deployments
  */
 
+/* eslint-disable no-console -- IPC handlers need debug logging */
+/* eslint-disable @typescript-eslint/no-require-imports -- dynamic requires for services */
+/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables */
+/* eslint-disable @typescript-eslint/no-explicit-any -- IPC payloads use dynamic types */
+
 import type { BrowserWindow } from 'electron';
 import { ipcMain } from 'electron';
 import type { RemoteServerConfigInput } from '../services/remote-deploy';
@@ -540,7 +545,7 @@ ipcMain.handle('remote-server:acknowledge-update', async (_event, serverId: stri
 // Deploy agent using embedded offline bundle (no remote network needed)
 ipcMain.handle(
   'remote-server:deploy-offline',
-  async (_event, serverId: string, platform: 'x64' | 'arm64' = 'x64') => {
+  async (_event, serverId: string, platform?: 'x64' | 'arm64') => {
     console.log(
       '[IPC] remote-server:deploy-offline - Deploying offline to:',
       serverId,
@@ -679,6 +684,19 @@ ipcMain.handle(
     }
   },
 );
+
+// Cancel an in-flight deploy/update operation
+ipcMain.handle('remote-server:cancel-operation', async (_event, serverId: string) => {
+  console.log('[IPC] remote-server:cancel-operation - Cancelling operation for:', serverId);
+  try {
+    deployService.cancelOperation(serverId);
+    return { success: true };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('[IPC] remote-server:cancel-operation - Failed:', err.message);
+    return { success: false, error: err.message };
+  }
+});
 
 export function getRemoteDeployService(): RemoteDeployService {
   return deployService;

@@ -89,6 +89,9 @@ export interface RemoteServer {
   clientId?: string; // This PC's machine identity (e.g., "client-7f3a1b9c2e4d")
   assignedPort?: number; // Actual port allocated on remote server (30000-40000 range)
   deployPath?: string; // Full path on remote server (e.g., "/opt/claude-deployment-client-7f3a1b9c")
+
+  // Architecture detection
+  detectedArch?: 'x64' | 'arm64'; // Detected CPU architecture of the remote server
 }
 
 export interface RemoteServerConnection {

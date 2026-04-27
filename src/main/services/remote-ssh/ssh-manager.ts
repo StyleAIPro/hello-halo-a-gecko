@@ -3,6 +3,9 @@
  * Handles SSH connections, command execution, and file transfers
  */
 
+/* eslint-disable no-console -- SSH operations need verbose debug logging */
+/* eslint-disable @typescript-eslint/no-explicit-any -- ssh2 library uses untyped objects */
+
 import type { SFTPWrapper } from 'ssh2';
 import { Client as SSHClient } from 'ssh2';
 import { promisify } from 'util';
@@ -22,6 +25,11 @@ export interface SSHExecuteResult {
   exitCode: number | null;
 }
 
+export interface SSHExecuteOptions {
+  /** Timeout in milliseconds. Default: 30_000 (30s). Use 0 to disable. */
+  timeoutMs?: number;
+}
+
 export class SSHManager {
   private client: SSHClient | null = null;
   private sftp: SFTPWrapper | null = null;
@@ -34,6 +42,9 @@ export class SSHManager {
   // Prevents concurrent exec/SFTP calls from stepping on each other.
   private _operationLock: Promise<void> = Promise.resolve();
 
+  // Set to true by disconnect() so in-flight withLock operations reject immediately.
+  private _forceDisconnected = false;
+
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
     const previousLock = this._operationLock;
     let resolveLock!: () => void;
@@ -42,10 +53,44 @@ export class SSHManager {
     });
     try {
       await previousLock;
+      if (this._forceDisconnected) {
+        throw new Error('SSH connection was forcibly closed');
+      }
       return await fn();
     } finally {
       resolveLock();
     }
+  }
+
+  /**
+   * Wrap a command promise with a timeout. On timeout the stream is destroyed
+   * to terminate the remote process, and the promise rejects.
+   */
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    command: string,
+    stream: any,
+  ): Promise<T> {
+    if (timeoutMs <= 0) return promise; // 0 = no timeout
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        try {
+          stream?.destroy();
+        } catch {
+          /* ignore */
+        }
+        reject(
+          new Error(
+            `SSH command timed out after ${Math.round(timeoutMs / 1000)}s: ${command.slice(0, 120)}`,
+          ),
+        );
+      }, timeoutMs);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
   }
 
   /**
@@ -84,6 +129,7 @@ export class SSHManager {
     }
 
     this.config = config;
+    this._forceDisconnected = false;
 
     return new Promise<void>((resolve, reject) => {
       this.client = new SSHClient();
@@ -133,7 +179,8 @@ export class SSHManager {
   /**
    * Execute a command on the remote server
    */
-  async executeCommand(command: string): Promise<string> {
+  async executeCommand(command: string, options?: SSHExecuteOptions): Promise<string> {
+    const timeout = options?.timeoutMs ?? 30_000;
     return this.withLock(async () => {
       if (!this._ready || !this.client) {
         throw new Error('Not connected');
@@ -141,7 +188,7 @@ export class SSHManager {
 
       console.log(`[SSHManager] Executing command: ${command}`);
 
-      return new Promise((resolve, reject) => {
+      const commandPromise = new Promise<string>((resolve, reject) => {
         this.client!.exec(command, (err, stream) => {
           if (err) {
             console.error('[SSHManager] Command execution error:', err);
@@ -174,13 +221,19 @@ export class SSHManager {
           });
         });
       });
+
+      return this.withTimeout(commandPromise, timeout, command, null);
     });
   }
 
   /**
    * Execute a command and return full result including stderr and exit code
    */
-  async executeCommandFull(command: string): Promise<SSHExecuteResult> {
+  async executeCommandFull(
+    command: string,
+    options?: SSHExecuteOptions,
+  ): Promise<SSHExecuteResult> {
+    const timeout = options?.timeoutMs ?? 30_000;
     return this.withLock(async () => {
       if (!this._ready || !this.client) {
         throw new Error('Not connected');
@@ -188,7 +241,7 @@ export class SSHManager {
 
       console.log(`[SSHManager] Executing command (full): ${command}`);
 
-      return new Promise((resolve, reject) => {
+      const commandPromise = new Promise<SSHExecuteResult>((resolve, reject) => {
         this.client!.exec(command, (err, stream) => {
           if (err) {
             console.error('[SSHManager] Command execution error:', err);
@@ -217,6 +270,8 @@ export class SSHManager {
           });
         });
       });
+
+      return this.withTimeout(commandPromise, timeout, command, null);
     });
   }
 
@@ -228,7 +283,9 @@ export class SSHManager {
   async executeCommandStreaming(
     command: string,
     onOutput: (type: 'stdout' | 'stderr', data: string) => void,
+    options?: SSHExecuteOptions,
   ): Promise<SSHExecuteResult> {
+    const timeout = options?.timeoutMs ?? 600_000; // default 10 min for streaming (npm install, etc.)
     return this.withLock(async () => {
       if (!this._ready || !this.client) {
         throw new Error('Not connected');
@@ -236,7 +293,10 @@ export class SSHManager {
 
       console.log(`[SSHManager] Executing command (streaming): ${command}`);
 
-      return new Promise((resolve, reject) => {
+      // Assigned inside exec callback, used by withTimeout for cleanup
+      let streamRef: Parameters<typeof this.withTimeout>[3];
+
+      const commandPromise = new Promise<SSHExecuteResult>((resolve, reject) => {
         this.client!.exec(command, (err, stream) => {
           if (err) {
             console.error('[SSHManager] Command execution error:', err);
@@ -245,6 +305,7 @@ export class SSHManager {
 
           let stdout = '';
           let stderr = '';
+          streamRef = stream;
 
           stream.on('data', (data: Buffer) => {
             const chunk = data.toString();
@@ -269,6 +330,8 @@ export class SSHManager {
           });
         });
       });
+
+      return this.withTimeout(commandPromise, timeout, command, streamRef);
     });
   }
 
@@ -307,7 +370,6 @@ export class SSHManager {
       console.log(`[SSHManager] Uploading ${localPath} to ${remotePath}`);
 
       return new Promise((resolve, reject) => {
-        const fs = require('fs');
         const fastPut = promisify(this.sftp!.fastPut);
 
         fastPut
@@ -353,7 +415,7 @@ export class SSHManager {
   /**
    * Create a directory on the remote server
    */
-  async mkdir(remotePath: string, recursive: boolean = true): Promise<void> {
+  async mkdir(remotePath: string, _recursive: boolean = true): Promise<void> {
     return this.withLock(async () => {
       await this.initSFTP();
 
@@ -400,6 +462,7 @@ export class SSHManager {
     );
 
     return new Promise((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const net = require('net');
 
       const server = net.createServer((socket) => {
@@ -507,6 +570,7 @@ export class SSHManager {
 
             try {
               const channel = accept();
+              // eslint-disable-next-line @typescript-eslint/no-require-imports
               const net = require('net');
               const socket = net.connect(localPort, localHost, () => {
                 console.log(
@@ -632,9 +696,15 @@ export class SSHManager {
 
   /**
    * Disconnect from the remote server.
-   * Waits for any in-flight operation to complete before closing the connection.
+   * Forcibly closes the connection without waiting for in-flight operations.
+   * Sets _forceDisconnected so any pending withLock() call rejects immediately.
    */
   disconnect(): void {
+    console.log('[SSHManager] disconnect called');
+
+    // Signal in-flight withLock operations to reject
+    this._forceDisconnected = true;
+
     // Close all local forward servers
     for (const [port, server] of this.localForwardServers) {
       try {
@@ -646,20 +716,23 @@ export class SSHManager {
     }
     this.localForwardServers.clear();
 
-    // Schedule actual disconnect after current operation finishes
-    const doDisconnect = () => {
-      if (this.client) {
-        console.log('[SSHManager] Disconnecting');
-        this._ready = false;
-        this.client.end();
-        this.client = null;
-        this.sftp = null;
-        this.config = null;
-        this.interactiveShell = null;
+    // Forcibly close the SSH connection immediately
+    if (this.client) {
+      console.log('[SSHManager] Forcibly disconnecting');
+      this._ready = false;
+      try {
+        this.client.destroy();
+      } catch (e) {
+        console.error('[SSHManager] Error destroying connection:', e);
       }
-    };
+      this.client = null;
+      this.sftp = null;
+      this.config = null;
+      this.interactiveShell = null;
+    }
 
-    // Chain onto the operation lock so we wait for any running command
-    this._operationLock = this._operationLock.then(doDisconnect, doDisconnect);
+    // Reset the operation lock so future operations don't queue behind a dead lock
+    this._operationLock = Promise.resolve();
+    this._forceDisconnected = false;
   }
 }

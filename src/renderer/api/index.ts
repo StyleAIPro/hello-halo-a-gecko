@@ -3,6 +3,8 @@
  * Automatically selects the appropriate transport
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- API layer uses dynamic payload types */
+
 import {
   isElectron,
   httpRequest,
@@ -2074,7 +2076,7 @@ export const api = {
 
   remoteServerDeployOffline: async (
     serverId: string,
-    platform: 'x64' | 'arm64' = 'x64',
+    platform?: 'x64' | 'arm64',
   ): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.remoteServer.deployOffline(serverId, platform);
@@ -2088,7 +2090,14 @@ export const api = {
     if (isElectron()) {
       return window.aicoBot.remoteServer.checkOfflineBundle(platform);
     }
-    return httpRequest('GET', `/api/remote-server/check-offline-bundle`, { platform });
+    return httpRequest('POST', '/api/remote-server/check-offline-bundle', { platform });
+  },
+
+  remoteServerCancelOperation: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.cancelOperation(serverId);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/cancel-operation`);
   },
 
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
