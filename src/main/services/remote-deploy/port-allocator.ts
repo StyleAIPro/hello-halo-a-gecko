@@ -61,8 +61,18 @@ async function isPortOwnedByClient(
 export async function resolvePort(sshManager: SSHManager, clientId: string): Promise<number> {
   let port = calculatePreferredPort(clientId);
   const maxAttempts = 20;
+  const totalTimeoutMs = 120_000; // 2 minutes total for port resolution
+  const startTime = Date.now();
 
   for (let i = 0; i < maxAttempts; i++) {
+    // Guard against accumulated timeout across all attempts
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= totalTimeoutMs) {
+      throw new Error(
+        `Port allocation timed out after ${Math.round(elapsed / 1000)}s (${i}/${maxAttempts} attempts)`,
+      );
+    }
+
     // Check if this port is already owned by our clientId
     const ownedByUs = await isPortOwnedByClient(sshManager, port, clientId);
     if (ownedByUs) {

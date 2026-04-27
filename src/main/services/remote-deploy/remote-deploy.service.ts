@@ -3,6 +3,12 @@
  * Manages remote server configurations and deployments
  */
 
+/* eslint-disable no-console -- deployment operations need verbose debug logging */
+/* eslint-disable @typescript-eslint/no-explicit-any -- ssh2/SDK use untyped objects */
+/* eslint-disable @typescript-eslint/no-require-imports -- dynamic requires for platform paths */
+/* eslint-disable no-empty -- pre-existing empty catch blocks in deployment flow */
+/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables in large file */
+
 import { app } from 'electron';
 import type { SSHConfig } from '../remote-ssh/ssh-manager';
 import { SSHManager } from '../remote-ssh/ssh-manager';
@@ -126,6 +132,10 @@ export class RemoteDeployService {
   private static readonly HEALTH_CHECK_INTERVAL_MS = 30_000;
   private static globalHealthTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Operation watchdog: auto-fail stale operations after timeout
+  private static readonly OPERATION_WATCHDOG_MS = 10 * 60 * 1000; // 10 minutes
+  private operationWatchdogs: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
   constructor() {
     this.loadServers();
     this.startHealthMonitor();
@@ -186,9 +196,27 @@ export class RemoteDeployService {
 
   startUpdate(id: string): void {
     this.updateOperations.set(id, { inProgress: true });
+
+    // Clear any existing watchdog for this server
+    const existingWatchdog = this.operationWatchdogs.get(id);
+    if (existingWatchdog) clearTimeout(existingWatchdog);
+
+    // Set watchdog timer to auto-fail if operation doesn't complete in time
+    const watchdog = setTimeout(() => {
+      const op = this.updateOperations.get(id);
+      if (op?.inProgress) {
+        console.warn(`[RemoteDeployService] Operation watchdog triggered for ${id}`);
+        this.failUpdate(
+          id,
+          `操作超时（超过 ${Math.round(RemoteDeployService.OPERATION_WATCHDOG_MS / 1000)}s 未完成）`,
+        );
+      }
+    }, RemoteDeployService.OPERATION_WATCHDOG_MS);
+    this.operationWatchdogs.set(id, watchdog);
   }
 
   completeUpdate(id: string, data?: any): void {
+    this.clearOperationWatchdog(id);
     this.updateOperations.set(id, {
       inProgress: false,
       completedAt: Date.now(),
@@ -198,6 +226,7 @@ export class RemoteDeployService {
   }
 
   failUpdate(id: string, error: string): void {
+    this.clearOperationWatchdog(id);
     this.updateOperations.set(id, {
       inProgress: false,
       completedAt: Date.now(),
@@ -208,6 +237,32 @@ export class RemoteDeployService {
 
   getUpdateStatus(id: string): UpdateOperationState | null {
     return this.updateOperations.get(id) || null;
+  }
+
+  private clearOperationWatchdog(id: string): void {
+    const watchdog = this.operationWatchdogs.get(id);
+    if (watchdog) {
+      clearTimeout(watchdog);
+      this.operationWatchdogs.delete(id);
+    }
+  }
+
+  /**
+   * Cancel an in-flight operation for a server.
+   * Forcibly disconnects SSH to interrupt any running command, and fails the update state.
+   */
+  cancelOperation(id: string): void {
+    console.log(`[RemoteDeployService] cancelOperation called for ${id}`);
+    this.clearOperationWatchdog(id);
+    this.failUpdate(id, '用户取消了操作');
+
+    // Forcibly disconnect SSH to interrupt any running command
+    const manager = this.sshManagers.get(id);
+    if (manager) {
+      manager.disconnect();
+    }
+
+    this.emitCommandOutput(id, 'error', '操作已被用户取消');
   }
 
   /** Get all servers that currently have an update in progress */
@@ -808,6 +863,27 @@ export class RemoteDeployService {
         lastConnected: new Date(),
       });
 
+      // Auto-detect CPU architecture for offline deployment
+      if (!server.detectedArch) {
+        try {
+          const mgr = this.sshManagers.get(id);
+          if (mgr && mgr.isConnected()) {
+            const archResult = await mgr.executeCommand('uname -m', { timeoutMs: 10_000 });
+            const arch = archResult.trim();
+            const detectedArch =
+              arch === 'x86_64' ? 'x64' : arch === 'aarch64' ? 'arm64' : undefined;
+            if (detectedArch) {
+              await this.updateServer(id, { detectedArch });
+              console.log(
+                `[RemoteDeployService] Detected architecture on connect: ${arch} (${detectedArch})`,
+              );
+            }
+          }
+        } catch {
+          // Non-critical, ignore
+        }
+      }
+
       // Detect agent status after connection so proxyRunning is accurate
       try {
         await this.detectAgentInstalled(id);
@@ -952,6 +1028,7 @@ export class RemoteDeployService {
       this.emitDeployProgress(id, 'upload', '正在解压部署包...', 35);
       await manager.executeCommand(
         `cd ${deployPath} && tar -xzf ${remotePackageName} && rm -f ${remotePackageName}`,
+        { timeoutMs: 120_000 },
       );
       this.emitCommandOutput(id, 'success', '✓ 部署包已上传并解压');
 
@@ -977,7 +1054,10 @@ export class RemoteDeployService {
         // Use npmmirror (Taobao) as fallback for China network issues
         const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
 
-        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
+        // Node.js install may download packages, allow up to 5 minutes
+        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd, {
+          timeoutMs: 300_000,
+        });
         if (nodeInstallResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim());
         }
@@ -1020,7 +1100,9 @@ export class RemoteDeployService {
         console.log('[RemoteDeployService] npx not found, installing...');
         this.emitCommandOutput(id, 'command', 'npm install -g npx --force');
         this.emitDeployProgress(id, 'install', 'npx 未安装，正在自动安装...', 46);
-        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force');
+        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
+          timeoutMs: 120_000,
+        });
         if (npxInstallResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim());
         }
@@ -1051,7 +1133,9 @@ export class RemoteDeployService {
         }
 
         // STEP 2: Clean npm cache to prevent cb.apply errors
-        await manager.executeCommand('npm cache clean --force 2>/dev/null || true');
+        await manager.executeCommand('npm cache clean --force 2>/dev/null || true', {
+          timeoutMs: 60_000,
+        });
 
         // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
         try {
@@ -1128,7 +1212,7 @@ WRAPPER
 
       // Remove existing node_modules to force clean install
       this.emitDeployProgress(id, 'install', '正在清理旧依赖...', 50);
-      await manager.executeCommand(`rm -rf ${deployPath}/node_modules`);
+      await manager.executeCommand(`rm -rf ${deployPath}/node_modules`, { timeoutMs: 60_000 });
 
       // Run npm install with streaming output
       this.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 55);
@@ -1374,6 +1458,7 @@ WRAPPER
     this.emitDeployProgress(id, 'upload', '正在解压部署包...', 35);
     await manager.executeCommand(
       `cd ${deployPath} && tar -xzf ${remotePackageName} && rm -f ${remotePackageName}`,
+      { timeoutMs: 120_000 },
     );
     this.emitCommandOutput(id, 'success', '✓ 部署包已上传并解压');
 
@@ -1631,7 +1716,7 @@ WRAPPER
           fs.rmSync(stagingDir, { recursive: true, force: true });
         } catch {}
       }
-      throw new Error(`Failed to create deployment package: ${err}`);
+      throw new Error(`Failed to create deployment package: ${err}`, { cause: err });
     }
 
     // Clean up staging dir on success
@@ -1780,7 +1865,7 @@ WRAPPER
       const healthData = JSON.parse(healthResult.stdout || '{}');
       proxyHealthy = healthData.status === 'ok';
     } catch {
-      proxyHealthy = false;
+      // proxyHealthy remains false
     }
 
     if (proxyHealthy) {
@@ -2894,8 +2979,8 @@ WRAPPER
         const deployPath = getDeployPath(server);
         const fallbackCheck = await manager.executeCommandFull(
           `cat $(npm root -g 2>/dev/null)/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
-          `cat ${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
-          `echo ""`,
+            `cat ${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
+            `echo ""`,
         );
         const versionLine = fallbackCheck.stdout.trim();
         const fbVersionMatch = versionLine.match(/"version":\s*"([\d.]+)"/);
@@ -3147,7 +3232,10 @@ WRAPPER
         // Use npmmirror (Taobao) as fallback for China network issues
         const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
 
-        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd);
+        // Node.js install may download packages, allow up to 5 minutes
+        const nodeInstallResult = await manager.executeCommandFull(installNodeCmd, {
+          timeoutMs: 300_000,
+        });
         if (nodeInstallResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim());
         }
@@ -3194,7 +3282,9 @@ WRAPPER
         // npx not found - install it using npm
         console.log('[RemoteDeployService] npx not found, installing...');
         this.emitCommandOutput(id, 'command', 'npm install -g npx --force');
-        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force');
+        const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
+          timeoutMs: 120_000,
+        });
         if (npxInstallResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim());
         }
@@ -3225,7 +3315,9 @@ WRAPPER
         }
 
         // STEP 2: Clean npm cache to prevent cb.apply errors
-        await manager.executeCommand('npm cache clean --force 2>/dev/null || true');
+        await manager.executeCommand('npm cache clean --force 2>/dev/null || true', {
+          timeoutMs: 60_000,
+        });
 
         // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
         try {
@@ -3301,6 +3393,7 @@ WRAPPER
         this.emitCommandOutput(id, 'command', 'npm install -g @anthropic-ai/claude-code');
         const claudeInstallResult = await manager.executeCommandFull(
           'npm install -g @anthropic-ai/claude-code',
+          { timeoutMs: 180_000 },
         );
         if (claudeInstallResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', claudeInstallResult.stdout.trim());
@@ -3354,7 +3447,7 @@ WRAPPER
 
         const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
         this.emitCommandOutput(id, 'command', installCmd);
-        const installResult = await manager.executeCommandFull(installCmd);
+        const installResult = await manager.executeCommandFull(installCmd, { timeoutMs: 180_000 });
         console.log('[RemoteDeployService] npm install output:', installResult.stdout);
         if (installResult.stdout.trim()) {
           this.emitCommandOutput(id, 'output', installResult.stdout.trim());
@@ -4345,7 +4438,7 @@ WRAPPER
    * Deploy agent code using an embedded offline bundle.
    * No network access required on the remote server (except Claude API at runtime).
    */
-  async deployAgentCodeOffline(id: string, platform: 'x64' | 'arm64'): Promise<void> {
+  async deployAgentCodeOffline(id: string, _platform?: 'x64' | 'arm64'): Promise<void> {
     const server = this.servers.get(id);
     if (!server) {
       throw new Error(`Server not found: ${id}`);
@@ -4353,8 +4446,36 @@ WRAPPER
 
     this.emitCommandOutput(id, 'command', '========================================');
     this.emitCommandOutput(id, 'command', '离线部署 (Offline Deploy)');
-    this.emitCommandOutput(id, 'command', `目标平台: linux-${platform}`);
     this.emitCommandOutput(id, 'command', '========================================');
+
+    // Ensure SSH connection
+    const manager = this.getSSHManager(id);
+    if (!manager.isConnected()) {
+      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5);
+      await this.connectServer(id);
+    }
+
+    await this.ensureSshConnectionHealthy(id);
+
+    // Auto-detect remote server architecture (use cached, or detect now)
+    let platform = server.detectedArch;
+    if (!platform) {
+      this.emitDeployProgress(id, 'prepare', '正在检测远端服务器架构...', 8);
+      this.emitCommandOutput(id, 'command', '$ uname -m');
+      try {
+        const archResult = (await manager.executeCommand('uname -m', { timeoutMs: 10_000 })).trim();
+        platform = archResult === 'x86_64' ? 'x64' : archResult === 'aarch64' ? 'arm64' : undefined;
+      } catch {
+        throw new Error('无法检测远端服务器 CPU 架构（uname -m 超时），请检查 SSH 连接');
+      }
+      if (!platform) {
+        throw new Error(`不支持的 CPU 架构: ${archResult}，仅支持 x86_64 和 aarch64`);
+      }
+      // Cache detected architecture
+      await this.updateServer(id, { detectedArch: platform });
+    }
+
+    this.emitCommandOutput(id, 'command', `目标平台: linux-${platform} (自动检测)`);
 
     // Locate offline bundle
     const bundlePath = this.getOfflineBundlePath(platform);
@@ -4371,51 +4492,68 @@ WRAPPER
       `离线包: ${path.basename(bundlePath)} (${(bundleSize / 1024 / 1024).toFixed(1)} MB)`,
     );
 
-    // Ensure SSH connection
-    const manager = this.getSSHManager(id);
-    if (!manager.isConnected()) {
-      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5);
-      await this.connectServer(id);
-    }
-
-    await this.ensureSshConnectionHealthy(id);
-
     const deployPath = getDeployPath(server);
 
     try {
-      // Step 1: Create remote directory structure
-      this.emitDeployProgress(id, 'prepare', '正在创建远程目录...', 10);
-      this.emitCommandOutput(id, 'command', '$ mkdir -p deploy dirs');
-      await manager.executeCommand(`mkdir -p ${deployPath}`);
-      await manager.executeCommand(`mkdir -p ${deployPath}/dist`);
-      await manager.executeCommand(`mkdir -p ${deployPath}/logs`);
-      await manager.executeCommand(`mkdir -p ${deployPath}/data`);
-      await manager.executeCommand(`mkdir -p ${deployPath}/config`);
-      await manager.executeCommand(`mkdir -p ~/.agents/skills`);
-      await manager.executeCommand(`mkdir -p ~/.agents/claude-config`);
-
-      // Step 2: Upload offline bundle
-      this.emitDeployProgress(id, 'upload', '正在上传离线部署包...', 20);
-      this.emitCommandOutput(id, 'command', `$ SFTP upload ${path.basename(bundlePath)}`);
-      const remoteBundlePath = `${deployPath}/aico-bot-offline.tar.gz`;
-      await manager.uploadFile(bundlePath, remoteBundlePath);
-      this.emitCommandOutput(id, 'success', '✓ 离线包上传完成');
-
-      // Step 3: Extract
-      this.emitDeployProgress(id, 'extract', '正在解压离线部署包...', 35);
-      this.emitCommandOutput(id, 'command', '$ tar -xzf aico-bot-offline.tar.gz');
-      // Detect archive format and extract accordingly
-      const detectCmd = `cd ${deployPath} && file aico-bot-offline.tar.gz 2>/dev/null | grep -q XZ && echo "XZ" || echo "GZ"`;
-      const archiveType = await manager.executeCommandFull(detectCmd);
-      const tarFlag = archiveType.stdout.trim() === 'XZ' ? '-xJf' : '-xzf';
-      const extractCmd = `cd ${deployPath} && tar ${tarFlag} aico-bot-offline.tar.gz && rm -f aico-bot-offline.tar.gz`;
-      await manager.executeCommand(extractCmd);
-
-      // Fix file permissions: SFTP upload can strip execute bits
-      await manager.executeCommand(
-        `chmod +x ${deployPath}/node-v*/bin/* 2>/dev/null || true`,
+      // Step 2: Upload offline bundle (skip if already deployed with same version)
+      this.emitDeployProgress(id, 'upload', '正在检查远端部署状态...', 20);
+      const remoteVersionResult = await manager.executeCommandFull(
+        `cat ${deployPath}/dist/version.json 2>/dev/null || echo ""`,
       );
-      this.emitCommandOutput(id, 'success', '✓ 解压完成');
+      let skipUpload = false;
+      try {
+        const remoteVersion = JSON.parse(remoteVersionResult.stdout);
+        const remoteTimestamp = remoteVersion.buildTimestamp || '';
+        const localVersionContent = fs.readFileSync(
+          path.join(getRemoteAgentProxyPath(), 'dist', 'version.json'),
+          'utf-8',
+        );
+        const localVersion = JSON.parse(localVersionContent);
+        const localTimestamp = localVersion.buildTimestamp || '';
+        if (remoteTimestamp && remoteTimestamp === localTimestamp) {
+          skipUpload = true;
+          this.emitCommandOutput(id, 'output', `远端版本与本地一致 (${localTimestamp})，跳过上传`);
+        }
+      } catch {
+        // version.json missing or unparseable — proceed with upload
+      }
+
+      if (!skipUpload) {
+        // Create remote directories before upload
+        this.emitDeployProgress(id, 'prepare', '正在创建远程目录...', 10);
+        await manager.executeCommand(`mkdir -p ${deployPath}`);
+        await manager.executeCommand(`mkdir -p ${deployPath}/dist`);
+        await manager.executeCommand(`mkdir -p ${deployPath}/logs`);
+        await manager.executeCommand(`mkdir -p ${deployPath}/data`);
+        await manager.executeCommand(`mkdir -p ${deployPath}/config`);
+        await manager.executeCommand(`mkdir -p ~/.agents/skills`);
+        await manager.executeCommand(`mkdir -p ~/.agents/claude-config`);
+
+        this.emitDeployProgress(id, 'upload', '正在上传离线部署包...', 20);
+        this.emitCommandOutput(id, 'command', `$ SFTP upload ${path.basename(bundlePath)}`);
+        const remoteBundlePath = `${deployPath}/aico-bot-offline.tar.gz`;
+        await manager.uploadFile(bundlePath, remoteBundlePath);
+        this.emitCommandOutput(id, 'success', '✓ 离线包上传完成');
+      }
+
+      // Step 3: Extract (skip if version already matches)
+      if (!skipUpload) {
+        this.emitDeployProgress(id, 'extract', '正在解压离线部署包...', 35);
+        this.emitCommandOutput(id, 'command', '$ tar -xzf aico-bot-offline.tar.gz');
+        // Detect archive format and extract accordingly
+        const detectCmd = `cd ${deployPath} && file aico-bot-offline.tar.gz 2>/dev/null | grep -q XZ && echo "XZ" || echo "GZ"`;
+        const archiveType = await manager.executeCommandFull(detectCmd);
+        const tarFlag = archiveType.stdout.trim() === 'XZ' ? '-xJf' : '-xzf';
+        const extractCmd = `cd ${deployPath} && tar ${tarFlag} aico-bot-offline.tar.gz && rm -f aico-bot-offline.tar.gz`;
+        // Offline bundle can be large (~200MB+), allow up to 5 minutes
+        await manager.executeCommand(extractCmd, { timeoutMs: 300_000 });
+
+        // Fix file permissions: SFTP upload can strip execute bits
+        await manager.executeCommand(`chmod +x ${deployPath}/node-v*/bin/* 2>/dev/null || true`);
+        this.emitCommandOutput(id, 'success', '✓ 解压完成');
+      } else {
+        this.emitDeployProgress(id, 'extract', '版本一致，跳过解压', 35);
+      }
 
       // Step 4: Configure environment (bundled Node.js + SDK symlink)
       this.emitDeployProgress(id, 'env', '正在配置运行环境...', 50);
@@ -4441,13 +4579,15 @@ WRAPPER
       const npmRootResult = await manager.executeCommandFull(
         `export PATH="/usr/local/bin:/usr/local/node-v*/bin:/usr/bin:/bin:$PATH" && npm root -g 2>/dev/null`,
       );
-      const globalNpmRoot = (npmRootResult.stdout || '').trim().split('\n').pop()?.trim() || '/usr/local/lib/node_modules';
+      const globalNpmRoot =
+        (npmRootResult.stdout || '').trim().split('\n').pop()?.trim() ||
+        '/usr/local/lib/node_modules';
       this.emitCommandOutput(id, 'output', `npm global root: ${globalNpmRoot}`);
 
       await manager.executeCommand(
         `mkdir -p "${globalNpmRoot}/@anthropic-ai" && ` +
-        `rm -rf "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk" && ` +
-        `cp -r "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk" "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk"`,
+          `rm -rf "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk" && ` +
+          `cp -r "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk" "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk"`,
       );
 
       // Verify the copy succeeded
@@ -4455,7 +4595,11 @@ WRAPPER
         `test -f "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk/package.json" && echo "OK" || echo "FAIL"`,
       );
       if (verifyResult.stdout.trim() !== 'OK') {
-        this.emitCommandOutput(id, 'error', '⚠ SDK 复制到全局目录失败，但离线部署的 node_modules 中仍可用');
+        this.emitCommandOutput(
+          id,
+          'error',
+          '⚠ SDK 复制到全局目录失败，但离线部署的 node_modules 中仍可用',
+        );
       } else {
         this.emitCommandOutput(id, 'success', '✓ SDK 已安装到全局目录');
       }
@@ -4503,7 +4647,7 @@ WRAPPER
    * Update agent code using offline bundle (incremental — only dist/).
    * Falls back to full offline deploy if remote has no existing deployment.
    */
-  async updateAgentCodeOffline(id: string, platform: 'x64' | 'arm64'): Promise<void> {
+  async updateAgentCodeOffline(id: string, _platform?: 'x64' | 'arm64'): Promise<void> {
     const server = this.servers.get(id);
     if (!server) {
       throw new Error(`Server not found: ${id}`);
