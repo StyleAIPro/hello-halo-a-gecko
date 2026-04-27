@@ -15,3 +15,4 @@
 | 2026-04-24 | 修复多文件 skill 安装超时：安装超时 60s → 120s + SKIP_DIRS 跳过非必要目录 + 文件下载 skipRateLimit | 用户 | bugfix-skill-download-too-slow-v1 |
 | 2026-04-24 | 修复分类目录误显示为 skill：listSkillsFromRepo 中 SKILL.md 不存在时跳过该目录，不再创建默认条目 | 用户 | bugfix-non-skill-dirs-shown-v1 |
 | 2026-04-25 | 远程安装支持 GitCode Direct Upload：installRemoteSkill 新增 sourceType 参数，GitCode 源走本机 API 下载→SSH 上传，GitHub npx 失败时自动 fallback 到 Direct Upload | 用户 | feature-direct-remote-skill-install-v1 |
+| 2026-04-26 | GitCode API 对齐全面优化：修正 Base URL（api.gitcode.com）、放宽速率限制（1s→200ms）、raw 端点替代 base64、并行获取技能详情、30s 超时保护、token 从 URL 移到 header、递归扫描 deadline、代码去重 | @MoonSeeker | refactor-gitcode-api-alignment-v1 |

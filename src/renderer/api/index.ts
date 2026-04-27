@@ -142,6 +142,13 @@ export const api = {
     return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl });
   },
 
+  testProxy: async (proxyUrl: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.testProxy(proxyUrl);
+    }
+    return httpRequest('POST', '/api/config/test-proxy', { proxyUrl });
+  },
+
   refreshAISourcesConfig: async (): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.refreshAISourcesConfig();
@@ -2063,6 +2070,25 @@ export const api = {
       return window.aicoBot.remoteServer.acknowledgeUpdate(serverId);
     }
     return httpRequest('POST', `/api/remote-server/${serverId}/acknowledge-update`);
+  },
+
+  remoteServerDeployOffline: async (
+    serverId: string,
+    platform: 'x64' | 'arm64' = 'x64',
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.deployOffline(serverId, platform);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy-offline`, { platform });
+  },
+
+  remoteServerCheckOfflineBundle: async (
+    platform: 'x64' | 'arm64' = 'x64',
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.checkOfflineBundle(platform);
+    }
+    return httpRequest('GET', `/api/remote-server/check-offline-bundle`, { platform });
   },
 
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {

@@ -7,9 +7,7 @@
  */
 
 import { getGitCodeToken, setGitCodeToken } from './config.service';
-import { gitcodeFetch } from './skill/gitcode-skill-source.service';
-
-const GITCODE_API_BASE = 'https://gitcode.com/api/v5';
+import { gitcodeFetch, GITCODE_API_BASE } from './skill/gitcode-skill-source.service';
 
 interface GitCodeAuthStatus {
   authenticated: boolean;
@@ -48,7 +46,7 @@ export async function getGitCodeAuthStatus(): Promise<GitCodeAuthStatus> {
       authenticated: true,
       user: data.login || data.username || data.name || null,
       name: data.name || data.login || null,
-      avatarUrl: data.avatar_url || data.avatar_url || null,
+      avatarUrl: data.avatar_url || null,
     };
   } catch (error: any) {
     return {

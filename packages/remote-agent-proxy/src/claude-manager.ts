@@ -957,12 +957,16 @@ export class ClaudeManager {
       // Encode real backend config into the API key (same as local AICO-Bot)
       const { encodeBackendConfig } = await import('./openai-compat-router/utils/config.js')
       const { getApiTypeFromUrl } = await import('./openai-compat-router/server/api-type.js')
+      const { normalizeApiUrl } = await import('./openai-compat-router/utils/url.js')
+
+      // Normalize URL: auto-append /v1/chat/completions for bare host URLs (e.g., http://IP:port)
+      const normalizedUrl = normalizeApiUrl(effectiveBaseUrl || '', 'openai')
 
       // Determine API type from URL suffix, default to chat_completions
-      const apiType = getApiTypeFromUrl(effectiveBaseUrl || '') || 'chat_completions'
+      const apiType = getApiTypeFromUrl(normalizedUrl) || 'chat_completions'
 
       const encodedConfig = encodeBackendConfig({
-        url: effectiveBaseUrl || '',
+        url: normalizedUrl,
         key: effectiveApiKey || '',
         model: effectiveModel,
         apiType,
@@ -982,7 +986,7 @@ export class ClaudeManager {
       // which then converts to OpenAI format and replaces the model name with the real one.
       options.model = 'claude-sonnet-4-6'
 
-      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${effectiveBaseUrl} (apiType=${apiType}, model=${effectiveModel})`)
+      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${normalizedUrl} (apiType=${apiType}, model=${effectiveModel})`)
     } else {
       // Native Anthropic / Anthropic-compatible proxy — direct passthrough
       // CRITICAL: Must set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN.

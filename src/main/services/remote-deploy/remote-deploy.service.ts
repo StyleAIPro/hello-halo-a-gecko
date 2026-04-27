@@ -2888,6 +2888,27 @@ WRAPPER
         versionMatched = version === REQUIRED_SDK_VERSION;
       }
 
+      // Level 1.5: Fallback — check file existence directly
+      // npm list -g may not find packages installed via cp (offline deploy)
+      if (!installed) {
+        const deployPath = getDeployPath(server);
+        const fallbackCheck = await manager.executeCommandFull(
+          `cat $(npm root -g 2>/dev/null)/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
+          `cat ${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json 2>/dev/null | grep '"version"' || ` +
+          `echo ""`,
+        );
+        const versionLine = fallbackCheck.stdout.trim();
+        const fbVersionMatch = versionLine.match(/"version":\s*"([\d.]+)"/);
+        if (fbVersionMatch) {
+          version = fbVersionMatch[1];
+          versionMatched = version === REQUIRED_SDK_VERSION;
+          installed = true;
+          console.log(
+            `[RemoteDeployService] SDK found via file existence check, version=${version}`,
+          );
+        }
+      }
+
       // Level 2: Check if proxy is running via health endpoint
       let proxyRunning = false;
       if (server.assignedPort) {
@@ -4288,6 +4309,381 @@ WRAPPER
         }
       }
     }
+  }
+
+  // ===== Offline Deployment Methods =====
+
+  /**
+   * Get the path to an embedded offline deployment bundle.
+   * In production: process.resourcesPath/offline-bundles/
+   * In development: project root/resources/offline-bundles/
+   */
+  getOfflineBundlePath(platform: 'x64' | 'arm64'): string | null {
+    const bundleDir = app.isPackaged
+      ? path.join(process.resourcesPath, 'offline-bundles')
+      : path.join(app.getAppPath(), 'resources', 'offline-bundles');
+
+    // Try both .tar.xz and .tar.gz extensions
+    const baseName = `aico-bot-offline-linux-${platform}`;
+    for (const ext of ['.tar.gz', '.tar.xz']) {
+      const bundlePath = path.join(bundleDir, `${baseName}${ext}`);
+      if (fs.existsSync(bundlePath)) {
+        return bundlePath;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Check if offline deployment bundles are available.
+   */
+  isOfflineBundleAvailable(platform: 'x64' | 'arm64'): boolean {
+    return this.getOfflineBundlePath(platform) !== null;
+  }
+
+  /**
+   * Deploy agent code using an embedded offline bundle.
+   * No network access required on the remote server (except Claude API at runtime).
+   */
+  async deployAgentCodeOffline(id: string, platform: 'x64' | 'arm64'): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) {
+      throw new Error(`Server not found: ${id}`);
+    }
+
+    this.emitCommandOutput(id, 'command', '========================================');
+    this.emitCommandOutput(id, 'command', '离线部署 (Offline Deploy)');
+    this.emitCommandOutput(id, 'command', `目标平台: linux-${platform}`);
+    this.emitCommandOutput(id, 'command', '========================================');
+
+    // Locate offline bundle
+    const bundlePath = this.getOfflineBundlePath(platform);
+    if (!bundlePath) {
+      throw new Error(
+        `离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`,
+      );
+    }
+
+    const bundleSize = fs.statSync(bundlePath).size;
+    this.emitCommandOutput(
+      id,
+      'output',
+      `离线包: ${path.basename(bundlePath)} (${(bundleSize / 1024 / 1024).toFixed(1)} MB)`,
+    );
+
+    // Ensure SSH connection
+    const manager = this.getSSHManager(id);
+    if (!manager.isConnected()) {
+      this.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5);
+      await this.connectServer(id);
+    }
+
+    await this.ensureSshConnectionHealthy(id);
+
+    const deployPath = getDeployPath(server);
+
+    try {
+      // Step 1: Create remote directory structure
+      this.emitDeployProgress(id, 'prepare', '正在创建远程目录...', 10);
+      this.emitCommandOutput(id, 'command', '$ mkdir -p deploy dirs');
+      await manager.executeCommand(`mkdir -p ${deployPath}`);
+      await manager.executeCommand(`mkdir -p ${deployPath}/dist`);
+      await manager.executeCommand(`mkdir -p ${deployPath}/logs`);
+      await manager.executeCommand(`mkdir -p ${deployPath}/data`);
+      await manager.executeCommand(`mkdir -p ${deployPath}/config`);
+      await manager.executeCommand(`mkdir -p ~/.agents/skills`);
+      await manager.executeCommand(`mkdir -p ~/.agents/claude-config`);
+
+      // Step 2: Upload offline bundle
+      this.emitDeployProgress(id, 'upload', '正在上传离线部署包...', 20);
+      this.emitCommandOutput(id, 'command', `$ SFTP upload ${path.basename(bundlePath)}`);
+      const remoteBundlePath = `${deployPath}/aico-bot-offline.tar.gz`;
+      await manager.uploadFile(bundlePath, remoteBundlePath);
+      this.emitCommandOutput(id, 'success', '✓ 离线包上传完成');
+
+      // Step 3: Extract
+      this.emitDeployProgress(id, 'extract', '正在解压离线部署包...', 35);
+      this.emitCommandOutput(id, 'command', '$ tar -xzf aico-bot-offline.tar.gz');
+      // Detect archive format and extract accordingly
+      const detectCmd = `cd ${deployPath} && file aico-bot-offline.tar.gz 2>/dev/null | grep -q XZ && echo "XZ" || echo "GZ"`;
+      const archiveType = await manager.executeCommandFull(detectCmd);
+      const tarFlag = archiveType.stdout.trim() === 'XZ' ? '-xJf' : '-xzf';
+      const extractCmd = `cd ${deployPath} && tar ${tarFlag} aico-bot-offline.tar.gz && rm -f aico-bot-offline.tar.gz`;
+      await manager.executeCommand(extractCmd);
+
+      // Fix file permissions: SFTP upload can strip execute bits
+      await manager.executeCommand(
+        `chmod +x ${deployPath}/node-v*/bin/* 2>/dev/null || true`,
+      );
+      this.emitCommandOutput(id, 'success', '✓ 解压完成');
+
+      // Step 4: Configure environment (bundled Node.js + SDK symlink)
+      this.emitDeployProgress(id, 'env', '正在配置运行环境...', 50);
+
+      // Find bundled Node.js binary path
+      const findNodeResult = await manager.executeCommandFull(
+        `ls -d ${deployPath}/node-v*/bin/node 2>/dev/null || echo "NOT_FOUND"`,
+      );
+      const bundledNodePath = findNodeResult.stdout.trim();
+
+      if (!bundledNodePath || bundledNodePath === 'NOT_FOUND') {
+        throw new Error('离线包中未找到 Node.js 二进制文件');
+      }
+
+      // Verify bundled Node.js works
+      const nodeVersionResult = await manager.executeCommandFull(`${bundledNodePath} --version`);
+      this.emitCommandOutput(id, 'output', `Bundled Node.js: ${nodeVersionResult.stdout.trim()}`);
+
+      // Install SDK into npm global node_modules so `npm list -g` can find it
+      // Only copy claude-agent-sdk, preserve existing claude-code CLI
+      this.emitCommandOutput(id, 'output', '正在安装 SDK 到全局目录...');
+      // First detect the actual npm global prefix
+      const npmRootResult = await manager.executeCommandFull(
+        `export PATH="/usr/local/bin:/usr/local/node-v*/bin:/usr/bin:/bin:$PATH" && npm root -g 2>/dev/null`,
+      );
+      const globalNpmRoot = (npmRootResult.stdout || '').trim().split('\n').pop()?.trim() || '/usr/local/lib/node_modules';
+      this.emitCommandOutput(id, 'output', `npm global root: ${globalNpmRoot}`);
+
+      await manager.executeCommand(
+        `mkdir -p "${globalNpmRoot}/@anthropic-ai" && ` +
+        `rm -rf "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk" && ` +
+        `cp -r "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk" "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk"`,
+      );
+
+      // Verify the copy succeeded
+      const verifyResult = await manager.executeCommandFull(
+        `test -f "${globalNpmRoot}/@anthropic-ai/claude-agent-sdk/package.json" && echo "OK" || echo "FAIL"`,
+      );
+      if (verifyResult.stdout.trim() !== 'OK') {
+        this.emitCommandOutput(id, 'error', '⚠ SDK 复制到全局目录失败，但离线部署的 node_modules 中仍可用');
+      } else {
+        this.emitCommandOutput(id, 'success', '✓ SDK 已安装到全局目录');
+      }
+      this.emitCommandOutput(id, 'success', '✓ 环境配置完成');
+
+      // Step 5: Generate .env config + sync system prompt
+      this.emitDeployProgress(id, 'config', '正在生成配置...', 60);
+      await this.syncSystemPrompt(id);
+
+      // Step 6: Stop existing agent if running
+      try {
+        await this.stopAgent(id);
+      } catch {
+        // Ignore if not running
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Step 7: Start agent using bundled Node.js
+      this.emitDeployProgress(id, 'start', '正在启动 Agent...', 75);
+      await this.startAgentOffline(id, deployPath);
+
+      this.emitDeployProgress(id, 'complete', '✓ 离线部署完成!', 100);
+      this.emitCommandOutput(id, 'success', '========================================');
+      this.emitCommandOutput(id, 'success', '离线部署成功完成!');
+      this.emitCommandOutput(id, 'success', '========================================');
+
+      // Mark SDK as installed — offline bundle includes the SDK,
+      // and npm list -g may not detect it (installed via cp, not npm install)
+      await this.updateServer(id, {
+        sdkInstalled: true,
+        sdkVersion: REQUIRED_SDK_VERSION,
+        sdkVersionMismatch: false,
+      });
+    } catch (error) {
+      this.emitDeployProgress(id, 'error', `离线部署失败: ${error}`, 0);
+      this.emitCommandOutput(id, 'error', `✗ 离线部署失败: ${error}`);
+
+      // Auto-fallback to online deployment
+      this.emitCommandOutput(id, 'output', '正在回退到在线部署...');
+      return this.deployAgentCode(id);
+    }
+  }
+
+  /**
+   * Update agent code using offline bundle (incremental — only dist/).
+   * Falls back to full offline deploy if remote has no existing deployment.
+   */
+  async updateAgentCodeOffline(id: string, platform: 'x64' | 'arm64'): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) {
+      throw new Error(`Server not found: ${id}`);
+    }
+
+    const manager = this.getSSHManager(id);
+
+    // Ensure SSH connection
+    if (!manager.isConnected()) {
+      await this.connectServer(id);
+    }
+
+    await this.ensureSshConnectionHealthy(id);
+
+    const deployPath = getDeployPath(server);
+
+    // Check if remote already has an offline deployment
+    const checkResult = await manager.executeCommandFull(
+      `test -f ${deployPath}/deploy-env.sh && echo "OFFLINE_DEPLOYED" || echo "NOT_DEPLOYED"`,
+    );
+
+    if (!checkResult.stdout.includes('OFFLINE_DEPLOYED')) {
+      this.emitCommandOutput(id, 'output', '远端无离线部署，执行完整离线部署...');
+      return this.deployAgentCodeOffline(id, platform);
+    }
+
+    // Incremental update: only upload dist/
+    this.emitCommandOutput(id, 'command', '离线增量更新 (仅 dist/)');
+
+    const packageDir = getRemoteAgentProxyPath();
+    const localDistDir = path.join(packageDir, 'dist');
+
+    if (!fs.existsSync(localDistDir)) {
+      throw new Error(`Local dist directory not found: ${localDistDir}. Run npm run build first.`);
+    }
+
+    // Compare version
+    const remoteVersionResult = await manager.executeCommandFull(
+      `cat ${deployPath}/dist/version.json 2>/dev/null || echo ""`,
+    );
+    let remoteTimestamp = '';
+    try {
+      const remoteVersion = JSON.parse(remoteVersionResult.stdout);
+      remoteTimestamp = remoteVersion.buildTimestamp || '';
+    } catch {
+      // Ignore parse errors
+    }
+
+    let localTimestamp = '';
+    try {
+      const localVersion = JSON.parse(
+        fs.readFileSync(path.join(localDistDir, 'version.json'), 'utf-8'),
+      );
+      localTimestamp = localVersion.buildTimestamp || '';
+    } catch {
+      // Ignore parse errors
+    }
+
+    if (remoteTimestamp && remoteTimestamp === localTimestamp) {
+      this.emitCommandOutput(id, 'output', '版本一致，无需更新');
+      return;
+    }
+
+    // Stop agent before updating
+    this.emitDeployProgress(id, 'update', '正在停止 Agent...', 10);
+    try {
+      await this.stopAgent(id);
+    } catch {
+      // Ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Upload dist/ with incremental sync
+    this.emitDeployProgress(id, 'upload', '正在上传 dist/ 更新...', 30);
+
+    const uploadStats = { uploaded: 0, skipped: 0 };
+    const distEntries = fs.readdirSync(localDistDir, { withFileTypes: true });
+    for (const entry of distEntries) {
+      const localPath = path.join(localDistDir, entry.name);
+      const remotePath = `${deployPath}/dist/${entry.name}`;
+
+      if (entry.isDirectory()) {
+        await manager.executeCommand(`mkdir -p ${remotePath}`);
+        await this.uploadDirectoryRecursive(manager, localPath, remotePath, uploadStats);
+      } else if (entry.isFile()) {
+        const localMd5 = this.computeMd5(localPath);
+        const remoteMd5Result = await manager.executeCommandFull(
+          `md5sum ${remotePath} 2>/dev/null | awk '{print $1}' || echo ""`,
+        );
+        const remoteMd5 = remoteMd5Result.stdout.trim();
+
+        if (localMd5 !== remoteMd5) {
+          await manager.uploadFile(localPath, remotePath);
+          uploadStats.uploaded++;
+        } else {
+          uploadStats.skipped++;
+        }
+      }
+    }
+
+    this.emitCommandOutput(
+      id,
+      'output',
+      `上传完成: ${uploadStats.uploaded} 个文件更新, ${uploadStats.skipped} 个文件跳过`,
+    );
+
+    // Sync system prompt
+    this.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 70);
+    await this.syncSystemPrompt(id);
+
+    // Restart agent using bundled Node.js
+    this.emitDeployProgress(id, 'start', '正在重启 Agent...', 85);
+    await this.startAgentOffline(id, deployPath);
+
+    this.emitDeployProgress(id, 'complete', '✓ 离线增量更新完成!', 100);
+    this.emitCommandOutput(id, 'success', '离线增量更新成功!');
+  }
+
+  /**
+   * Start agent using bundled Node.js from offline deployment.
+   */
+  private async startAgentOffline(id: string, deployPath: string): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) {
+      throw new Error(`Server not found: ${id}`);
+    }
+
+    const manager = this.getSSHManager(id);
+    const port = server.assignedPort;
+    if (!port) {
+      throw new Error('No port assigned');
+    }
+
+    // Find bundled Node.js
+    const findNodeResult = await manager.executeCommandFull(
+      `ls -d ${deployPath}/node-v*/bin/node 2>/dev/null || echo "NOT_FOUND"`,
+    );
+    const bundledNodePath = findNodeResult.stdout.trim();
+    if (!bundledNodePath || bundledNodePath === 'NOT_FOUND') {
+      throw new Error('Bundled Node.js not found in offline deployment');
+    }
+
+    const bundledNodeDir = path.dirname(path.dirname(bundledNodePath));
+
+    const envVars = [
+      `REMOTE_AGENT_PORT=${port}`,
+      `REMOTE_AGENT_AUTH_TOKEN=${escapeEnvValue(server.authToken)}`,
+      server.workDir ? `REMOTE_AGENT_WORK_DIR=${escapeEnvValue(server.workDir)}` : null,
+      'IS_SANDBOX=1',
+      `DEPLOY_DIR=${deployPath}`,
+      `PATH="${bundledNodeDir}/bin:${deployPath}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"`,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const startCommand = `nohup env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY ${envVars} ${bundledNodePath} ${deployPath}/dist/index.js > ${deployPath}/logs/output.log 2>&1 &`;
+    await manager.executeCommand(startCommand);
+
+    // Wait for startup
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    // Verify port listening
+    const verifyResult = await manager.executeCommandFull(
+      `(ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep ":${port}" || echo "NOT_RUNNING"`,
+    );
+
+    if (verifyResult.stdout.includes('NOT_RUNNING')) {
+      let logOutput = '';
+      try {
+        const logResult = await manager.executeCommandFull(
+          `tail -30 ${deployPath}/logs/output.log 2>&1 || echo ""`,
+        );
+        logOutput = logResult.stdout || '';
+      } catch {
+        // Ignore
+      }
+      throw new Error(`Failed to start agent. Logs: ${logOutput.slice(0, 500)}`);
+    }
+
+    this.emitCommandOutput(id, 'success', '✓ Agent 已启动 (使用 bundled Node.js)');
   }
 }
 

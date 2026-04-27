@@ -80,6 +80,7 @@ async function installSkillFromSource(
   adapter: SkillSourceAdapter,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
   signal?: AbortSignal,
+  knownDirPath?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nodePath = await import('path');
   const nodeFs = await import('fs/promises');
@@ -94,6 +95,14 @@ async function installSkillFromSource(
     .replace(/[^a-z0-9-]/g, '-');
   const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
+  console.log('[SkillController] installSkillFromSource:', {
+    repo,
+    skillName,
+    knownDirPath,
+    skillId,
+    skillDir,
+  });
+
   onOutput?.({ type: 'stdout', content: `Downloading directly from ${adapter.sourceLabel}...\n` });
 
   const token = await adapter.getToken();
@@ -104,9 +113,16 @@ async function installSkillFromSource(
     });
   }
 
-  // Step 1: Find the skill directory
-  onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
-  const dirPath = await adapter.findSkillDirectoryPath(repo, skillName, token, signal);
+  // Step 1: Resolve skill directory path
+  // If knownDirPath is provided (e.g., from downloadSkill's remotePath), skip
+  // the expensive findSkillDirectoryPath call (which re-fetches the full tree).
+  let dirPath: string | null = knownDirPath || null;
+  if (!dirPath) {
+    onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
+    dirPath = await adapter.findSkillDirectoryPath(repo, skillName, token, signal);
+  }
+
+  console.log('[SkillController] resolved dirPath:', dirPath);
 
   if (!dirPath) {
     const error = `Could not find skill directory for "${skillName}" in repo ${repo}`;
@@ -118,6 +134,7 @@ async function installSkillFromSource(
 
   // Step 2: Download all files in the directory recursively
   onOutput?.({ type: 'stdout', content: `  Downloading skill files...\n` });
+  console.log('[SkillController] fetchSkillDirectoryContents:', { repo, dirPath });
   const files = await adapter.fetchSkillDirectoryContents(repo, dirPath, token, signal);
 
   if (files.length === 0) {
@@ -278,8 +295,17 @@ export async function installSkillFromMarket(
       const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
       // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
+      // skillName is remotePath (e.g., "Inference/ais-bench"), pass as knownDirPath
+      // to skip the redundant findSkillDirectoryPath call.
       if (sourceType === 'gitcode') {
-        return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput, signal);
+        return installSkillFromSource(
+          repo!,
+          skillName!,
+          GITCODE_ADAPTER,
+          onOutput,
+          signal,
+          skillName!,
+        );
       }
 
       // GitHub / skills.sh: npx 安装 + GitHub fallback
@@ -418,7 +444,14 @@ async function installSkillFromMarketWithInfo(
     const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
     if (sourceType === 'gitcode') {
-      return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput, signal);
+      return installSkillFromSource(
+        repo!,
+        skillName!,
+        GITCODE_ADAPTER,
+        onOutput,
+        signal,
+        skillName!,
+      );
     }
 
     // GitHub / skills.sh: npx install + fallback
@@ -526,7 +559,7 @@ export async function installSkillMultiTarget(
   ) => void,
 ): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
   const results: Record<string, { success: boolean; error?: string }> = {};
-  const INSTALL_TIMEOUT = 60_000;
+  const INSTALL_TIMEOUT = 120_000;
   const abortController = new AbortController();
   const signal = abortController.signal;
 
@@ -942,8 +975,17 @@ export async function setActiveMarketSource(sourceId: string) {
 }
 
 export async function getMarketSkillDetail(skillId: string) {
+  const DETAIL_TIMEOUT_MS = 30_000;
   try {
-    const skill = await skillMarket.getSkillDetail(skillId);
+    const skill = await Promise.race([
+      skillMarket.getSkillDetail(skillId),
+      new Promise<null>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Skill detail fetch timed out (30s)')),
+          DETAIL_TIMEOUT_MS,
+        ),
+      ),
+    ]);
     if (!skill) {
       return { success: false, error: 'Skill not found' };
     }
