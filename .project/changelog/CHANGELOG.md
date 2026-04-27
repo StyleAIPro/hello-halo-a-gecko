@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- GitCode API 对齐全面优化（17 项问题）：Base URL 修正 `api.gitcode.com`、速率限制放宽 1s→200ms、raw 端点替代 base64、技能详情并行获取、getMarketSkillDetail 30s 超时保护、token 从 URL 移到 header、递归扫描 deadline 20s、pushSkillAsMR 失败清理分支、请求计数修正、代码去重 — `gitcode-skill-source.service.ts`、`gitcode-auth.service.ts`、`skill.controller.ts`、`skill-market-service.ts` — PRD: `prd/refactor/skill/refactor-gitcode-api-alignment-v1.md`
+
 ### Added
 - 远程技能 Direct Upload 安装：GitCode 技能可直接安装到远程服务器（本机 API 下载→SSH 上传），GitHub npx 失败时自动 fallback — `src/main/services/remote-deploy/remote-deploy.service.ts`、`src/main/controllers/skill.controller.ts` — PRD: `prd/feature/skill/feature-direct-remote-skill-install-v1.md`
 - BUG-001: 远程 Direct Upload 安装目录名错误（使用完整市场 ID 做目录名而非从 skillName 派生短 ID，导致技能被装到 `~/.agents/skills/gitcode:Ascend/agent-skill:skills/commit/` 而非 `~/.agents/skills/commit/`） — `src/main/services/remote-deploy/remote-deploy.service.ts` — PRD: `prd/bugfix/skill/bugfix-remote-skill-dir-name-v1.md`
