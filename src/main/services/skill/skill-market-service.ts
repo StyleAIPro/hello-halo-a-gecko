@@ -17,6 +17,7 @@ import type {
 } from '../../shared/skill/skill-types';
 import { getAgentsSkillsDir } from '../config.service';
 import { proxyFetch } from '../proxy';
+import { invalidateProxyCache } from '../proxy';
 import * as githubSkillSource from './github-skill-source.service';
 import * as gitcodeSkillSource from './gitcode-skill-source.service';
 
@@ -525,11 +526,46 @@ export class SkillMarketService {
       if (parts.length >= 3) {
         const repo = parts[1];
         let skillPath = parts.slice(2).join(':');
+        console.log('[SkillMarket] getSkillDetail GitCode:', { skillId, repo, rawSkillPath: skillPath });
         const cachedItem = this.findSkillInCache(skillId);
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
+          console.log('[SkillMarket] getSkillDetail: cache hit, path =', skillPath);
+        } else {
+          // Cache miss: skillId path is lowercased, but GitCode API is case-sensitive.
+          // Use findSkillDirsViaContents to resolve the original-case path.
+          console.log('[SkillMarket] getSkillDetail: cache miss, resolving case-sensitive path...');
+          try {
+            const token = gitcodeSkillSource.getGitCodeToken();
+            const allDirs = await gitcodeSkillSource.findSkillDirsViaContents(repo, token);
+            console.log('[SkillMarket] getSkillDetail: found', allDirs.length, 'skill dirs');
+            const normalized = skillPath.toLowerCase();
+            const match = allDirs.find(
+              (d) =>
+                d.path.toLowerCase() === normalized ||
+                d.path.toLowerCase().endsWith(`/${normalized}`),
+            );
+            if (match) {
+              skillPath = match.path;
+              console.log('[SkillMarket] getSkillDetail: resolved path =', skillPath);
+            } else {
+              console.warn(
+                '[SkillMarket] getSkillDetail: could not resolve path for',
+                skillId,
+                '(normalized:',
+                normalized,
+                ')',
+              );
+            }
+          } catch (e: any) {
+            console.warn('[SkillMarket] getSkillDetail: path resolution failed:', e.message);
+          }
         }
         const token = gitcodeSkillSource.getGitCodeToken();
+        console.log('[SkillMarket] getSkillDetail: calling getSkillDetailFromRepo with', {
+          repo,
+          skillPath,
+        });
         return gitcodeSkillSource.getSkillDetailFromRepo(repo, skillPath, token);
       }
       return null;
@@ -605,7 +641,9 @@ export class SkillMarketService {
     }
 
     onOutput?.({ type: 'stdout', content: '  Resolving skill metadata...\n' });
+    console.log('[SkillMarketService] downloadSkill: calling getSkillDetail for', skillId);
     const skill = await this.getSkillDetail(skillId);
+    console.log('[SkillMarketService] downloadSkill: getSkillDetail returned', skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null);
 
     if (!skill) {
       // getSkillDetail failed — try cache first to preserve original-case path
@@ -653,12 +691,14 @@ export class SkillMarketService {
       return { success: false, sourceType, error: 'No repo available' };
     }
 
-    return {
+    const result = {
       success: true,
       remoteRepo: skill.remoteRepo,
       skillName: skill.remotePath || skill.name.toLowerCase().replace(/\s+/g, '-'),
       sourceType,
     };
+    console.log('[SkillMarketService] downloadSkill: returning', result);
+    return result;
   }
 
   /**
@@ -812,7 +852,7 @@ export class SkillMarketService {
 
     let cachedSkills = this.skillsCache.get(sourceId);
     if (!cachedSkills) {
-      gitcodeSkillSource.resetProxyDispatcher();
+      invalidateProxyCache();
 
       cachedSkills = [];
       const errors: string[] = [];
