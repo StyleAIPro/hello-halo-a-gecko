@@ -9,7 +9,6 @@
 import { parse as parseYaml } from 'yaml';
 import { getGitCodeToken } from '../config.service';
 import { proxyFetch } from '../proxy';
-import { invalidateProxyCache } from '../proxy';
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types';
 
 // ── GitCode API fetch ──────────────────────────────────────────────
@@ -18,7 +17,7 @@ interface GitCodeApiOptions {
   token?: string;
 }
 
-const GITCODE_API_BASE = 'https://gitcode.com/api/v5';
+export const GITCODE_API_BASE = 'https://api.gitcode.com/api/v5';
 
 // ── Global concurrency semaphore ───────────────────────────────────────
 // A single shared queue ensures ALL GitCode API calls (including recursive
@@ -54,12 +53,12 @@ class Semaphore {
 const _apiSemaphore = new Semaphore();
 
 // ── Rate Limiter ──────────────────────────────────────────────────
-// GitCode limit: 50 requests/min per user. All repos share one quota.
-// Strategy: minimum 1s gap between consecutive requests + token bucket ceiling.
+// GitCode limit: 400 requests/min, 4000 requests/hour per user.
+// Strategy: 200ms minimum gap + 60-token/minute burst budget (conservative).
 
-const RATE_LIMIT_MAX_TOKENS = 50;
-const RATE_LIMIT_MIN_INTERVAL_MS = 1000; // 1s gap between any two requests
-const RATE_LIMIT_REFILL_INTERVAL_MS = 1200; // 50 tokens/min ceiling
+const RATE_LIMIT_MAX_TOKENS = 60;
+const RATE_LIMIT_MIN_INTERVAL_MS = 200; // ~5 req/s sustained
+const RATE_LIMIT_REFILL_INTERVAL_MS = 1000; // 1 token/sec refill
 
 class RateLimiter {
   private _tokens: number;
@@ -111,16 +110,10 @@ let _requestCount = 0;
 
 /**
  * Run an async function with global concurrency control (semaphore only).
- * Rate limiting is handled at the gitcodeApiFetch level to avoid double-limiting
- * and to prevent semaphore deadlock from nested calls.
+ * Rate limiting is handled at the gitcodeApiFetch/gitcodeAuthFetch level
+ * to prevent semaphore deadlock from nested calls.
  */
 async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
-  // Log telemetry every 10 requests
-  _requestCount++;
-  if (_requestCount % 10 === 0) {
-    console.log(`[GitCodeSkillSource] Concurrency telemetry: ${_requestCount} requests`);
-  }
-
   await _apiSemaphore.acquire();
   try {
     return await fn();
@@ -128,9 +121,6 @@ async function withConcurrency<T>(fn: () => Promise<T>): Promise<T> {
     _apiSemaphore.release();
   }
 }
-
-/** Re-export invalidateProxyCache for backward compatibility. */
-export { invalidateProxyCache as resetProxyDispatcher };
 
 /** Default request timeout for GitCode API calls (ms). */
 const GITCODE_FETCH_TIMEOUT_MS = 30_000;
@@ -142,11 +132,29 @@ export async function gitcodeFetch(url: string, init?: RequestInit): Promise<Res
   return proxyFetch(url, init, GITCODE_FETCH_TIMEOUT_MS);
 }
 
+/**
+ * Authenticated fetch for GitCode write operations.
+ * Sends token via private-token header (not URL) for security.
+ * Includes rate limiting to stay within API quota.
+ */
+async function gitcodeAuthFetch(url: string, init: RequestInit, token: string): Promise<Response> {
+  await _rateLimiter.acquire();
+  _requestCount++;
+  const headers: Record<string, string> = {
+    ...((init.headers as Record<string, string>) || {}),
+    'private-token': token,
+  };
+  return gitcodeFetch(url, { ...init, headers });
+}
+
 async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promise<any> {
   // Rate limit all API calls at the entry point to prevent semaphore deadlock
   // from nested withConcurrency calls in recursive findSkillDirs.
   await _rateLimiter.acquire();
   _requestCount++;
+  if (_requestCount % 10 === 0) {
+    console.log(`[GitCodeSkillSource] API telemetry: ${_requestCount} requests`);
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -155,13 +163,26 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
     headers['private-token'] = options.token;
   }
 
-  // Support access_token as query param fallback
-  const url = path.includes('?') ? `${GITCODE_API_BASE}${path}` : `${GITCODE_API_BASE}${path}`;
+  const url = `${GITCODE_API_BASE}${path}`;
 
   const response = await gitcodeFetch(url, { headers });
 
   if (response.status === 404) {
     return null;
+  }
+
+  // GitCode returns "not found" as HTTP 400 with error_code:404 in body
+  // (e.g., branch not found, file not found). Treat same as HTTP 404.
+  if (response.status === 400) {
+    try {
+      const body = await response.clone().json();
+      if (body?.error_code === 404) {
+        console.debug(`[GitCodeAPI] Resource not found (400/404): ${path}`);
+        return null;
+      }
+    } catch {
+      // body not JSON, fall through
+    }
   }
 
   // Handle rate limiting: GitCode returns 429 as HTTP 400 with error_code:429 in body
@@ -216,7 +237,7 @@ async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions): Promi
 // ── Progress callback ─────────────────────────────────────────────
 
 export interface SkillFetchProgress {
-  phase: 'scanning' | 'fetching-metadata';
+  phase: 'scanning' | 'fetching-metadata' | 'done';
   current: number;
   total: number;
 }
@@ -256,108 +277,102 @@ function formatSkillName(name: string): string {
 
 export { getGitCodeToken };
 
-// ── One-level skill directory listing (for known skill dirs like skills/) ───
+// ── Contents-based skill directory finder ──────────────────────────
 
-async function listSkillsDir(
+/**
+ * Find skill directories in a GitCode repository.
+ *
+ * Uses the contents API (not tree API) because GitCode's tree API with
+ * recursive=1 only returns tree entries (directories), NOT blobs (files),
+ * making it impossible to detect SKILL.md files.
+ *
+ * Handles two repo layouts:
+ *   1. Category-based: Category/SkillName/SKILL.md  (e.g. Inference/ais-bench/)
+ *   2. Flat: SkillName/SKILL.md  (or skills/SkillName/SKILL.md)
+ *
+ * Strategy:
+ *   1. GET /repos/{repo}/contents → root-level dirs
+ *   2. For each root dir (parallel): GET /contents/{dir}
+ *      - If dir contains SKILL.md → it IS a skill dir (flat layout)
+ *      - If dir contains only subdirs → it's a category, promote children as skills
+ *   3. Optionally probe one child per category to confirm SKILL.md presence
+ */
+export async function findSkillDirsViaContents(
   repo: string,
-  dirPath: string,
   token?: string,
+  basePath?: string,
 ): Promise<Array<{ path: string; name: string }>> {
-  try {
-    const apiPath = `/repos/${repo}/contents/${dirPath.replace(/\/$/, '')}`;
-    const result = await gitcodeApiFetch(apiPath, { token });
-    if (!Array.isArray(result)) return [];
-    return result
-      .filter((item: any) => item.type === 'dir' && !item.name.startsWith('.'))
-      .map((item: any) => ({ path: `${dirPath}/${item.name}`, name: item.name }));
-  } catch {
-    return [];
-  }
-}
-
-// ── Recursive skill directory finder ──────────────────────────────
-
-async function findSkillDirs(
-  repo: string,
-  path: string,
-  token?: string,
-  maxDepth: number = 5,
-  onProgress?: SkillFetchProgressCallback,
-): Promise<Array<{ path: string; name: string }>> {
-  if (maxDepth <= 0) return [];
-
-  const apiPath =
-    path === '/' ? `/repos/${repo}/contents` : `/repos/${repo}/contents/${path.replace(/\/$/, '')}`;
-
-  let data: any[];
-  try {
-    const result = await gitcodeApiFetch(apiPath, { token });
-    if (!Array.isArray(result)) return [];
-    data = result;
-  } catch {
-    return [];
-  }
-
-  const dirs = data.filter((item: any) => item.type === 'dir' && !item.name.startsWith('.'));
-  const hasSkillMd = data.some(
-    (item: any) => item.type === 'file' && item.name.toUpperCase() === 'SKILL.MD',
-  );
-
   const results: Array<{ path: string; name: string }> = [];
+  const seen = new Set<string>();
 
-  if (hasSkillMd) {
-    const dirName = path === '/' ? '' : path.replace(/\/$/, '').split('/').pop()!;
-    results.push({ path: path.replace(/\/$/, ''), name: dirName });
-    return results;
-  }
+  const skillFileNames = new Set(['SKILL.MD', 'SKILL.YAML']);
+  const addResult = (dirPath: string) => {
+    if (seen.has(dirPath.toLowerCase())) return;
+    if (basePath && !dirPath.startsWith(basePath.replace(/\/$/, ''))) return;
+    seen.add(dirPath.toLowerCase());
+    results.push({ path: dirPath, name: dirPath.split('/').pop()! });
+  };
 
-  // Report scanning progress (only at top-level, not recursive)
-  let scannedCount = 0;
-  const totalDirs = dirs.length;
+  // Step 1: Get root-level contents
+  const rootData = await gitcodeApiFetch(`/repos/${repo}/contents`, { token });
+  if (!Array.isArray(rootData)) return [];
 
-  // Short-circuit optimization: once any child directory is confirmed to contain
-  // SKILL.md, treat the current directory as a "skill category" (equivalent to
-  // skills/) and promote ALL remaining sibling directories as skill candidates.
-  // This avoids N-1 additional recursive API calls for category-based repos like
-  // Inference/skill-name/SKILL.md, Operation/skill-name/SKILL.md.
-  let foundCategory = false;
+  const rootDirs = rootData.filter(
+    (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+  );
+  if (rootDirs.length === 0) return [];
 
-  await Promise.all(
-    dirs.map(async (dir: any) => {
-      const subPath = path === '/' ? `${dir.name}/` : `${path}${dir.name}/`;
-      // Check foundCategory — by this point, other concurrent callbacks may have
-      // already set foundCategory (avoiding unnecessary recursive calls).
-      if (foundCategory) {
-        scannedCount++;
-        onProgress?.({ phase: 'scanning', current: scannedCount, total: totalDirs });
-        return;
-      }
-
-      const sub = await findSkillDirs(repo, subPath, token, maxDepth - 1);
-      scannedCount++;
-      onProgress?.({ phase: 'scanning', current: scannedCount, total: totalDirs });
-
-      // If this child is a skill (has SKILL.md), promote all siblings as candidates
-      if (sub.length > 0 && !foundCategory) {
-        foundCategory = true;
-        results.push(...sub);
-        // Return remaining siblings as skill candidates (their SKILL.md will be
-        // validated later during metadata fetch)
-        const promotedSiblings = dirs
-          .filter((d: any) => d.name !== dir.name)
-          .map((d: any) => ({
-            path: (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + d.name,
-            name: d.name,
-          }));
-        results.push(...promotedSiblings);
-      } else {
-        results.push(...sub);
-      }
-
-      return sub;
-    }),
+  // Step 2: Check each root dir in parallel (respecting concurrency)
+  const dirChecks = await Promise.all(
+    rootDirs.map((dir: any) =>
+      withConcurrency(async () => {
+        const dirContent = await gitcodeApiFetch(`/repos/${repo}/contents/${dir.name}`, { token });
+        return { dirName: dir.name, content: dirContent };
+      }),
+    ),
   );
 
+  // Step 3: Classify each root dir as skill dir or category dir
+  for (const { dirName, content: dirContent } of dirChecks) {
+    if (!Array.isArray(dirContent)) continue;
+
+    const hasSkillFile = dirContent.some((item: any) =>
+      skillFileNames.has(item.name.toUpperCase()),
+    );
+    const childDirs = dirContent.filter(
+      (item: any) => item.type === 'dir' && !item.name.startsWith('.'),
+    );
+
+    if (hasSkillFile) {
+      // Flat layout: root dir IS a skill dir
+      addResult(dirName);
+    } else if (childDirs.length > 0) {
+      // Category layout: promote all child dirs as skill candidates
+      // Probe first child to confirm SKILL.md exists (avoid false positives)
+      let confirmed = false;
+      try {
+        const probe = await gitcodeApiFetch(
+          `/repos/${repo}/contents/${dirName}/${childDirs[0].name}`,
+          { token },
+        );
+        if (Array.isArray(probe)) {
+          confirmed = probe.some((item: any) => skillFileNames.has(item.name.toUpperCase()));
+        }
+      } catch {
+        // probe failed, still promote children
+      }
+
+      if (confirmed) {
+        for (const child of childDirs) {
+          addResult(`${dirName}/${child.name}`);
+        }
+      }
+    }
+  }
+
+  // If there are skills under skills/ base, prefer those over root-level skills
+  const skillsSkills = results.filter((r) => r.path.startsWith('skills/'));
+  if (skillsSkills.length > 0) return skillsSkills;
   return results;
 }
 
@@ -365,22 +380,43 @@ async function findSkillDirs(
 
 /**
  * Fetch single file content from GitCode repo.
+ * Uses /raw/{path} endpoint for efficiency (no base64 overhead).
  */
 export async function fetchSkillFileContent(
   repo: string,
-  path: string,
+  filePath: string,
   token?: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   try {
-    const encodedPath = encodeURIComponent(path).replace(/%2F/g, '/');
-    const data = await gitcodeApiFetch(`/repos/${repo}/contents/${encodedPath}`, { token });
-    if (data && data.content && !Array.isArray(data)) {
-      return Buffer.from(data.content, 'base64').toString('utf-8');
+    await _rateLimiter.acquire();
+    _requestCount++;
+    const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, '/');
+    const headers: Record<string, string> = {};
+    if (token) headers['private-token'] = token;
+
+    const url = `${GITCODE_API_BASE}/repos/${repo}/raw/${encodedPath}`;
+    console.debug('[GitCodeSkillSource] fetchSkillFileContent:', url);
+    const response = await gitcodeFetch(url, {
+      headers,
+      signal,
+    });
+    if (response.status === 404) {
+      console.debug('[GitCodeSkillSource] fetchSkillFileContent: 404 for', filePath);
+      return null;
     }
-  } catch {
-    // file not found or access denied
+    if (!response.ok) {
+      console.warn('[GitCodeSkillSource] fetchSkillFileContent:', response.status, 'for', filePath);
+      return null;
+    }
+    const text = await response.text();
+    console.debug('[GitCodeSkillSource] fetchSkillFileContent: OK', filePath, `(${text.length} chars)`);
+    return text;
+  } catch (e: any) {
+    if (signal?.aborted) return null;
+    console.debug('[GitCodeSkillSource] fetchSkillFileContent failed:', filePath, e.message);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -390,14 +426,18 @@ export async function fetchSkillDirectoryContents(
   repo: string,
   dirPath: string,
   token?: string,
+  signal?: AbortSignal,
 ): Promise<Array<{ path: string; content: string }>> {
   const results: Array<{ path: string; content: string }> = [];
   const apiPath = `/repos/${repo}/contents/${dirPath.replace(/\/$/, '')}`;
 
+  console.log('[GitCodeSkillSource] fetchSkillDirectoryContents:', { repo, dirPath, apiPath });
+
   let data: any;
   try {
     data = await gitcodeApiFetch(apiPath, { token });
-  } catch {
+  } catch (e: any) {
+    console.warn('[GitCodeSkillSource] fetchSkillDirectoryContents: API call failed:', e.message);
     return results;
   }
 
@@ -405,11 +445,24 @@ export async function fetchSkillDirectoryContents(
     if (data.content) {
       const decoded = Buffer.from(data.content, 'base64').toString('utf-8');
       results.push({ path: data.name, content: decoded });
+      console.log('[GitCodeSkillSource] fetchSkillDirectoryContents: single file', data.name);
     }
     return results;
   }
 
-  if (!Array.isArray(data)) return results;
+  if (!Array.isArray(data)) {
+    console.warn('[GitCodeSkillSource] fetchSkillDirectoryContents: unexpected response type for', apiPath);
+    return results;
+  }
+
+  console.log(
+    '[GitCodeSkillSource] fetchSkillDirectoryContents:',
+    apiPath,
+    '→',
+    data.length,
+    'items:',
+    data.map((i: any) => `${i.type}:${i.name}`).join(', '),
+  );
 
   // Separate files needing fetch and sub-directories for batch processing
   const filesToFetch = data.filter((item: any) => item.type === 'file' && !item.content);
@@ -425,10 +478,22 @@ export async function fetchSkillDirectoryContents(
     }
   }
 
+  // Abort early if signal fired
+  if (signal?.aborted) return results;
+
   // Batch fetch files that need separate API calls
+  // Note: NOT wrapped in withConcurrency — fetchSkillFileContent has its own
+  // rate limiter, and wrapping would deadlock when called from within a
+  // withConcurrency-guarded directory traversal (all permits consumed by dirs).
+  if (filesToFetch.length > 0) {
+    console.log('[GitCodeSkillSource] fetchSkillDirectoryContents: fetching', filesToFetch.length, 'files');
+  }
   const fetchResults = await Promise.all(
     filesToFetch.map(async (item: any) => {
-      const content = await withConcurrency(() => fetchSkillFileContent(repo, item.path, token));
+      const content = await fetchSkillFileContent(repo, item.path, token, signal);
+      if (!content) {
+        console.warn('[GitCodeSkillSource] fetchSkillFileContent returned empty for', item.path);
+      }
       return { path: item.name, content: content || '' };
     }),
   );
@@ -436,11 +501,14 @@ export async function fetchSkillDirectoryContents(
     if (r.content) results.push(r);
   }
 
+  // Abort early if signal fired
+  if (signal?.aborted) return results;
+
   // Batch traverse sub-directories
   const dirResults = await Promise.all(
     dirsToTraverse.map(async (item: any) => {
       const subPath = `${dirPath.replace(/\/$/, '')}/${item.name}`;
-      return withConcurrency(() => fetchSkillDirectoryContents(repo, subPath, token));
+      return withConcurrency(() => fetchSkillDirectoryContents(repo, subPath, token, signal));
     }),
   );
   for (let i = 0; i < dirResults.length; i++) {
@@ -454,23 +522,44 @@ export async function fetchSkillDirectoryContents(
 }
 
 /**
- * Find the skill directory path on GitCode by checking path variants.
- * Includes case-insensitive fallback via findSkillDirs listing.
+ * Find the skill directory path on GitCode.
+ * Uses tree API for fast single-call lookup, falls back to contents API.
  */
 export async function findSkillDirectoryPath(
   repo: string,
   skillName: string,
   token?: string,
 ): Promise<string | null> {
+  const normalizedTarget = skillName.toLowerCase();
   const lastSegment = skillName.split('/').pop() || skillName;
+  const normalizedLast = lastSegment.toLowerCase();
+
+  // Fast path: use tree API to find all skill directories in one call
+  try {
+    const allSkillDirs = await findSkillDirsViaContents(repo, token);
+    // Exact match
+    const exact = allSkillDirs.find(
+      (d) =>
+        d.path.toLowerCase() === normalizedTarget ||
+        d.path.toLowerCase().endsWith(`/${normalizedTarget}`),
+    );
+    if (exact) return exact.path;
+    // Last-segment match (for case-insensitive repos)
+    const byLast = allSkillDirs.find(
+      (d) => d.path.split('/').pop()!.toLowerCase() === normalizedLast,
+    );
+    if (byLast) return byLast.path;
+  } catch {
+    // tree API failed, fall through
+  }
+
+  // Slow fallback: try exact path matches via contents API
+  const skillFileNames = ['SKILL.md', 'SKILL.yaml'];
   const dirVariants = [skillName, `skills/${skillName}`, lastSegment];
 
-  const skillFileNames = ['SKILL.md', 'SKILL.yaml'];
-
-  // Try exact path matches first
   for (const dir of dirVariants) {
-    const apiPath = `/repos/${repo}/contents/${dir.replace(/\/$/, '')}`;
     try {
+      const apiPath = `/repos/${repo}/contents/${dir.replace(/\/$/, '')}`;
       const data = await gitcodeApiFetch(apiPath, { token });
       if (Array.isArray(data)) {
         const found = data.some(
@@ -478,64 +567,11 @@ export async function findSkillDirectoryPath(
             item.type === 'file' &&
             skillFileNames.some((sf) => item.name.toUpperCase() === sf.toUpperCase()),
         );
-        if (found) {
-          return dir.replace(/\/$/, '');
-        }
+        if (found) return dir.replace(/\/$/, '');
       }
     } catch {
       // continue
     }
-  }
-
-  // Case-insensitive fallback: list skill dirs (limited depth + timeout)
-  console.warn('[GitCodeSkillSource] Exact match failed, falling back to recursive scan for', {
-    repo,
-    skillName,
-    triedPaths: dirVariants,
-  });
-
-  try {
-    const FALLBACK_TIMEOUT = 15_000;
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => {
-        console.warn(
-          '[GitCodeSkillSource] findSkillDirs fallback timed out (15s) for',
-          repo,
-          skillName,
-        );
-        resolve(null);
-      }, FALLBACK_TIMEOUT),
-    );
-    const dirsPromise = findSkillDirs(repo, '/', token, 2);
-    const allDirs = await Promise.race([dirsPromise, timeoutPromise]);
-
-    if (!allDirs) {
-      console.warn(
-        '[GitCodeSkillSource] Fallback scan timed out, tried paths:',
-        dirVariants.join(', '),
-      );
-      return null;
-    }
-
-    const normalizedTarget = skillName.toLowerCase();
-    for (const { path: dirPath } of allDirs) {
-      if (
-        dirPath.toLowerCase() === normalizedTarget ||
-        dirPath.toLowerCase().endsWith(`/${normalizedTarget}`)
-      ) {
-        return dirPath;
-      }
-    }
-    // Also try matching just the last segment
-    const normalizedLast = lastSegment.toLowerCase();
-    for (const { path: dirPath } of allDirs) {
-      const dirLast = dirPath.split('/').pop() || dirPath;
-      if (dirLast.toLowerCase() === normalizedLast) {
-        return dirPath;
-      }
-    }
-  } catch (error) {
-    console.error('[GitCodeSkillSource] Fallback scan failed for', repo, skillName, error);
   }
 
   return null;
@@ -556,9 +592,93 @@ export async function listRepoDirectories(
     return data
       .filter((item: any) => item.type === 'dir' && !item.name.startsWith('.'))
       .map((item: any) => item.name);
-  } catch {
+  } catch (e: any) {
+    console.debug('[GitCodeSkillSource] listRepoDirectories failed:', e.message);
     return [];
   }
+}
+
+/**
+ * Streaming variant callback: called after each skill is found.
+ */
+export type SkillFoundCallback = (skill: RemoteSkillItem, totalFound: number) => void;
+
+/**
+ * Shared implementation for listing skills from a GitCode repository.
+ * Uses the tree API for fast, single-call directory discovery.
+ * Supports both batch and streaming modes via optional onSkillFound callback.
+ */
+async function listSkillsFromRepoImpl(
+  repo: string,
+  token: string | undefined,
+  onProgress?: SkillFetchProgressCallback,
+  onSkillFound?: SkillFoundCallback,
+): Promise<RemoteSkillItem[]> {
+  const skills: RemoteSkillItem[] = [];
+  const sourceId = `gitcode:${repo}`;
+
+  // Use tree API to find all skill directories in one call
+  const skillDirs = await findSkillDirsViaContents(repo, token);
+  onProgress?.({ phase: 'scanning', current: skillDirs.length, total: skillDirs.length });
+
+  const totalToFetch = skillDirs.length;
+  let metadataFetched = 0;
+
+  // Sequential fetch for smooth progress advancement
+  for (const { path: skillPath, name } of skillDirs) {
+    try {
+      const item = await withConcurrency(async () => {
+        let frontmatter: SkillFrontmatter = {};
+        let description = '';
+
+        try {
+          const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
+          if (content) {
+            const parsed = parseFrontmatter(content);
+            frontmatter = parsed.frontmatter;
+            description = parsed.body
+              .split('\n')
+              .filter((l) => l.trim() && !l.startsWith('#'))
+              .slice(0, 3)
+              .join(' ');
+          }
+        } catch {
+          // continue without metadata
+        }
+
+        const skillName = frontmatter.name || name;
+        const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
+
+        return {
+          id: `${sourceId}:${skillId}`,
+          name: formatSkillName(skillName),
+          description: frontmatter.description || description || `Skill from ${repo}`,
+          fullDescription: undefined,
+          version: frontmatter.version || '1.0.0',
+          author: frontmatter.author || repo.split('/')[0],
+          tags: frontmatter.tags || [],
+          lastUpdated: new Date().toISOString(),
+          sourceId,
+          remoteRepo: repo,
+          remotePath: skillPath,
+        } as RemoteSkillItem;
+      });
+
+      skills.push(item);
+    } catch {
+      // skip failed item
+    }
+    metadataFetched++;
+    onProgress?.({
+      phase: 'fetching-metadata',
+      current: metadataFetched,
+      total: totalToFetch,
+    });
+    onSkillFound?.(skills[skills.length - 1], skills.length);
+  }
+
+  onProgress?.({ phase: 'done', current: 0, total: 0 });
+  return skills;
 }
 
 /**
@@ -569,195 +689,20 @@ export async function listSkillsFromRepo(
   token?: string,
   onProgress?: SkillFetchProgressCallback,
 ): Promise<RemoteSkillItem[]> {
-  const skills: RemoteSkillItem[] = [];
-  const sourceId = `gitcode:${repo}`;
-  const seenPaths = new Set<string>();
-
-  const pathsToCheck = ['skills/', '/'];
-
-  for (const basePath of pathsToCheck) {
-    try {
-      let skillDirs: Array<{ path: string; name: string }>;
-
-      if (basePath === 'skills/') {
-        // Fast path: skills/ directory — just list one level, no recursion.
-        skillDirs = await listSkillsDir(repo, 'skills', token);
-      } else {
-        // Fallback: root path — shallow scan for SKILL.md (max depth 2)
-        skillDirs = await findSkillDirs(repo, basePath, token, 3, onProgress);
-      }
-
-      const uniqueDirs = skillDirs.filter(({ path: p }) => {
-        if (seenPaths.has(p)) return false;
-        seenPaths.add(p);
-        return true;
-      });
-
-      let metadataFetched = 0;
-      const totalToFetch = uniqueDirs.length;
-
-      // Sequential fetch for smooth, even progress advancement
-      for (const { path: skillPath, name } of uniqueDirs) {
-        try {
-          const item = await withConcurrency(async () => {
-            let frontmatter: SkillFrontmatter = {};
-            let description = '';
-
-            try {
-              const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
-              if (content) {
-                const parsed = parseFrontmatter(content);
-                frontmatter = parsed.frontmatter;
-                description = parsed.body
-                  .split('\n')
-                  .filter((l) => l.trim() && !l.startsWith('#'))
-                  .slice(0, 3)
-                  .join(' ');
-              }
-            } catch {
-              // continue without metadata
-            }
-
-            const skillName = frontmatter.name || name;
-            const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
-
-            return {
-              id: `${sourceId}:${skillId}`,
-              name: formatSkillName(skillName),
-              description: frontmatter.description || description || `Skill from ${repo}`,
-              fullDescription: undefined,
-              version: frontmatter.version || '1.0.0',
-              author: frontmatter.author || repo.split('/')[0],
-              tags: frontmatter.tags || [],
-              lastUpdated: new Date().toISOString(),
-              sourceId,
-              remoteRepo: repo,
-              remotePath: skillPath,
-            } as RemoteSkillItem;
-          });
-          skills.push(item);
-        } catch {
-          // skip failed item
-        }
-        metadataFetched++;
-        onProgress?.({
-          phase: 'fetching-metadata',
-          current: metadataFetched,
-          total: totalToFetch,
-        });
-      }
-
-      if (skills.length > 0 && basePath === 'skills/') break;
-    } catch (error) {
-      console.error(`[GitCodeSkillSource] Error listing ${repo}/${basePath}:`, error);
-    }
-  }
-
-  return skills;
+  return listSkillsFromRepoImpl(repo, token, onProgress, undefined);
 }
 
 /**
  * Streaming variant: fetches skills one-by-one, calling onSkillFound after each.
  * Used for progressive loading — frontend renders skills as they arrive.
  */
-export type SkillFoundCallback = (skill: RemoteSkillItem, totalFound: number) => void;
-
 export async function listSkillsFromRepoStreaming(
   repo: string,
   token?: string,
   onProgress?: SkillFetchProgressCallback,
   onSkillFound?: SkillFoundCallback,
 ): Promise<RemoteSkillItem[]> {
-  const skills: RemoteSkillItem[] = [];
-  const sourceId = `gitcode:${repo}`;
-  const seenPaths = new Set<string>();
-
-  const pathsToCheck = ['skills/', '/'];
-
-  for (const basePath of pathsToCheck) {
-    try {
-      let skillDirs: Array<{ path: string; name: string }>;
-
-      if (basePath === 'skills/') {
-        skillDirs = await listSkillsDir(repo, 'skills', token);
-      } else {
-        skillDirs = await findSkillDirs(repo, basePath, token, 3, onProgress);
-      }
-
-      const uniqueDirs = skillDirs.filter(({ path: p }) => {
-        if (seenPaths.has(p)) return false;
-        seenPaths.add(p);
-        return true;
-      });
-
-      let metadataFetched = 0;
-      const totalToFetch = uniqueDirs.length;
-
-      // Sequential fetch — each skill pushed individually
-      for (const { path: skillPath, name } of uniqueDirs) {
-        try {
-          const item = await withConcurrency(async () => {
-            let frontmatter: SkillFrontmatter = {};
-            let description = '';
-
-            try {
-              const content = await fetchSkillFileContent(repo, `${skillPath}/SKILL.md`, token);
-              if (content) {
-                const parsed = parseFrontmatter(content);
-                frontmatter = parsed.frontmatter;
-                description = parsed.body
-                  .split('\n')
-                  .filter((l) => l.trim() && !l.startsWith('#'))
-                  .slice(0, 3)
-                  .join(' ');
-              }
-            } catch {
-              // continue without metadata
-            }
-
-            const skillName = frontmatter.name || name;
-            const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
-
-            return {
-              id: `${sourceId}:${skillId}`,
-              name: formatSkillName(skillName),
-              description: frontmatter.description || description || `Skill from ${repo}`,
-              fullDescription: undefined,
-              version: frontmatter.version || '1.0.0',
-              author: frontmatter.author || repo.split('/')[0],
-              tags: frontmatter.tags || [],
-              lastUpdated: new Date().toISOString(),
-              sourceId,
-              remoteRepo: repo,
-              remotePath: skillPath,
-            } as RemoteSkillItem;
-          });
-
-          skills.push(item);
-          metadataFetched++;
-          onProgress?.({
-            phase: 'fetching-metadata',
-            current: metadataFetched,
-            total: totalToFetch,
-          });
-          onSkillFound?.(item, skills.length);
-        } catch {
-          metadataFetched++;
-          onProgress?.({
-            phase: 'fetching-metadata',
-            current: metadataFetched,
-            total: totalToFetch,
-          });
-        }
-      }
-
-      if (skills.length > 0 && basePath === 'skills/') break;
-    } catch (error) {
-      console.error(`[GitCodeSkillSource] Error listing ${repo}/${basePath}:`, error);
-    }
-  }
-
-  return skills;
+  return listSkillsFromRepoImpl(repo, token, onProgress, onSkillFound);
 }
 
 /**
@@ -773,23 +718,39 @@ export async function getSkillDetailFromRepo(
   const skillId = skillPath.toLowerCase().replace(/\s+/g, '-');
 
   const contentPaths = [`${skillPath}/SKILL.md`, `${skillPath}/SKILL.yaml`];
+  console.log('[GitCodeSkillSource] getSkillDetailFromRepo:', { repo, skillPath, contentPaths });
 
-  for (const contentPath of contentPaths) {
-    const content = await fetchSkillFileContent(repo, contentPath, token);
-    if (content) {
+  // Fetch both paths in parallel, prefer SKILL.md over SKILL.yaml
+  const results = await Promise.allSettled(
+    contentPaths.map((p) => fetchSkillFileContent(repo, p, token)),
+  );
+
+  console.log(
+    '[GitCodeSkillSource] getSkillDetailFromRepo results:',
+    results.map((r, i) => ({
+      path: contentPaths[i],
+      status: r.status,
+      ok: r.status === 'fulfilled' && !!r.value,
+    })),
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'fulfilled' && result.value) {
+      const contentPath = contentPaths[i];
+      const content = result.value;
       const isYaml = contentPath.endsWith('.yaml');
       const parsed = isYaml ? null : parseFrontmatter(content);
-      const frontmatter = isYaml
-        ? (parseYaml(content) as SkillFrontmatter)?.skill ||
-          (parseYaml(content) as SkillFrontmatter)
-        : parsed.frontmatter;
-      const description = parsed
-        ? parsed.body
+      const frontmatter: SkillFrontmatter = isYaml
+        ? (parseYaml(content) as SkillFrontmatter) || {}
+        : parsed!.frontmatter;
+      const description = isYaml
+        ? frontmatter.description || ''
+        : parsed!.body
             .split('\n')
-            .filter((l) => l.trim() && !l.startsWith('#'))
+            .filter((l: string) => l.trim() && !l.startsWith('#'))
             .slice(0, 3)
-            .join(' ')
-        : '';
+            .join(' ');
 
       return {
         id: `${sourceId}:${skillId}`,
@@ -946,12 +907,13 @@ export async function pushSkillAsMR(
 
       if (!isCollaborator) {
         try {
-          const forkResp = await gitcodeFetch(
-            `${GITCODE_API_BASE}/repos/${repo}/forks?access_token=${encodeURIComponent(token)}`,
+          const forkResp = await gitcodeAuthFetch(
+            `${GITCODE_API_BASE}/repos/${repo}/forks`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
             },
+            token,
           );
           if (!forkResp.ok && forkResp.status !== 409) {
             console.warn(`[GitCodeSkillSource] Fork failed: ${forkResp.status}`);
@@ -978,12 +940,17 @@ export async function pushSkillAsMR(
         error: 'Failed to get base branch SHA from GitCode repo (tried main and master)',
       };
     }
-    const branchResp = await gitcodeFetch(
-      `${GITCODE_API_BASE}/repos/${targetRepo}/branches?access_token=${encodeURIComponent(token)}&refs=${encodeURIComponent(baseBranch)}&branch_name=${encodeURIComponent(branchName)}`,
+    const branchResp = await gitcodeAuthFetch(
+      `${GITCODE_API_BASE}/repos/${targetRepo}/branches`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          refs: baseBranch,
+          branch_name: branchName,
+        }),
       },
+      token,
     );
     if (!branchResp.ok) {
       const errText = await branchResp.text();
@@ -1000,7 +967,7 @@ export async function pushSkillAsMR(
       const contentBase64 = Buffer.from(file.content).toString('base64');
 
       const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
-      const url = `${GITCODE_API_BASE}/repos/${targetRepo}/contents/${encodedPath}?access_token=${encodeURIComponent(token)}`;
+      const fileUrl = `${GITCODE_API_BASE}/repos/${targetRepo}/contents/${encodedPath}`;
 
       // Check if file exists (to decide POST vs PUT)
       let existingSha: string | undefined;
@@ -1017,7 +984,6 @@ export async function pushSkillAsMR(
       }
 
       const body: Record<string, string> = {
-        access_token: token,
         message: `Add ${file.relativePath}`,
         content: contentBase64,
         branch: branchName,
@@ -1028,11 +994,15 @@ export async function pushSkillAsMR(
 
       // POST for new files, PUT for updates
       const method = existingSha ? 'PUT' : 'POST';
-      const putResp = await gitcodeFetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const putResp = await gitcodeAuthFetch(
+        fileUrl,
+        {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
 
       if (putResp.ok) {
         commitSuccess++;
@@ -1043,6 +1013,17 @@ export async function pushSkillAsMR(
     }
 
     if (commitSuccess === 0) {
+      // Clean up orphan branch
+      try {
+        await gitcodeAuthFetch(
+          `${GITCODE_API_BASE}/repos/${targetRepo}/branches/${encodeURIComponent(branchName)}`,
+          { method: 'DELETE' },
+          token,
+        );
+        console.warn('[GitCodeSkillSource] Cleaned up orphan branch:', branchName);
+      } catch (e: any) {
+        console.warn('[GitCodeSkillSource] Branch cleanup failed:', e.message);
+      }
       return { success: false, error: `All files failed. First: ${commitErrors[0]}` };
     }
 
@@ -1063,8 +1044,8 @@ export async function pushSkillAsMR(
     const mrWarnings: string[] = commitWarning ? [commitWarning] : [];
 
     try {
-      const mrResp = await gitcodeFetch(
-        `${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls?access_token=${encodeURIComponent(token)}`,
+      const mrResp = await gitcodeAuthFetch(
+        `${GITCODE_API_BASE}/repos/${mrTargetRepo}/pulls`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1075,6 +1056,7 @@ export async function pushSkillAsMR(
             base: baseBranch,
           }),
         },
+        token,
       );
 
       if (!mrResp.ok) {
@@ -1104,11 +1086,9 @@ export async function pushSkillAsMR(
     }
 
     // If files were committed, always return success (MR creation is non-fatal)
-    if (commitSuccess > 0) {
-      const fallbackUrl = mrUrl || branchUrl;
-      const warning = mrWarnings.length > 0 ? mrWarnings.join('. ') : undefined;
-      return { success: true, mrUrl: fallbackUrl, warning };
-    }
+    const fallbackUrl = mrUrl || branchUrl;
+    const warning = mrWarnings.length > 0 ? mrWarnings.join('. ') : undefined;
+    return { success: commitSuccess > 0, mrUrl: fallbackUrl, warning };
   } catch (error: any) {
     console.error('[GitCodeSkillSource] pushSkillAsMR error:', error);
     return {
