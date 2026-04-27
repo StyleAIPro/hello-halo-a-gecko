@@ -1716,7 +1716,8 @@ WRAPPER
           fs.rmSync(stagingDir, { recursive: true, force: true });
         } catch {}
       }
-      throw new Error(`Failed to create deployment package: ${err}`, { cause: err });
+      // eslint-disable-next-line preserve-caught-error -- TS target doesn't support ErrorOptions
+      throw new Error(`Failed to create deployment package: ${err}`);
     }
 
     // Clean up staging dir on success
@@ -4465,11 +4466,11 @@ WRAPPER
       try {
         const archResult = (await manager.executeCommand('uname -m', { timeoutMs: 10_000 })).trim();
         platform = archResult === 'x86_64' ? 'x64' : archResult === 'aarch64' ? 'arm64' : undefined;
+        if (!platform) {
+          throw new Error(`不支持的 CPU 架构: ${archResult}，仅支持 x86_64 和 aarch64`);
+        }
       } catch {
         throw new Error('无法检测远端服务器 CPU 架构（uname -m 超时），请检查 SSH 连接');
-      }
-      if (!platform) {
-        throw new Error(`不支持的 CPU 架构: ${archResult}，仅支持 x86_64 和 aarch64`);
       }
       // Cache detected architecture
       await this.updateServer(id, { detectedArch: platform });
@@ -4647,7 +4648,7 @@ WRAPPER
    * Update agent code using offline bundle (incremental — only dist/).
    * Falls back to full offline deploy if remote has no existing deployment.
    */
-  async updateAgentCodeOffline(id: string, _platform?: 'x64' | 'arm64'): Promise<void> {
+  async updateAgentCodeOffline(id: string, platform?: 'x64' | 'arm64'): Promise<void> {
     const server = this.servers.get(id);
     if (!server) {
       throw new Error(`Server not found: ${id}`);

@@ -3,6 +3,12 @@
  * Manages remote SSH server configurations with terminal output
  */
 
+/* eslint-disable no-console -- settings UI needs debug logging */
+/* eslint-disable @typescript-eslint/no-explicit-any -- dynamic API payloads */
+/* eslint-disable no-empty -- pre-existing empty catch blocks */
+/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables */
+/* eslint-disable react-hooks/exhaustive-deps -- pre-existing dependency warnings */
+
 import React from 'react';
 import {
   Server,
@@ -22,6 +28,7 @@ import {
   AlertTriangle,
   AlertCircle,
   Package,
+  X,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { api } from '../../api';
@@ -78,7 +85,6 @@ export function RemoteServersSection() {
   const [saving, setSaving] = React.useState(false);
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null);
   const [deployMode, setDeployMode] = React.useState<'online' | 'offline'>('offline');
-  const [deployPlatform, setDeployPlatform] = React.useState<'x64' | 'arm64'>('x64');
   const [offlineBundleReady, setOfflineBundleReady] = React.useState(false);
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
   // Add server progress tracking
@@ -148,18 +154,33 @@ export function RemoteServersSection() {
     }
   }, [terminalEntries]);
 
-  // Check if offline bundle is available on mount
+  // Check if offline bundle is available for detected server architectures
   React.useEffect(() => {
     const checkOfflineBundle = async () => {
       try {
-        const result = await api.remoteServerCheckOfflineBundle(deployPlatform);
-        setOfflineBundleReady(!!result.success && !!(result.data as any)?.available);
+        // Collect unique architectures from connected servers
+        const archSet = new Set<string>();
+        for (const s of servers) {
+          if (s.detectedArch) archSet.add(s.detectedArch);
+        }
+        // Default to x64 if no servers have detected arch yet
+        if (archSet.size === 0) archSet.add('arm64');
+        // Check if at least one required bundle is available
+        let anyAvailable = false;
+        for (const arch of archSet) {
+          const result = await api.remoteServerCheckOfflineBundle(arch as 'x64' | 'arm64');
+          if (result.success && (result.data as any)?.available) {
+            anyAvailable = true;
+            break;
+          }
+        }
+        setOfflineBundleReady(anyAvailable);
       } catch {
         setOfflineBundleReady(false);
       }
     };
     checkOfflineBundle();
-  }, [deployPlatform]);
+  }, [servers]);
 
   // Load servers on mount
   React.useEffect(() => {
@@ -909,10 +930,14 @@ export function RemoteServersSection() {
     expandServer(serverId);
     clearTerminal(serverId);
 
-    addTerminalEntry(serverId, 'command', `=== Offline deploying to linux-${deployPlatform} ===`);
+    // Architecture is auto-detected by the backend (no manual selection needed)
+    const server = servers.find((s) => s.id === serverId);
+    const archDisplay = server?.detectedArch ?? 'auto';
+
+    addTerminalEntry(serverId, 'command', `=== Offline deploying (arch: ${archDisplay}) ===`);
 
     try {
-      const result = await api.remoteServerDeployOffline(serverId, deployPlatform);
+      const result = await api.remoteServerDeployOffline(serverId);
       console.log('[RemoteServersSection] Offline deploy result:', result);
       try {
         await api.remoteServerAcknowledgeUpdate(serverId);
@@ -945,6 +970,12 @@ export function RemoteServersSection() {
       return handleDeployOffline(serverId);
     }
     return handleUpdateAgent(serverId);
+  };
+
+  // Cancel an in-flight deploy/update operation
+  const handleCancelOperation = async (serverId: string) => {
+    await api.remoteServerCancelOperation(serverId);
+    setUpdatingAgent(null);
   };
 
   // Batch update all servers
@@ -1146,31 +1177,7 @@ export function RemoteServersSection() {
               </button>
             </div>
 
-            {/* Platform selector (only in offline mode) */}
-            {deployMode === 'offline' && (
-              <div className="flex items-center gap-1 text-xs border border-border rounded-lg p-0.5">
-                <button
-                  onClick={() => setDeployPlatform('x64')}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    deployPlatform === 'x64'
-                      ? 'bg-blue-500/15 text-blue-600'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  x64
-                </button>
-                <button
-                  onClick={() => setDeployPlatform('arm64')}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    deployPlatform === 'arm64'
-                      ? 'bg-blue-500/15 text-blue-600'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  arm64
-                </button>
-              </div>
-            )}
+            {/* Auto-detected architecture indicator (offline mode only) */}
 
             <button
               onClick={handleBatchUpdate}
@@ -1312,6 +1319,15 @@ export function RemoteServersSection() {
                             <RefreshCw className="w-4 h-4" />
                           )}
                         </button>
+                        {updatingAgent === server.id && (
+                          <button
+                            onClick={() => handleCancelOperation(server.id)}
+                            className="p-1.5 hover:bg-red-500/10 text-red-500 rounded-lg transition-colors"
+                            title={t('Cancel Operation')}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => openEditModal(server)}
                           className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors"
