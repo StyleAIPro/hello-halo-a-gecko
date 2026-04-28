@@ -24,7 +24,7 @@ export const GITCODE_API_BASE = 'https://api.gitcode.com/api/v5';
 // findSkillDirs) stay within the concurrency budget. No more per-level pools
 // that multiply concurrency at each recursion depth.
 
-const MAX_CONCURRENCY = 3;
+const MAX_CONCURRENCY = 8;
 
 class Semaphore {
   private _queue: Array<() => void> = [];
@@ -54,10 +54,10 @@ const _apiSemaphore = new Semaphore();
 
 // ── Rate Limiter ──────────────────────────────────────────────────
 // GitCode limit: 400 requests/min, 4000 requests/hour per user.
-// Strategy: 200ms minimum gap + 60-token/minute burst budget (conservative).
+// Strategy: 100ms minimum gap (~5 req/s sustained, ~300 req/min) + 150-token burst budget.
 
-const RATE_LIMIT_MAX_TOKENS = 60;
-const RATE_LIMIT_MIN_INTERVAL_MS = 200; // ~5 req/s sustained
+const RATE_LIMIT_MAX_TOKENS = 150;
+const RATE_LIMIT_MIN_INTERVAL_MS = 100; // ~10 req/s sustained
 const RATE_LIMIT_REFILL_INTERVAL_MS = 1000; // 1 token/sec refill
 
 class RateLimiter {
@@ -82,7 +82,7 @@ class RateLimiter {
   }
 
   async acquire(): Promise<void> {
-    // Enforce minimum 1s interval between consecutive requests
+    // Enforce minimum interval between consecutive requests
     const now = Date.now();
     const sinceLast = now - this._lastAcquire;
     if (sinceLast < RATE_LIMIT_MIN_INTERVAL_MS && this._lastAcquire > 0) {
