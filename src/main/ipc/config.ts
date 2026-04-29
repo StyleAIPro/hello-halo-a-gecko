@@ -7,7 +7,6 @@ import { saveConfig, getDecryptedConfig, saveConfigAndNotify } from '../services
 import { getAISourceManager } from '../services/ai-sources';
 import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service';
 import { emitConfigChange, runConfigProbe } from '../services/health';
-import { logUserEvent } from '../utils/logger';
 import type { AISourcesConfig } from '../../shared/types';
 
 export function registerConfigHandlers(): void {
@@ -35,7 +34,6 @@ export function registerConfigHandlers(): void {
       updateKeys.join(', '),
       incomingAiSources?.currentId ? `(currentId: ${incomingAiSources.currentId})` : '',
     );
-    logUserEvent('Config', 'update', { keys: updateKeys.join(', ') });
 
     try {
       const config = saveConfigAndNotify(updates);

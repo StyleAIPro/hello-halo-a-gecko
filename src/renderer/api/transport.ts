@@ -55,8 +55,6 @@ export async function httpRequest<T>(
 
   console.log(`[HTTP] ${method} ${path} - token: ${token ? 'present' : 'missing'}`);
 
-  const startTime = Date.now();
-
   try {
     const response = await fetch(url, {
       method,
@@ -81,10 +79,7 @@ export async function httpRequest<T>(
     }
 
     const data = await response.json();
-    const duration = Date.now() - startTime;
-    console.log(
-      `[HTTP] ${method} ${path} - status: ${response.status}, success: ${data.success} (${duration}ms)`,
-    );
+    console.log(`[HTTP] ${method} ${path} - status: ${response.status}, success: ${data.success}`);
 
     if (!response.ok) {
       console.warn(`[HTTP] ${method} ${path} - error:`, data.error);

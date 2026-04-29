@@ -258,9 +258,6 @@ export interface AicoBotAPI {
   setAutoLaunch: (enabled: boolean) => Promise<IpcResponse>;
   openLogFolder: () => Promise<IpcResponse>;
 
-  // Logging bridge (renderer → main process log file)
-  logWrite: (level: 'info' | 'warn' | 'error', scope: string, message: string) => Promise<void>;
-
   // Window
   setTitleBarOverlay: (options: { color: string; symbolColor: string }) => Promise<IpcResponse>;
   maximizeWindow: () => Promise<IpcResponse>;
@@ -892,9 +889,6 @@ const api: AicoBotAPI = {
   getAutoLaunch: () => ipcRenderer.invoke('system:get-auto-launch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('system:set-auto-launch', enabled),
   openLogFolder: () => ipcRenderer.invoke('system:open-log-folder'),
-
-  // Logging bridge (renderer → main process log file)
-  logWrite: (level, scope, message) => ipcRenderer.invoke('log:write', level, scope, message),
 
   // Window
   setTitleBarOverlay: (options) => ipcRenderer.invoke('window:set-title-bar-overlay', options),
