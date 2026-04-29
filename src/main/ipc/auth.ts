@@ -17,6 +17,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { getAISourceManager, getEnabledAuthProviderConfigs } from '../services/ai-sources';
 import { BUILTIN_PROVIDERS } from '../../shared/constants';
+import { logUserEvent } from '../utils/logger';
 import type { ProviderId } from '../../shared/types';
 
 /**
@@ -58,6 +59,7 @@ export function registerAuthHandlers(): void {
   ipcMain.handle('auth:start-login', async (_event, providerType: ProviderId) => {
     try {
       console.log(`[Auth IPC] Starting login for provider: ${providerType}`);
+      logUserEvent('Auth', 'startLogin', { providerType });
       const result = await manager.startOAuthLogin(providerType);
       return result;
     } catch (error: unknown) {
@@ -73,6 +75,7 @@ export function registerAuthHandlers(): void {
   ipcMain.handle('auth:complete-login', async (_event, providerType: ProviderId, state: string) => {
     try {
       console.log(`[Auth IPC] Completing login for provider: ${providerType}`);
+      logUserEvent('Auth', 'completeLogin', { providerType });
       const mainWindow = BrowserWindow.getAllWindows()[0];
 
       // The manager's completeOAuthLogin handles everything including config save
@@ -132,6 +135,7 @@ export function registerAuthHandlers(): void {
    */
   ipcMain.handle('auth:logout', async (_event, sourceId: string) => {
     try {
+      logUserEvent('Auth', 'logout', { sourceId });
       const result = await manager.logout(sourceId);
       return result;
     } catch (error: unknown) {

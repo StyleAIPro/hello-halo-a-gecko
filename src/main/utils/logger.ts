@@ -31,3 +31,14 @@ export interface ScopedLogger {
 export function createLogger(scope: string): ScopedLogger {
   return log.create({ logId: scope }) as unknown as ScopedLogger;
 }
+
+const eventLogger = createLogger('event');
+
+export function logUserEvent(
+  category: string,
+  action: string,
+  details?: Record<string, string>,
+): void {
+  const detailStr = details ? ` ${JSON.stringify(details)}` : '';
+  eventLogger.info(`[${category}] ${action}${detailStr}`);
+}

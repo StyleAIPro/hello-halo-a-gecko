@@ -21,6 +21,7 @@
 
 import { ipcMain } from 'electron';
 import * as skillController from '../controllers/skill.controller';
+import { logUserEvent } from '../utils/logger';
 import type { ConversationService } from '../services/conversation.service';
 
 export function registerSkillHandlers(conversationService: ConversationService): void {
@@ -48,6 +49,10 @@ export function registerSkillHandlers(conversationService: ConversationService):
         yamlContent?: string;
       },
     ) => {
+      logUserEvent('Skill', 'install', {
+        mode: input.mode,
+        skillId: input.skillId ?? 'yaml',
+      });
       if (input.mode === 'market' && input.skillId) {
         // 流式输出回调
         const onOutput = (data: {
@@ -69,6 +74,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
 
   // ── skill:uninstall ────────────────────────────────────────────────────
   ipcMain.handle('skill:uninstall', async (_event, skillId: string) => {
+    logUserEvent('Skill', 'uninstall', { skillId });
     return skillController.uninstallSkill(skillId);
   });
 
