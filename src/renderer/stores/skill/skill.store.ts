@@ -68,7 +68,7 @@ interface SkillState {
   config: SkillLibraryConfig | null;
 
   // 当前视图
-  currentView: 'library' | 'market' | 'editor';
+  currentView: 'library' | 'market' | 'editor' | 'evolution';
   searchQuery: string;
   selectedSkillId: string | null;
 

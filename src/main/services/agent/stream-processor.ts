@@ -27,6 +27,7 @@ import { broadcastMcpStatus } from './mcp-manager';
 import { markSessionActivity } from './session-manager';
 import { terminalGateway } from '../terminal/terminal-gateway';
 import { getSpace } from '../space.service';
+import { SkillUsageTracker } from '../skill/skill-usage-tracker';
 
 // Unified fallback error suffix - guides user to check logs
 const FALLBACK_ERROR_HINT = 'Check logs in Settings > System > Logs.';
@@ -973,6 +974,21 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
               console.error(`[Agent][${conversationId}] Failed to parse tool input JSON:`, e);
             }
 
+            // Track Skill tool usage for evolution system
+            if (blockState.toolName === 'Skill' && toolInput.name) {
+              const usageTracker = SkillUsageTracker.getInstance();
+              if (usageTracker) {
+                usageTracker.recordUsage({
+                  skillId: String(toolInput.name),
+                  skillName: String(toolInput.name),
+                  conversationId,
+                  spaceId,
+                  triggerMode: 'slash-command',
+                  userContext: '',
+                });
+              }
+            }
+
             // Generate commandId for tracking terminal commands (for Bash commands)
             const commandId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
@@ -1157,6 +1173,26 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           );
           if (toolUseThought) {
             toolUseThought.toolResult = toolResult;
+
+            // Complete skill usage tracking for evolution system
+            if (toolUseThought.toolName === 'Skill') {
+              const usageTracker = SkillUsageTracker.getInstance();
+              if (usageTracker) {
+                usageTracker.completeUsage({
+                  conversationId,
+                  toolCalls: [
+                    {
+                      name: toolUseThought.toolName,
+                      status: toolResult.isError ? 'error' : 'success',
+                      duration:
+                        Date.now() - new Date(toolUseThought.timestamp || Date.now()).getTime(),
+                    },
+                  ],
+                  agentResponseSummary: (toolResult.output || '').slice(0, 500),
+                  tokenUsage: { input: 0, output: 0 },
+                });
+              }
+            }
 
             // Notify Terminal Gateway for Bash command completion (local mode)
             if (toolUseThought.toolName === 'Bash' && toolUseThought.toolInput?.command) {

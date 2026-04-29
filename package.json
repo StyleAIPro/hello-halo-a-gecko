@@ -7,8 +7,8 @@
   "author": "AICO-Bot Team",
   "license": "MIT",
   "scripts": {
-    "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
-    "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
+    "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev node scripts/dev.mjs",
+    "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev node scripts/dev.mjs",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build:patch-sdk": "node scripts/patch-sdk.mjs",
     "build:offline-bundle": "node packages/remote-agent-proxy/scripts/build-offline-bundle.mjs",
@@ -84,6 +84,7 @@
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.11",
     "@electron-toolkit/preload": "^3.0.0",
+    "@jaex/dstsx": "^0.1.3",
     "@lezer/highlight": "^1.2.3",
     "@parcel/watcher": "^2.5.6",
     "@replit/codemirror-lang-svelte": "^6.0.0",
@@ -202,7 +203,10 @@
       {
         "from": "resources/offline-bundles",
         "to": "offline-bundles",
-        "filter": ["**/*.tar.gz", "**/*.tar.xz"]
+        "filter": [
+          "**/*.tar.gz",
+          "**/*.tar.xz"
+        ]
       }
     ],
     "publish": {

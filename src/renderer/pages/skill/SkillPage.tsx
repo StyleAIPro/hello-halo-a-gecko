@@ -18,8 +18,9 @@ import { Header } from '../../components/layout/Header';
 import { SkillLibrary } from '../../components/skill/SkillLibrary';
 import { SkillMarket } from '../../components/skill/SkillMarket';
 import { SkillEditorPage } from '../../components/skill/SkillEditor';
+import { EvolutionPanel } from '../../components/skill/EvolutionPanel';
 import { useTranslation } from '../../i18n';
-import { Book, Store, FileCode, ArrowLeft } from 'lucide-react';
+import { Book, Store, FileCode, ArrowLeft, Zap } from 'lucide-react';
 
 export function SkillPage() {
   const { t } = useTranslation();
@@ -60,6 +61,11 @@ export function SkillPage() {
         id: 'editor' as const,
         label: t('技能生成器'),
         icon: FileCode,
+      },
+      {
+        id: 'evolution' as const,
+        label: t('Skill Evolution'),
+        icon: Zap,
       },
     ],
     [t],
@@ -125,6 +131,7 @@ export function SkillPage() {
         {!loading && currentView === 'library' && <SkillLibrary />}
         {!marketLoading && currentView === 'market' && <SkillMarket />}
         {currentView === 'editor' && <SkillEditorPage />}
+        {currentView === 'evolution' && <EvolutionPanel />}
       </div>
     </div>
   );

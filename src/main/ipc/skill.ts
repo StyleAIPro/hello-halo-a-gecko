@@ -22,6 +22,10 @@
 import { ipcMain } from 'electron';
 import * as skillController from '../controllers/skill.controller';
 import type { ConversationService } from '../services/conversation.service';
+import { SkillEvolutionEngine } from '../services/skill/skill-evolution-engine';
+import { SkillUsageTracker } from '../services/skill/skill-usage-tracker';
+import { SkillVersionManager } from '../services/skill/skill-version-manager';
+import { BackgroundPatternAnalyzer } from '../services/skill/background-pattern-analyzer';
 
 export function registerSkillHandlers(conversationService: ConversationService): void {
   // Initialize controller with dependencies
@@ -425,4 +429,150 @@ export function registerSkillHandlers(conversationService: ConversationService):
   });
 
   console.log('[SkillIPC] Skill handlers registered');
+}
+
+/**
+ * Register Skill Evolution IPC handlers.
+ * Called from bootstrap after initSkillEvolution().
+ */
+export function registerSkillEvolutionHandlers(): void {
+  // ── Evolution: usage stats ────────────────────────────────────────────
+  ipcMain.handle('skill:evolution:usage-stats', async (_event, skillId: string) => {
+    const tracker = SkillUsageTracker.getInstance();
+    if (!tracker) return { success: false, error: 'Usage tracker not initialized' };
+    return { success: true, data: tracker.getUsageStats(skillId) };
+  });
+
+  ipcMain.handle('skill:evolution:usage-history', async (_event, skillId: string, limit?: number) => {
+    const tracker = SkillUsageTracker.getInstance();
+    if (!tracker) return { success: false, error: 'Usage tracker not initialized' };
+    return { success: true, data: tracker.getUsageHistory(skillId, limit) };
+  });
+
+  ipcMain.handle('skill:evolution:leaderboard', async (_event, limit?: number) => {
+    const tracker = SkillUsageTracker.getInstance();
+    if (!tracker) return { success: false, error: 'Usage tracker not initialized' };
+    return { success: true, data: tracker.getLeaderboard(limit) };
+  });
+
+  ipcMain.handle('skill:evolution:update-feedback', async (_event, conversationId: string, feedback: string) => {
+    const tracker = SkillUsageTracker.getInstance();
+    if (!tracker) return { success: false, error: 'Usage tracker not initialized' };
+    tracker.updateFeedback(conversationId, feedback as 'positive' | 'negative' | 'neutral');
+    return { success: true };
+  });
+
+  // ── Evolution: suggestions ────────────────────────────────────────────
+  ipcMain.handle('skill:evolution:suggestions', async (_event, skillId?: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    return { success: true, data: engine.getAllSuggestions(skillId) };
+  });
+
+  ipcMain.handle('skill:evolution:pending-suggestions', async (_event, skillId?: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    return { success: true, data: engine.getPendingSuggestions(skillId) };
+  });
+
+  ipcMain.handle('skill:evolution:confirm-suggestion', async (_event, suggestionId: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    const ok = await engine.confirmSuggestion(suggestionId);
+    return { success: ok };
+  });
+
+  ipcMain.handle('skill:evolution:reject-suggestion', async (_event, suggestionId: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    engine.rejectSuggestion(suggestionId);
+    return { success: true };
+  });
+
+  ipcMain.handle('skill:evolution:rollback-suggestion', async (_event, suggestionId: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    const ok = await engine.rollbackSuggestion(suggestionId);
+    return { success: ok };
+  });
+
+  // ── Evolution: trigger ────────────────────────────────────────────────
+  ipcMain.handle('skill:evolution:evolve-skill', async (_event, skillId: string) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    const suggestion = await engine.evolveSkill(skillId);
+    return { success: true, data: suggestion };
+  });
+
+  ipcMain.handle('skill:evolution:run-cycle', async () => {
+    const engine = SkillEvolutionEngine.getInstance();
+    if (!engine) return { success: false, error: 'Evolution engine not initialized' };
+    const suggestions = await engine.runEvolutionCycle();
+    return { success: true, data: suggestions };
+  });
+
+  // ── Evolution: config ─────────────────────────────────────────────────
+  ipcMain.handle('skill:evolution:config', async () => {
+    const engine = SkillEvolutionEngine.getInstance();
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    return {
+      success: true,
+      data: {
+        engine: engine?.getConfig(),
+        analyzer: analyzer?.getConfig(),
+      },
+    };
+  });
+
+  ipcMain.handle('skill:evolution:update-config', async (_event, config: Record<string, unknown>) => {
+    const engine = SkillEvolutionEngine.getInstance();
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    if (config.engine) engine?.updateConfig(config.engine as any);
+    if (config.analyzer) analyzer?.updateConfig(config.analyzer as any);
+    return { success: true };
+  });
+
+  // ── Evolution: versions ───────────────────────────────────────────────
+  ipcMain.handle('skill:evolution:version-history', async (_event, skillId: string, limit?: number) => {
+    const vm = SkillVersionManager.getInstance();
+    if (!vm) return { success: false, error: 'Version manager not initialized' };
+    return { success: true, data: vm.getVersionHistory(skillId, limit) };
+  });
+
+  ipcMain.handle('skill:evolution:rollback', async (_event, skillId: string, versionId: string) => {
+    const vm = SkillVersionManager.getInstance();
+    if (!vm) return { success: false, error: 'Version manager not initialized' };
+    const snapshot = await vm.rollback(skillId, versionId);
+    return { success: true, data: snapshot };
+  });
+
+  // ── Evolution: pattern analysis ───────────────────────────────────────
+  ipcMain.handle('skill:evolution:analyze-patterns', async () => {
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    if (!analyzer) return { success: false, error: 'Pattern analyzer not initialized' };
+    const discoveries = await analyzer.analyze();
+    return { success: true, data: discoveries };
+  });
+
+  ipcMain.handle('skill:evolution:pending-patterns', async (_event, limit?: number) => {
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    if (!analyzer) return { success: false, error: 'Pattern analyzer not initialized' };
+    return { success: true, data: analyzer.getPendingSuggestions(limit) };
+  });
+
+  ipcMain.handle('skill:evolution:accept-pattern', async (_event, patternId: string) => {
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    if (!analyzer) return { success: false, error: 'Pattern analyzer not initialized' };
+    analyzer.acceptSuggestion(patternId);
+    return { success: true };
+  });
+
+  ipcMain.handle('skill:evolution:dismiss-pattern', async (_event, patternId: string) => {
+    const analyzer = BackgroundPatternAnalyzer.getInstance();
+    if (!analyzer) return { success: false, error: 'Pattern analyzer not initialized' };
+    analyzer.dismissSuggestion(patternId);
+    return { success: true };
+  });
+
+  console.log('[SkillIPC] Skill Evolution handlers registered');
 }

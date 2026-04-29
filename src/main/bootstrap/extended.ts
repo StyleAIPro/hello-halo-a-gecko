@@ -52,7 +52,8 @@ import {
 import type { WebhookSecretResolver } from '../platform/event-bus';
 import { initMemory } from '../platform/memory';
 import { registerStoreHandlers } from '../ipc/store';
-import { registerSkillHandlers } from '../ipc/skill';
+import { registerSkillHandlers, registerSkillEvolutionHandlers } from '../ipc/skill';
+import { initSkillEvolution } from '../services/skill/evolution-init';
 import { registerHyperSpaceHandlers } from '../ipc/hyper-space';
 import { initRegistryService, shutdownRegistryService } from '../store';
 import * as watcherHost from '../services/watcher-host.service';
@@ -136,6 +137,10 @@ async function initPlatformAndApps(): Promise<void> {
   // so no ScheduleBridgeSource is needed (only one subscriber can register at a time).
   const fileWatcherSource = new FileWatcherSource(watcherHost);
   eventBus.registerSource(fileWatcherSource);
+
+  // ── Skill Evolution System ──────────────────────────────────────────────
+  // Initializes usage tracking, pattern analysis, GEPA optimization, version management
+  initSkillEvolution(db);
 
   // ── Start timer loops AFTER all wiring is complete ──────────────────────
   scheduler.start();
@@ -221,6 +226,7 @@ export function initializeExtendedServices(): void {
       const conversationService = getConversationService();
       if (conversationService) {
         registerSkillHandlers(conversationService);
+        registerSkillEvolutionHandlers();
         console.log('[Bootstrap] Skill handlers registered');
       } else {
         console.warn('[Bootstrap] Skill handlers deferred - ConversationService not ready');

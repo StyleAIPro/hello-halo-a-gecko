@@ -35,9 +35,16 @@ export type { FileChangesSummary } from '../../shared/file-changes';
 // Type Definitions
 // ============================================================================
 
-type ThoughtType = 'thinking' | 'text' | 'tool_use' | 'tool_result' | 'system' | 'result' | 'error';
+export type ThoughtType =
+  | 'thinking'
+  | 'text'
+  | 'tool_use'
+  | 'tool_result'
+  | 'system'
+  | 'result'
+  | 'error';
 
-interface Thought {
+export interface Thought {
   id: string;
   type: ThoughtType;
   content: string;
@@ -84,7 +91,7 @@ interface ThoughtsSummary {
   types: Partial<Record<ThoughtType, number>>;
 }
 
-interface Message {
+export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -114,7 +121,7 @@ interface Message {
   error?: string; // Error message when assistant response failed (e.g., 429 rate limit)
 }
 
-interface ToolCall {
+export interface ToolCall {
   id: string;
   name: string;
   status: 'pending' | 'running' | 'success' | 'error' | 'waiting_approval';
@@ -137,7 +144,7 @@ export interface ConversationMeta {
   relatedSkillId?: string;
 }
 
-interface Conversation extends ConversationMeta {
+export interface Conversation extends ConversationMeta {
   messages: Message[];
   sessionId?: string;
   version?: number; // 2 = thoughts stored separately

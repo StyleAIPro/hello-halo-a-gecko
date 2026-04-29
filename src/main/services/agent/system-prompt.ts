@@ -7,6 +7,7 @@
  */
 
 import os from 'os';
+import { buildEvolutionGuidance } from '../skill/evolution-guidance';
 
 // ============================================
 // Constants
@@ -258,13 +259,16 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
   // Escape $ in replacement strings to prevent template literal interpretation
   const safeModelInfo = modelInfo.replace(/\$/g, '\\$');
 
+  const evolutionGuidance = buildEvolutionGuidance();
+
   return SYSTEM_PROMPT_TEMPLATE.replace(/\${ALLOWED_TOOLS}/g, tools.join(', '))
     .replace(/\${WORK_DIR}/g, ctx.workDir.replace(/\$/g, '\\$'))
     .replace(/\${IS_GIT_REPO}/g, isGitRepo)
     .replace(/\${PLATFORM}/g, platform)
     .replace(/\${OS_VERSION}/g, osVersion)
     .replace(/\${TODAY}/g, today)
-    .replace(/\${MODEL_INFO}/g, safeModelInfo);
+    .replace(/\${MODEL_INFO}/g, safeModelInfo)
+    + (evolutionGuidance ? '\n\n' + evolutionGuidance : '');
 }
 
 /**

@@ -714,6 +714,7 @@ export interface AicoBotAPI {
   removeAgentFromHyperSpace: (spaceId: string, agentId: string) => Promise<IpcResponse>;
   updateHyperSpaceConfig: (spaceId: string, config: any) => Promise<IpcResponse>;
   getHyperSpaceTasks: (conversationId: string) => Promise<IpcResponse<{ tasks: any[] }>>;
+  invoke: (channel: string, ...args: any[]) => Promise<any>;
 }
 
 interface IpcResponse<T = unknown> {
@@ -1337,6 +1338,9 @@ const api: AicoBotAPI = {
       requestId,
       approved,
     ),
+
+  // Generic invoke for evolution IPC channels
+  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
 };
 
 contextBridge.exposeInMainWorld('aicoBot', api);
