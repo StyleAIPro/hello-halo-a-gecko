@@ -424,5 +424,40 @@ export function registerSkillHandlers(conversationService: ConversationService):
     return skillController.setGitCodeToken(token);
   });
 
+  // ── skill:market:pat-status ──────────────────────────────────────
+  ipcMain.handle('skill:market:pat-status', async () => {
+    try {
+      const { getGitHubToken } = await import('../services/github-auth.service');
+      const { getGitCodeToken } = await import('../services/config.service');
+      return {
+        success: true,
+        data: {
+          github: !!getGitHubToken(),
+          gitcode: !!getGitCodeToken(),
+        },
+      };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  // ── skill:network:proxy-status ──────────────────────────────────
+  ipcMain.handle('skill:network:proxy-status', async () => {
+    try {
+      const { getConfig } = await import('../services/config.service');
+      const config = getConfig();
+      const network = config.network || {};
+      return {
+        success: true,
+        data: {
+          enabled: !!network.enabled,
+          proxyUrl: network.proxyUrl || '',
+        },
+      };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
   console.log('[SkillIPC] Skill handlers registered');
 }

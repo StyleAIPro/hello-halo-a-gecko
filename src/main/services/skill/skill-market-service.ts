@@ -21,6 +21,26 @@ import { invalidateProxyCache } from '../proxy';
 import * as githubSkillSource from './github-skill-source.service';
 import * as gitcodeSkillSource from './gitcode-skill-source.service';
 
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'EPIPE',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'EAI_AGAIN',
+]);
+
+function isNetworkError(message: string): boolean {
+  return (
+    NETWORK_ERROR_CODES.has(message) ||
+    ['network', 'proxy', 'SOCKS', 'tunnel', 'socket hang up', 'fetch failed', 'EPROTO'].some((kw) =>
+      message.toLowerCase().includes(kw.toLowerCase()),
+    )
+  );
+}
+
 // 唯一的市场源
 const BUILTIN_SOURCES: SkillMarketSource[] = [
   {
@@ -526,7 +546,11 @@ export class SkillMarketService {
       if (parts.length >= 3) {
         const repo = parts[1];
         let skillPath = parts.slice(2).join(':');
-        console.log('[SkillMarket] getSkillDetail GitCode:', { skillId, repo, rawSkillPath: skillPath });
+        console.log('[SkillMarket] getSkillDetail GitCode:', {
+          skillId,
+          repo,
+          rawSkillPath: skillPath,
+        });
         const cachedItem = this.findSkillInCache(skillId);
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
@@ -643,7 +667,10 @@ export class SkillMarketService {
     onOutput?.({ type: 'stdout', content: '  Resolving skill metadata...\n' });
     console.log('[SkillMarketService] downloadSkill: calling getSkillDetail for', skillId);
     const skill = await this.getSkillDetail(skillId);
-    console.log('[SkillMarketService] downloadSkill: getSkillDetail returned', skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null);
+    console.log(
+      '[SkillMarketService] downloadSkill: getSkillDetail returned',
+      skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null,
+    );
 
     if (!skill) {
       // getSkillDetail failed — try cache first to preserve original-case path
@@ -775,12 +802,28 @@ export class SkillMarketService {
         }
       };
 
+      if (!token) {
+        console.warn('[SkillMarketService] GitHub PAT not configured, listing without auth');
+      }
+
       for (const repo of repos) {
         try {
           const repoSkills = await githubSkillSource.listSkillsFromRepo(repo, token, sendProgress);
           cachedSkills.push(...repoSkills);
-        } catch (error) {
+        } catch (error: any) {
+          const msg = error?.message || String(error);
           console.error(`[SkillMarketService] Failed to fetch from GitHub repo ${repo}:`, error);
+          // Enrich error with actionable guidance
+          if (!token && (msg.includes('403') || msg.includes('rate limit'))) {
+            throw new Error(
+              'GitHub PAT 未配置，技能列表无法加载。请前往 设置 > GitHub 配置 Personal Access Token。\n\nGitHub PAT not configured. Please go to Settings > GitHub to configure your Personal Access Token.',
+            );
+          }
+          if (isNetworkError(msg)) {
+            throw new Error(
+              '网络连接失败，无法加载 GitHub 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitHub skill list. Go to Settings > Network to configure a proxy.',
+            );
+          }
         }
       }
 
@@ -857,6 +900,10 @@ export class SkillMarketService {
       cachedSkills = [];
       const errors: string[] = [];
 
+      if (!token) {
+        console.warn('[SkillMarketService] GitCode PAT not configured, listing without auth');
+      }
+
       const sendProgress = (progress: { phase: string; current: number; total: number }) => {
         const mainWindow = BrowserWindow.getAllWindows()[0];
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -882,6 +929,17 @@ export class SkillMarketService {
       }
 
       if (cachedSkills.length === 0 && errors.length > 0) {
+        // Check if the error is likely due to missing PAT
+        if (!token && errors.some((e) => e.includes('401') || e.includes('403'))) {
+          throw new Error(
+            'GitCode PAT 未配置，技能列表无法加载。请前往 设置 > GitCode 配置 Personal Access Token。\n\nGitCode PAT not configured. Please go to Settings > GitCode to configure your Personal Access Token.',
+          );
+        }
+        if (errors.some((e) => isNetworkError(e))) {
+          throw new Error(
+            '网络连接失败，无法加载 GitCode 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitCode skill list. Go to Settings > Network to configure a proxy.',
+          );
+        }
         throw new Error(`Failed to fetch GitCode skills: ${errors.join('; ')}`);
       }
     }

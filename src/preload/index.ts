@@ -605,6 +605,8 @@ export interface AicoBotAPI {
   skillMarketListGitCodeRepoDirs: (repo: string) => Promise<IpcResponse>;
   skillMarketValidateGitCodeRepo: (repo: string) => Promise<IpcResponse>;
   skillMarketSetGitCodeToken: (token: string) => Promise<IpcResponse>;
+  skillMarketPatStatus: () => Promise<IpcResponse>;
+  skillNetworkProxyStatus: () => Promise<IpcResponse>;
   onSkillMarketFetchProgress: (
     callback: (data: { phase: string; current: number; total: number }) => void,
   ) => () => void;
@@ -1167,6 +1169,8 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('skill:market:validate-gitcode-repo', repo),
   skillMarketSetGitCodeToken: (token: string) =>
     ipcRenderer.invoke('skill:market:set-gitcode-token', token),
+  skillMarketPatStatus: () => ipcRenderer.invoke('skill:market:pat-status'),
+  skillNetworkProxyStatus: () => ipcRenderer.invoke('skill:network:proxy-status'),
   onSkillMarketFetchProgress: (callback) =>
     createEventListener('skill:market:fetch-progress', callback as (data: unknown) => void),
   skillConfigGet: () => ipcRenderer.invoke('skill:config:get'),

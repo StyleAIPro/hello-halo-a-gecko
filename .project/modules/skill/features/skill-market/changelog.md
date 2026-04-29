@@ -16,3 +16,5 @@
 | 2026-04-24 | 修复分类目录误显示为 skill：listSkillsFromRepo 中 SKILL.md 不存在时跳过该目录，不再创建默认条目 | 用户 | bugfix-non-skill-dirs-shown-v1 |
 | 2026-04-25 | 远程安装支持 GitCode Direct Upload：installRemoteSkill 新增 sourceType 参数，GitCode 源走本机 API 下载→SSH 上传，GitHub npx 失败时自动 fallback 到 Direct Upload | 用户 | feature-direct-remote-skill-install-v1 |
 | 2026-04-26 | GitCode API 对齐全面优化：修正 Base URL（api.gitcode.com）、放宽速率限制（1s→200ms）、raw 端点替代 base64、并行获取技能详情、30s 超时保护、token 从 URL 移到 header、递归扫描 deadline、代码去重 | @MoonSeeker | refactor-gitcode-api-alignment-v1 |
+| 2026-04-29 | PAT 缺失引导：安装流程 PAT 预检 early return + npx fallback PAT 预检 + 新增 `skill:market:pat-status` IPC 主动检测 + 技能市场主动预警横幅 + 中英文 i18n | 用户 | bugfix-pat-missing-imported-repo-v1 |
+| 2026-04-29 | 内网代理引导：error-classifier 网络错误消息更新为引导到应用内"设置 > 网络" + skill-market-service GitHub/GitCode 网络错误同步更新 + 新增 `skill:network:proxy-status` IPC + 技能市场网络错误横幅区分"未配置代理"/"代理连接失败" + 中英文 i18n | 用户 | bugfix-intranet-proxy-guidance-v1 |

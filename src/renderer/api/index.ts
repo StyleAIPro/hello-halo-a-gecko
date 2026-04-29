@@ -2522,6 +2522,22 @@ export const api = {
     return { success: false, error: 'Not available in web mode' };
   },
 
+  skillMarketPatStatus: async (): Promise<ApiResponse<{ github: boolean; gitcode: boolean }>> => {
+    if (isElectron()) {
+      return window.aicoBot.skillMarketPatStatus();
+    }
+    return { success: false, error: 'Only available in desktop app' };
+  },
+
+  skillNetworkProxyStatus: async (): Promise<
+    ApiResponse<{ enabled: boolean; proxyUrl: string }>
+  > => {
+    if (isElectron()) {
+      return window.aicoBot.skillNetworkProxyStatus();
+    }
+    return { success: false, error: 'Only available in desktop app' };
+  },
+
   skillConfigGet: async (): Promise<ApiResponse<{ config: any }>> => {
     if (isElectron()) {
       return window.aicoBot.skillConfigGet();

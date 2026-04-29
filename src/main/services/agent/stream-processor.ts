@@ -16,6 +16,7 @@
 
 import { is } from '@electron-toolkit/utils';
 import type { Thought, ToolCall, TokenUsage, SingleCallUsage, SessionState } from './types';
+import { extractNetworkErrorHint } from './error-classifier';
 import { sendToRenderer } from './helpers';
 import {
   parseSDKMessage,
@@ -1681,6 +1682,12 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
   // Determine if interrupted error should be sent
   const getInterruptedErrorMessage = (): string | null => {
+    // Check error thought content for network error hints
+    if (errorThought?.content) {
+      const networkHint = extractNetworkErrorHint(errorThought.content);
+      if (networkHint) return networkHint;
+    }
+
     if (finalContent) {
       // Has content: user aborted shows friendly message, other interrupts show warning
       if (wasAborted) return null; // CRITICAL: Don't show error when user stops with content
