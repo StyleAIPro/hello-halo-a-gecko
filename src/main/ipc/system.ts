@@ -7,6 +7,7 @@ import { ipcMain, shell } from 'electron';
 import { dirname } from 'path';
 import log from 'electron-log/main.js';
 import { setAutoLaunch, getAutoLaunch } from '../services/config.service';
+import { createLogger } from '../utils/logger';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
 import { getServerInfo } from '../http/server';
 import { validateToken } from '../http/auth';
@@ -245,6 +246,22 @@ export function registerSystemHandlers(): void {
       console.error('[System] force-repaint failed:', err.message);
       return { success: false, error: err.message };
     }
+  });
+
+  // Bridge renderer logs to main process log file
+  ipcMain.handle('log:write', async (_event, level: string, scope: string, message: string) => {
+    const rendererLog = createLogger(`renderer:${scope}`);
+    switch (level) {
+      case 'warn':
+        rendererLog.warn(message);
+        break;
+      case 'error':
+        rendererLog.error(message);
+        break;
+      default:
+        rendererLog.info(message);
+    }
+    return { success: true };
   });
 
   console.log('[Settings] System handlers registered');

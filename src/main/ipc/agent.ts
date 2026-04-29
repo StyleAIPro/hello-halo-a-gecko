@@ -15,6 +15,7 @@ import {
   compactContext,
 } from '../services/agent';
 import { getMainWindow } from '../services/window.service';
+import { logUserEvent } from '../utils/logger';
 import { queueInjection } from '../services/agent/stream-processor';
 import { getRemoteWsClient } from '../services/remote-ws/remote-ws-client';
 
@@ -46,6 +47,11 @@ export function registerAgentHandlers(): void {
         console.log(
           `[IPC] agent:send-message called with spaceId=${request.spaceId}, conversationId=${request.conversationId}, agentId=${request.agentId || 'leader'}`,
         );
+        logUserEvent('Agent', 'sendMessage', {
+          spaceId: request.spaceId,
+          conversationId: request.conversationId,
+          messageLength: String(request.message?.length ?? 0),
+        });
         await sendMessage(getMainWindow(), request);
         return { success: true };
       } catch (error: unknown) {
@@ -60,6 +66,7 @@ export function registerAgentHandlers(): void {
   // The interrupt/drain cleanup runs in the background and should not block the IPC response.
   ipcMain.handle('agent:stop', async (_event, conversationId?: string) => {
     console.log(`[IPC] agent:stop called with conversationId=${conversationId || 'undefined'}`);
+    logUserEvent('Agent', 'stopGeneration', { conversationId: conversationId ?? 'all' });
     try {
       // Fire-and-forget: abort is already synchronous via abortController.abort()
       // interrupt/drain may hang, so don't await — let it run in background

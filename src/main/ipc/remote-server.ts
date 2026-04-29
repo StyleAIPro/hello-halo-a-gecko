@@ -14,6 +14,7 @@ import type { RemoteServerConfigInput } from '../services/remote-deploy';
 import { remoteDeployService as deployService } from '../services/remote-deploy/remote-deploy.service';
 import type { RemoteServer } from '../../shared/types';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
+import { logUserEvent } from '../utils/logger';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -419,6 +420,7 @@ ipcMain.handle('remote-server:check-agent', async (_event, serverId: string) => 
 // Deploy agent SDK to remote server via SCP
 ipcMain.handle('remote-server:deploy-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:deploy-agent - Deploying agent SDK:', serverId);
+  logUserEvent('RemoteServer', 'deployAgent', { serverId });
   try {
     await deployService.deployAgentSDK(serverId);
     return { success: true, data: { message: 'Agent SDK deployment started' } };
@@ -432,6 +434,7 @@ ipcMain.handle('remote-server:deploy-agent', async (_event, serverId: string) =>
 // Start agent server on remote server
 ipcMain.handle('remote-server:start-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:start-agent - Starting agent:', serverId);
+  logUserEvent('RemoteServer', 'startAgent', { serverId });
   try {
     await deployService.startAgent(serverId);
     return { success: true, data: { message: 'Agent started successfully' } };
@@ -445,6 +448,7 @@ ipcMain.handle('remote-server:start-agent', async (_event, serverId: string) => 
 // Stop agent server on remote server
 ipcMain.handle('remote-server:stop-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:stop-agent - Stopping agent:', serverId);
+  logUserEvent('RemoteServer', 'stopAgent', { serverId });
   try {
     await deployService.stopAgent(serverId);
     return { success: true, data: { message: 'Agent stopped successfully' } };
