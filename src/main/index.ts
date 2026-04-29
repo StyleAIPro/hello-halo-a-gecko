@@ -40,15 +40,14 @@ log.transports.file.level = 'info'; // Always log info+ to file
 log.transports.console.level = isDev ? 'debug' : 'info';
 log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB per file, auto-rotate
 
-// Daily log rotation: file named aico-bot-YYYY-MM-DD.log
-// Dev: ~/.aico-bot-dev/logs/ — Packaged: ~/.aico-bot/logs/
-log.transports.file.resolvePathFn = (variables) => {
-  const logDir = isDev
-    ? join(homedir(), '.aico-bot-dev', 'logs')
-    : join(app.getPath('userData'), 'logs');
-  const dateStr = variables.date?.toISOString().split('T')[0] ?? 'unknown';
-  return join(logDir, `aico-bot-${dateStr}.log`);
-};
+// Isolate log directory: dev writes to ~/.aico-bot-dev/logs,
+// packaged writes to ~/.aico-bot/logs — prevents log file conflicts
+// when running both simultaneously.
+if (isDev) {
+  log.transports.file.resolvePathFn = () => {
+    return join(homedir(), '.aico-bot-dev', 'logs');
+  };
+}
 
 // Handle EPIPE errors gracefully (must be registered BEFORE electron-log's errorHandler)
 // electron-log's startCatching() registers its own uncaughtException handler that shows
@@ -112,7 +111,7 @@ Object.assign(console, log.functions);
 // Executed after page load to avoid blocking startup
 // Note: fix-path is ESM-only, loaded dynamically to support both CJS and ESM builds
 
-import { app, shell, BrowserWindow, Menu, session } from 'electron';
+import { app, shell, BrowserWindow, Menu } from 'electron';
 
 // GPU compatibility: Disable hardware acceleration on Windows to prevent blank window issues
 // Some Windows GPU configurations cause the GPU process to crash, resulting in a white/blank screen
@@ -185,8 +184,6 @@ import {
   onRendererUnresponsive,
 } from './services/health';
 import { getBackgroundService } from './platform/background';
-import { setupNetworkLogger } from './services/network-logger';
-import { cleanupOldLogs } from './utils/log-cleanup';
 
 let mainWindow: BrowserWindow | null = null;
 let isAppQuitting = false;
@@ -484,9 +481,6 @@ app.whenReady().then(async () => {
   // Create window first
   createWindow();
 
-  // Setup network request logging (captures API calls from all renderer sessions)
-  setupNetworkLogger(session.defaultSession);
-
   // ========================================
   // PHASED INITIALIZATION
   // ========================================
@@ -507,11 +501,6 @@ app.whenReady().then(async () => {
       // requestIdleCallback equivalent for Node.js
       setImmediate(() => {
         initializeExtendedServices();
-        // Cleanup old log files (>30 days) in background
-        const logDir = isDev
-          ? join(homedir(), '.aico-bot-dev', 'logs')
-          : join(app.getPath('userData'), 'logs');
-        cleanupOldLogs(logDir).catch(() => {});
       });
     });
   }

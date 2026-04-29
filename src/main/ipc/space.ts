@@ -19,7 +19,6 @@ import {
 } from '../services/space.service';
 import { getSpacesDir } from '../services/config.service';
 import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
-import { logUserEvent } from '../utils/logger';
 
 // Import types for preferences
 interface SpaceLayoutPreferences {
@@ -95,7 +94,6 @@ export function registerSpaceHandlers(): void {
         }
 
         const space = createSpace(input);
-        logUserEvent('Space', 'create', { spaceId: space.id, name: space.name });
         return { success: true, data: space };
       } catch (error: unknown) {
         const err = error as Error;
@@ -107,7 +105,6 @@ export function registerSpaceHandlers(): void {
   // Delete a space
   ipcMain.handle('space:delete', async (_event, spaceId: string) => {
     try {
-      logUserEvent('Space', 'delete', { spaceId });
       const result = await deleteSpace(spaceId);
       return { success: result.success, error: result.error };
     } catch (error: unknown) {
