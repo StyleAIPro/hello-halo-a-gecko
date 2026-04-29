@@ -10,6 +10,7 @@
  */
 
 import type { BrowserWindow } from 'electron';
+import { classifyError } from './error-classifier';
 import { getConfig } from '../config.service';
 import {
   getConversation,
@@ -377,6 +378,7 @@ export async function sendMessage(
       mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
       maxTurns: config.agent?.maxTurns,
       contextWindow: resolvedCredentials.contextWindow,
+      additionalDisallowedTools: ['Agent', 'Task'],
     });
 
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
@@ -740,47 +742,58 @@ export async function sendMessage(
 
     console.error(`[Agent][${conversationId}] Error:`, error);
 
-    // Extract detailed error message from stderr if available
-    let errorMessage = err.message || `Unknown error. ${FALLBACK_ERROR_HINT}`;
+    // Classify error for user-friendly messaging
+    const classified = classifyError(error);
+    let errorMessage: string;
 
-    // Windows: Check for Git Bash related errors
-    if (process.platform === 'win32') {
-      const isExitCode1 =
-        errorMessage.includes('exited with code 1') ||
-        errorMessage.includes('process exited') ||
-        errorMessage.includes('spawn ENOENT');
-      const isBashError =
-        stderrBuffer?.includes('bash') ||
-        stderrBuffer?.includes('ENOENT') ||
-        errorMessage.includes('ENOENT');
+    if (classified.isNetworkError) {
+      errorMessage = classified.userMessage;
+      console.log(
+        `[Agent][${conversationId}] Classified as network error: ${classified.technicalMessage}`,
+      );
+    } else {
+      // Extract detailed error message from stderr if available
+      errorMessage = err.message || `Unknown error. ${FALLBACK_ERROR_HINT}`;
 
-      if (isExitCode1 || isBashError) {
-        // Check if Git Bash is properly configured
-        const { detectGitBash } = require('../git-bash.service');
-        const gitBashStatus = detectGitBash();
+      // Windows: Check for Git Bash related errors
+      if (process.platform === 'win32') {
+        const isExitCode1 =
+          errorMessage.includes('exited with code 1') ||
+          errorMessage.includes('process exited') ||
+          errorMessage.includes('spawn ENOENT');
+        const isBashError =
+          stderrBuffer?.includes('bash') ||
+          stderrBuffer?.includes('ENOENT') ||
+          errorMessage.includes('ENOENT');
 
-        if (!gitBashStatus.found) {
-          errorMessage =
-            'Command execution environment not installed. Please restart the app and complete setup, or install manually in settings.';
-        } else {
-          // Git Bash found but still got error - could be path issue
-          errorMessage =
-            'Command execution failed. This may be an environment configuration issue, please try restarting the app.\n\n' +
-            `Technical details: ${err.message}`;
+        if (isExitCode1 || isBashError) {
+          // Check if Git Bash is properly configured
+          const { detectGitBash } = require('../git-bash.service');
+          const gitBashStatus = detectGitBash();
+
+          if (!gitBashStatus.found) {
+            errorMessage =
+              'Command execution environment not installed. Please restart the app and complete setup, or install manually in settings.';
+          } else {
+            // Git Bash found but still got error - could be path issue
+            errorMessage =
+              'Command execution failed. This may be an environment configuration issue, please try restarting the app.\n\n' +
+              `Technical details: ${err.message}`;
+          }
         }
       }
-    }
 
-    if (stderrBuffer && !errorMessage.includes('Command execution')) {
-      // Try to extract the most useful error info from stderr
-      const mcpErrorMatch = stderrBuffer.match(
-        /Error: Invalid MCP configuration:[\s\S]*?(?=\n\s*at |$)/m,
-      );
-      const genericErrorMatch = stderrBuffer.match(/Error: [\s\S]*?(?=\n\s*at |$)/m);
-      if (mcpErrorMatch) {
-        errorMessage = mcpErrorMatch[0].trim();
-      } else if (genericErrorMatch) {
-        errorMessage = genericErrorMatch[0].trim();
+      if (stderrBuffer && !errorMessage.includes('Command execution')) {
+        // Try to extract the most useful error info from stderr
+        const mcpErrorMatch = stderrBuffer.match(
+          /Error: Invalid MCP configuration:[\s\S]*?(?=\n\s*at |$)/m,
+        );
+        const genericErrorMatch = stderrBuffer.match(/Error: [\s\S]*?(?=\n\s*at |$)/m);
+        if (mcpErrorMatch) {
+          errorMessage = mcpErrorMatch[0].trim();
+        } else if (genericErrorMatch) {
+          errorMessage = genericErrorMatch[0].trim();
+        }
       }
     }
 

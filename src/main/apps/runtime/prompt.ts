@@ -81,27 +81,6 @@ Not:     ❌ "Successfully fetched 3 URLs, price delta: 0"
 `.trim();
 
 // ============================================
-// Sub-Agent Instructions (when App uses AI Browser)
-// ============================================
-
-const SUB_AGENT_INSTRUCTIONS = `
-## Browser Task Delegation
-
-When you need to interact with web pages, use the Task tool to delegate
-to a sub-agent. The sub-agent inherits your MCP tools including browser tools.
-
-Pattern:
-1. Review your memory state (loaded in trigger message above)
-2. Use Task tool with clear instructions for the browser sub-agent
-3. The sub-agent navigates, extracts data, returns structured JSON
-4. You process the data, make decisions, update memory, and report
-
-Example Task tool prompt:
-"Navigate to https://example.com, use browser_snapshot to get the page structure,
-extract the price from the product listing, and return it as JSON: { price: number, currency: string }"
-`.trim();
-
-// ============================================
 // Public API
 // ============================================
 
@@ -114,7 +93,7 @@ export interface AppPromptOptions {
   triggerContext: string;
   /** User configuration values */
   userConfig?: Record<string, unknown>;
-  /** Whether the App uses AI Browser (includes sub-agent instructions) */
+  /** Whether the App uses AI Browser */
   usesAIBrowser?: boolean;
   /** Working directory for the agent (passed to base system prompt) */
   workDir: string;
@@ -161,11 +140,6 @@ export function buildAppSystemPrompt(options: AppPromptOptions): string {
 
   // 5. Reporting rules
   sections.push(REPORTING_RULES);
-
-  // 6. Sub-agent instructions (only if App uses AI Browser)
-  if (options.usesAIBrowser) {
-    sections.push(SUB_AGENT_INSTRUCTIONS);
-  }
 
   return sections.join('\n\n---\n\n');
 }
