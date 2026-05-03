@@ -6,44 +6,19 @@
  */
 
 import { exec, execSync, spawn } from 'child_process';
-import { existsSync, readFile, writeFile } from 'fs';
+import os from 'os';
+import { app } from 'electron';
+import { existsSync } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { promisify } from 'util';
 import { getGitHubToken, setGitHubToken } from './config.service';
+import { proxyFetch } from './proxy';
 
 const execAsync = promisify(exec);
 
 const GITHUB_API_BASE = 'https://api.github.com';
-
-// Proxy support for internal networks
-let _ghProxyDispatcher: any = null;
-
-async function getGitHubProxyDispatcher(): Promise<any> {
-  if (_ghProxyDispatcher !== null) return _ghProxyDispatcher;
-  const proxyUrl =
-    process.env.HTTPS_PROXY ||
-    process.env.HTTP_PROXY ||
-    process.env.https_proxy ||
-    process.env.http_proxy;
-  if (!proxyUrl) {
-    _ghProxyDispatcher = false;
-    return false;
-  }
-  try {
-    const { ProxyAgent } = await import('undici');
-    _ghProxyDispatcher = new ProxyAgent(proxyUrl);
-    return _ghProxyDispatcher;
-  } catch {
-    _ghProxyDispatcher = false;
-    return false;
-  }
-}
-
-async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
-  const dispatcher = await getGitHubProxyDispatcher();
-  return fetch(url, { ...init, ...(dispatcher ? ({ dispatcher } as any) : {}) });
-}
 
 export interface GitHubAuthStatus {
   authenticated: boolean;
@@ -57,11 +32,8 @@ export interface GitHubAuthStatus {
  * Resolve the bundled gh CLI binary path.
  * Checks resources/gh/{platform}/ first, then falls back to system PATH.
  */
-function getGhBin(): string {
+export function resolveGhBinary(): string {
   try {
-    const os = require('os');
-    const { app } = require('electron');
-
     const platform = os.platform();
     const arch = os.arch();
 
@@ -95,14 +67,6 @@ function getGhBin(): string {
 }
 
 /**
- * Run a gh CLI command.
- */
-async function execGh(args: string, timeout = 30_000): Promise<{ stdout: string; stderr: string }> {
-  const ghBin = getGhBin();
-  return execAsync(`"${ghBin}" ${args}`, { timeout, maxBuffer: 10 * 1024 * 1024 });
-}
-
-/**
  * Run a git command.
  */
 async function execGit(args: string): Promise<{ stdout: string; stderr: string }> {
@@ -113,7 +77,7 @@ async function execGit(args: string): Promise<{ stdout: string; stderr: string }
  * Check if gh binary is available (bundled or system).
  */
 export function isGhAvailable(): boolean {
-  const ghBin = getGhBin();
+  const ghBin = resolveGhBinary();
   try {
     execSync(`"${ghBin}" --version`, { timeout: 5_000, stdio: 'pipe' });
     return true;
@@ -126,44 +90,45 @@ export function isGhAvailable(): boolean {
  * Get current GitHub CLI authentication status.
  */
 export async function getGitHubAuthStatus(): Promise<GitHubAuthStatus> {
-  const ghBin = getGhBin();
-  let combinedOutput = '';
+  const ghBin = resolveGhBinary();
 
-  try {
-    const { stdout, stderr } = await execAsync(`"${ghBin}" auth status`, {
-      timeout: 15_000,
-      maxBuffer: 10 * 1024 * 1024,
+  // gh auth status may exit with non-zero even when authenticated
+  const combinedOutput = await execAsync(`"${ghBin}" auth status`, {
+    timeout: 15_000,
+    maxBuffer: 10 * 1024 * 1024,
+  })
+    .then(({ stdout, stderr }) => `${stdout}\n${stderr}`)
+    .catch((error: unknown) => {
+      const execError = error as {
+        code?: string;
+        stdout?: string;
+        stderr?: string;
+        message?: string;
+      };
+      if (execError.code === 'ENOENT') {
+        return '';
+      }
+      return `${execError.stdout || ''}\n${execError.stderr || ''}`;
     });
-    combinedOutput = `${stdout}\n${stderr}`;
-  } catch (error: any) {
-    // gh auth status may exit with non-zero even when authenticated
-    // The output is still in error.stdout / error.stderr
-    if (error.code === 'ENOENT') {
-      return {
-        authenticated: false,
-        user: null,
-        hostname: null,
-        protocol: null,
-        error: 'GitHub CLI (gh) is not available. Please run "npm run prepare" to download it.',
-      };
-    }
-    combinedOutput = `${error.stdout || ''}\n${error.stderr || ''}`;
-    if (!combinedOutput.trim()) {
-      return {
-        authenticated: false,
-        user: null,
-        hostname: null,
-        protocol: null,
-        error: error.message,
-      };
-    }
+
+  if (!combinedOutput) {
+    return {
+      authenticated: false,
+      user: null,
+      hostname: null,
+      protocol: null,
+      error: 'GitHub CLI (gh) is not available. Please run "npm run prepare" to download it.',
+    };
+  }
+
+  if (!combinedOutput.trim()) {
+    return { authenticated: false, user: null, hostname: null, protocol: null };
   }
 
   // Parse output from various gh CLI versions:
   //   ✓ Logged in to github.com as octocat (oauth_token)
   //   ✓ Logged in to github.com account StyleAIPro (keyring)
   //   ✓ Logged in to github.com as octocat [oauth_token]  (some builds)
-  // Some versions include trailing punctuation or parentheses that \S+ would capture.
   const userMatch = combinedOutput.match(/Logged in to github\.com (?:as|account) (\w[\w-]*)/);
   const protocolMatch =
     combinedOutput.match(/Git operations protocol: (https|ssh)/) ||
@@ -178,12 +143,7 @@ export async function getGitHubAuthStatus(): Promise<GitHubAuthStatus> {
     };
   }
 
-  return {
-    authenticated: false,
-    user: null,
-    hostname: null,
-    protocol: null,
-  };
+  return { authenticated: false, user: null, hostname: null, protocol: null };
 }
 
 /**
@@ -194,7 +154,7 @@ export async function getGitHubAuthStatus(): Promise<GitHubAuthStatus> {
 export function loginWithBrowser(
   onProgress?: (data: { code?: string; url?: string; message: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
-  const ghBin = getGhBin();
+  const ghBin = resolveGhBinary();
   return new Promise((resolve) => {
     const child = spawn(
       ghBin,
@@ -262,7 +222,7 @@ export function loginWithBrowser(
  * Login with a Personal Access Token.
  */
 export async function loginWithToken(token: string): Promise<{ success: boolean; error?: string }> {
-  const ghBin = getGhBin();
+  const ghBin = resolveGhBinary();
   try {
     execSync(`"${ghBin}" auth login --with-token --hostname github.com`, {
       input: token,
@@ -270,8 +230,9 @@ export async function loginWithToken(token: string): Promise<{ success: boolean;
       encoding: 'utf8',
     });
     return { success: true };
-  } catch (error: any) {
-    const msg = error.stderr?.toString() || error.message || 'Token login failed';
+  } catch (error: unknown) {
+    const execError = error as { stderr?: { toString(): string }; message?: string };
+    const msg = execError.stderr?.toString() || execError.message || 'Token login failed';
     return { success: false, error: msg };
   }
 }
@@ -280,15 +241,16 @@ export async function loginWithToken(token: string): Promise<{ success: boolean;
  * Logout from GitHub.
  */
 export async function logoutGitHub(): Promise<{ success: boolean; error?: string }> {
-  const ghBin = getGhBin();
+  const ghBin = resolveGhBinary();
   try {
     await execAsync(`"${ghBin}" auth logout --hostname github.com`, {
       timeout: 15_000,
       maxBuffer: 10 * 1024 * 1024,
     });
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: msg };
   }
 }
 
@@ -296,15 +258,16 @@ export async function logoutGitHub(): Promise<{ success: boolean; error?: string
  * Configure git to use gh as credential helper.
  */
 export async function setupGitCredentialHelper(): Promise<{ success: boolean; error?: string }> {
-  const ghBin = getGhBin();
+  const ghBin = resolveGhBinary();
   try {
     await execAsync(`"${ghBin}" auth setup-git`, {
       timeout: 15_000,
       maxBuffer: 10 * 1024 * 1024,
     });
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: msg };
   }
 }
 
@@ -318,8 +281,9 @@ export async function setGitConfig(
   try {
     await execGit(`config --global ${key} "${value.replace(/"/g, '\\"')}"`);
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: msg };
   }
 }
 
@@ -359,6 +323,7 @@ async function validateGitHubToken(
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'AICO-Bot',
       },
       signal: AbortSignal.timeout(15_000),
     });
@@ -393,6 +358,27 @@ export async function getDirectGitHubAuthStatus(): Promise<DirectGitHubAuthStatu
 }
 
 /**
+ * Combined auth status: PAT (primary) + gh CLI (optional).
+ */
+export interface CombinedGitHubAuthStatus {
+  pat: DirectGitHubAuthStatus;
+  ghCli: {
+    available: boolean;
+  } & GitHubAuthStatus;
+}
+
+export async function getCombinedGitHubAuthStatus(): Promise<CombinedGitHubAuthStatus> {
+  const [pat, ghCliStatus] = await Promise.all([
+    getDirectGitHubAuthStatus(),
+    getGitHubAuthStatus(),
+  ]);
+  return {
+    pat,
+    ghCli: { available: isGhAvailable(), ...ghCliStatus },
+  };
+}
+
+/**
  * Login with a GitHub PAT directly (stores in config.json, no gh CLI).
  */
 export async function loginWithDirectToken(
@@ -403,6 +389,8 @@ export async function loginWithDirectToken(
     return { success: false, error: 'Invalid token. Please check your Personal Access Token.' };
   }
   setGitHubToken(token);
+  // Auto-configure git credentials in background (fire-and-forget)
+  setupGitCredentialsWithToken().catch(() => {});
   return { success: true, user: user.login };
 }
 
@@ -432,7 +420,6 @@ export async function setupGitCredentialsWithToken(): Promise<{
 
     // Write token to ~/.git-credentials
     const credFile = join(homedir(), '.git-credentials');
-    const credLine = `https://${token}@github.com\n`;
     let content = '';
     try {
       content = await readFile(credFile, 'utf8');
@@ -446,7 +433,8 @@ export async function setupGitCredentialsWithToken(): Promise<{
     await writeFile(credFile, lines.join('\n') + '\n');
 
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to configure git credentials' };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Failed to configure git credentials';
+    return { success: false, error: msg };
   }
 }

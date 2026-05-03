@@ -16,7 +16,7 @@ import { getConfig } from '../config.service';
  * Get the effective proxy URL from config or environment variables.
  * Priority: user config > env var > undefined (direct).
  */
-function getEffectiveProxyUrl(): string | undefined {
+export function getEffectiveProxyUrl(): string | undefined {
   const config = getConfig();
 
   // 1. User-configured proxy (highest priority)
