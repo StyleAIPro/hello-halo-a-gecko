@@ -3,12 +3,6 @@
  * Manages remote server configurations and deployments
  */
 
-/* eslint-disable no-console -- deployment operations need verbose debug logging */
-/* eslint-disable @typescript-eslint/no-explicit-any -- ssh2/SDK use untyped objects */
-/* eslint-disable @typescript-eslint/no-require-imports -- dynamic requires for platform paths */
-/* eslint-disable no-empty -- pre-existing empty catch blocks in deployment flow */
-/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables in large file */
-
 import { app } from 'electron';
 import type { SSHConfig } from '../remote-ssh/ssh-manager';
 import { SSHManager } from '../remote-ssh/ssh-manager';
@@ -1716,7 +1710,6 @@ WRAPPER
           fs.rmSync(stagingDir, { recursive: true, force: true });
         } catch {}
       }
-      // eslint-disable-next-line preserve-caught-error -- TS target doesn't support ErrorOptions
       throw new Error(`Failed to create deployment package: ${err}`);
     }
 
@@ -2142,7 +2135,42 @@ WRAPPER
   }
 
   /**
-   * Sync system prompt template to remote server
+   * Restart remote agent proxy if it is currently running.
+   * Used after skill uninstall to ensure the proxy reloads its skill list.
+   */
+  async restartAgentIfRunning(
+    id: string,
+    onOutput?: (data: {
+      type: 'stdout' | 'stderr' | 'complete' | 'error';
+      content: string;
+    }) => void,
+  ): Promise<void> {
+    const server = this.servers.get(id);
+    if (!server) throw new Error(`Server not found: ${id}`);
+
+    const manager = this.getSSHManager(id);
+    const deployPath = getDeployPath(server);
+    const checkResult = await manager.executeCommandFull(
+      `pgrep -f "node.*${deployPath}" || echo "not running"`,
+    );
+
+    if (checkResult.exitCode === 0 && !checkResult.stdout.includes('not running')) {
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] Restarting agent proxy to reload skills...\n`,
+      });
+      await this.stopAgent(id);
+      await this.startAgent(id);
+      onOutput?.({ type: 'stdout', content: `[${server.name}] Agent proxy restarted.\n` });
+    } else {
+      onOutput?.({
+        type: 'stdout',
+        content: `[${server.name}] Agent proxy not running, skip restart.\n`,
+      });
+    }
+  }
+
+  /**
    * This uploads the template with placeholders intact.
    * The remote server will replace placeholders at runtime with its own values.
    */
@@ -3086,34 +3114,72 @@ WRAPPER
         this.emitCommandOutput(id, 'output', testResult.stdout.trim());
       }
 
-      // Check if claude-agent-sdk is installed globally using npm list
+      // Check if claude-agent-sdk is installed (try fast local check first, then fallback to npm list -g)
       console.log(`[RemoteDeployService] Checking for claude-agent-sdk...`);
-      this.emitCommandOutput(id, 'command', AGENT_CHECK_COMMAND);
-      const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
-      const stdout = result.stdout.trim();
-      const stderr = result.stderr.trim();
 
-      console.log(`[RemoteDeployService] npm list output: stdout="${stdout}", stderr="${stderr}"`);
-
-      if (stdout) {
-        this.emitCommandOutput(id, 'output', stdout);
-      }
-      if (stderr) {
-        this.emitCommandOutput(id, 'error', stderr);
-      }
-
-      // npm list -g returns:
-      // - If installed: "/path/to/node_modules/@anthropic-ai/claude-agent-sdk@x.y.z"
-      // - If not installed: empty string or "empty string"
-      const installed =
-        stdout.includes('@anthropic-ai/claude-agent-sdk') && !stdout.includes('NOT_INSTALLED');
-
-      // If installed, try to extract version
+      let installed = false;
       let version: string | undefined;
-      if (installed) {
-        // Parse version from output like: "/path/node_modules/@anthropic-ai/claude-agent-sdk@0.1.0"
-        const versionMatch = stdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/);
-        version = versionMatch ? versionMatch[1] : 'unknown';
+
+      // Fast path 1: Check local node_modules first (for offline deployments)
+      const deployPath = getDeployPath(server);
+      const localSdkCheckCmd = `test -f "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json" && cat "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json" | grep -oP '"version"\\s*:\\s*"\\K[^"]+' || echo ""`;
+
+      console.log(`[RemoteDeployService] Trying fast local SDK check...`);
+      this.emitCommandOutput(
+        id,
+        'command',
+        `检查本地 SDK: ${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk`,
+      );
+
+      try {
+        const localResult = await manager.executeCommandFull(localSdkCheckCmd, { timeout: 5000 });
+        const localVersion = localResult.stdout.trim();
+        if (localVersion) {
+          version = localVersion;
+          installed = true;
+          console.log(`[RemoteDeployService] Found SDK locally: version ${version}`);
+          this.emitCommandOutput(id, 'success', `SDK 在本地部署路径找到 (版本: ${version})`);
+        }
+      } catch (error) {
+        console.warn(`[RemoteDeployService] Local SDK check failed:`, error);
+      }
+
+      // Fallback: If not found locally, try npm list -g (slower but catches globally installed SDK)
+      if (!installed) {
+        console.log(`[RemoteDeployService] Local check failed, trying npm list -g...`);
+        this.emitCommandOutput(id, 'command', AGENT_CHECK_COMMAND);
+        try {
+          const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND, { timeout: 10000 });
+          const stdout = result.stdout.trim();
+          const stderr = result.stderr.trim();
+
+          console.log(
+            `[RemoteDeployService] npm list output: stdout="${stdout}", stderr="${stderr}"`,
+          );
+
+          if (stdout) {
+            this.emitCommandOutput(id, 'output', stdout);
+          }
+          if (stderr && !stderr.includes('npm WARN')) {
+            this.emitCommandOutput(id, 'error', stderr);
+          }
+
+          // npm list -g returns:
+          // - If installed: "/path/to/node_modules/@anthropic-ai/claude-agent-sdk@x.y.z"
+          // - If not installed: empty string or "empty string"
+          if (
+            stdout.includes('@anthropic-ai/claude-agent-sdk') &&
+            !stdout.includes('NOT_INSTALLED')
+          ) {
+            installed = true;
+            // Parse version from output like: "/path/node_modules/@anthropic-ai/claude-agent-sdk@0.1.0"
+            const versionMatch = stdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/);
+            version = versionMatch ? versionMatch[1] : 'unknown';
+          }
+        } catch (npmError) {
+          console.warn(`[RemoteDeployService] npm list -g timed out or failed:`, npmError);
+          this.emitCommandOutput(id, 'warning', 'npm list -g 检查超时，可能是权限问题');
+        }
       }
 
       const statusMessage = installed
@@ -4340,25 +4406,38 @@ WRAPPER
 
       onOutput?.({ type: 'stdout', content: `[${server.name}] Removing skill "${skillId}"...\n` });
 
-      // Remove from both possible locations
+      // Remove from both possible source locations
       const removeCmd = [
         `rm -rf ${remoteHome}/.agents/skills/${skillId}`,
         `rm -rf ${remoteHome}/.claude/skills/${skillId}`,
       ].join(' && ');
 
-      const result = await this.executeWithTimeout(manager, removeCmd, 30000);
-
-      if (result.exitCode === 0) {
-        onOutput?.({
-          type: 'complete',
-          content: `[${server.name}] ✓ Skill "${skillId}" uninstalled successfully!\n`,
-        });
-        return { success: true };
-      } else {
-        const error = `[${server.name}] Failed to uninstall skill (exit code ${result.exitCode})`;
+      const removeResult = await this.executeWithTimeout(manager, removeCmd, 30000);
+      if (removeResult.exitCode !== 0) {
+        const error = `[${server.name}] Failed to uninstall skill (exit code ${removeResult.exitCode})`;
         onOutput?.({ type: 'error', content: error + '\n' });
         return { success: false, error };
       }
+
+      // Clean up symlinks in claude-config that point to deleted skill directories
+      const cleanSymlinksCmd = [
+        `rm -f ${remoteHome}/.agents/claude-config/skills/${skillId}`,
+        `find ${remoteHome}/.agents/claude-config/.claude/skills/ -maxdepth 1 -type l ! -exec test -e {} \\; -delete 2>/dev/null || true`,
+      ].join(' && ');
+
+      const cleanResult = await this.executeWithTimeout(manager, cleanSymlinksCmd, 15000);
+      if (cleanResult.exitCode !== 0) {
+        onOutput?.({
+          type: 'stderr',
+          content: `[${server.name}] Warning: symlink cleanup returned non-zero exit code\n`,
+        });
+      }
+
+      onOutput?.({
+        type: 'complete',
+        content: `[${server.name}] ✓ Skill "${skillId}" uninstalled successfully!\n`,
+      });
+      return { success: true };
     } catch (error) {
       const err = error as Error;
       onOutput?.({ type: 'error', content: `[${server.name}] Error: ${err.message}\n` });

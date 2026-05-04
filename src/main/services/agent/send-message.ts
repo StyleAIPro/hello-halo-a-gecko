@@ -432,7 +432,9 @@ export async function sendMessage(
     // route through the OpenAI compat router (model is baked into ANTHROPIC_API_KEY).
     try {
       // Set model in SDK (informational; actual model determined by session credentials)
-      if (v2Session.setModel) {
+      // Skip setModel for compat (fake Claude) models — SDK would print confusing
+      // "set model to claude-sonnet-4-6" which doesn't reflect the real model.
+      if (v2Session.setModel && !resolvedCredentials.isCompatModel) {
         await v2Session.setModel(resolvedCredentials.sdkModel);
         console.log(`[Agent][${conversationId}] Model set: ${resolvedCredentials.sdkModel}`);
       }

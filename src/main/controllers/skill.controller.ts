@@ -697,6 +697,19 @@ export async function uninstallSkillMultiTarget(
           remoteOnOutput,
         );
         results[key] = result;
+
+        // Restart proxy if uninstall succeeded so it reloads skill list
+        if (result.success) {
+          try {
+            await remoteDeployService.restartAgentIfRunning(target.serverId, remoteOnOutput);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            onOutput?.(key, {
+              type: 'stderr',
+              content: `[remote] Warning: proxy restart failed (${msg}). Skills may not take effect until next proxy restart.\n`,
+            });
+          }
+        }
       } catch (error) {
         const err = error instanceof Error ? error.message : 'Remote uninstall failed';
         onOutput?.(key, { type: 'error', content: `[remote] ${err}\n` });
