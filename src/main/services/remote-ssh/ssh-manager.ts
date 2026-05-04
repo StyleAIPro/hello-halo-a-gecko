@@ -3,9 +3,6 @@
  * Handles SSH connections, command execution, and file transfers
  */
 
-/* eslint-disable no-console -- SSH operations need verbose debug logging */
-/* eslint-disable @typescript-eslint/no-explicit-any -- ssh2 library uses untyped objects */
-
 import type { SFTPWrapper } from 'ssh2';
 import { Client as SSHClient } from 'ssh2';
 import { promisify } from 'util';
@@ -462,7 +459,6 @@ export class SSHManager {
     );
 
     return new Promise((resolve, reject) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const net = require('net');
 
       const server = net.createServer((socket) => {
@@ -570,7 +566,6 @@ export class SSHManager {
 
             try {
               const channel = accept();
-              // eslint-disable-next-line @typescript-eslint/no-require-imports
               const net = require('net');
               const socket = net.connect(localPort, localHost, () => {
                 console.log(

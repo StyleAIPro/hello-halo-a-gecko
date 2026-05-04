@@ -160,7 +160,6 @@ export const CodeMirrorEditor = memo(
         view.destroy();
         viewRef.current = null;
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Intentionally empty - initialize once, update via separate effects
 
     // Update content when prop changes

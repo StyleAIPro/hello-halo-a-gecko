@@ -44,7 +44,6 @@ interface ThoughtProcessProps {
 }
 
 // i18n static keys for extraction (DO NOT REMOVE)
-// prettier-ignore
 void function _i18nActionKeys(t: (k: string) => string) {
   t('Generating {{tool}}...'); t('Reading {{file}}...'); t('Writing {{file}}...');
   t('Editing {{file}}...'); t('Searching {{pattern}}...'); t('Matching {{pattern}}...');

@@ -7,9 +7,6 @@
  * - Editor: AI-assisted skill file editor
  */
 
-/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused destructured vars */
-/* eslint-disable react-hooks/exhaustive-deps -- pre-existing dependency warnings */
-
 import { useEffect, useMemo } from 'react';
 import { useSkillStore } from '../../stores/skill/skill.store';
 import { useSpaceStore } from '../../stores/space.store';

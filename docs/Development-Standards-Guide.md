@@ -437,20 +437,13 @@ try {
 
 ### 10.1 工具链
 
-| 工具 | 作用 |
-|------|------|
-| ESLint | `eslint.config.js`，检查代码正确性 |
-| Prettier | `.prettierrc`，统一格式 |
-| Pre-commit hooks | 提交时自动 eslint --fix + prettier --write |
+代码质量由 TypeScript strict 模式和 electron-vite 构建保证，无需额外 lint/format 工具。
 
 ```bash
 npm run typecheck    # 类型检查
-npm run lint         # ESLint 检查
-npm run lint:fix     # ESLint 自动修复
-npm run format       # Prettier 格式化
 ```
 
-### 10.2 格式规范
+### 10.2 格式规范（团队约定，无工具强制执行）
 
 ```json
 {

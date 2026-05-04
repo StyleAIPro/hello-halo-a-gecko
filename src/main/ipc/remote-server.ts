@@ -3,11 +3,6 @@
  * Manages remote server configurations and deployments
  */
 
-/* eslint-disable no-console -- IPC handlers need debug logging */
-/* eslint-disable @typescript-eslint/no-require-imports -- dynamic requires for services */
-/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables */
-/* eslint-disable @typescript-eslint/no-explicit-any -- IPC payloads use dynamic types */
-
 import type { BrowserWindow } from 'electron';
 import { ipcMain } from 'electron';
 import type { RemoteServerConfigInput } from '../services/remote-deploy';

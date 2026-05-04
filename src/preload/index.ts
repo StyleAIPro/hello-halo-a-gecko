@@ -2,9 +2,6 @@
  * Preload Script - Exposes IPC to renderer
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- IPC bridge uses dynamic payload types */
-/* eslint-disable no-console -- preload needs debug logging */
-
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   HealthStatusResponse,

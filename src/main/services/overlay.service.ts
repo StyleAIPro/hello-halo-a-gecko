@@ -20,7 +20,6 @@ import { is } from '@electron-toolkit/utils';
 import { forceDwmCleanup } from './win32-hwnd-cleanup';
 
 // BrowserView is imported dynamically to avoid ESM bundling issues
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let BrowserView: any;
 
 // ============================================

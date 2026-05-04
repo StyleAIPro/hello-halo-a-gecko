@@ -84,7 +84,6 @@ export function FileChangesFooter({
     () =>
       fullFileChangesRef.current ? getAllFileChanges(fullFileChangesRef.current) : allDisplayFiles,
     // Re-derive when display files change (which happens when thoughts load)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [allDisplayFiles, thoughts],
   );
 
