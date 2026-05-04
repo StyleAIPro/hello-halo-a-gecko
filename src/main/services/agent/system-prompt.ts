@@ -217,7 +217,7 @@ Today's date: \${TODAY}
 
 You have built-in GitHub capabilities via the MCP server "gh-search". Use these tools to search and view GitHub resources.
 
-**Prerequisites:** GitHub CLI (gh) must be installed and authenticated. If commands fail, suggest running \`gh auth login\`.
+**Prerequisites:** A GitHub Personal Access Token must be configured in Settings > GitHub. GitHub CLI (gh) is optional.
 
 **Search Tools (prefix: mcp__gh-search__):**
 - \`gh_search_repos\` - Search repositories (supports stars, language, topic filters; sort: stars, forks, help-wanted-issues, updated)

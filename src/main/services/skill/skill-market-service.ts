@@ -514,7 +514,7 @@ export class SkillMarketService {
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
         }
-        const token = await githubSkillSource.getGitHubToken();
+        const token = githubSkillSource.getGitHubToken();
         return githubSkillSource.getSkillDetailFromRepo(repo, skillPath, token);
       }
       return null;
@@ -526,7 +526,11 @@ export class SkillMarketService {
       if (parts.length >= 3) {
         const repo = parts[1];
         let skillPath = parts.slice(2).join(':');
-        console.log('[SkillMarket] getSkillDetail GitCode:', { skillId, repo, rawSkillPath: skillPath });
+        console.log('[SkillMarket] getSkillDetail GitCode:', {
+          skillId,
+          repo,
+          rawSkillPath: skillPath,
+        });
         const cachedItem = this.findSkillInCache(skillId);
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
@@ -643,7 +647,10 @@ export class SkillMarketService {
     onOutput?.({ type: 'stdout', content: '  Resolving skill metadata...\n' });
     console.log('[SkillMarketService] downloadSkill: calling getSkillDetail for', skillId);
     const skill = await this.getSkillDetail(skillId);
-    console.log('[SkillMarketService] downloadSkill: getSkillDetail returned', skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null);
+    console.log(
+      '[SkillMarketService] downloadSkill: getSkillDetail returned',
+      skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null,
+    );
 
     if (!skill) {
       // getSkillDetail failed — try cache first to preserve original-case path

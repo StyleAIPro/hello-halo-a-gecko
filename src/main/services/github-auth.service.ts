@@ -317,22 +317,29 @@ export interface DirectGitHubAuthStatus {
 async function validateGitHubToken(
   token: string,
 ): Promise<{ login: string; avatar_url: string } | null> {
-  try {
-    const resp = await proxyFetch(`${GITHUB_API_BASE}/user`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'AICO-Bot',
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    return { login: data.login, avatar_url: data.avatar_url };
-  } catch {
-    return null;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'AICO-Bot',
+  };
+  // Proxy first (respect user config), direct fetch as fallback.
+  for (const fetchFn of [
+    (url: string, init: RequestInit) => proxyFetch(url, init, 15_000),
+    (url: string, init: RequestInit) =>
+      fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
+  ]) {
+    try {
+      const resp = await fetchFn(`${GITHUB_API_BASE}/user`, { headers });
+      if (resp.ok) {
+        const data = await resp.json();
+        return { login: data.login, avatar_url: data.avatar_url };
+      }
+    } catch {
+      // Try next fetch method
+    }
   }
+  return null;
 }
 
 /**

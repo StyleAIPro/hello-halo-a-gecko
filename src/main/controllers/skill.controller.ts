@@ -1735,7 +1735,7 @@ export async function pushSkillToGitHub(
     }
 
     // Get GitHub token
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     if (!token) {
       return {
         success: false,
@@ -1777,7 +1777,7 @@ export async function validateGitHubRepo(repo: string): Promise<{
   error?: string;
 }> {
   try {
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     const result = await githubSkillSource.validateRepo(repo, token);
     return { success: true, data: result };
   } catch (error: any) {

@@ -360,6 +360,7 @@ export interface AicoBotAPI {
   openExternal: (url: string) => Promise<void>;
 
   // GitHub Integration
+  githubGetAuthStatusCombined: () => Promise<IpcResponse>;
   githubGetAuthStatus: () => Promise<IpcResponse>;
   githubLoginBrowser: () => Promise<IpcResponse>;
   githubLoginToken: (token: string) => Promise<IpcResponse>;
@@ -967,6 +968,7 @@ const api: AicoBotAPI = {
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // GitHub Integration
+  githubGetAuthStatusCombined: () => ipcRenderer.invoke('github:auth-status-combined'),
   githubGetAuthStatus: () => ipcRenderer.invoke('github:auth-status'),
   githubLoginBrowser: () => ipcRenderer.invoke('github:login-browser'),
   githubLoginToken: (token) => ipcRenderer.invoke('github:login-token', token),

@@ -2,56 +2,31 @@
  * GitHub Skill Source Service
  *
  * Provides read/write operations for skill repositories on GitHub.
- * Uses GitHub REST API for listing/fetching, and gh CLI for PR creation.
- * Reuses authentication from github-auth.service.ts.
+ * Uses GitHub REST API (PAT) for all operations. gh CLI is not required.
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
-import { getAgentsSkillsDir } from '../config.service';
+import { getAgentsSkillsDir, getGitHubToken } from '../config.service';
 import { proxyFetch } from '../proxy';
 import type { RemoteSkillItem } from '../../../shared/skill/skill-types';
 
-const execAsync = promisify(exec);
+export { getGitHubToken };
+
+const GITHUB_API_BASE = 'https://api.github.com';
 
 /**
- * Resolve the bundled gh CLI binary path.
- * Mirrors the logic in github-auth.service.ts.
+ * Fetch a GitHub API URL with automatic direct fallback.
+ * Uses proxyFetch first (respect user config), native fetch as fallback.
  */
-async function getGhBin(): Promise<string> {
+async function githubFetch(url: string, init?: RequestInit, timeoutMs?: number): Promise<Response> {
   try {
-    const os = await import('os');
-    const { app } = await import('electron');
-    const platform = os.platform();
-    const arch = os.arch();
-
-    let platformDir: string;
-    if (platform === 'darwin') {
-      platformDir = arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
-    } else if (platform === 'win32') {
-      platformDir = 'win-x64';
-    } else if (platform === 'linux') {
-      platformDir = 'linux-x64';
-    } else {
-      return 'gh';
-    }
-
-    const binaryName = platform === 'win32' ? 'gh.exe' : 'gh';
-    let binPath = join(app.getAppPath(), 'resources', 'gh', platformDir, binaryName);
-    if (binPath.includes('app.asar')) {
-      binPath = binPath.replace('app.asar', 'app.asar.unpacked');
-    }
-    if (existsSync(binPath)) {
-      return binPath;
-    }
+    return await proxyFetch(url, init, timeoutMs);
   } catch {
-    // Electron not available
+    return fetch(url, init);
   }
-  return 'gh';
 }
 
 // ── GitHub API helpers ────────────────────────────────────────────────
@@ -69,7 +44,7 @@ async function githubApiFetch(path: string, options?: GitHubApiOptions): Promise
     headers['Authorization'] = `Bearer ${options.token}`;
   }
 
-  const response = await proxyFetch(`https://api.github.com${path}`, { headers });
+  const response = await githubFetch(`https://api.github.com${path}`, { headers });
 
   if (response.status === 403) {
     const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
@@ -102,7 +77,7 @@ async function githubApiFetch(path: string, options?: GitHubApiOptions): Promise
  * Used to populate the directory picker when pushing skills.
  */
 export async function listRepoDirectories(repo: string, basePath?: string): Promise<string[]> {
-  const token = await getGitHubToken();
+  const token = getGitHubToken();
   try {
     const apiPath = basePath ? `/repos/${repo}/contents/${basePath}` : `/repos/${repo}/contents`;
     console.log(`[GitHubSkillSource] listRepoDirectories: ${apiPath}`);
@@ -156,7 +131,7 @@ export async function fetchSkillFileContent(
     const url = `https://raw.githubusercontent.com/${repo}/${branch}/${path}`;
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     try {
-      const resp = await proxyFetch(url, { headers });
+      const resp = await githubFetch(url, { headers });
       if (resp.ok) return await resp.text();
     } catch {
       // continue
@@ -260,19 +235,6 @@ export async function findSkillDirectoryPath(
     }
   }
   return null;
-}
-
-/**
- * Get GitHub token from gh CLI if authenticated.
- */
-export async function getGitHubToken(): Promise<string | undefined> {
-  try {
-    const ghBin = await getGhBin();
-    const { stdout } = await execAsync(`"${ghBin}" auth token`, { timeout: 10_000 });
-    return stdout.trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // ── Progress callback ──────────────────────────────────────────────
@@ -765,17 +727,23 @@ export async function pushSkillAsPR(
   files: Array<{ relativePath: string; content: string }>,
   targetPath?: string,
   token?: string,
-): Promise<{ success: boolean; prUrl?: string; error?: string }> {
-  const ghBin = getGhBin();
-
+): Promise<{ success: boolean; prUrl?: string; warning?: string; error?: string }> {
   try {
-    // Get current GitHub username
-    const { stdout: userJson } = await execAsync(`"${ghBin}" api user --jq ".login"`, {
-      timeout: 15_000,
+    // Get current GitHub username via REST API
+    const userResp = await githubFetch(`${GITHUB_API_BASE}/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
     });
-    const username = userJson.trim();
+    if (!userResp.ok) {
+      return { success: false, error: `Authentication failed: ${userResp.status}` };
+    }
+    const userData = await userResp.json();
+    const username = userData.login;
     if (!username) {
-      return { success: false, error: 'Not authenticated. Please login with gh CLI first.' };
+      return { success: false, error: 'Not authenticated. Please login first.' };
     }
 
     const branchName = `skill/${skillId}-${Date.now()}`;
@@ -785,21 +753,23 @@ export async function pushSkillAsPR(
     let prTargetRepo = repo; // repo to create the PR against
     let headBranch = branchName;
 
+    const apiHeaders: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+
     // Check if the target repo is a fork
     try {
-      const { stdout: isFork } = await execAsync(`"${ghBin}" api /repos/${repo} --jq ".fork"`, {
-        timeout: 10_000,
+      const repoResp = await githubFetch(`${GITHUB_API_BASE}/repos/${repo}`, {
+        headers: apiHeaders,
       });
-      if (isFork.trim() === 'true') {
-        const { stdout: parentRepo } = await execAsync(
-          `"${ghBin}" api /repos/${repo} --jq ".parent.full_name"`,
-          { timeout: 10_000 },
-        );
-        const parent = parentRepo.trim();
-        if (parent) {
-          console.log(`[GitHubSkillSource] ${repo} is a fork of ${parent}`);
+      if (repoResp.ok) {
+        const repoData = await repoResp.json();
+        if (repoData.fork && repoData.parent?.full_name) {
+          console.log(`[GitHubSkillSource] ${repo} is a fork of ${repoData.parent.full_name}`);
           targetRepo = repo;
-          prTargetRepo = parent;
+          prTargetRepo = repoData.parent.full_name;
           headBranch = branchName;
         }
       }
@@ -810,15 +780,20 @@ export async function pushSkillAsPR(
     // If not a fork, check collaborator status
     if (targetRepo === repo && prTargetRepo === repo) {
       try {
-        await execAsync(`"${ghBin}" api /repos/${repo}/collaborators/${username} --jq ".login"`, {
-          timeout: 10_000,
-        });
+        const collabResp = await githubFetch(
+          `${GITHUB_API_BASE}/repos/${repo}/collaborators/${username}`,
+          { headers: apiHeaders },
+        );
+        if (!collabResp.ok && collabResp.status !== 204) throw new Error('not collaborator');
         // User is a collaborator, push directly to the repo
       } catch {
         // Not a collaborator, need to fork
         console.log(`[GitHubSkillSource] Forking ${repo}...`);
         try {
-          await execAsync(`"${ghBin}" repo fork ${repo} --clone=false`, { timeout: 30_000 });
+          await githubFetch(`${GITHUB_API_BASE}/repos/${repo}/forks`, {
+            method: 'POST',
+            headers: apiHeaders,
+          });
         } catch (forkError: any) {
           // Fork may already exist, that's fine
           if (!forkError.message?.includes('already')) {
@@ -835,35 +810,47 @@ export async function pushSkillAsPR(
     let baseSha = '';
     let baseBranch = 'main';
     try {
-      const { stdout: refData } = await execAsync(
-        `"${ghBin}" api /repos/${targetRepo}/git/refs/heads/main --jq ".object.sha"`,
-        { timeout: 10_000 },
+      const refResp = await githubFetch(
+        `${GITHUB_API_BASE}/repos/${targetRepo}/git/ref/heads/main`,
+        { headers: apiHeaders },
       );
-      baseSha = refData.trim();
+      if (refResp.ok) {
+        const refData = await refResp.json();
+        baseSha = refData.object.sha;
+      }
     } catch {
       // Fallback to master
       baseBranch = 'master';
       try {
-        const { stdout: refData } = await execAsync(
-          `"${ghBin}" api /repos/${targetRepo}/git/refs/heads/master --jq ".object.sha"`,
-          { timeout: 10_000 },
+        const refResp = await githubFetch(
+          `${GITHUB_API_BASE}/repos/${targetRepo}/git/ref/heads/master`,
+          { headers: apiHeaders },
         );
-        baseSha = refData.trim();
+        if (refResp.ok) {
+          const refData = await refResp.json();
+          baseSha = refData.object.sha;
+        }
       } catch (innerErr: any) {
-        throw new Error(
-          `Failed to resolve base branch. Tried 'main' and 'master'. ${innerErr.stderr?.trim() || innerErr.message}`,
-          { cause: innerErr },
+        const err = new Error(
+          `Failed to resolve base branch. Tried 'main' and 'master'. ${innerErr.message}`,
         );
+        (err as any).cause = innerErr;
+        throw err;
       }
     }
     console.log(`[GitHubSkillSource] Base SHA: ${baseSha} (branch: ${baseBranch})`);
 
     // Create a new branch
     console.log(`[GitHubSkillSource] Creating branch ${branchName} on ${targetRepo}...`);
-    await execAsync(
-      `"${ghBin}" api /repos/${targetRepo}/git/refs -f ref=refs/heads/${branchName} -f sha=${baseSha}`,
-      { timeout: 10_000 },
-    );
+    const createRefResp = await githubFetch(`${GITHUB_API_BASE}/repos/${targetRepo}/git/refs`, {
+      method: 'POST',
+      headers: { ...apiHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha }),
+    });
+    if (!createRefResp.ok) {
+      const errText = await createRefResp.text();
+      throw new Error(`Failed to create branch: ${createRefResp.status} ${errText}`);
+    }
 
     // Commit all files via GitHub Contents API using fetch (avoids Windows command line length limit)
     console.log(
@@ -879,7 +866,7 @@ export async function pushSkillAsPR(
       console.log(`[GitHubSkillSource]   Committing ${filePath}`);
 
       const putUrl = `https://api.github.com/repos/${targetRepo}/contents/${filePath}`;
-      const putResp = await proxyFetch(putUrl, {
+      const putResp = await githubFetch(putUrl, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -922,7 +909,7 @@ export async function pushSkillAsPR(
 
     let prUrl = branchUrl;
     try {
-      const prResp = await proxyFetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
+      const prResp = await githubFetch(`https://api.github.com/repos/${prTargetRepo}/pulls`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

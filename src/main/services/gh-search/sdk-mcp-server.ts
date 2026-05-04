@@ -6,8 +6,8 @@
  * operations without requiring external tools or browser automation.
  *
  * Prerequisites:
- * - GitHub CLI (gh) must be installed and authenticated
- * - Run `gh auth login` to authenticate before using
+ * - A GitHub Personal Access Token configured in Settings > GitHub (primary)
+ * - GitHub CLI (gh) is optional — used as a faster fallback path
  *
  * Available Tools:
  * - gh_search_repos - Search GitHub repositories
@@ -23,10 +23,21 @@
 import { z } from 'zod';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { exec } from 'child_process';
-import { existsSync } from 'fs';
 import { promisify } from 'util';
+import { proxyFetch } from '../proxy';
+import { getGitHubToken } from '../config.service';
+import { resolveGhBinary } from '../github-auth.service';
 
 const execAsync = promisify(exec);
+
+const GITHUB_API_BASE = 'https://api.github.com';
+
+class GithubApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(`GitHub API ${status}: ${message}`);
+    this.name = 'GithubApiError';
+  }
+}
 
 // ============================================
 // Constants
@@ -44,49 +55,6 @@ const CMD_TIMEOUT = 30_000;
 // ============================================
 
 /**
- * Resolve the bundled gh CLI binary path.
- * Uses the binary bundled in resources/gh/{platform}/ if available,
- * otherwise falls back to system PATH.
- */
-function getGhBinaryPath(): string {
-  try {
-    const path = require('path');
-    const os = require('os');
-    const { app } = require('electron');
-
-    const platform = os.platform();
-    const arch = os.arch();
-
-    let platformDir: string;
-    if (platform === 'darwin') {
-      platformDir = arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
-    } else if (platform === 'win32') {
-      platformDir = 'win-x64';
-    } else if (platform === 'linux') {
-      platformDir = 'linux-x64';
-    } else {
-      return 'gh';
-    }
-
-    const binaryName = platform === 'win32' ? 'gh.exe' : 'gh';
-    let binPath = path.join(app.getAppPath(), 'resources', 'gh', platformDir, binaryName);
-
-    // Fix path for packaged Electron app (asar -> asar.unpacked)
-    if (binPath.includes('app.asar')) {
-      binPath = binPath.replace('app.asar', 'app.asar.unpacked');
-    }
-
-    if (existsSync(binPath)) {
-      return binPath;
-    }
-  } catch {
-    // Electron or fs not available (e.g. test environment)
-  }
-
-  return 'gh';
-}
-
-/**
  * Build a standard text content response.
  */
 function textResult(text: string, isError = false) {
@@ -98,13 +66,25 @@ function textResult(text: string, isError = false) {
 
 /**
  * Execute a GitHub CLI command with timeout.
- * Uses the bundled gh binary if available, otherwise falls back to system gh.
+ * Prefers REST API via PAT (when available) for reliability.
+ * Falls back to gh CLI, then to REST API on gh CLI failure.
  */
 async function execGh(
   args: string,
   timeout = CMD_TIMEOUT,
 ): Promise<{ stdout: string; stderr: string }> {
-  const ghBin = getGhBinaryPath();
+  // Prefer REST API directly when PAT is available (avoids gh CLI auth issues)
+  const token = getGitHubToken();
+  if (token) {
+    try {
+      return await ghApiDirect(args, token, timeout);
+    } catch (apiError: any) {
+      console.log(`[gh-search] REST API failed for "${args.substring(0, 80)}": ${apiError.message}`);
+      // REST API failed, try gh CLI as fallback
+    }
+  }
+
+  const ghBin = resolveGhBinary();
   try {
     const result = await execAsync(`"${ghBin}" ${args}`, {
       timeout,
@@ -112,18 +92,224 @@ async function execGh(
     });
     return result;
   } catch (error: any) {
-    // Check if gh is installed
-    if (error.code === 'ENOENT') {
+    // Check if gh is installed (ENOENT on Unix, code=1 + "not recognized" on Windows)
+    const isNotFound =
+      error.code === 'ENOENT' ||
+      (error.code === 1 &&
+        (error.message?.includes('not recognized') ||
+          error.stderr?.includes('not recognized') ||
+          error.stderr?.includes('not found') ||
+          error.stderr?.includes('ENOENT')));
+
+    if (isNotFound) {
       throw new Error(
         'GitHub CLI (gh) is not installed. Please install it from https://cli.github.com/',
+        { cause: error },
       );
     }
-    // Check for auth errors
-    if (error.stderr?.includes('not logged into any hosts')) {
-      throw new Error('GitHub CLI is not authenticated. Run `gh auth login` to authenticate.');
-    }
-    throw error;
+    // Fallback to REST API via proxyFetch
+    return ghApiFallback(args, error);
   }
+}
+
+/**
+ * Call GitHub REST API directly with PAT.
+ * Respects user proxy config (proxyFetch first). If proxy fails or returns
+ * a server error, falls back to direct native fetch.
+ */
+async function ghApiDirect(
+  ghArgs: string,
+  token: string,
+  timeout = 60_000,
+): Promise<{ stdout: string; stderr: string }> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+
+  // Parse command type from gh args
+  let apiUrl = '';
+  let extractItems = false;
+
+  if (ghArgs.startsWith('search repos')) {
+    const params = buildSearchParams(ghArgs, 'repositories');
+    apiUrl = `${GITHUB_API_BASE}/search/repositories?${params}`;
+    extractItems = true;
+  } else if (ghArgs.startsWith('search issues')) {
+    const params = buildSearchParams(ghArgs, 'issues');
+    apiUrl = `${GITHUB_API_BASE}/search/issues?${params}`;
+    extractItems = true;
+  } else if (ghArgs.startsWith('search prs')) {
+    const params = buildSearchParams(ghArgs, 'pr');
+    apiUrl = `${GITHUB_API_BASE}/search/issues?${params}`;
+    extractItems = true;
+  } else if (ghArgs.startsWith('search code')) {
+    const params = buildSearchParams(ghArgs, 'code');
+    apiUrl = `${GITHUB_API_BASE}/search/code?${params}`;
+    extractItems = true;
+  } else if (ghArgs.startsWith('search commits')) {
+    const params = buildSearchParams(ghArgs, 'commits');
+    apiUrl = `${GITHUB_API_BASE}/search/commits?${params}`;
+    extractItems = true;
+  } else if (ghArgs.startsWith('issue view')) {
+    const { number, repo } = parseViewArgs(ghArgs);
+    if (number && repo) {
+      apiUrl = ghArgs.includes('--comments')
+        ? `${GITHUB_API_BASE}/repos/${repo}/issues/${number}/comments`
+        : `${GITHUB_API_BASE}/repos/${repo}/issues/${number}`;
+    }
+  } else if (ghArgs.startsWith('pr view')) {
+    const { number, repo } = parseViewArgs(ghArgs);
+    if (number && repo) {
+      apiUrl = `${GITHUB_API_BASE}/repos/${repo}/pulls/${number}`;
+    }
+  } else if (ghArgs.startsWith('repo view')) {
+    const repo = parseRepoViewArgs(ghArgs);
+    if (repo) {
+      if (ghArgs.includes('--readme')) {
+        apiUrl = `${GITHUB_API_BASE}/repos/${repo}/readme`;
+        headers['Accept'] = 'application/vnd.github.html';
+      } else {
+        apiUrl = `${GITHUB_API_BASE}/repos/${repo}`;
+      }
+    }
+  }
+
+  if (!apiUrl) {
+    throw new Error(`Unsupported gh command: ${ghArgs.split(' ')[0]} ${ghArgs.split(' ')[1]}`);
+  }
+
+  // Proxy first (respect user config), direct fetch as fallback
+  try {
+    const resp = await proxyFetch(apiUrl, { headers }, timeout);
+    return parseGithubResponse(resp, extractItems);
+  } catch (proxyError) {
+    // Proxy failed (network error / timeout) — try direct
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(apiUrl, { headers, signal: controller.signal });
+      return parseGithubResponse(resp, extractItems);
+    } catch (directError) {
+      throw new Error(`${proxyError instanceof Error ? proxyError.message : proxyError} (direct also failed: ${directError instanceof Error ? directError.message : directError})`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function parseGithubResponse(
+  resp: Response,
+  extractItems: boolean,
+): Promise<{ stdout: string; stderr: string }> {
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    // GitHub Search returns 422 when no indexed results match the query — treat as empty
+    if (resp.status === 422) {
+      try {
+        const body = JSON.parse(text);
+        if (body.errors?.some((e: any) => e.message?.includes('could not find any results'))) {
+          return { stdout: JSON.stringify(extractItems ? [] : body), stderr: '' };
+        }
+      } catch {}
+    }
+    throw new GithubApiError(resp.status, text || resp.statusText);
+  }
+  const contentType = resp.headers.get('content-type') || '';
+  if (contentType.includes('text/') || contentType.includes('html')) {
+    return { stdout: await resp.text().catch(() => ''), stderr: '' };
+  }
+  const data = await resp.json();
+  const output = extractItems && data.items ? data.items : data;
+  return { stdout: JSON.stringify(output), stderr: '' };
+}
+
+/**
+ * Fallback: call GitHub REST API via proxyFetch when gh CLI fails.
+ */
+async function ghApiFallback(
+  ghArgs: string,
+  originalError: unknown,
+): Promise<{ stdout: string; stderr: string }> {
+  const token = getGitHubToken();
+  if (!token) {
+    throw originalError;
+  }
+  try {
+    return await ghApiDirect(ghArgs, token);
+  } catch (apiError) {
+    const err = new Error(`Both gh CLI and REST API failed for: ${ghArgs} (CLI: ${originalError instanceof Error ? originalError.message : originalError}, API: ${apiError instanceof Error ? apiError.message : apiError})`);
+    (err as any).cause = originalError;
+    throw err;
+  }
+}
+
+/**
+ * Build URL params from a gh search command string.
+ */
+function buildSearchParams(ghArgs: string, type: string): string {
+  const params = new URLSearchParams();
+
+  // Extract quoted query
+  const queryMatch = ghArgs.match(/"([^"]+)"/);
+  if (queryMatch) {
+    let query = queryMatch[1];
+    if (type === 'pr') query += ' type:pr';
+    else if (type === 'issues') query += ' type:issue';
+    params.set('q', query);
+  } else if (type === 'pr') {
+    params.set('q', 'type:pr');
+  } else if (type === 'issues') {
+    params.set('q', 'type:issue');
+  }
+
+  // Extract --repo
+  const repoMatch = ghArgs.match(/--repo\s+(\S+)/);
+  if (repoMatch) {
+    params.set('q', (params.get('q') || '') + ` repo:${repoMatch[1]}`);
+  }
+
+  // Extract --limit
+  const limitMatch = ghArgs.match(/--limit\s+(\d+)/);
+  if (limitMatch) {
+    params.set('per_page', limitMatch[1]);
+  }
+
+  // Extract --sort
+  const sortMatch = ghArgs.match(/--sort\s+(\S+)/);
+  if (sortMatch) {
+    params.set('sort', sortMatch[1]);
+  }
+
+  // Extract --order
+  const orderMatch = ghArgs.match(/--order\s+(\S+)/);
+  if (orderMatch) {
+    params.set('order', orderMatch[1]);
+  }
+
+  return params.toString();
+}
+
+/**
+ * Parse issue/PR view args to extract number and repo.
+ */
+function parseViewArgs(ghArgs: string): { number: number; repo: string | null } {
+  const numMatch = ghArgs.match(/\s+(\d+)\s/);
+  const repoMatch = ghArgs.match(/--repo\s+(\S+)/);
+  return {
+    number: numMatch ? parseInt(numMatch[1], 10) : 0,
+    repo: repoMatch ? repoMatch[1] : null,
+  };
+}
+
+/**
+ * Parse repo view args to extract repo name.
+ */
+function parseRepoViewArgs(ghArgs: string): string | null {
+  // Match repo name after "repo view" and before any flags
+  const match = ghArgs.match(/repo view\s+(\S+?)(?:\s+--|$)/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -735,7 +921,12 @@ export function buildAllTools() {
 
         return textResult(result);
       } catch (error: any) {
-        return textResult(`Failed to view issue: ${error.message}`, true);
+        return textResult(
+          error instanceof GithubApiError && error.status === 404
+            ? `Issue #${args.number} not found in ${args.repo || 'current repo'}. It may not exist or the number might be a PR — use gh_pr_view instead.`
+            : `Failed to view issue: ${error.message}`,
+          true,
+        );
       }
     },
   );
@@ -780,7 +971,12 @@ export function buildAllTools() {
 
         return textResult(formatPrView(data));
       } catch (error: any) {
-        return textResult(`Failed to view PR: ${error.message}`, true);
+        return textResult(
+          error instanceof GithubApiError && error.status === 404
+            ? `PR #${args.number} not found in ${args.repo || 'current repo'}. It may not exist or the number might be an issue — use gh_issue_view instead.`
+            : `Failed to view PR: ${error.message}`,
+          true,
+        );
       }
     },
   );
@@ -883,4 +1079,4 @@ export function getGhSearchSdkToolNames(): string[] {
 /**
  * Get the resolved gh binary path (for external use)
  */
-export { getGhBinaryPath };
+export { resolveGhBinary as getGhBinaryPath };

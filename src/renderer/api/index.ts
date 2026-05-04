@@ -1,9 +1,6 @@
 /**
  * AICO-Bot API - Unified interface for both IPC and HTTP modes
- * Automatically selects the appropriate transport
  */
-
-/* eslint-disable @typescript-eslint/no-explicit-any -- API layer uses dynamic payload types */
 
 import {
   isElectron,
@@ -1281,6 +1278,13 @@ export const api = {
   },
 
   // ===== GitHub Integration (Electron only) =====
+
+  githubGetAuthStatusCombined: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' };
+    }
+    return window.aicoBot.githubGetAuthStatusCombined();
+  },
 
   githubGetAuthStatus: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
