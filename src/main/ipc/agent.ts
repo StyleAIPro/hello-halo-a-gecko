@@ -16,7 +16,7 @@ import {
 } from '../services/agent';
 import { getMainWindow } from '../services/window.service';
 import { queueInjection } from '../services/agent/stream-processor';
-import { getRemoteWsClient } from '../services/remote-ws/remote-ws-client';
+import { getRemoteWsClient } from '../services/remote/ws/remote-ws-client';
 
 export function registerAgentHandlers(): void {
   // Send message to agent (with optional images for multi-modal, optional thinking mode)

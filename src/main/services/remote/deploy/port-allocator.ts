@@ -4,7 +4,7 @@
  */
 
 import * as crypto from 'crypto';
-import type { SSHManager } from '../remote-ssh/ssh-manager';
+import type { SSHManager } from '../ssh/ssh-manager';
 
 const PORT_RANGE_START = 30000;
 const PORT_RANGE_END = 40000;

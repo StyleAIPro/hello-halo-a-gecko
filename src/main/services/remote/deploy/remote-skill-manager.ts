@@ -8,10 +8,10 @@
 import * as fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { SSHManager } from '../remote-ssh/ssh-manager';
+import type { SSHManager } from '../ssh/ssh-manager';
 import { parse as parseYaml } from 'yaml';
-import type { InstalledSkill } from '../../../shared/skill/skill-types';
-import type { SkillFileNode } from '../../../shared/skill/skill-types';
+import type { InstalledSkill } from '../../../../shared/skill/skill-types';
+import type { SkillFileNode } from '../../../../shared/skill/skill-types';
 import type { RemoteDeployService } from './remote-deploy.service';
 
 /**
@@ -506,7 +506,7 @@ async function installRemoteSkillDirect(
   try {
     // Step 1: Import adapter from skill.controller (dynamic import to avoid circular deps)
     const { GITHUB_ADAPTER, GITCODE_ADAPTER } =
-      await import('../../controllers/skill.controller');
+      await import('../../../controllers/skill.controller');
     const adapter = sourceType === 'gitcode' ? GITCODE_ADAPTER : GITHUB_ADAPTER;
 
     // Step 2: Find the skill directory on the source
@@ -684,7 +684,7 @@ export async function syncLocalSkillToRemote(
 
   try {
     // Read local skill files
-    const { readLocalSkillFiles } = await import('../skill/github-skill-source.service');
+    const { readLocalSkillFiles } = await import('../../skill/github-skill-source.service');
     const files = await readLocalSkillFiles(skillId);
     if (files.length === 0) {
       const error = `Skill "${skillId}" not found locally or has no files`;
@@ -750,7 +750,7 @@ export async function syncRemoteSkillToLocal(
   }
 
   try {
-    const { getAgentsSkillsDir } = await import('../config.service');
+    const { getAgentsSkillsDir } = await import('../../config.service');
     const { promises: fsp } = await import('fs');
 
     const localSkillDir = path.join(getAgentsSkillsDir(), skillId);

@@ -9,7 +9,7 @@
  */
 
 import { activeSessions, v2Sessions, invalidateSession, unregisterActiveSession } from './session-manager';
-import { getRemoteWsClient } from '../remote-ws/remote-ws-client';
+import { getRemoteWsClient } from '../remote/ws/remote-ws-client';
 import { rejectAllQuestions } from './permission-handler';
 import type { Thought } from './types';
 

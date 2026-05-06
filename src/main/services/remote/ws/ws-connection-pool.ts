@@ -4,7 +4,7 @@
  * Manages pooled WebSocket connections per server for reuse.
  */
 
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../../utils/logger';
 import { RemoteWsClient } from './remote-ws-client';
 import type { RemoteWsClientConfig } from './ws-types';
 

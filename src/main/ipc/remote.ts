@@ -15,7 +15,7 @@ import {
   onRemoteAccessStatusChange,
   setCustomPassword,
   regeneratePassword,
-} from '../services/remote-access/remote.service';
+} from '../services/remote/access/remote.service';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
 
 let mainWindow: BrowserWindow | null = null;

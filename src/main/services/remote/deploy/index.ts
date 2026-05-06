@@ -2,6 +2,7 @@ export {
   RemoteDeployService,
   RemoteServerConfig,
   RemoteServerConfigInput,
+  remoteDeployService,
 } from './remote-deploy.service';
 
 export { getClientId, getMachineId } from './machine-id';
@@ -14,4 +15,4 @@ export type {
   RemoteFileMessage,
   RemoteClaudeMessage,
   FileInfo,
-} from '../../../shared/types';
+} from '../../../../shared/types';

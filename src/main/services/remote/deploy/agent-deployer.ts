@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { CLAUDE_AGENT_SDK_VERSION } from '../../../shared/constants/sdk';
+import { CLAUDE_AGENT_SDK_VERSION } from '../../../../shared/constants/sdk';
 import type { RemoteDeployService } from './remote-deploy.service';
 
 const DEPLOY_AGENT_PATH_FALLBACK = '/opt/claude-deployment';

@@ -5,11 +5,11 @@
  * All private state lives here; logic is delegated to extracted functions.
  */
 
-import type { SSHConfig } from '../remote-ssh/ssh-manager';
-import { SSHManager } from '../remote-ssh/ssh-manager';
-import type { RemoteServer } from '../../../shared/types';
-import type { InstalledSkill } from '../../../shared/skill/skill-types';
-import type { SkillFileNode } from '../../../shared/skill/skill-types';
+import type { SSHConfig } from '../ssh/ssh-manager';
+import { SSHManager } from '../ssh/ssh-manager';
+import type { RemoteServer } from '../../../../shared/types';
+import type { InstalledSkill } from '../../../../shared/skill/skill-types';
+import type { SkillFileNode } from '../../../../shared/skill/skill-types';
 
 // Sub-module imports (composition pattern)
 import * as serverManager from './server-manager';

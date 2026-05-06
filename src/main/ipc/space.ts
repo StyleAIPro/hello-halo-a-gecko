@@ -18,7 +18,7 @@ import {
   isSkillSpace,
 } from '../services/space.service';
 import { getSpacesDir } from '../services/config.service';
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
 
 // Import types for preferences
 interface SpaceLayoutPreferences {

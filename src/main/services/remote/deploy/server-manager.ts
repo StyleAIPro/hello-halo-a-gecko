@@ -6,10 +6,10 @@
  */
 
 import { app } from 'electron';
-import type { SSHConfig } from '../remote-ssh/ssh-manager';
-import { SSHManager } from '../remote-ssh/ssh-manager';
-import { getConfig, saveConfig } from '../config.service';
-import type { RemoteServer } from '../../../shared/types';
+import type { SSHConfig } from '../ssh/ssh-manager';
+import { SSHManager } from '../ssh/ssh-manager';
+import { getConfig, saveConfig } from '../../config.service';
+import type { RemoteServer } from '../../../../shared/types';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
 import type { RemoteDeployService } from './remote-deploy.service';

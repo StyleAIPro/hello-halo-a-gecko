@@ -239,10 +239,11 @@ npm run typecheck        # TypeScript 类型检查
   - `services/health/` — 健康监控与崩溃恢复
   - `services/mcp-proxy/` — MCP 协议代理
   - `services/proxy/` — HTTP 代理
-  - `services/remote-access/` — 远程访问协调与 Cloudflare 隧道
-  - `services/remote-deploy/` — 远程 Agent 部署
-  - `services/remote-ssh/` — SSH 隧道
-  - `services/remote-ws/` — 远程服务器 WebSocket 客户端
+  - `services/remote/` — 远程基础设施集群
+    - `services/remote/access/` — 远程访问协调与 Cloudflare 隧道
+    - `services/remote/deploy/` — 远程 Agent 部署
+    - `services/remote/ssh/` — SSH 隧道
+    - `services/remote/ws/` — 远程服务器 WebSocket 客户端
   - `services/skill/` — 技能系统
   - `services/stealth/` — 浏览器指纹规避
   - `services/terminal/` — 终端管理与 Git Bash

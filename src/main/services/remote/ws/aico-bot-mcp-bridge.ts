@@ -16,12 +16,12 @@
  */
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import { buildAllTools as buildAiBrowserTools } from '../ai-browser/sdk-mcp-server';
-import { createLogger } from '../../utils/logger';
+import { buildAllTools as buildAiBrowserTools } from '../../ai-browser/sdk-mcp-server';
+import { createLogger } from '../../../utils/logger';
 
 const log = createLogger('mcp-bridge');
-import { browserContext } from '../ai-browser/context';
-import { buildAllTools as buildGhSearchTools } from '../gh-search/sdk-mcp-server';
+import { browserContext } from '../../ai-browser/context';
+import { buildAllTools as buildGhSearchTools } from '../../gh-search/sdk-mcp-server';
 
 // ============================================
 // Types

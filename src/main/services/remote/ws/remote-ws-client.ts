@@ -9,7 +9,7 @@
 
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../../utils/logger';
 import type { RemoteWsClientConfig, ClientMessage, ServerMessage } from './ws-types';
 import { disconnectAllPooledConnections } from './ws-connection-pool';
 

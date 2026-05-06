@@ -5,9 +5,9 @@
  * All functions take (service: RemoteDeployService, ...) as first parameter.
  */
 
-import type { SSHManager } from '../remote-ssh/ssh-manager';
-import { SYSTEM_PROMPT_TEMPLATE } from '../agent/system-prompt';
-import { removePooledConnection } from '../remote-ws/remote-ws-client';
+import type { SSHManager } from '../ssh/ssh-manager';
+import { SYSTEM_PROMPT_TEMPLATE } from '../../agent/system-prompt';
+import { removePooledConnection } from '../ws/remote-ws-client';
 import { getDeployPath, escapeEnvValue, REQUIRED_SDK_VERSION, AGENT_CHECK_COMMAND } from './agent-deployer';
 import type { RemoteDeployService } from './remote-deploy.service';
 
@@ -845,7 +845,7 @@ export function cancelRemoteTask(service: RemoteDeployService, serverId: string,
  */
 export function getOrCreateWsClient(service: RemoteDeployService, id: string, server: any): any {
   // Dynamic import to avoid circular dependency
-  const { RemoteWsClient } = require('../remote-ws/remote-ws-client');
+  const { RemoteWsClient } = require('../ws/remote-ws-client');
 
   // Check if we already have a client for this server
   const existingClient = (RemoteWsClient as any).getRemoteWsClient(id);
@@ -854,8 +854,8 @@ export function getOrCreateWsClient(service: RemoteDeployService, id: string, se
   }
 
   // Resolve API credentials -- server card aiSourceId takes precedence, then global AI source
-  const { getConfig } = require('../config.service');
-  const { decryptString } = require('../auth/secure-storage.service');
+  const { getConfig } = require('../../config.service');
+  const { decryptString } = require('../../auth/secure-storage.service');
   const config = getConfig();
   const sourceId = server.aiSourceId || config.aiSources?.currentId;
   const currentSource = sourceId

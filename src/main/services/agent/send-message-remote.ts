@@ -23,14 +23,14 @@ import {
   registerActiveClient,
   acquireConnection,
   releaseConnection,
-} from '../remote-ws/remote-ws-client';
+} from '../remote/ws/remote-ws-client';
 import {
   type FileChangesSummary,
   extractFileChangesSummaryFromThoughts,
 } from '../../../shared/file-changes';
 import { decryptString } from '../auth/secure-storage.service';
-import sshTunnelService from '../remote-ssh/ssh-tunnel.service';
-import { SSHManager } from '../remote-ssh/ssh-manager';
+import sshTunnelService from '../remote/ssh/ssh-tunnel.service';
+import { SSHManager } from '../remote/ssh/ssh-manager';
 import { getMcpProxyInstance } from '../mcp-proxy';
 import { getAccessToken } from '../../http/auth';
 import type { AgentRequest } from './types';
@@ -43,7 +43,7 @@ import {
   registerActiveSession,
   unregisterActiveSession,
 } from './session-manager';
-import { AicoBotMcpBridge } from '../remote-ws/aico-bot-mcp-bridge';
+import { AicoBotMcpBridge } from '../remote/ws/aico-bot-mcp-bridge';
 import { terminalGateway } from '../terminal/terminal-gateway';
 
 const log = createLogger('agent:remote');

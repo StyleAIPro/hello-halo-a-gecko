@@ -5,10 +5,10 @@
 
 import { BrowserWindow } from 'electron';
 import { networkInterfaces } from 'os';
-import { startHttpServer, stopHttpServer, isServerRunning, getServerInfo } from '../../http/server';
+import { startHttpServer, stopHttpServer, isServerRunning, getServerInfo } from '../../../http/server';
 import { startTunnel, stopTunnel, getTunnelStatus, onTunnelStatusChange } from './tunnel.service';
-import { getConfig, saveConfig } from '../config.service';
-import { setCustomAccessToken, generateAccessToken } from '../../http/auth';
+import { getConfig, saveConfig } from '../../config.service';
+import { setCustomAccessToken, generateAccessToken } from '../../../http/auth';
 
 export interface RemoteAccessStatus {
   enabled: boolean;

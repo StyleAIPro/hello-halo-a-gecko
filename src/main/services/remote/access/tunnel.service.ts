@@ -6,7 +6,7 @@
 import type { ChildProcess } from 'child_process';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../health';
+import { registerProcess, unregisterProcess, getCurrentInstanceId } from '../../health';
 
 // Tunnel state
 interface TunnelState {

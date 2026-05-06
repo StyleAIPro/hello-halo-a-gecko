@@ -5,8 +5,8 @@
 
 import type { BrowserWindow } from 'electron';
 import { ipcMain } from 'electron';
-import type { RemoteServerConfigInput } from '../services/remote-deploy';
-import { remoteDeployService as deployService } from '../services/remote-deploy/remote-deploy.service';
+import type { RemoteServerConfigInput } from '../services/remote/deploy';
+import { remoteDeployService as deployService } from '../services/remote/deploy/remote-deploy.service';
 import type { RemoteServer } from '../../shared/types';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
 

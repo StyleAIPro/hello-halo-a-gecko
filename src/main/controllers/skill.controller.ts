@@ -7,7 +7,7 @@ import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
 import type { ConversationService } from '../services/conversation.service';
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
 import type { SkillGenerateOptions } from '../../shared/skill/skill-types';
 import * as githubSkillSource from '../services/skill/github-skill-source.service';
 import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
