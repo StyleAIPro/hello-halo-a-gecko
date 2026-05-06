@@ -14,8 +14,8 @@ import type {
   MainToWorkerMessage,
   WorkerToMainMessage,
   ProcessedFsEvent,
-} from '../../shared/protocol/file-watcher.protocol';
-import type { CachedTreeNode, CachedArtifact } from '../../shared/types/artifact';
+} from '../../../shared/protocol/file-watcher.protocol';
+import type { CachedTreeNode, CachedArtifact } from '../../../shared/types/artifact';
 
 // --- Worker process management ---
 

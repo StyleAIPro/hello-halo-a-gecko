@@ -16,7 +16,7 @@ import {
   loginWithDirectToken,
   logoutDirectGitHub,
   setupGitCredentialsWithToken,
-} from '../services/github-auth.service';
+} from '../services/auth/github-auth.service';
 import { getMainWindow } from '../services/window.service';
 
 /**

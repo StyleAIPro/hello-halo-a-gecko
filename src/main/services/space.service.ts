@@ -37,7 +37,7 @@ import type {
 import { createOrchestrationConfig } from '../../shared/types/hyper-space';
 import { agentOrchestrator } from './agent/orchestrator';
 import { closeSessionsBySpaceId } from './agent/session-manager';
-import { destroySpaceCache } from './artifact-cache.service';
+import { destroySpaceCache } from './file-watcher/artifact-cache.service';
 
 // Re-export config helper for backward compatibility with existing imports
 export { getSpacesDir } from './config.service';

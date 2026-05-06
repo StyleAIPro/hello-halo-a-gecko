@@ -230,11 +230,25 @@ npm run typecheck        # TypeScript 类型检查
 
 - **`/src/main/`** — Electron 主进程
   - `services/agent/` — 核心 Agent，SDK 集成，消息处理
-  - `services/remote-ws/` — 远程服务器 WebSocket 客户端
-  - `services/remote-ssh/` — SSH 隧道
+  - `services/ai-browser/` — AI 浏览器自动化
+  - `services/ai-sources/` — AI 模型提供商配置与认证
+  - `services/auth/` — 外部平台认证（GitHub、GitCode）与安全存储
+  - `services/browser/` — BrowserView 管理、覆盖层、上下文菜单
+  - `services/file-watcher/` — 文件监听、制品扫描与缓存
+  - `services/gh-search/` — GitHub 搜索 MCP 工具
+  - `services/health/` — 健康监控与崩溃恢复
+  - `services/mcp-proxy/` — MCP 协议代理
+  - `services/proxy/` — HTTP 代理
+  - `services/remote-access/` — 远程访问协调与 Cloudflare 隧道
   - `services/remote-deploy/` — 远程 Agent 部署
-  - `services/space.service.ts` — 工作空间管理
-  - `services/conversation.service.ts` — 聊天记录持久化
+  - `services/remote-ssh/` — SSH 隧道
+  - `services/remote-ws/` — 远程服务器 WebSocket 客户端
+  - `services/skill/` — 技能系统
+  - `services/stealth/` — 浏览器指纹规避
+  - `services/terminal/` — 终端管理与 Git Bash
+  - `services/config.service.ts` — 应用配置（顶层基础服务）
+  - `services/conversation.service.ts` — 聊天记录持久化（顶层基础服务）
+  - `services/space.service.ts` — 工作空间管理（顶层基础服务）
   - `platform/` — 后台子系统（事件总线、记忆、调度、后台应用）
   - `apps/` — Digital Humans 自动化平台（规范、管理、运行时）
   - `ipc/` — IPC 处理器模块

@@ -13,8 +13,8 @@ import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { promisify } from 'util';
-import { getGitHubToken, setGitHubToken } from './config.service';
-import { proxyFetch } from './proxy';
+import { getGitHubToken, setGitHubToken } from '../config.service';
+import { proxyFetch } from '../proxy';
 
 const execAsync = promisify(exec);
 

@@ -6,8 +6,8 @@
  * stored in config and validated via /user API.
  */
 
-import { getGitCodeToken, setGitCodeToken } from './config.service';
-import { gitcodeFetch, GITCODE_API_BASE } from './skill/gitcode-skill-source.service';
+import { getGitCodeToken, setGitCodeToken } from '../config.service';
+import { gitcodeFetch, GITCODE_API_BASE } from '../skill/gitcode-skill-source.service';
 
 interface GitCodeAuthStatus {
   authenticated: boolean;

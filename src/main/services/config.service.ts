@@ -25,7 +25,7 @@ import type {
   ModelOption,
 } from '../../shared/types';
 import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants';
-import { decryptString } from './secure-storage.service';
+import { decryptString } from './auth/secure-storage.service';
 
 // ============================================================================
 // ENCRYPTED DATA MIGRATION

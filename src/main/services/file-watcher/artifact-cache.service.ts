@@ -13,8 +13,8 @@
  */
 
 import { relative, sep } from 'path';
-import { getMainWindow } from '../index';
-import { broadcastToAll } from '../http/websocket';
+import { getMainWindow } from '../../index';
+import { broadcastToAll } from '../../http/websocket';
 import {
   initSpaceWatcher,
   destroySpaceWatcher,
@@ -24,7 +24,7 @@ import {
   setFsEventsHandler,
   shutdown as shutdownWorker,
 } from './watcher-host.service';
-import type { ProcessedFsEvent } from '../../shared/protocol/file-watcher.protocol';
+import type { ProcessedFsEvent } from '../../../shared/protocol/file-watcher.protocol';
 
 // Re-export shared types for downstream consumers (artifact.service.ts etc.)
 export type {
@@ -32,14 +32,14 @@ export type {
   CachedTreeNode,
   ArtifactChangeEvent,
   ArtifactTreeUpdateEvent,
-} from '../../shared/types/artifact';
+} from '../../../shared/types/artifact';
 
 import type {
   CachedArtifact,
   CachedTreeNode,
   ArtifactChangeEvent,
   ArtifactTreeUpdateEvent,
-} from '../../shared/types/artifact';
+} from '../../../shared/types/artifact';
 
 /**
  * Broadcast event to all clients (Electron IPC + WebSocket)

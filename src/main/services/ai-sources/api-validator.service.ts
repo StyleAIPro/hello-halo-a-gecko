@@ -14,19 +14,19 @@
 
 import { unstable_v2_createSession } from '@anthropic-ai/claude-agent-sdk';
 import { app } from 'electron';
-import { proxyFetch } from './proxy';
+import { proxyFetch } from '../proxy';
 import {
   ensureOpenAICompatRouter,
   encodeBackendConfig,
   normalizeApiUrl,
-} from '../openai-compat-router';
-import type { BackendConfig } from '../openai-compat-router';
-import { getCleanUserEnv } from './agent/sdk-config';
-import { AVAILABLE_MODELS } from '../../shared/types/ai-sources';
-import { getHeadlessElectronPath } from './agent/helpers';
+} from '../../openai-compat-router';
+import type { BackendConfig } from '../../openai-compat-router';
+import { getCleanUserEnv } from '../agent/sdk-config';
+import { AVAILABLE_MODELS } from '../../../shared/types/ai-sources';
+import { getHeadlessElectronPath } from '../agent/helpers';
 
 // Re-export normalizeApiUrl for external use (moved to router module)
-export { normalizeApiUrl } from '../openai-compat-router';
+export { normalizeApiUrl } from '../../openai-compat-router';
 
 export interface FetchModelsParams {
   apiKey: string;

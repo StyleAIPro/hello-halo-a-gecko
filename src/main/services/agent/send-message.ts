@@ -31,7 +31,7 @@ import {
   extractFileChangesSummaryFromThoughts,
 } from '../../../shared/file-changes';
 import { notifyTaskComplete } from '../notification.service';
-import { decryptString } from '../secure-storage.service';
+import { decryptString } from '../auth/secure-storage.service';
 import sshTunnelService from '../remote-ssh/ssh-tunnel.service';
 import { SSHManager } from '../remote-ssh/ssh-manager';
 import {

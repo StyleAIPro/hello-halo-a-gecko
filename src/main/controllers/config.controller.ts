@@ -7,7 +7,7 @@ import {
   getConfig as serviceGetConfig,
   saveConfig as serviceSaveConfig,
 } from '../services/config.service';
-import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service';
+import { validateApiConnection, fetchModelsFromApi } from '../services/ai-sources/api-validator.service';
 
 export interface ControllerResponse<T = unknown> {
   success: boolean;

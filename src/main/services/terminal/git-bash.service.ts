@@ -9,7 +9,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import { createMockBash, cleanupMockBash } from './mock-bash.service';
-import { getConfig, saveConfig } from './config.service';
+import { getConfig, saveConfig } from '../config.service';
 
 export interface GitBashDetectionResult {
   found: boolean;

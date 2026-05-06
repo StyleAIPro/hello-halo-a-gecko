@@ -172,7 +172,7 @@ import {
 } from './bootstrap';
 import { initializeApp } from './services/config.service';
 import { flushAllPendingIndexWrites } from './services/conversation.service';
-import { disableRemoteAccess } from './services/remote.service';
+import { disableRemoteAccess } from './services/remote-access/remote.service';
 import { stopOpenAICompatRouter } from './openai-compat-router';
 import { manualCheckForUpdates } from './services/updater.service';
 import { registerProtocols } from './services/protocol.service';

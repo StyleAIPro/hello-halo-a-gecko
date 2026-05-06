@@ -22,7 +22,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createGhSearchMcpServer, getGhSearchSdkToolNames } from './sdk-mcp-server';
-import { resolveGhBinary } from '../github-auth.service';
+import { resolveGhBinary } from '../auth/github-auth.service';
 import { proxyFetch } from '../proxy';
 import { getGitHubToken } from '../config.service';
 

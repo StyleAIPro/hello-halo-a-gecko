@@ -26,7 +26,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { proxyFetch } from '../proxy';
 import { getGitHubToken } from '../config.service';
-import { resolveGhBinary } from '../github-auth.service';
+import { resolveGhBinary } from '../auth/github-auth.service';
 
 const execAsync = promisify(exec);
 

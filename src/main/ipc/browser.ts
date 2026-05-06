@@ -7,8 +7,8 @@
 
 import type { BrowserWindow } from 'electron';
 import { ipcMain, Menu, shell, MenuItemConstructorOptions } from 'electron';
-import { browserViewManager, type BrowserViewBounds } from '../services/browser-view.service';
-import type { BrowserMenuOptions, CanvasTabMenuOptions } from '../services/browser-menu.service';
+import { browserViewManager, type BrowserViewBounds } from '../services/browser/browser-view.service';
+import type { BrowserMenuOptions, CanvasTabMenuOptions } from '../services/browser/browser-menu.service';
 
 /**
  * Register all browser-related IPC handlers
@@ -259,7 +259,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
    */
   ipcMain.handle('browser:show-context-menu', async (_event, options: BrowserMenuOptions) => {
     try {
-      const { buildBrowserContextMenu } = await import('../services/browser-menu.service');
+      const { buildBrowserContextMenu } = await import('../services/browser/browser-menu.service');
       const menu = buildBrowserContextMenu(options, mainWindow);
       menu.popup({ window: mainWindow || undefined });
       return { success: true };
@@ -273,7 +273,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
    */
   ipcMain.handle('canvas:show-tab-context-menu', async (_event, options: CanvasTabMenuOptions) => {
     try {
-      const { buildCanvasTabContextMenu } = await import('../services/browser-menu.service');
+      const { buildCanvasTabContextMenu } = await import('../services/browser/browser-menu.service');
       const menu = buildCanvasTabContextMenu(options, mainWindow);
       menu.popup({ window: mainWindow || undefined });
       return { success: true };

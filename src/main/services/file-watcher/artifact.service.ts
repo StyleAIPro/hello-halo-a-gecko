@@ -19,8 +19,8 @@ import {
   closeSync,
 } from 'fs';
 import { join, extname, basename, sep } from 'path';
-import { getTempSpacePath } from './config.service';
-import { getSpace } from './space.service';
+import { getTempSpacePath } from '../config.service';
+import { getSpace } from '../space.service';
 import {
   listArtifacts as listArtifactsCached,
   listArtifactsTree as listArtifactsTreeCached,

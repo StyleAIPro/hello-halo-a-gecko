@@ -7,7 +7,7 @@ import { app } from 'electron';
 import type { SSHConfig } from '../remote-ssh/ssh-manager';
 import { SSHManager } from '../remote-ssh/ssh-manager';
 import { getConfig, saveConfig } from '../config.service';
-import { decryptString } from '../secure-storage.service';
+import { decryptString } from '../auth/secure-storage.service';
 import type { RemoteServer } from '../../../shared/types';
 import type { InstalledSkill } from '../../../shared/skill/skill-types';
 import type { SkillFileNode } from '../../../shared/skill/skill-types';

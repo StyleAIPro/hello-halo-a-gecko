@@ -751,7 +751,7 @@ class AgentOrchestrator extends EventEmitter {
     const { saveSessionId, updateLastMessage, getConversation } =
       await import('../conversation.service');
     const { getConfig } = await import('../config.service');
-    const { decryptString } = await import('../secure-storage.service');
+    const { decryptString } = await import('../auth/secure-storage.service');
     const sshTunnelService = (await import('../remote-ssh/ssh-tunnel.service')).default;
     const { extractFileChangesSummaryFromThoughts } = await import('../../../shared/file-changes');
 
@@ -2165,7 +2165,7 @@ just complete the task normally — the orchestrator will collect your results a
     const { getRemoteDeployService } = await import('../../ipc/remote-server');
     const { sendToRenderer } = await import('./helpers');
     const { getConfig } = await import('../config.service');
-    const { decryptString } = await import('../secure-storage.service');
+    const { decryptString } = await import('../auth/secure-storage.service');
     const sshTunnelService = (await import('../remote-ssh/ssh-tunnel.service')).default;
 
     const remoteServerId = agent.config.remoteServerId;
