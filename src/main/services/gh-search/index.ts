@@ -1,31 +1,32 @@
 /**
  * GitHub Search Module - Main Entry Point
  *
- * This module provides GitHub search capabilities via the GitHub CLI (gh).
- * It enables the AI to search repositories, issues, pull requests, code,
- * and commits directly without requiring browser automation.
+ * This module provides GitHub search capabilities for the AI agent.
+ * Uses GitHub REST API (PAT) as primary auth, with gh CLI as optional fallback.
  *
  * Key Features:
  * - 5 GitHub search tools (repos, issues, PRs, code, commits)
- * - Native GitHub CLI integration
+ * - 3 GitHub view tools (issues, PRs, repos)
  * - Full GitHub search syntax support
  * - JSON and formatted text output options
  *
  * Prerequisites:
- * - GitHub CLI (gh) must be installed
- * - Run `gh auth login` to authenticate
+ * - A GitHub Personal Access Token configured in Settings > GitHub
+ * - GitHub CLI (gh) is optional — used as a faster path when available
  *
  * Usage:
  * The MCP server is automatically added to SDK sessions when enabled.
  * Tools are prefixed with "mcp__gh-search__" in the SDK.
  */
 
-// Import SDK MCP server creator
-import {
-  createGhSearchMcpServer,
-  getGhSearchSdkToolNames,
-  getGhBinaryPath,
-} from './sdk-mcp-server';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { createGhSearchMcpServer, getGhSearchSdkToolNames } from './sdk-mcp-server';
+import { resolveGhBinary } from '../auth/github-auth.service';
+import { proxyFetch } from '../proxy';
+import { getGitHubToken } from '../config.service';
+
+const execAsync = promisify(exec);
 
 // Re-export SDK MCP server functions
 export { createGhSearchMcpServer, getGhSearchSdkToolNames };
@@ -34,67 +35,91 @@ export { createGhSearchMcpServer, getGhSearchSdkToolNames };
 // Module Status Check
 // ============================================
 
+export interface GhSearchAuthStatus {
+  patAuth: { authenticated: boolean; user: string | null };
+  ghCli: { available: boolean; authenticated: boolean; user: string | null };
+}
+
 /**
- * Check if GitHub CLI is available and authenticated.
- * Returns an object with status and optional error message.
+ * Check GitHub authentication status.
+ * PAT is the primary auth (required for all API operations).
+ * gh CLI is optional (used as a faster path when available).
  */
-export async function checkGhCliStatus(): Promise<{
-  available: boolean;
-  authenticated: boolean;
-  error?: string;
-  user?: string;
-}> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-
-  const ghBin = getGhBinaryPath();
-
-  try {
-    // Check if gh is available (bundled or system)
-    await execAsync(`"${ghBin}" --version`);
-  } catch {
-    return {
-      available: false,
-      authenticated: false,
-      error: 'GitHub CLI (gh) is not installed. Install from https://cli.github.com/',
+export async function checkGhCliStatus(): Promise<GhSearchAuthStatus> {
+  // 1. Check PAT auth (primary)
+  let patAuth: { authenticated: boolean; user: string | null } = {
+    authenticated: false,
+    user: null,
+  };
+  const token = getGitHubToken();
+  if (token) {
+    const ghHeaders: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
     };
-  }
-
-  try {
-    // Check authentication status
-    const { stdout } = await execAsync(`"${ghBin}" auth status --hostname github.com 2>&1 || true`);
-
-    // Parse the output to check if logged in
-    if (stdout.includes('not logged in')) {
-      return {
-        available: true,
-        authenticated: false,
-        error: 'GitHub CLI is not authenticated. Run `gh auth login` to authenticate.',
-      };
-    }
-
-    // Try to get the logged in user
     try {
-      const { stdout: userOut } = await execAsync(`"${ghBin}" api user --jq ".login"`);
-      return {
-        available: true,
-        authenticated: true,
-        user: userOut.trim(),
-      };
+      const resp = await proxyFetch('https://api.github.com/user', {
+        headers: ghHeaders,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        patAuth = { authenticated: true, user: data.login };
+      }
     } catch {
-      return {
-        available: true,
-        authenticated: true,
-      };
+      // Proxy failed, try direct
+      try {
+        const resp = await fetch('https://api.github.com/user', {
+          headers: ghHeaders,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          patAuth = { authenticated: true, user: data.login };
+        }
+      } catch {
+        // Both failed
+      }
     }
-  } catch (error: any) {
-    return {
-      available: true,
-      authenticated: false,
-      error: error.message,
-    };
   }
+
+  // 2. Check gh CLI (optional)
+  const ghCli: { available: boolean; authenticated: boolean; user: string | null } = {
+    available: false,
+    authenticated: false,
+    user: null,
+  };
+
+  const ghBin = resolveGhBinary();
+
+  try {
+    await execAsync(`"${ghBin}" --version`);
+    ghCli.available = true;
+  } catch {
+    // gh CLI not available
+  }
+
+  if (ghCli.available) {
+    try {
+      const { stdout } = await execAsync(
+        `"${ghBin}" auth status --hostname github.com 2>&1 || true`,
+      );
+      if (!stdout.includes('not logged in')) {
+        ghCli.authenticated = true;
+        try {
+          const { stdout: userOut } = await execAsync(`"${ghBin}" api user --jq ".login"`);
+          ghCli.user = userOut.trim();
+        } catch {
+          // user lookup failed but CLI is authenticated
+        }
+      }
+    } catch {
+      // gh CLI network call failed, that's fine
+    }
+  }
+
+  return { patAuth, ghCli };
 }
 
 // ============================================
@@ -132,8 +157,8 @@ export const GH_SEARCH_SYSTEM_PROMPT = `
 You have access to GitHub search and view capabilities via the MCP server "gh-search". This provides native GitHub operations without requiring browser automation.
 
 ### Prerequisites
-- GitHub CLI (gh) must be installed and authenticated
-- If searches fail, suggest the user run \`gh auth login\`
+- A GitHub Personal Access Token must be configured in Settings > GitHub
+- GitHub CLI (gh) is optional — if searches fail, suggest the user configure a GitHub token in Settings
 
 ### Search Tools (prefix: mcp__gh-search__)
 

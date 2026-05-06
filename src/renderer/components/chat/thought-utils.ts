@@ -21,7 +21,6 @@ import type { Thought } from '../../types';
 import type { WorkerSessionState } from '../../stores/chat.store';
 
 // i18n static keys for extraction (DO NOT REMOVE)
-// prettier-ignore
 void function _i18nThoughtKeys(t: (k: string) => string) {
   t('Thinking'); t('Tool call'); t('Tool result'); t('System'); t('Error'); t('Complete')
 }

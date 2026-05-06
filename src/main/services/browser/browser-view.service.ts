@@ -1,0 +1,948 @@
+/**
+ * BrowserView Service - Manages embedded browser views
+ *
+ * This service creates and manages BrowserView instances for the Content Canvas,
+ * enabling true browser functionality within AICO-Bot - like having Chrome embedded
+ * in the app.
+ *
+ * Key features:
+ * - Multiple concurrent BrowserViews (one per tab)
+ * - Full Chromium rendering with network capabilities
+ * - Security isolation (sandbox mode)
+ * - State tracking (URL, title, loading, navigation history)
+ * - AI-ready (screenshot capture, JS execution)
+ * - Window-level isolation: AI automation views are hosted on a separate
+ *   hidden BrowserWindow to prevent lifecycle conflicts with user-visible views
+ */
+
+import { BrowserWindow } from 'electron';
+import { forceDwmCleanup } from './win32-hwnd-cleanup';
+
+// BrowserView is imported dynamically to avoid ESM bundling issues
+let BrowserView: any;
+
+// ============================================
+// Types
+// ============================================
+
+export interface BrowserViewState {
+  id: string;
+  url: string;
+  title: string;
+  favicon?: string; // base64 data URL
+  isLoading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  zoomLevel: number;
+  isDevToolsOpen: boolean;
+  error?: string;
+}
+
+export interface BrowserViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserViewCreateOptions {
+  /** When true, the view is hosted on a hidden offscreen window instead of the
+   *  main window. Used by AI automation to isolate view lifecycle from the
+   *  user-visible browser. Defaults to false. */
+  offscreen?: boolean;
+}
+
+// ============================================
+// Constants
+// ============================================
+
+// Chrome User-Agent to avoid detection as Electron app
+const CHROME_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+// ============================================
+// BrowserView Manager
+// ============================================
+
+class BrowserViewManager {
+  private views: Map<string, BrowserView> = new Map();
+  private states: Map<string, BrowserViewState> = new Map();
+  private mainWindow: BrowserWindow | null = null;
+  private activeViewId: string | null = null;
+
+  // Hidden offscreen window that hosts AI automation BrowserViews.
+  // Isolates AI view lifecycle from the user-visible mainWindow so that
+  // creating/destroying AI views cannot corrupt the mainWindow's view list.
+  private offscreenWindow: BrowserWindow | null = null;
+  // Track which views live on the offscreen window for correct cleanup.
+  private offscreenViewIds: Set<string> = new Set();
+
+  // Debounce timers for state change events
+  // This prevents flooding the renderer with too many IPC messages during rapid navigation
+  private stateChangeDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private static readonly STATE_CHANGE_DEBOUNCE_MS = 50; // 50ms debounce
+
+  /**
+   * Initialize the manager with the main window
+   */
+  initialize(mainWindow: BrowserWindow) {
+    this.mainWindow = mainWindow;
+
+    // Clean up views when window is closed
+    mainWindow.on('closed', () => {
+      this.destroyAll();
+    });
+
+    // Handle system suspend/resume events
+    // When system wakes from sleep, BrowserViews may still be visible but
+    // the app state might have changed. Hide all visible views on resume
+    // to prevent "ghost" BrowserViews from appearing.
+    const { powerMonitor } = require('electron');
+
+    powerMonitor.on('resume', () => {
+      console.log('[BrowserView] System resumed from sleep, hiding all visible BrowserViews');
+      // Hide all views that are on mainWindow (not offscreen AI views)
+      for (const [viewId, view] of this.views) {
+        if (!this.offscreenViewIds.has(viewId)) {
+          try {
+            // Move offscreen BEFORE removing — on Windows, removeBrowserView
+            // can silently fail, leaving a click-blocking HWND
+            view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 });
+            this.mainWindow?.removeBrowserView(view);
+          } catch (_e) {
+            // View might not be on window, ignore
+          }
+        }
+      }
+      // Clear active view since we hid everything
+      this.activeViewId = null;
+
+      // Notify renderer so it can update its state (e.g. stop showing stale canvas)
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        try {
+          this.mainWindow.webContents.send('browser:all-views-hidden');
+          // On Windows, force DWM to re-composite after bulk removeBrowserView
+          if (process.platform === 'win32') {
+            try {
+              forceDwmCleanup(this.mainWindow);
+            } catch (_e) {
+              this.mainWindow.webContents.invalidate();
+            }
+          }
+        } catch (_e) {
+          // Ignore
+        }
+      }
+    });
+  }
+
+  /**
+   * Get or lazily create the hidden offscreen host window.
+   *
+   * This window is never shown to the user. Its sole purpose is to provide a
+   * compositing surface for AI automation BrowserViews so that CDP commands
+   * (e.g. Page.captureScreenshot) produce frames. The window itself loads no
+   * content and consumes minimal memory (~10 MB).
+   */
+  private getOrCreateOffscreenWindow(): BrowserWindow {
+    if (this.offscreenWindow && !this.offscreenWindow.isDestroyed()) {
+      return this.offscreenWindow;
+    }
+
+    this.offscreenWindow = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 720,
+      webPreferences: {
+        // Minimal prefs — this window never loads content itself
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    // Prevent from appearing in taskbar / dock
+    this.offscreenWindow.setSkipTaskbar(true);
+
+    // Handle unexpected close (e.g. OS kill)
+    this.offscreenWindow.on('closed', () => {
+      this.offscreenWindow = null;
+    });
+
+    console.log('[BrowserView] Offscreen host window created for AI automation views');
+    return this.offscreenWindow;
+  }
+
+  /**
+   * Create a new BrowserView
+   */
+  async create(
+    viewId: string,
+    url?: string,
+    options?: BrowserViewCreateOptions,
+  ): Promise<BrowserViewState> {
+    const isOffscreen = options?.offscreen ?? false;
+    console.log(
+      `[BrowserView] >>> create() called - viewId: ${viewId}, url: ${url}, offscreen: ${isOffscreen}`,
+    );
+
+    // Don't create duplicate views
+    if (this.views.has(viewId)) {
+      console.log(`[BrowserView] View already exists, returning existing state`);
+      return this.states.get(viewId)!;
+    }
+
+    // Dynamically import BrowserView to avoid ESM bundling issues
+    if (!BrowserView) {
+      const electron = await import('electron');
+      BrowserView = electron.BrowserView;
+    }
+
+    console.log(`[BrowserView] Creating new BrowserView...`);
+    const view = new BrowserView({
+      webPreferences: {
+        sandbox: true, // Security: enable sandbox for external content
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        // Persistent storage for cookies, localStorage, etc.
+        // Shared across mainWindow and offscreen window — login state is preserved.
+        partition: 'persist:browser',
+        // Enable smooth scrolling and other web features
+        scrollBounce: true,
+      },
+    });
+    console.log(`[BrowserView] BrowserView instance created`);
+
+    // Set Chrome User-Agent to avoid detection
+    view.webContents.setUserAgent(CHROME_USER_AGENT);
+
+    // Set background color to white (standard web)
+    view.setBackgroundColor('#ffffff');
+
+    // Attach to the appropriate host window so the Chromium compositor allocates
+    // a compositing surface. Without this, CDP commands that need pixel output
+    // (e.g. Page.captureScreenshot) will hang because no frames are produced.
+    //
+    // For user-visible views: attach to mainWindow at offscreen bounds;
+    //   show() later repositions to visible bounds.
+    // For AI automation views: attach to a dedicated hidden offscreen window
+    //   to isolate lifecycle from the user's mainWindow.
+    const hostWindow = isOffscreen ? this.getOrCreateOffscreenWindow() : this.mainWindow;
+
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      hostWindow.addBrowserView(view);
+      // Offscreen window is hidden, so (0,0) is fine. User views start off-screen
+      // and are repositioned by show().
+      const initialBounds = isOffscreen
+        ? { x: 0, y: 0, width: 1280, height: 720 }
+        : { x: -10000, y: -10000, width: 1280, height: 720 };
+      view.setBounds(initialBounds);
+    }
+
+    if (isOffscreen) {
+      this.offscreenViewIds.add(viewId);
+    }
+
+    // Initialize state
+    const state: BrowserViewState = {
+      id: viewId,
+      url: url || 'about:blank',
+      title: 'New Tab',
+      isLoading: !!url,
+      canGoBack: false,
+      canGoForward: false,
+      zoomLevel: 1,
+      isDevToolsOpen: false,
+    };
+
+    this.views.set(viewId, view);
+    this.states.set(viewId, state);
+    console.log(`[BrowserView] View stored in map, views count: ${this.views.size}`);
+
+    // Bind events
+    this.bindEvents(viewId, view);
+    console.log(`[BrowserView] Events bound`);
+
+    // Navigate to initial URL
+    if (url) {
+      try {
+        console.log(`[BrowserView] Loading URL: ${url}`);
+        await view.webContents.loadURL(url);
+        console.log(`[BrowserView] URL loaded successfully`);
+      } catch (error) {
+        console.error(`[BrowserView] Failed to load URL: ${url}`, error);
+        state.error = (error as Error).message;
+        state.isLoading = false;
+      }
+    }
+
+    console.log(`[BrowserView] <<< create() returning state:`, JSON.stringify(state, null, 2));
+    return state;
+  }
+
+  /**
+   * Show a BrowserView at specified bounds
+   */
+  show(viewId: string, bounds: BrowserViewBounds) {
+    console.log(`[BrowserView] >>> show() called - viewId: ${viewId}, bounds:`, bounds);
+
+    const view = this.views.get(viewId);
+    if (!view) {
+      console.error(`[BrowserView] show() - View not found: ${viewId}`);
+      return false;
+    }
+    if (!this.mainWindow) {
+      console.error(`[BrowserView] show() - mainWindow is null`);
+      return false;
+    }
+
+    // Defensive: if the native BrowserView object has been destroyed (e.g. by
+    // a race condition), clean up the stale entry and bail out.
+    try {
+      if (view.webContents.isDestroyed()) {
+        console.error(
+          `[BrowserView] show() - View webContents already destroyed, cleaning up: ${viewId}`,
+        );
+        this.cleanupStaleView(viewId);
+        return false;
+      }
+    } catch (e) {
+      console.error(`[BrowserView] show() - View object destroyed, cleaning up: ${viewId}`);
+      this.cleanupStaleView(viewId);
+      return false;
+    }
+
+    // Hide currently active view first
+    if (this.activeViewId && this.activeViewId !== viewId) {
+      console.log(`[BrowserView] Hiding previous active view: ${this.activeViewId}`);
+      this.hide(this.activeViewId);
+    }
+
+    // If this view was on offscreen window, remove it first to avoid conflicts
+    // A BrowserView can only belong to one window at a time
+    if (
+      this.offscreenViewIds.has(viewId) &&
+      this.offscreenWindow &&
+      !this.offscreenWindow.isDestroyed()
+    ) {
+      console.log(
+        `[BrowserView] Removing view from offscreen window before adding to mainWindow: ${viewId}`,
+      );
+      try {
+        this.offscreenWindow.removeBrowserView(view);
+      } catch (e) {
+        // View might not be on offscreen window, ignore error
+      }
+      // Mark this view as no longer offscreen since it's being shown in mainWindow
+      this.offscreenViewIds.delete(viewId);
+    }
+
+    // Add to window
+    console.log(`[BrowserView] Adding BrowserView to window...`);
+    this.mainWindow.addBrowserView(view);
+    console.log(`[BrowserView] BrowserView added to window`);
+
+    // Set bounds with integer values
+    const intBounds = {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    };
+    console.log(`[BrowserView] Setting bounds:`, intBounds);
+    view.setBounds(intBounds);
+
+    // Auto-resize with window (only width and height, not position)
+    view.setAutoResize({
+      width: false,
+      height: false,
+      horizontal: false,
+      vertical: false,
+    });
+
+    this.activeViewId = viewId;
+    console.log(`[BrowserView] <<< show() success - activeViewId: ${this.activeViewId}`);
+
+    // On Windows, force DWM flush after adding the BrowserView HWND
+    if (process.platform === 'win32') {
+      try {
+        // Try native DWM flush first (more reliable)
+        const nativeOk = forceDwmCleanup(this.mainWindow);
+        if (!nativeOk) {
+          // Fallback to Chromium-level invalidation
+          this.mainWindow.webContents.invalidate();
+        }
+      } catch (_e) {
+        // Ignore
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * On Windows, removeBrowserView can silently fail, leaving a transparent
+   * HWND that blocks clicks. We mitigate this by:
+   * 1. Moving the view offscreen before removal
+   * 2. Multiple removal attempts with small delays
+   * 3. Forcing DWM compositor flush using invalidate() + blur/focus cycle
+   *
+   * The root cause is a race condition in Electron's BrowserView removal
+   * on Windows. The native HWND sometimes persists after removal, blocking
+   * all pointer events. Opening/closing a native dialog forces DWM to
+   * re-composite, which is why that "fixes" the issue.
+   */
+  hide(viewId: string, force: boolean = false) {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+
+    const hostWindow = this.offscreenViewIds.has(viewId) ? this.offscreenWindow : this.mainWindow;
+
+    if (!hostWindow || hostWindow.isDestroyed()) {
+      if (this.activeViewId === viewId) {
+        this.activeViewId = null;
+      }
+      return true;
+    }
+
+    // Step 1: Move offscreen immediately to eliminate click interception
+    // Even if removal fails, the view won't block clicks at (-10000, -10000)
+    try {
+      view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 });
+    } catch (_e) {
+      // Bounds update can fail if view is already detached
+    }
+
+    // Step 2: Attempt removal - on Windows, try twice with a small delay
+    // The second attempt often succeeds when the first fails silently
+    try {
+      hostWindow.removeBrowserView(view);
+
+      // On Windows, always do a second attempt after a short delay
+      // This catches the race condition where the first removal is still processing
+      if (process.platform === 'win32') {
+        setTimeout(() => {
+          try {
+            hostWindow.removeBrowserView(view);
+          } catch (_e) {
+            // Second attempt failed, but first likely succeeded
+          }
+        }, 50);
+      }
+    } catch (_e) {
+      // First removal failed, view might already be removed
+    }
+
+    // Step 3: On Windows, force DWM to rebuild composition tree.
+    // Uses native Win32 APIs (DwmFlush + SetWindowPos SWP_FRAMECHANGED)
+    // via koffi, which is the same mechanism that fires when opening/closing
+    // a native dialog. Falls back to invalidate() + blur/focus if koffi fails.
+    if (process.platform === 'win32' && !hostWindow.isDestroyed()) {
+      try {
+        const nativeCleanupOk = forceDwmCleanup(hostWindow);
+        if (!nativeCleanupOk) {
+          // Fallback: Chromium-level compositor flush (less reliable)
+          hostWindow.webContents.invalidate();
+          hostWindow.blur();
+          setTimeout(() => {
+            if (!hostWindow.isDestroyed() && !hostWindow.isMinimized()) {
+              hostWindow.focus();
+            }
+          }, 100);
+        }
+      } catch (_e) {
+        // Fallback on error
+        try {
+          hostWindow.webContents.invalidate();
+        } catch (_e2) {
+          /* ignore */
+        }
+      }
+    }
+
+    if (this.activeViewId === viewId) {
+      this.activeViewId = null;
+    }
+
+    return true;
+  }
+
+  /**
+   * Resize a BrowserView
+   */
+  resize(viewId: string, bounds: BrowserViewBounds) {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+
+    view.setBounds({
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    });
+
+    return true;
+  }
+
+  /**
+   * Navigate to a URL
+   */
+  async navigate(viewId: string, input: string): Promise<boolean> {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+
+    // Process input - could be URL or search query
+    let url = input.trim();
+
+    if (!url) return false;
+
+    // Check if it's already a valid URL
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('file://')) {
+      // Check if it looks like a domain
+      if (url.includes('.') && !url.includes(' ') && this.looksLikeDomain(url)) {
+        url = 'https://' + url;
+      } else {
+        // Treat as search query
+        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+      }
+    }
+
+    try {
+      await view.webContents.loadURL(url);
+
+      return true;
+    } catch (error) {
+      console.error(`[BrowserView] Navigation failed: ${url}`, error);
+      this.updateState(viewId, {
+        error: (error as Error).message,
+        isLoading: false,
+      });
+      this.emitStateChange(viewId);
+      return false;
+    }
+  }
+
+  /**
+   * Check if input looks like a domain
+   */
+  private looksLikeDomain(input: string): boolean {
+    // Common TLDs
+    const tlds = [
+      'com',
+      'org',
+      'net',
+      'io',
+      'dev',
+      'co',
+      'ai',
+      'app',
+      'cn',
+      'uk',
+      'de',
+      'fr',
+      'jp',
+    ];
+    const parts = input.split('.');
+    if (parts.length < 2) return false;
+    const lastPart = parts[parts.length - 1].toLowerCase();
+    return tlds.includes(lastPart) || lastPart.length === 2;
+  }
+
+  /**
+   * Navigation: Go back
+   */
+  goBack(viewId: string): boolean {
+    const view = this.views.get(viewId);
+    if (!view || !view.webContents.canGoBack()) return false;
+    view.webContents.goBack();
+    return true;
+  }
+
+  /**
+   * Navigation: Go forward
+   */
+  goForward(viewId: string): boolean {
+    const view = this.views.get(viewId);
+    if (!view || !view.webContents.canGoForward()) return false;
+    view.webContents.goForward();
+    return true;
+  }
+
+  /**
+   * Navigation: Reload
+   */
+  reload(viewId: string): boolean {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+    view.webContents.reload();
+    return true;
+  }
+
+  /**
+   * Navigation: Stop loading
+   */
+  stop(viewId: string): boolean {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+    view.webContents.stop();
+    return true;
+  }
+
+  /**
+   * Capture screenshot of the view
+   */
+  async capture(viewId: string): Promise<string | null> {
+    const view = this.views.get(viewId);
+    if (!view) return null;
+
+    try {
+      const image = await view.webContents.capturePage();
+      return image.toDataURL();
+    } catch (error) {
+      console.error('[BrowserView] Screenshot failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Execute JavaScript in the view
+   */
+  async executeJS(viewId: string, code: string): Promise<unknown> {
+    const view = this.views.get(viewId);
+    if (!view) return null;
+
+    try {
+      return await view.webContents.executeJavaScript(code);
+    } catch (error) {
+      console.error('[BrowserView] JS execution failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Set zoom level
+   */
+  setZoom(viewId: string, level: number): boolean {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+
+    // Clamp zoom level
+    const clampedLevel = Math.max(0.25, Math.min(5, level));
+    view.webContents.setZoomFactor(clampedLevel);
+    this.updateState(viewId, { zoomLevel: clampedLevel });
+    this.emitStateChange(viewId);
+    return true;
+  }
+
+  /**
+   * Toggle DevTools
+   */
+  toggleDevTools(viewId: string): boolean {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+
+    if (view.webContents.isDevToolsOpened()) {
+      view.webContents.closeDevTools();
+      this.updateState(viewId, { isDevToolsOpen: false });
+    } else {
+      view.webContents.openDevTools({ mode: 'detach' });
+      this.updateState(viewId, { isDevToolsOpen: true });
+    }
+    this.emitStateChange(viewId);
+    return true;
+  }
+
+  /**
+   * Get current state of a view
+   */
+  getState(viewId: string): BrowserViewState | null {
+    return this.states.get(viewId) || null;
+  }
+
+  /**
+   * Destroy a specific BrowserView
+   */
+  destroy(viewId: string) {
+    const view = this.views.get(viewId);
+    if (!view) return;
+
+    // Clear any pending debounce timer for this view
+    const timer = this.stateChangeDebounceTimers.get(viewId);
+    if (timer) {
+      clearTimeout(timer);
+      this.stateChangeDebounceTimers.delete(viewId);
+    }
+
+    // Remove from the correct host window
+    const isOffscreen = this.offscreenViewIds.has(viewId);
+    const hostWindow = isOffscreen ? this.offscreenWindow : this.mainWindow;
+
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      try {
+        view.setBounds({ x: -10000, y: -10000, width: 1, height: 1 });
+        hostWindow.removeBrowserView(view);
+      } catch (_e) {
+        // Already removed
+      }
+
+      // On Windows, force DWM cleanup after destroying a BrowserView
+      // to guarantee the child HWND is fully removed from the composition tree
+      if (process.platform === 'win32') {
+        try {
+          forceDwmCleanup(hostWindow);
+        } catch (_e) {
+          // Best effort
+        }
+      }
+    }
+
+    // Close webContents
+    try {
+      (view.webContents as any).destroy();
+    } catch (e) {
+      // Already destroyed
+    }
+
+    // Clean up maps
+    this.views.delete(viewId);
+    this.states.delete(viewId);
+    this.offscreenViewIds.delete(viewId);
+
+    if (this.activeViewId === viewId) {
+      this.activeViewId = null;
+    }
+  }
+
+  /**
+   * Destroy all BrowserViews and the offscreen host window
+   */
+  destroyAll() {
+    // Clear all debounce timers
+    for (const timer of this.stateChangeDebounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.stateChangeDebounceTimers.clear();
+
+    for (const viewId of this.views.keys()) {
+      this.destroy(viewId);
+    }
+
+    // Destroy the offscreen host window if it exists
+    if (this.offscreenWindow && !this.offscreenWindow.isDestroyed()) {
+      this.offscreenWindow.destroy();
+    }
+    this.offscreenWindow = null;
+    this.offscreenViewIds.clear();
+  }
+
+  /**
+   * Bind WebContents events
+   */
+  private bindEvents(viewId: string, view: BrowserView) {
+    const wc = view.webContents;
+
+    // Navigation start - immediate emit for responsive UI feedback
+    wc.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+      if (!isMainFrame) return;
+
+      this.updateState(viewId, {
+        url,
+        isLoading: true,
+        error: undefined,
+      });
+      // Use immediate emit for navigation start - user needs to see loading indicator
+      this.emitStateChangeImmediate(viewId);
+    });
+
+    // Navigation finished - immediate emit for responsive UI feedback
+    wc.on('did-finish-load', () => {
+      this.updateState(viewId, {
+        isLoading: false,
+        canGoBack: wc.canGoBack(),
+        canGoForward: wc.canGoForward(),
+        error: undefined,
+      });
+      // Use immediate emit for load finish - user needs to see content immediately
+      this.emitStateChangeImmediate(viewId);
+    });
+
+    // Navigation failed - immediate emit
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+
+      // Ignore aborted loads (user navigation)
+      if (errorCode === -3) return;
+
+      this.updateState(viewId, {
+        isLoading: false,
+        error: errorDescription || `Error ${errorCode}`,
+      });
+      this.emitStateChangeImmediate(viewId);
+    });
+
+    // Title updated - debounced (can happen frequently during SPA navigation)
+    wc.on('page-title-updated', (_event, title) => {
+      this.updateState(viewId, { title });
+      this.emitStateChange(viewId); // debounced
+    });
+
+    // Favicon updated - debounced (not urgent)
+    wc.on('page-favicon-updated', (_event, favicons) => {
+      if (favicons.length > 0) {
+        this.updateState(viewId, { favicon: favicons[0] });
+        this.emitStateChange(viewId); // debounced
+      }
+    });
+
+    // URL changed (for SPA navigation) - debounced (can happen very frequently)
+    wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      if (!isMainFrame) return;
+
+      this.updateState(viewId, {
+        url,
+        canGoBack: wc.canGoBack(),
+        canGoForward: wc.canGoForward(),
+      });
+      this.emitStateChange(viewId); // debounced
+    });
+
+    // Handle new window requests - open in same view
+    wc.setWindowOpenHandler(({ url }) => {
+      // Load in current view instead of opening new window
+      wc.loadURL(url);
+      return { action: 'deny' };
+    });
+
+    // Handle external protocol links
+    wc.on('will-navigate', (event, url) => {
+      // Allow http/https/file protocols, block others (like javascript:, data:, etc.)
+      if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('file://')) {
+        event.preventDefault();
+      }
+    });
+  }
+
+  /**
+   * Update state
+   */
+  private updateState(viewId: string, updates: Partial<BrowserViewState>) {
+    const state = this.states.get(viewId);
+    if (state) {
+      Object.assign(state, updates);
+    }
+  }
+
+  /**
+   * Emit state change event to renderer (debounced)
+   * Uses debouncing to prevent flooding the renderer with too many IPC messages
+   * during rapid state changes (e.g., fast navigation, SPA route changes)
+   */
+  private emitStateChange(viewId: string) {
+    // Clear existing debounce timer for this view
+    const existingTimer = this.stateChangeDebounceTimers.get(viewId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    // Set new debounce timer
+    const timer = setTimeout(() => {
+      this.stateChangeDebounceTimers.delete(viewId);
+      this.doEmitStateChange(viewId);
+    }, BrowserViewManager.STATE_CHANGE_DEBOUNCE_MS);
+
+    this.stateChangeDebounceTimers.set(viewId, timer);
+  }
+
+  /**
+   * Emit state change event immediately (no debounce)
+   * Used for critical state changes that need immediate UI feedback
+   */
+  private emitStateChangeImmediate(viewId: string) {
+    // Clear any pending debounced emit for this view
+    const existingTimer = this.stateChangeDebounceTimers.get(viewId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.stateChangeDebounceTimers.delete(viewId);
+    }
+
+    this.doEmitStateChange(viewId);
+  }
+
+  /**
+   * Actually emit the state change event
+   */
+  private doEmitStateChange(viewId: string) {
+    const state = this.states.get(viewId);
+    if (state && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('browser:state-change', {
+        viewId,
+        state: { ...state },
+      });
+    }
+  }
+
+  // ============================================
+  // Internal Helpers
+  // ============================================
+
+  /**
+   * Remove a stale view entry whose native object has been destroyed.
+   * Called defensively when we detect a destroyed webContents.
+   */
+  private cleanupStaleView(viewId: string) {
+    const timer = this.stateChangeDebounceTimers.get(viewId);
+    if (timer) {
+      clearTimeout(timer);
+      this.stateChangeDebounceTimers.delete(viewId);
+    }
+    this.views.delete(viewId);
+    this.states.delete(viewId);
+    this.offscreenViewIds.delete(viewId);
+    if (this.activeViewId === viewId) {
+      this.activeViewId = null;
+    }
+  }
+
+  // ============================================
+  // AI Browser Integration Methods
+  // ============================================
+
+  /**
+   * Get WebContents for a view (used by AI Browser for CDP commands)
+   */
+  getWebContents(viewId: string): Electron.WebContents | null {
+    const view = this.views.get(viewId);
+    return view?.webContents || null;
+  }
+
+  /**
+   * Get all view states (used by AI Browser for listing pages)
+   */
+  getAllStates(): Array<BrowserViewState & { id: string }> {
+    const states: Array<BrowserViewState & { id: string }> = [];
+    for (const [id, state] of this.states) {
+      states.push({ ...state, id });
+    }
+    return states;
+  }
+
+  /**
+   * Get the currently active view ID
+   */
+  getActiveViewId(): string | null {
+    return this.activeViewId;
+  }
+
+  /**
+   * Set a view as active (used by AI Browser when selecting pages)
+   */
+  setActiveView(viewId: string): boolean {
+    if (!this.views.has(viewId)) return false;
+    this.activeViewId = viewId;
+    return true;
+  }
+}
+
+// Singleton instance
+export const browserViewManager = new BrowserViewManager();

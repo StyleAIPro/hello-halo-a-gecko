@@ -17,7 +17,7 @@ import http from 'node:http';
 import type net from 'node:net';
 import { URL } from 'node:url';
 import { spawn } from 'node:child_process';
-import { getProxyConfig } from './proxy-agent';
+import { getEffectiveProxyUrl } from './proxy-agent';
 
 /** Default timeout for fetch calls (ms). */
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
@@ -131,6 +131,7 @@ function fetchViaCurl(
       '--max-time',
       String(connectTimeout),
       '-k',
+      '--ssl-no-revoke',
       '-x',
       proxyUrl,
     ];
@@ -400,10 +401,10 @@ export async function proxyFetch(
   timeoutMs?: number,
 ): Promise<Response> {
   const timeout = timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
-  const proxyConfig = getProxyConfig();
+  const effectiveProxyUrl = getEffectiveProxyUrl();
 
-  if (proxyConfig.enabled && proxyConfig.proxyUrl) {
-    return fetchViaProxy(url, init, proxyConfig.proxyUrl, timeout);
+  if (effectiveProxyUrl) {
+    return fetchViaProxy(url, init, effectiveProxyUrl, timeout);
   }
 
   // No proxy configured — use native fetch with timeout

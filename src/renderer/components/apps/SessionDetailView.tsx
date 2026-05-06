@@ -87,7 +87,7 @@ export function SessionDetailView({ appId, runId }: SessionDetailViewProps) {
   // ── Initial load ──
   useEffect(() => {
     loadSession(false);
-  }, [appId, runId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appId, runId]);
 
   // ── Live polling: refresh messages while the run is active ──
   useEffect(() => {

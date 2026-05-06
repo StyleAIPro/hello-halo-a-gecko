@@ -21,7 +21,7 @@
 import type { BrowserWindow } from 'electron';
 import type { BrowserContext } from './context';
 import { browserContext, createScopedBrowserContext } from './context';
-import { browserViewManager } from '../browser-view.service';
+import { browserViewManager } from '../browser/browser-view.service';
 
 // Import SDK MCP server creator
 import { createAIBrowserMcpServer, getAIBrowserSdkToolNames } from './sdk-mcp-server';

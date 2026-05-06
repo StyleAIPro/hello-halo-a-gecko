@@ -23,7 +23,7 @@ import {
   readArtifactContent,
   saveArtifactContent,
   detectFileType,
-} from '../../services/artifact.service';
+} from '../../services/file-watcher/artifact.service';
 import {
   getTempSpacePath,
   getSpacesDir,

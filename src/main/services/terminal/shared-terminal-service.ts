@@ -10,14 +10,14 @@
 
 import type { IPty } from 'node-pty';
 import pty from 'node-pty';
-import { SSHManager } from '../remote-ssh/ssh-manager';
+import { SSHManager } from '../remote/ssh/ssh-manager';
 import type { ClientChannel } from 'ssh2';
 import { EventEmitter } from 'events';
 import type { Readable, Writable } from 'stream';
 import { getSpace } from '../space.service';
 import type { ChildProcess } from 'child_process';
 import { spawn } from 'child_process';
-import { remoteDeployService } from '../remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../remote/deploy/remote-deploy.service';
 import os from 'os';
 
 // ==================== Types ====================

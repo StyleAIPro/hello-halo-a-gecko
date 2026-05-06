@@ -1,2 +1,2 @@
 export { proxyFetch, proxyFetchWithUrl } from './proxy-fetch';
-export { invalidateProxyCache, getProxyConfig } from './proxy-agent';
+export { invalidateProxyCache, getProxyConfig, getEffectiveProxyUrl } from './proxy-agent';

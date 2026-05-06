@@ -7,7 +7,7 @@ import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
 import type { ConversationService } from '../services/conversation.service';
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
 import type { SkillGenerateOptions } from '../../shared/skill/skill-types';
 import * as githubSkillSource from '../services/skill/github-skill-source.service';
 import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
@@ -697,6 +697,19 @@ export async function uninstallSkillMultiTarget(
           remoteOnOutput,
         );
         results[key] = result;
+
+        // Restart proxy if uninstall succeeded so it reloads skill list
+        if (result.success) {
+          try {
+            await remoteDeployService.restartAgentIfRunning(target.serverId, remoteOnOutput);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            onOutput?.(key, {
+              type: 'stderr',
+              content: `[remote] Warning: proxy restart failed (${msg}). Skills may not take effect until next proxy restart.\n`,
+            });
+          }
+        }
       } catch (error) {
         const err = error instanceof Error ? error.message : 'Remote uninstall failed';
         onOutput?.(key, { type: 'error', content: `[remote] ${err}\n` });
@@ -1735,7 +1748,7 @@ export async function pushSkillToGitHub(
     }
 
     // Get GitHub token
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     if (!token) {
       return {
         success: false,
@@ -1777,7 +1790,7 @@ export async function validateGitHubRepo(repo: string): Promise<{
   error?: string;
 }> {
   try {
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     const result = await githubSkillSource.validateRepo(repo, token);
     return { success: true, data: result };
   } catch (error: any) {
