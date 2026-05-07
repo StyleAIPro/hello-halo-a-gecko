@@ -45,7 +45,7 @@ import { getConfig, saveConfig } from '../config.service';
 import { getCustomProvider } from './providers/custom.provider';
 import { getGitHubCopilotProvider } from './providers/github-copilot.provider';
 import { loadAuthProvidersAsync, loadProductConfig } from './auth-loader';
-import { decryptString } from '../secure-storage.service';
+import { decryptString } from '../auth/secure-storage.service';
 import { normalizeApiUrl } from '../../openai-compat-router';
 
 /**

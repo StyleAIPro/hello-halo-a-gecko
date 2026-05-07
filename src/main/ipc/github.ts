@@ -5,6 +5,7 @@
 import { ipcMain, shell } from 'electron';
 import {
   getGitHubAuthStatus,
+  getCombinedGitHubAuthStatus,
   loginWithBrowser,
   loginWithToken,
   logoutGitHub,
@@ -15,14 +16,26 @@ import {
   loginWithDirectToken,
   logoutDirectGitHub,
   setupGitCredentialsWithToken,
-} from '../services/github-auth.service';
+} from '../services/auth/github-auth.service';
 import { getMainWindow } from '../services/window.service';
 
 /**
  * Register GitHub IPC handlers
  */
 export function registerGitHubHandlers(): void {
-  // Get GitHub authentication status
+  // Combined auth status (PAT primary + gh CLI optional)
+  ipcMain.handle('github:auth-status-combined', async () => {
+    try {
+      const data = await getCombinedGitHubAuthStatus();
+      return { success: true, data };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return { success: false, error: msg };
+    }
+  });
+
+  // DEPRECATED: Get GitHub CLI authentication status only
+  // Use github:auth-status-combined instead
   ipcMain.handle('github:auth-status', async () => {
     try {
       const data = await getGitHubAuthStatus();

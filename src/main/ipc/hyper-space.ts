@@ -17,7 +17,7 @@ import type {
 import type { PostTaskInput } from '../../shared/types/taskboard';
 import { createSpace, createHyperSpace, getSpace, updateSpace } from '../services/space.service';
 import type { Space } from '../../shared/types';
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
 
 /**
  * Register Hyper Space IPC handlers

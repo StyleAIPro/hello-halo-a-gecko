@@ -534,7 +534,7 @@ export class SkillMarketService {
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
         }
-        const token = await githubSkillSource.getGitHubToken();
+        const token = githubSkillSource.getGitHubToken();
         return githubSkillSource.getSkillDetailFromRepo(repo, skillPath, token);
       }
       return null;

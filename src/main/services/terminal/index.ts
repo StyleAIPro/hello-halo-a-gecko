@@ -28,3 +28,33 @@ export {
   clearTerminalOutput,
   flushAllPendingOutputWrites,
 } from './terminal-output-store';
+
+// Git Bash
+export {
+  detectGitBash,
+  getAppLocalGitBashDir,
+  isAppLocalInstallation,
+  setGitBashPathEnv,
+  getGitBashStatus,
+  initializeGitBashOnStartup,
+  setGitBashSkipped,
+  completeGitBashInstallation,
+  type GitBashDetectionResult,
+  type GitBashStatus,
+} from './git-bash.service';
+
+export {
+  createMockBash,
+  isMockBashMode,
+  getMockBashErrorMessage,
+  getMockBashDir,
+  cleanupMockBash,
+} from './mock-bash.service';
+
+export {
+  downloadAndInstallGitBash,
+  getEstimatedDownloadSize,
+  getPortableGitVersion,
+  type DownloadProgress,
+  type ProgressCallback,
+} from './git-bash-installer.service';

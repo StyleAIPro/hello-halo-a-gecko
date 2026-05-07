@@ -504,7 +504,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   useEffect(() => {
     const timer = setTimeout(scrollToEnd, 300);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 2. Streaming scroll: follow content growth while AI is generating

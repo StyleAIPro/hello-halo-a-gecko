@@ -7,7 +7,7 @@ import {
   getGitCodeAuthStatus,
   loginWithGitCodeToken,
   logoutGitCode,
-} from '../services/gitcode-auth.service';
+} from '../services/auth/gitcode-auth.service';
 
 export function registerGitCodeHandlers(): void {
   // Get GitCode authentication status

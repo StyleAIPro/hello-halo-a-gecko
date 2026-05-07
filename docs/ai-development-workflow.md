@@ -35,12 +35,12 @@
 
 1. PRD 状态 → `in-progress`
 2. 按 PRD 技术方案编码
-3. 每个文件编辑后：`npx eslint --fix <file>` + re-read 确认逻辑未被覆盖
+3. 每个文件编辑后：re-read 确认逻辑未被覆盖
 4. 更新 PRD「涉及文件」为实际修改清单
 
 ### 5. 自测（Agent + 人）
 
-- Agent：`npm run typecheck && npm run lint && npm run build`
+- Agent：`npm run typecheck && npm run build`
 - 涉及新用户可见文本：`npm run i18n`
 - 人：按 PRD 验收标准逐条测试
 - 不通过 → 回步骤 2 更新 PRD

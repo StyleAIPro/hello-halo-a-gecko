@@ -9,7 +9,7 @@
 
 import type { BrowserWindow } from 'electron';
 import { ipcMain } from 'electron';
-import { overlayManager } from '../services/overlay.service';
+import { overlayManager } from '../services/browser/overlay.service';
 
 /**
  * Register overlay IPC handlers

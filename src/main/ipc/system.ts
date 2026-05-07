@@ -10,7 +10,7 @@ import { setAutoLaunch, getAutoLaunch } from '../services/config.service';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
 import { getServerInfo } from '../http/server';
 import { validateToken } from '../http/auth';
-import { forceDwmCleanup, dwmFlush } from '../services/win32-hwnd-cleanup';
+import { forceDwmCleanup, dwmFlush } from '../services/browser/win32-hwnd-cleanup';
 
 let mainWindow: BrowserWindow | null = null;
 

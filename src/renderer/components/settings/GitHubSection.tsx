@@ -2,9 +2,8 @@
  * GitHub Section Component
  *
  * Settings UI for GitHub authentication and git configuration.
- * Supports two modes:
- *   1. gh CLI mode (browser OAuth / PAT via gh auth login)
- *   2. Direct PAT mode (stores token in config.json, works without gh CLI)
+ * PAT (Personal Access Token) is the primary and only required auth method.
+ * gh CLI is optional — only shown when available, used for git credential helper.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -12,100 +11,94 @@ import { Github, ExternalLink, LogOut, Loader2, Check, AlertCircle, Key } from '
 import { useTranslation } from '../../i18n';
 import { api } from '../../api';
 
-interface AuthStatus {
-  authenticated: boolean;
-  user: string | null;
-  hostname: string | null;
-  protocol: string | null;
-  error?: string;
-}
+// ── Types ──────────────────────────────────────────────────────────────
 
-interface DirectAuthStatus {
+interface PatAuthStatus {
   authenticated: boolean;
   user: string | null;
   avatarUrl: string | null;
   error?: string;
 }
 
+interface GhCliAuthStatus {
+  available: boolean;
+  authenticated: boolean;
+  user: string | null;
+  hostname: string | null;
+  protocol: string | null;
+}
+
+interface CombinedAuthStatus {
+  pat: PatAuthStatus;
+  ghCli: GhCliAuthStatus;
+}
+
+// ── Component ──────────────────────────────────────────────────────────
+
 export function GitHubSection() {
   const { t } = useTranslation();
 
-  // Auth state
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  // Auth state (combined)
+  const [authStatus, setAuthStatus] = useState<CombinedAuthStatus | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const [ghAvailable, setGhAvailable] = useState<boolean | null>(null);
 
-  // Direct PAT state
-  const [directStatus, setDirectStatus] = useState<DirectAuthStatus | null>(null);
-
-  // Login state (gh CLI)
-  const [isLoggingInBrowser, setIsLoggingInBrowser] = useState(false);
-  const [showTokenInput, setShowTokenInput] = useState(false);
+  // PAT login state
   const [token, setToken] = useState('');
-  const [isLoggingInToken, setIsLoggingInToken] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // gh CLI login state
+  const [showGhCliOptions, setShowGhCliOptions] = useState(false);
+  const [isLoggingInBrowser, setIsLoggingInBrowser] = useState(false);
   const [loginProgress, setLoginProgress] = useState<{
     code?: string;
     url?: string;
     message: string;
   } | null>(null);
-
-  // Direct PAT login state
-  const [directToken, setDirectToken] = useState('');
-  const [isDirectLoggingIn, setIsDirectLoggingIn] = useState(false);
-  const [directLoginError, setDirectLoginError] = useState<string | null>(null);
-  const [isConfiguringDirectCreds, setIsConfiguringDirectCreds] = useState(false);
-  const [directCredMessage, setDirectCredMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
+  const [ghCliLoginError, setGhCliLoginError] = useState<string | null>(null);
 
   // Git config state
   const [gitUserName, setGitUserName] = useState('');
   const [gitUserEmail, setGitUserEmail] = useState('');
   const [isSavingGitConfig, setIsSavingGitConfig] = useState(false);
-  const [isConfiguringCredentials, setIsConfiguringCredentials] = useState(false);
   const [gitConfigMessage, setGitConfigMessage] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
 
+  // ── Loaders ────────────────────────────────────────────────────────
+
   const loadAuthStatus = useCallback(async () => {
     setIsLoadingStatus(true);
     try {
-      const response = await api.githubGetAuthStatus();
+      const response = await api.githubGetAuthStatusCombined();
       if (response.success && response.data) {
-        setAuthStatus(response.data as AuthStatus);
-        // If gh auth status returns an error about gh not being available, mark it unavailable
-        if ((response.data as AuthStatus).error?.includes('not available')) {
-          setGhAvailable(false);
-        } else {
-          setGhAvailable(true);
-        }
+        setAuthStatus(response.data as CombinedAuthStatus);
       } else {
-        setAuthStatus({ authenticated: false, user: null, hostname: null, protocol: null });
-        // Check if the error is about gh not being available
-        if (response.error?.includes('not available')) {
-          setGhAvailable(false);
-        }
+        setAuthStatus({
+          pat: { authenticated: false, user: null, avatarUrl: null },
+          ghCli: {
+            available: false,
+            authenticated: false,
+            user: null,
+            hostname: null,
+            protocol: null,
+          },
+        });
       }
     } catch {
-      setAuthStatus({ authenticated: false, user: null, hostname: null, protocol: null });
+      setAuthStatus({
+        pat: { authenticated: false, user: null, avatarUrl: null },
+        ghCli: {
+          available: false,
+          authenticated: false,
+          user: null,
+          hostname: null,
+          protocol: null,
+        },
+      });
     } finally {
       setIsLoadingStatus(false);
-    }
-  }, []);
-
-  const loadDirectAuthStatus = useCallback(async () => {
-    try {
-      const response = await api.githubDirectAuthStatus();
-      if (response.success && response.data) {
-        setDirectStatus(response.data as DirectAuthStatus);
-      } else {
-        setDirectStatus({ authenticated: false, user: null, avatarUrl: null });
-      }
-    } catch {
-      setDirectStatus({ authenticated: false, user: null, avatarUrl: null });
     }
   }, []);
 
@@ -128,13 +121,44 @@ export function GitHubSection() {
 
   useEffect(() => {
     loadAuthStatus();
-    loadDirectAuthStatus();
     loadGitConfig();
-  }, [loadAuthStatus, loadDirectAuthStatus, loadGitConfig]);
+  }, [loadAuthStatus, loadGitConfig]);
 
-  const handleLoginBrowser = async () => {
-    setIsLoggingInBrowser(true);
+  // ── PAT handlers ───────────────────────────────────────────────────
+
+  const handlePatLogin = async () => {
+    if (!token.trim()) return;
+    setIsLoggingIn(true);
     setLoginError(null);
+    try {
+      const response = await api.githubDirectLoginToken(token.trim());
+      if (response.success) {
+        setToken('');
+        await loadAuthStatus();
+      } else {
+        setLoginError(response.error || t('Invalid token'));
+      }
+    } catch (error: any) {
+      setLoginError(error.message || t('Login failed'));
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handlePatLogout = async () => {
+    try {
+      await api.githubDirectLogout();
+      await loadAuthStatus();
+    } catch {
+      // Ignore errors
+    }
+  };
+
+  // ── gh CLI handlers ────────────────────────────────────────────────
+
+  const handleGhCliLogin = async () => {
+    setIsLoggingInBrowser(true);
+    setGhCliLoginError(null);
     setLoginProgress(null);
 
     const unsubscribe = api.onGithubLoginProgress((data) => {
@@ -143,101 +167,19 @@ export function GitHubSection() {
 
     try {
       const response = await api.githubLoginBrowser();
-      if (response.success) {
-        await loadAuthStatus();
-      } else {
-        setLoginError(response.error || t('Login failed'));
+      if (!response.success) {
+        setGhCliLoginError(response.error || t('Login failed'));
       }
+      await loadAuthStatus();
     } catch (error: any) {
-      setLoginError(error.message || t('Login failed'));
+      setGhCliLoginError(error.message || t('Login failed'));
     } finally {
       setIsLoggingInBrowser(false);
       unsubscribe();
     }
   };
 
-  const handleLoginToken = async () => {
-    if (!token.trim()) return;
-    setIsLoggingInToken(true);
-    setLoginError(null);
-    try {
-      const response = await api.githubLoginToken(token.trim());
-      if (response.success) {
-        setToken('');
-        setShowTokenInput(false);
-        await loadAuthStatus();
-      } else {
-        setLoginError(response.error || t('Invalid token'));
-      }
-    } catch (error: any) {
-      setLoginError(error.message || t('Login failed'));
-    } finally {
-      setIsLoggingInToken(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await api.githubLogout();
-      setAuthStatus({ authenticated: false, user: null, hostname: null, protocol: null });
-    } catch {
-      // Ignore errors
-    }
-  };
-
-  // ── Direct PAT handlers ──────────────────────────────────────────
-
-  const handleDirectLogin = async () => {
-    if (!directToken.trim()) return;
-    setIsDirectLoggingIn(true);
-    setDirectLoginError(null);
-    try {
-      const response = await api.githubDirectLoginToken(directToken.trim());
-      if (response.success) {
-        setDirectToken('');
-        await loadDirectAuthStatus();
-      } else {
-        setDirectLoginError(response.error || t('Invalid token'));
-      }
-    } catch (error: any) {
-      setDirectLoginError(error.message || t('Login failed'));
-    } finally {
-      setIsDirectLoggingIn(false);
-    }
-  };
-
-  const handleDirectLogout = async () => {
-    try {
-      await api.githubDirectLogout();
-      setDirectStatus({ authenticated: false, user: null, avatarUrl: null });
-    } catch {
-      // Ignore errors
-    }
-  };
-
-  const handleDirectSetupCredentials = async () => {
-    setIsConfiguringDirectCreds(true);
-    setDirectCredMessage(null);
-    try {
-      const response = await api.githubDirectSetupCredentials();
-      if (response.success) {
-        setDirectCredMessage({
-          type: 'success',
-          text: t(
-            'Git credentials configured successfully. You can now use git push/pull without entering a password.',
-          ),
-        });
-      } else {
-        setDirectCredMessage({ type: 'error', text: response.error || t('Failed to configure') });
-      }
-    } catch (error: any) {
-      setDirectCredMessage({ type: 'error', text: error.message || t('Failed to configure') });
-    } finally {
-      setIsConfiguringDirectCreds(false);
-    }
-  };
-
-  // ── Git config handlers ──────────────────────────────────────────
+  // ── Git config handlers ───────────────────────────────────────────
 
   const handleSaveGitConfig = async () => {
     setIsSavingGitConfig(true);
@@ -258,8 +200,8 @@ export function GitHubSection() {
     }
   };
 
-  const handleSetupCredentials = async () => {
-    setIsConfiguringCredentials(true);
+  const handleSetupGhCliCredentials = async () => {
+    setIsSavingGitConfig(true);
     setGitConfigMessage(null);
     try {
       const response = await api.githubSetupGitCredentials();
@@ -272,16 +214,15 @@ export function GitHubSection() {
     } catch (error: any) {
       setGitConfigMessage({ type: 'error', text: error.message || t('Failed to configure') });
     } finally {
-      setIsConfiguringCredentials(false);
+      setIsSavingGitConfig(false);
     }
   };
 
-  const isAuthenticated = authStatus?.authenticated || directStatus?.authenticated;
-  const displayUser = authStatus?.authenticated
-    ? authStatus.user
-    : directStatus?.authenticated
-      ? directStatus.user
-      : null;
+  // ── Derived state ─────────────────────────────────────────────────
+
+  const isAuthenticated = authStatus?.pat?.authenticated ?? false;
+  const displayUser = authStatus?.pat?.user ?? null;
+  const ghCliAvailable = authStatus?.ghCli?.available ?? false;
 
   return (
     <section id="github" className="bg-card rounded-xl border border-border p-6">
@@ -290,7 +231,6 @@ export function GitHubSection() {
         <button
           onClick={() => {
             loadAuthStatus();
-            loadDirectAuthStatus();
             loadGitConfig();
           }}
           disabled={isLoadingStatus}
@@ -313,10 +253,10 @@ export function GitHubSection() {
           ) : isAuthenticated ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {directStatus?.authenticated && directStatus.avatarUrl ? (
+                {authStatus?.pat?.avatarUrl ? (
                   <img
-                    src={directStatus.avatarUrl}
-                    alt={directStatus.user || ''}
+                    src={authStatus.pat.avatarUrl}
+                    alt={displayUser || ''}
                     className="w-8 h-8 rounded-full"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
@@ -331,14 +271,9 @@ export function GitHubSection() {
                   <div className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-green-500" />
                     <span className="font-medium text-sm">{displayUser}</span>
-                    {authStatus?.authenticated && (
+                    {authStatus?.ghCli?.authenticated && (
                       <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
                         gh CLI
-                      </span>
-                    )}
-                    {directStatus?.authenticated && (
-                      <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                        Token
                       </span>
                     )}
                   </div>
@@ -348,24 +283,13 @@ export function GitHubSection() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {authStatus?.authenticated && (
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-colors"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    {t('Disconnect')}
-                  </button>
-                )}
-                {directStatus?.authenticated && (
-                  <button
-                    onClick={handleDirectLogout}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-colors"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    {t('Disconnect')}
-                  </button>
-                )}
+                <button
+                  onClick={handlePatLogout}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  {t('Disconnect')}
+                </button>
               </div>
             </div>
           ) : (
@@ -384,7 +308,7 @@ export function GitHubSection() {
         {/* Login Actions (when not authenticated) */}
         {!isAuthenticated && !isLoadingStatus && (
           <div className="space-y-3">
-            {/* ── Direct PAT Mode (always shown) ─────────────────── */}
+            {/* PAT Login (primary) */}
             <div className="rounded-lg border border-border p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Key className="w-4 h-4 text-muted-foreground" />
@@ -392,20 +316,20 @@ export function GitHubSection() {
               </div>
               <input
                 type="password"
-                value={directToken}
+                value={token}
                 onChange={(e) => {
-                  setDirectToken(e.target.value);
-                  setDirectLoginError(null);
+                  setToken(e.target.value);
+                  setLoginError(null);
                 }}
                 placeholder="ghp_xxxxxxxxxxxx"
                 className="w-full px-3 py-2 text-sm bg-input rounded-lg border border-border focus:border-primary focus:outline-none font-mono"
               />
               <button
-                onClick={handleDirectLogin}
-                disabled={isDirectLoggingIn || !directToken.trim()}
+                onClick={handlePatLogin}
+                disabled={isLoggingIn || !token.trim()}
                 className="w-full px-4 py-2 rounded-lg bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-50 text-sm"
               >
-                {isDirectLoggingIn ? (
+                {isLoggingIn ? (
                   <span className="flex items-center justify-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     {t('Connecting...')}
@@ -417,31 +341,31 @@ export function GitHubSection() {
               <p className="text-xs text-muted-foreground">
                 {t('Generate a token at github.com/settings/tokens (needs repo scope)')}
               </p>
-              {directLoginError && (
+              {loginError && (
                 <div className="flex items-start gap-2 text-sm text-red-500 bg-red-500/10 rounded-lg p-3">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <span>{directLoginError}</span>
+                  <span>{loginError}</span>
                 </div>
               )}
             </div>
 
-            {/* ── gh CLI Mode (collapsible, only if gh is available) ── */}
-            {ghAvailable !== false && (
+            {/* gh CLI Login (optional, only if available) */}
+            {ghCliAvailable && (
               <div>
                 <button
                   onClick={() => {
-                    setShowTokenInput(!showTokenInput);
-                    setLoginError(null);
+                    setShowGhCliOptions(!showGhCliOptions);
+                    setGhCliLoginError(null);
                   }}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showTokenInput ? t('Hide gh CLI options') : t('Or login via GitHub CLI')}
+                  {showGhCliOptions ? t('Hide GitHub CLI options') : t('Or login via GitHub CLI')}
                 </button>
 
-                {showTokenInput && (
+                {showGhCliOptions && (
                   <div className="mt-3 space-y-3">
                     <button
-                      onClick={handleLoginBrowser}
+                      onClick={handleGhCliLogin}
                       disabled={isLoggingInBrowser}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-secondary text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50"
                     >
@@ -469,41 +393,15 @@ export function GitHubSection() {
                       </div>
                     )}
 
-                    {loginError && (
+                    {ghCliLoginError && (
                       <div className="flex items-start gap-2 text-sm text-red-500 bg-red-500/10 rounded-lg p-3">
                         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                        <span>{loginError}</span>
+                        <span>{ghCliLoginError}</span>
                       </div>
                     )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Direct PAT: configure git credentials */}
-        {directStatus?.authenticated && (
-          <div className="rounded-lg border border-border p-4 space-y-3">
-            <h3 className="text-sm font-medium">{t('Git Push / Pull')}</h3>
-            <p className="text-xs text-muted-foreground">
-              {t(
-                'Configure git to use your token for push/pull operations. This writes to ~/.git-credentials.',
-              )}
-            </p>
-            <button
-              onClick={handleDirectSetupCredentials}
-              disabled={isConfiguringDirectCreds}
-              className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {isConfiguringDirectCreds ? t('Configuring...') : t('Setup Git Credentials')}
-            </button>
-            {directCredMessage && (
-              <p
-                className={`text-xs ${directCredMessage.type === 'success' ? 'text-green-500' : 'text-red-500'}`}
-              >
-                {directCredMessage.text}
-              </p>
             )}
           </div>
         )}
@@ -543,15 +441,13 @@ export function GitHubSection() {
                 {isSavingGitConfig ? t('Saving...') : t('Save')}
               </button>
 
-              {ghAvailable && authStatus?.authenticated && (
+              {ghCliAvailable && authStatus?.ghCli?.authenticated && (
                 <button
-                  onClick={handleSetupCredentials}
-                  disabled={isConfiguringCredentials}
+                  onClick={handleSetupGhCliCredentials}
+                  disabled={isSavingGitConfig}
                   className="px-4 py-2 text-sm rounded-lg bg-secondary hover:bg-secondary/80 transition-colors disabled:opacity-50"
                 >
-                  {isConfiguringCredentials
-                    ? t('Configuring...')
-                    : t('Setup Git Credential Helper (gh)')}
+                  {isSavingGitConfig ? t('Configuring...') : t('Setup Git Credential Helper (gh)')}
                 </button>
               )}
             </div>

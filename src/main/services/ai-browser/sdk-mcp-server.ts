@@ -23,7 +23,7 @@
 import { z } from 'zod';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { browserContext, type BrowserContext } from './context';
-import { browserViewManager } from '../browser-view.service';
+import { browserViewManager } from '../browser/browser-view.service';
 
 // ============================================
 // Constants

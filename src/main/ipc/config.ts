@@ -5,7 +5,7 @@
 import { ipcMain } from 'electron';
 import { saveConfig, getDecryptedConfig, saveConfigAndNotify } from '../services/config.service';
 import { getAISourceManager } from '../services/ai-sources';
-import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service';
+import { validateApiConnection, fetchModelsFromApi } from '../services/ai-sources/api-validator.service';
 import { emitConfigChange, runConfigProbe } from '../services/health';
 import type { AISourcesConfig } from '../../shared/types';
 

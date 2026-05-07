@@ -101,6 +101,9 @@ export function SkillLibrary() {
   const [showSyncFromRemoteModal, setShowSyncFromRemoteModal] = useState(false);
   const [syncFromRemoteOutput, setSyncFromRemoteOutput] = useState<string>('');
 
+  // Remote uninstall loading state
+  const [remoteUninstallLoading, setRemoteUninstallLoading] = useState(false);
+
   // GitHub + GitCode 源列表
   const githubSources = marketSources.filter((s) => s.type === 'github' || s.type === 'gitcode');
 
@@ -333,6 +336,33 @@ export function SkillLibrary() {
     e.stopPropagation();
     if (await confirmDialog(t('Are you sure you want to uninstall this skill?'))) {
       await uninstallSkill(skillId);
+    }
+  };
+
+  // 处理远程卸载
+  const handleRemoteUninstall = async (skillId: string) => {
+    if (selectedSource.type !== 'remote') return;
+    const serverId = selectedSource.serverId;
+    const confirmed = await confirmDialog(
+      t('Are you sure you want to uninstall this skill from {name}?', {
+        name: selectedSource.serverName,
+      }),
+      { title: t('Uninstall Skill'), confirmLabel: t('Uninstall'), cancelLabel: t('Cancel') },
+    );
+    if (!confirmed) return;
+
+    setRemoteUninstallLoading(true);
+    try {
+      await api.skillUninstallMulti({
+        appId: skillId,
+        targets: [{ type: 'remote', serverId }],
+      });
+      setSelectedSkillId(null);
+      await loadRemoteSkills(serverId);
+    } catch (error) {
+      console.error('Failed to uninstall remote skill:', error);
+    } finally {
+      setRemoteUninstallLoading(false);
     }
   };
 
@@ -582,7 +612,13 @@ export function SkillLibrary() {
                         : undefined
                     }
                     onExport={isLocal ? (e) => handleExport(selectedSkillId, e) : undefined}
-                    onUninstall={isLocal ? (e) => handleUninstall(selectedSkillId, e) : undefined}
+                    onUninstall={
+                      isLocal
+                        ? (e) => handleUninstall(selectedSkillId, e)
+                        : selectedSource.type === 'remote'
+                          ? () => handleRemoteUninstall(selectedSkillId)
+                          : undefined
+                    }
                     onOpenFiles={() => handleOpenFiles(selectedSkillId)}
                     hasGitHubSources={githubSources.length > 0}
                     githubSourcesList={githubSources}
@@ -626,6 +662,7 @@ export function SkillLibrary() {
                         : undefined
                     }
                     syncFromRemoteLoading={syncFromRemoteLoading}
+                    uninstallLoading={remoteUninstallLoading}
                   />
                 );
               })()
@@ -1154,13 +1191,14 @@ function SkillDetail({
   syncLoading,
   onSyncFromServer,
   syncFromRemoteLoading,
+  uninstallLoading,
 }: {
   skill: InstalledSkill;
   isRemote?: boolean;
   remoteServerName?: string;
   onToggle?: () => void;
   onExport?: (e: React.MouseEvent) => void;
-  onUninstall?: (e: React.MouseEvent) => void;
+  onUninstall?: (e?: React.MouseEvent) => void;
   onOpenFiles?: () => void;
   onPushToGitHub?: () => void;
   hasGitHubSources?: boolean;
@@ -1169,6 +1207,7 @@ function SkillDetail({
   syncLoading?: boolean;
   onSyncFromServer?: () => void;
   syncFromRemoteLoading?: boolean;
+  uninstallLoading?: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -1339,6 +1378,20 @@ function SkillDetail({
       {/* 远程只读提示 */}
       {isRemote && (
         <div className="pt-4 border-t border-border">
+          {onUninstall && (
+            <button
+              onClick={onUninstall}
+              disabled={uninstallLoading}
+              className="flex items-center gap-2 w-full px-4 py-2 mt-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {uninstallLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {uninstallLoading ? t('Uninstalling...') : t('Uninstall from Server')}
+            </button>
+          )}
           {onSyncFromServer && (
             <button
               onClick={onSyncFromServer}

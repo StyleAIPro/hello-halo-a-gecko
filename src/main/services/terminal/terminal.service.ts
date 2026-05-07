@@ -9,7 +9,7 @@
 
 import type { IPty } from 'node-pty';
 import pty from 'node-pty';
-import { SSHManager } from '../remote-ssh/ssh-manager';
+import { SSHManager } from '../remote/ssh/ssh-manager';
 import { EventEmitter } from 'events';
 import type { Readable, Writable } from 'stream';
 import os from 'os';

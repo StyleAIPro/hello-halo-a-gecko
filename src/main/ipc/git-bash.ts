@@ -11,8 +11,8 @@ import {
   initializeGitBashOnStartup,
   setGitBashSkipped,
   completeGitBashInstallation,
-} from '../services/git-bash.service';
-import { downloadAndInstallGitBash } from '../services/git-bash-installer.service';
+} from '../services/terminal/git-bash.service';
+import { downloadAndInstallGitBash } from '../services/terminal/git-bash-installer.service';
 import { getMainWindow } from '../services/window.service';
 
 // Re-export for bootstrap callers (they import from ipc/git-bash)

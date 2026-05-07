@@ -3,12 +3,6 @@
  * Manages remote SSH server configurations with terminal output
  */
 
-/* eslint-disable no-console -- settings UI needs debug logging */
-/* eslint-disable @typescript-eslint/no-explicit-any -- dynamic API payloads */
-/* eslint-disable no-empty -- pre-existing empty catch blocks */
-/* eslint-disable @typescript-eslint/no-unused-vars -- pre-existing unused variables */
-/* eslint-disable react-hooks/exhaustive-deps -- pre-existing dependency warnings */
-
 import React from 'react';
 import {
   Server,

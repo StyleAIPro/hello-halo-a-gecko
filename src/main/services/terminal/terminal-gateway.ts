@@ -21,7 +21,7 @@ import {
   loadAgentCommands,
   type AgentCommandRecord,
 } from '../conversation.service';
-import { remoteDeployService } from '../remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../remote/deploy/remote-deploy.service';
 import { type TerminalHistoryStore } from './terminal-history-store';
 import {
   saveTerminalOutputImmediate,
