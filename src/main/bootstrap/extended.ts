@@ -54,6 +54,10 @@ import { initMemory } from '../platform/memory';
 import { registerStoreHandlers } from '../ipc/store';
 import { registerSkillHandlers } from '../ipc/skill';
 import { registerHyperSpaceHandlers } from '../ipc/hyper-space';
+import { cleanupOldLogs } from '../services/log';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { app } from 'electron';
 import { initRegistryService, shutdownRegistryService } from '../store';
 import * as watcherHost from '../services/file-watcher/watcher-host.service';
 import { getExpressApp } from '../http/server';
@@ -271,6 +275,13 @@ export function initializeExtendedServices(): void {
 
   const duration = performance.now() - start;
   console.log(`[Bootstrap] Extended services registered in ${duration.toFixed(1)}ms`);
+
+  // Cleanup old log files in background (non-blocking)
+  const isDev = process.env.NODE_ENV === 'development';
+  const logDir = isDev
+    ? join(homedir(), '.aico-bot-dev', 'logs')
+    : join(app.getPath('userData'), 'logs');
+  cleanupOldLogs(logDir).catch(() => {});
 
   // Mark state as ready (for Pull-based queries from renderer)
   // This enables renderer to query status on HMR reload or error recovery

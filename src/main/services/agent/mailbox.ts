@@ -22,7 +22,7 @@ import {
 } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { getSpacesDir } from '../config.service';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import type {
   MailboxMessage,
   MailboxFile,

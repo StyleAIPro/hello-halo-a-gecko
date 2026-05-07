@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import log from 'electron-log/main.js';
+import { initLogger } from './services/log';
 
 // ESM compat shims — electron-vite bundles main process as ESM where
 // CJS globals (__dirname, __filename, require) are not available natively.
@@ -29,25 +30,13 @@ if (typeof require === 'undefined') {
   (globalThis as any).require = _require;
 }
 
-// Initialize for renderer process support (IPC transport)
-log.initialize();
-
-// Configure log levels (industry standard)
-// - Production: 'info' (logs info/warn/error, skips debug/silly)
-// - Development: 'debug' (more verbose)
 const isDev = process.env.NODE_ENV === 'development';
-log.transports.file.level = 'info'; // Always log info+ to file
-log.transports.console.level = isDev ? 'debug' : 'info';
-log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB per file, auto-rotate
 
-// Isolate log directory: dev writes to ~/.aico-bot-dev/logs,
-// packaged writes to ~/.aico-bot/logs — prevents log file conflicts
-// when running both simultaneously.
-if (isDev) {
-  log.transports.file.resolvePathFn = () => {
-    return join(homedir(), '.aico-bot-dev', 'logs');
-  };
-}
+// Initialize logging system (configures electron-log transports + console replacement)
+initLogger({
+  logDir: isDev ? join(homedir(), '.aico-bot-dev', 'logs') : '',
+  isDev,
+});
 
 // Handle EPIPE errors gracefully (must be registered BEFORE electron-log's errorHandler)
 // electron-log's startCatching() registers its own uncaughtException handler that shows
@@ -101,9 +90,6 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 // Catch unhandled errors and log them (after EPIPE filter is in place)
 log.errorHandler.startCatching();
-
-// Replace global console with electron-log (performance: direct replacement, no wrapper)
-Object.assign(console, log.functions);
 
 // Fix PATH for macOS GUI apps
 // GUI apps don't inherit shell environment variables (.zshrc, .bash_profile, etc.)
@@ -470,6 +456,13 @@ app.whenReady().then(async () => {
 
   // Initialize app data directories
   await initializeApp();
+
+  // Set production log directory (app.getPath requires app ready)
+  if (!isDev) {
+    log.transports.file.resolvePathFn = () => {
+      return join(app.getPath('userData'), 'logs');
+    };
+  }
 
   // Initialize health system instance ID (synchronous, <1ms)
   // Must be called before any subprocess is spawned

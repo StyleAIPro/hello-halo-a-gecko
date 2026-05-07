@@ -37,7 +37,7 @@ import type { AgentRequest } from './types';
 import {
   sendToRenderer,
 } from './helpers';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import {
   createSessionState,
   registerActiveSession,

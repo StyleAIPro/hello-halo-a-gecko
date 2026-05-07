@@ -11,7 +11,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import type { MailboxMessage } from '../../../shared/types/mailbox';
 import type { TaskBoardTask } from '../../../shared/types/taskboard';
 import { mailboxService } from './mailbox';
