@@ -52,6 +52,10 @@ export class RemoteAgentServer {
     reject: (error: Error) => void
   }>()
 
+  // Per-session processing lock: prevents concurrent handleClaudeChat calls
+  // for the same session. The Promise resolves when the current streamChat finishes.
+  private sessionProcessingLocks = new Map<string, Promise<void>>()
+
   // Idle timeout: auto-stop after 7 days with no connected clients
   private lastClientActivity: Date = new Date()
   private idleCheckInterval?: NodeJS.Timeout
@@ -618,6 +622,8 @@ export class RemoteAgentServer {
   }
 
   private async handleClaudeChat(ws: WebSocket, sessionId: string, payload: any): Promise<void> {
+    // Per-session lock variables — declared here so finally block can access them
+    let resolveLock: (() => void) | undefined
     try {
       const { messages, options, stream = true } = payload
       const client = this.clients.get(ws)
@@ -663,6 +669,22 @@ export class RemoteAgentServer {
       })
 
       console.log(`[RemoteAgentServer] Processing chat with ${chatMessages.length} messages for session ${sessionId}`)
+
+      // Per-session lock: prevent concurrent streamChat calls for the same session.
+      // Without this, the gap between isActive() check and registerActiveSession()
+      // inside streamChat() allows two claude:chat messages to bypass the guard.
+      const existingLock = this.sessionProcessingLocks.get(sessionId)
+      if (existingLock) {
+        const lastMessage = chatMessages[chatMessages.length - 1]
+        if (lastMessage?.role === 'user') {
+          this.claudeManager.queueMessage(sessionId, lastMessage.content, resolvedOptions)
+          console.log(`[RemoteAgentServer] Session ${sessionId} already processing, queued message`)
+        }
+        return
+      }
+      resolveLock = undefined
+      const lockPromise = new Promise<void>(resolve => { resolveLock = resolve })
+      this.sessionProcessingLocks.set(sessionId, lockPromise)
 
       if (stream) {
         // Callbacks for tool and terminal events
@@ -765,6 +787,8 @@ export class RemoteAgentServer {
           })
         }
 
+        let needsClosedSessionRetry = false
+
         try {
           const sdkSessionIdToUse = sdkSessionIdForResume;
 
@@ -782,6 +806,9 @@ export class RemoteAgentServer {
           do {
             needsAuthRetry = false
 
+          // Skip resume session ID on auth retry or closed session retry
+          const shouldSkipResume = authRetries > 0 || needsClosedSessionRetry
+
           // Check if session has an active stream — if so, queue message and return.
           // Only check on the first iteration (subsequent iterations are for pending messages
           // and the previous streamChat has already completed).
@@ -798,7 +825,7 @@ export class RemoteAgentServer {
             sessionId,
             currentChatMessages,
             currentOptions,
-            authRetries > 0 ? undefined : sdkSessionIdToUse,  // Don't resume on auth retry
+            shouldSkipResume ? undefined : sdkSessionIdToUse,  // Don't resume on retry
             onToolCall,
             onTerminalOutput,
             onThought,
@@ -906,6 +933,13 @@ export class RemoteAgentServer {
             // Expected interrupt - mark and continue normally
             wasInterrupted = true
             console.log(`[RemoteAgentServer] Stream interrupted for session ${sessionId}`)
+          } else if (errorMessage.includes('Cannot send to closed session') && !wasInterrupted && !needsClosedSessionRetry) {
+            // Race condition: close:session arrived concurrently and closed the SDK session
+            // before/during session.send(). Rebuild session and retry once.
+            console.warn(`[RemoteAgentServer] Closed session race detected for session ${sessionId}, rebuilding and retrying...`)
+            this.claudeManager.forceSessionRebuild(sessionId)
+            needsClosedSessionRetry = true
+            // Don't re-throw — let execution continue to interrupt check + complete below
           } else {
             // Unexpected error - log and re-throw
             console.error(`[RemoteAgentServer] Stream error for session ${sessionId}:`, streamError)
@@ -957,6 +991,12 @@ export class RemoteAgentServer {
         sessionId,
         data: { error: error instanceof Error ? error.message : String(error) }
       })
+    } finally {
+      // Release per-session lock to allow next message to be processed
+      if (resolveLock) {
+        this.sessionProcessingLocks.delete(sessionId)
+        resolveLock()
+      }
     }
   }
 

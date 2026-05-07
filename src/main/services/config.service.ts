@@ -26,7 +26,7 @@ import type {
 } from '../../shared/types';
 import type { DeployMirrorConfig } from '../../shared/types/mirror-source';
 import { BUILTIN_PROVIDERS, getBuiltinProvider } from '../../shared/constants';
-import { decryptString } from './secure-storage.service';
+import { decryptString } from './auth/secure-storage.service';
 
 // ============================================================================
 // ENCRYPTED DATA MIGRATION
@@ -332,6 +332,11 @@ interface AicoBotConfig {
   agent?: {
     maxTurns: number;
   };
+  // Network proxy configuration
+  network?: {
+    proxyUrl: string;
+    enabled: boolean;
+  };
   remoteAccess: {
     enabled: boolean;
     port: number;
@@ -539,6 +544,10 @@ const DEFAULT_CONFIG: AicoBotConfig = {
   },
   agent: {
     maxTurns: 999,
+  },
+  network: {
+    proxyUrl: '',
+    enabled: false,
   },
   remoteAccess: {
     enabled: false,
@@ -869,6 +878,7 @@ export function getConfig(): AicoBotConfig {
       appearance: { ...DEFAULT_CONFIG.appearance, ...parsed.appearance },
       system: { ...DEFAULT_CONFIG.system, ...parsed.system },
       agent: { ...DEFAULT_CONFIG.agent, ...parsed.agent },
+      network: { ...DEFAULT_CONFIG.network, ...parsed.network },
       onboarding: { ...DEFAULT_CONFIG.onboarding, ...parsed.onboarding },
       // mcpServers is a flat map, just use parsed value or default
       mcpServers: parsed.mcpServers || DEFAULT_CONFIG.mcpServers,
@@ -904,6 +914,9 @@ export function saveConfig(config: Partial<AicoBotConfig>): AicoBotConfig {
   }
   if (config.agent) {
     newConfig.agent = { ...currentConfig.agent, ...config.agent };
+  }
+  if (config.network) {
+    newConfig.network = { ...currentConfig.network, ...config.network };
   }
   if (config.onboarding) {
     newConfig.onboarding = { ...currentConfig.onboarding, ...config.onboarding };
@@ -1014,8 +1027,19 @@ export function getDecryptedConfig(): Record<string, any> {
  */
 export function saveConfigAndNotify(updates: Record<string, unknown>): Record<string, any> {
   const incomingAiSources = updates.aiSources as AISourcesConfig | undefined;
+  const incomingNetwork = updates.network as { proxyUrl?: string; enabled?: boolean } | undefined;
 
   const config = saveConfig(updates);
+
+  // Invalidate proxy cache when network config changes
+  if (incomingNetwork) {
+    import('./proxy')
+      .then(({ invalidateProxyCache }) => {
+        invalidateProxyCache();
+        console.log('[Config] Proxy cache invalidated due to config change');
+      })
+      .catch(() => {});
+  }
 
   if (incomingAiSources) {
     // Dynamic import to avoid circular dependency

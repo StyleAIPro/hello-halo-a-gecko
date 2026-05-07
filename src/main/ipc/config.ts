@@ -5,7 +5,7 @@
 import { ipcMain } from 'electron';
 import { saveConfig, getDecryptedConfig, saveConfigAndNotify } from '../services/config.service';
 import { getAISourceManager } from '../services/ai-sources';
-import { validateApiConnection, fetchModelsFromApi } from '../services/api-validator.service';
+import { validateApiConnection, fetchModelsFromApi } from '../services/ai-sources/api-validator.service';
 import { emitConfigChange, runConfigProbe } from '../services/health';
 import type { AISourcesConfig } from '../../shared/types';
 
@@ -196,6 +196,50 @@ export function registerConfigHandlers(): void {
     } catch (error: unknown) {
       const err = error as Error;
       console.error('[Settings] ai-sources:delete-source - Failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Test proxy connectivity
+  ipcMain.handle('config:test-proxy', async (_event, proxyUrl: string) => {
+    console.log('[Settings] config:test-proxy - Testing:', proxyUrl);
+    try {
+      const { proxyFetchWithUrl } = await import('../services/proxy');
+      const proxyResponse = await proxyFetchWithUrl('https://httpbin.org/ip', {}, proxyUrl, 10_000);
+      if (!proxyResponse.ok) {
+        return { success: false, error: `HTTP ${proxyResponse.status}` };
+      }
+      const proxyData = await proxyResponse.json();
+
+      // Direct request for comparison
+      let directIp: string | undefined;
+      try {
+        const directResponse = await fetch('https://httpbin.org/ip', {
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (directResponse.ok) {
+          const directData = await directResponse.json();
+          directIp = directData.origin;
+        }
+      } catch {
+        // Direct request may fail in restricted networks — that's fine
+      }
+
+      const proxyIp = proxyData.origin;
+      const proxyWorks = !directIp || directIp !== proxyIp;
+
+      if (!proxyWorks) {
+        return { success: false, error: 'Proxy IP matches direct IP — proxy may not be working' };
+      }
+
+      console.log('[Settings] config:test-proxy - OK, IP:', proxyIp);
+      return {
+        success: true,
+        data: { ip: directIp, proxyIp },
+      };
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('[Settings] config:test-proxy - Failed:', err.message);
       return { success: false, error: err.message };
     }
   });

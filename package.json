@@ -11,7 +11,8 @@
     "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build:patch-sdk": "node scripts/patch-sdk.mjs",
-    "build": "npm run build:proxy && npm run build:patch-sdk && electron-vite build",
+    "build:offline-bundle": "node packages/remote-agent-proxy/scripts/build-offline-bundle.mjs",
+    "build": "npm run build:proxy && npm run build:patch-sdk && npm run build:offline-bundle && electron-vite build",
     "start": "electron-vite preview",
     "postinstall": "patch-package",
     "build:mac": "npm run build && electron-builder --mac",
@@ -40,23 +41,7 @@
     "i18n:extract": "i18next",
     "i18n:translate": "node scripts/translate-i18n.mjs",
     "i18n": "npm run i18n:extract && npm run i18n:translate",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "lint": "eslint src/ --max-warnings 0",
-    "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,json,md}\""
-  },
-  "simple-git-hooks": {
-    "pre-commit": "npx lint-staged"
-  },
-  "lint-staged": {
-    "src/**/*.{ts,tsx}": [
-      "eslint --fix --max-warnings 0",
-      "prettier --write"
-    ],
-    "src/**/*.{json,md}": [
-      "prettier --write"
-    ]
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.104",
@@ -131,7 +116,6 @@
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "@electron/rebuild": "^3.7.1",
-    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.57.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.5",
@@ -148,21 +132,12 @@
     "electron": "^34.5.8",
     "electron-builder": "24.13.1",
     "electron-vite": "^2.0.0",
-    "eslint": "^10.2.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.5",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
     "i18next-parser": "^9.3.0",
-    "lint-staged": "^16.4.0",
     "patch-package": "^8.0.1",
     "playwright": "^1.57.0",
     "postcss": "^8.4.32",
-    "prettier": "^3.8.3",
-    "simple-git-hooks": "^2.13.1",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.0",
-    "typescript-eslint": "^8.58.2",
     "vite": "^5.0.0",
     "vitest": "^1.6.1"
   },
@@ -196,6 +171,16 @@
       "node_modules/@parcel/watcher-*/**/*",
       "node_modules/better-sqlite3/build/Release/*.node",
       "resources/gh/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/offline-bundles",
+        "to": "offline-bundles",
+        "filter": [
+          "**/*.tar.gz",
+          "**/*.tar.xz"
+        ]
+      }
     ],
     "publish": {
       "provider": "github",

@@ -118,7 +118,6 @@ export function useSmartScroll(options: UseSmartScrollOptions): UseSmartScrollRe
     if (isAtBottom) {
       scrollToBottom(behavior);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, behavior]);
 
   return {

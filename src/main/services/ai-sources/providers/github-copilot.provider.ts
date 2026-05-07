@@ -13,6 +13,7 @@
  */
 
 import { shell } from 'electron';
+import { proxyFetch } from '../../proxy';
 import type { OAuthAISourceProvider, ProviderResult } from '../../../../shared/interfaces';
 import type {
   AISourceType,
@@ -227,7 +228,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
       }
 
       // Fetch models from Copilot API
-      const response = await fetch(COPILOT_MODELS_URL, {
+      const response = await proxyFetch(COPILOT_MODELS_URL, {
         headers: {
           Authorization: `Bearer ${copilotToken}`,
           'Editor-Version': 'vscode/1.85.0',
@@ -282,7 +283,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
       console.log('[GitHubCopilot] Starting device code flow');
 
       // Request device code
-      const response = await fetch(GITHUB_DEVICE_CODE_URL, {
+      const response = await proxyFetch(GITHUB_DEVICE_CODE_URL, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -360,7 +361,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
         }
 
         // Poll for token
-        const response = await fetch(GITHUB_ACCESS_TOKEN_URL, {
+        const response = await proxyFetch(GITHUB_ACCESS_TOKEN_URL, {
           method: 'POST',
           headers: {
             Accept: 'application/json',
@@ -623,7 +624,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
    */
   private async fetchGitHubUser(token: string): Promise<GitHubUser | null> {
     try {
-      const response = await fetch(GITHUB_USER_URL, {
+      const response = await proxyFetch(GITHUB_USER_URL, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -656,7 +657,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
     }
 
     try {
-      const response = await fetch(COPILOT_TOKEN_URL, {
+      const response = await proxyFetch(COPILOT_TOKEN_URL, {
         headers: {
           Authorization: `token ${githubToken}`,
           Accept: 'application/json',
@@ -699,7 +700,7 @@ class GitHubCopilotProvider implements OAuthAISourceProvider {
   private async fetchModelsWithToken(copilotToken: string): Promise<string[]> {
     try {
       console.log('[GitHubCopilot] Fetching models from:', COPILOT_MODELS_URL);
-      const response = await fetch(COPILOT_MODELS_URL, {
+      const response = await proxyFetch(COPILOT_MODELS_URL, {
         headers: {
           Authorization: `Bearer ${copilotToken}`,
           'Editor-Version': 'vscode/1.85.0',

@@ -90,9 +90,41 @@
 ## 统计
 | 严重程度 | 数量 |
 |---------|------|
-| Critical | 3 |
-| Major | 4 |
+| Critical | 4 |
+| Major | 6 |
 | Minor | 1 |
+
+### SSH 命令执行无超时导致操作卡死
+- **严重程度**：Critical
+- **日期**：2026-04-27
+- **现象**：添加服务器、部署、更新操作在网络异常时无限卡死，UI 无响应
+- **根因**：`SSHManager.executeCommand/Full/Streaming` 无超时机制，Promise 仅在 stream close 时 resolve；`_operationLock` 不可中断，`disconnect()` 排队等待形成死锁
+- **修复**：三个执行方法添加默认超时（30s/600s），新增 `withTimeout()` 工具；`disconnect()` 改为 `client.destroy()` 强制断开 + 重置操作锁；部署流程关键调用添加显式超时覆盖
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-deploy-timeout-hang-v1.md`
+
+### 端口分配无总超时
+- **严重程度**：Major
+- **日期**：2026-04-27
+- **现象**：`resolvePort()` 最多 20 次端口检测，每次无超时，SSH 不稳定时累积超时达 10 分钟
+- **根因**：循环内每个 `executeCommandFull` 无超时，20 次循环无总超时限制
+- **修复**：添加 2 分钟累积超时保护，每次迭代前检查已用时间
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-deploy-timeout-hang-v1.md`
+
+### 离线部署无架构预检
+- **严重程度**：Major
+- **日期**：2026-04-27
+- **现象**：离线部署选错架构时，~50MB 包完整上传解压后才在 `node --version` 报 "Exec format error"
+- **根因**：`deployAgentCodeOffline()` 不检测远端 CPU 架构，完全依赖用户手动选择（默认 x64）
+- **修复**：上传前执行 `uname -m` 检测，不匹配立即报错；存储 `detectedArch` 到 server config，UI 自动预选
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-deploy-timeout-hang-v1.md`
+
+### 操作状态无看门狗、无取消机制
+- **严重程度**：Major
+- **日期**：2026-04-27
+- **现象**：部署/更新操作卡住后 `inProgress: true` 永久持续，用户无法取消
+- **根因**：`UpdateOperationState` 无 TTL，UI 无取消按钮，IPC handler 无超时
+- **修复**：`startUpdate()` 启动 10 分钟看门狗自动 `failUpdate()`；新增 `cancelOperation()` IPC + UI 取消按钮
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-deploy-timeout-hang-v1.md`
 
 ### remote-deploy 多实例 token 冲突
 - **严重程度**：Major

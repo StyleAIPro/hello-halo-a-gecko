@@ -31,6 +31,7 @@ export interface AicoBotAPI {
   setConfig: (updates: Record<string, unknown>) => Promise<IpcResponse>;
   validateApi: (apiKey: string, apiUrl: string, provider: string) => Promise<IpcResponse>;
   fetchModels: (apiKey: string, apiUrl: string) => Promise<IpcResponse>;
+  testProxy: (proxyUrl: string) => Promise<IpcResponse>;
   refreshAISourcesConfig: () => Promise<IpcResponse>;
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
@@ -359,6 +360,7 @@ export interface AicoBotAPI {
   openExternal: (url: string) => Promise<void>;
 
   // GitHub Integration
+  githubGetAuthStatusCombined: () => Promise<IpcResponse>;
   githubGetAuthStatus: () => Promise<IpcResponse>;
   githubLoginBrowser: () => Promise<IpcResponse>;
   githubLoginToken: (token: string) => Promise<IpcResponse>;
@@ -500,6 +502,8 @@ export interface AicoBotAPI {
     acknowledgeUpdate: (serverId: string) => Promise<IpcResponse>;
     continueDeploy: (serverId: string) => Promise<IpcResponse>;
     cancelDeploy: (serverId: string) => Promise<IpcResponse>;
+    deployOffline: (serverId: string, platform?: 'x64' | 'arm64') => Promise<IpcResponse>;
+    checkOfflineBundle: (platform: 'x64' | 'arm64') => Promise<IpcResponse>;
   };
 
   // Remote Agent
@@ -755,6 +759,7 @@ const api: AicoBotAPI = {
   validateApi: (apiKey, apiUrl, provider, model?) =>
     ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model),
   fetchModels: (apiKey, apiUrl) => ipcRenderer.invoke('config:fetch-models', apiKey, apiUrl),
+  testProxy: (proxyUrl) => ipcRenderer.invoke('config:test-proxy', proxyUrl),
   refreshAISourcesConfig: () => ipcRenderer.invoke('config:refresh-ai-sources'),
 
   // AI Sources CRUD (atomic - backend reads from disk, never overwrites rotating tokens)
@@ -965,6 +970,7 @@ const api: AicoBotAPI = {
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   // GitHub Integration
+  githubGetAuthStatusCombined: () => ipcRenderer.invoke('github:auth-status-combined'),
   githubGetAuthStatus: () => ipcRenderer.invoke('github:auth-status'),
   githubLoginBrowser: () => ipcRenderer.invoke('github:login-browser'),
   githubLoginToken: (token) => ipcRenderer.invoke('github:login-token', token),
@@ -1074,6 +1080,11 @@ const api: AicoBotAPI = {
       ipcRenderer.invoke('remote-server:acknowledge-update', serverId),
     continueDeploy: (serverId) => ipcRenderer.invoke('remote-server:continue-deploy', serverId),
     cancelDeploy: (serverId) => ipcRenderer.invoke('remote-server:cancel-deploy', serverId),
+    deployOffline: (serverId, platform) =>
+      ipcRenderer.invoke('remote-server:deploy-offline', serverId, platform),
+    checkOfflineBundle: (platform) =>
+      ipcRenderer.invoke('remote-server:check-offline-bundle', platform),
+    cancelOperation: (serverId) => ipcRenderer.invoke('remote-server:cancel-operation', serverId),
   },
 
   // Remote Agent

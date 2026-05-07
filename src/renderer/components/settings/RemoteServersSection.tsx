@@ -21,6 +21,8 @@ import {
   Edit,
   AlertTriangle,
   AlertCircle,
+  Package,
+  X,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { api } from '../../api';
@@ -85,6 +87,8 @@ export function RemoteServersSection() {
   >([]);
   const [saving, setSaving] = React.useState(false);
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null);
+  const [deployMode, setDeployMode] = React.useState<'online' | 'offline'>('offline');
+  const [offlineBundleReady, setOfflineBundleReady] = React.useState(false);
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
   // Add server progress tracking
   const [addProgress, setAddProgress] = React.useState<{
@@ -153,6 +157,34 @@ export function RemoteServersSection() {
       console.error('[RemoteServersSection] Failed to save terminal entries to localStorage:', e);
     }
   }, [terminalEntries]);
+
+  // Check if offline bundle is available for detected server architectures
+  React.useEffect(() => {
+    const checkOfflineBundle = async () => {
+      try {
+        // Collect unique architectures from connected servers
+        const archSet = new Set<string>();
+        for (const s of servers) {
+          if (s.detectedArch) archSet.add(s.detectedArch);
+        }
+        // Default to x64 if no servers have detected arch yet
+        if (archSet.size === 0) archSet.add('arm64');
+        // Check if at least one required bundle is available
+        let anyAvailable = false;
+        for (const arch of archSet) {
+          const result = await api.remoteServerCheckOfflineBundle(arch as 'x64' | 'arm64');
+          if (result.success && (result.data as any)?.available) {
+            anyAvailable = true;
+            break;
+          }
+        }
+        setOfflineBundleReady(anyAvailable);
+      } catch {
+        setOfflineBundleReady(false);
+      }
+    };
+    checkOfflineBundle();
+  }, [servers]);
 
   // Load servers on mount
   React.useEffect(() => {
@@ -937,6 +969,60 @@ export function RemoteServersSection() {
     }
   };
 
+  const handleDeployOffline = async (serverId: string): Promise<boolean> => {
+    setUpdatingAgent(serverId);
+    pendingUpdateRef.current = serverId;
+    expandServer(serverId);
+    clearTerminal(serverId);
+
+    // Architecture is auto-detected by the backend (no manual selection needed)
+    const server = servers.find((s) => s.id === serverId);
+    const archDisplay = server?.detectedArch ?? 'auto';
+
+    addTerminalEntry(serverId, 'command', `=== Offline deploying (arch: ${archDisplay}) ===`);
+
+    try {
+      const result = await api.remoteServerDeployOffline(serverId);
+      console.log('[RemoteServersSection] Offline deploy result:', result);
+      try {
+        await api.remoteServerAcknowledgeUpdate(serverId);
+      } catch {}
+
+      if (result.success) {
+        addTerminalEntry(serverId, 'success', 'Offline deploy completed!');
+        await alertDialog(t('Agent deployed offline successfully'));
+        await loadServers();
+        return true;
+      } else {
+        addTerminalEntry(serverId, 'error', `Offline deploy failed: ${result.error}`);
+        await alertDialog(result.error || t('Failed to deploy agent offline'));
+        return false;
+      }
+    } catch (error) {
+      addTerminalEntry(serverId, 'error', `Error: ${error}`);
+      console.error('[RemoteServersSection] Offline deploy error:', error);
+      await alertDialog(t('Failed to deploy agent offline'));
+      return false;
+    } finally {
+      pendingUpdateRef.current = null;
+      setUpdatingAgent(null);
+    }
+  };
+
+  // Unified deploy handler that delegates based on mode
+  const handleDeploy = async (serverId: string): Promise<boolean> => {
+    if (deployMode === 'offline') {
+      return handleDeployOffline(serverId);
+    }
+    return handleUpdateAgent(serverId);
+  };
+
+  // Cancel an in-flight deploy/update operation
+  const handleCancelOperation = async (serverId: string) => {
+    await api.remoteServerCancelOperation(serverId);
+    setUpdatingAgent(null);
+  };
+
   // Batch update all servers
   const handleBatchUpdate = async () => {
     if (servers.length === 0) return;
@@ -1180,9 +1266,41 @@ export function RemoteServersSection() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Deploy mode selector */}
+            <div className="flex items-center gap-1 text-xs border border-border rounded-lg p-0.5">
+              <button
+                onClick={() => setDeployMode('offline')}
+                className={`px-2 py-1 rounded-md transition-colors ${
+                  deployMode === 'offline'
+                    ? 'bg-green-500/15 text-green-600'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={
+                  offlineBundleReady ? t('Deploy Agent (Offline)') : t('Offline bundle not built')
+                }
+              >
+                <Package className="w-3.5 h-3.5 inline-block" />
+                <span className="ml-1">{t('Offline')}</span>
+              </button>
+              <button
+                onClick={() => setDeployMode('online')}
+                className={`px-2 py-1 rounded-md transition-colors ${
+                  deployMode === 'online'
+                    ? 'bg-green-500/15 text-green-600'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={t('Update Agent')}
+              >
+                <RefreshCw className="w-3.5 h-3.5 inline-block" />
+                <span className="ml-1">{t('Online')}</span>
+              </button>
+            </div>
+
+            {/* Auto-detected architecture indicator (offline mode only) */}
+
             <button
               onClick={handleBatchUpdate}
-              disabled={batchUpdating || servers.length === 0}
+              disabled={batchUpdating || servers.length === 0 || deployMode === 'offline'}
               className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
               title={t('Batch Update All')}
             >
@@ -1345,17 +1463,36 @@ export function RemoteServersSection() {
 
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleUpdateAgent(server.id)}
-                          disabled={updatingAgent === server.id || batchUpdating}
+                          onClick={() => handleDeploy(server.id)}
+                          disabled={
+                            updatingAgent === server.id ||
+                            batchUpdating ||
+                            (deployMode === 'offline' && !offlineBundleReady)
+                          }
                           className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
-                          title={t('Update Agent')}
+                          title={
+                            deployMode === 'offline'
+                              ? t('Deploy Agent (Offline)')
+                              : t('Update Agent')
+                          }
                         >
                           {updatingAgent === server.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : deployMode === 'offline' ? (
+                            <Package className="w-4 h-4" />
                           ) : (
                             <RefreshCw className="w-4 h-4" />
                           )}
                         </button>
+                        {updatingAgent === server.id && (
+                          <button
+                            onClick={() => handleCancelOperation(server.id)}
+                            className="p-1.5 hover:bg-red-500/10 text-red-500 rounded-lg transition-colors"
+                            title={t('Cancel Operation')}
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => openEditModal(server)}
                           className="p-1.5 hover:bg-secondary/10 rounded-lg transition-colors"

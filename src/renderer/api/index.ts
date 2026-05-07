@@ -1,6 +1,5 @@
 /**
  * AICO-Bot API - Unified interface for both IPC and HTTP modes
- * Automatically selects the appropriate transport
  */
 
 import {
@@ -140,6 +139,13 @@ export const api = {
       return window.aicoBot.fetchModels(apiKey, apiUrl);
     }
     return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl });
+  },
+
+  testProxy: async (proxyUrl: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.testProxy(proxyUrl);
+    }
+    return httpRequest('POST', '/api/config/test-proxy', { proxyUrl });
   },
 
   refreshAISourcesConfig: async (): Promise<ApiResponse> => {
@@ -1273,6 +1279,13 @@ export const api = {
 
   // ===== GitHub Integration (Electron only) =====
 
+  githubGetAuthStatusCombined: async (): Promise<ApiResponse> => {
+    if (!isElectron()) {
+      return { success: false, error: 'Only available in desktop app' };
+    }
+    return window.aicoBot.githubGetAuthStatusCombined();
+  },
+
   githubGetAuthStatus: async (): Promise<ApiResponse> => {
     if (!isElectron()) {
       return { success: false, error: 'Only available in desktop app' };
@@ -2079,6 +2092,33 @@ export const api = {
     return httpRequest('POST', `/api/remote-server/${serverId}/cancel-deploy`);
   },
 
+  remoteServerDeployOffline: async (
+    serverId: string,
+    platform?: 'x64' | 'arm64',
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.deployOffline(serverId, platform);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/deploy-offline`, { platform });
+  },
+
+  remoteServerCheckOfflineBundle: async (
+    platform: 'x64' | 'arm64' = 'x64',
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.checkOfflineBundle(platform);
+    }
+    return httpRequest('POST', '/api/remote-server/check-offline-bundle', { platform });
+  },
+
+  remoteServerCancelOperation: async (serverId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.remoteServer.cancelOperation(serverId);
+    }
+    return httpRequest('POST', `/api/remote-server/${serverId}/cancel-operation`);
+  },
+  },
+
   remoteServerStartAgent: async (serverId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.remoteServer.startAgent(serverId);
@@ -2520,6 +2560,21 @@ export const api = {
       return window.aicoBot.skillRefresh();
     }
     return httpRequest('POST', '/api/skills/refresh');
+  },
+
+  skillGenerateFromPrompt: async (input: {
+    spaceId: string;
+    name: string;
+    description: string;
+    triggerCommand?: string;
+  }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.skillGenerate({
+        mode: 'prompt',
+        ...input,
+      });
+    }
+    return httpRequest('POST', '/api/skills/generate', { mode: 'prompt', ...input });
   },
 
   skillFiles: async (skillId: string): Promise<ApiResponse<SkillFileNode[]>> => {

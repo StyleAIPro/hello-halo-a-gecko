@@ -27,3 +27,13 @@ export {
   getGitHubCopilotProvider,
   GitHubCopilotProvider,
 } from './providers/github-copilot.provider';
+
+// API Validator
+export {
+  validateApiConnection,
+  fetchModelsFromApi,
+  type ValidateApiParams,
+  type ValidateApiResult,
+  type FetchModelsParams,
+  type FetchModelsResult,
+} from './api-validator.service';

@@ -14,7 +14,7 @@
  */
 
 import type { BrowserWindow } from 'electron';
-import { browserViewManager } from '../browser-view.service';
+import { browserViewManager } from '../browser/browser-view.service';
 import {
   createAccessibilitySnapshot,
   getElementBoundingBox,

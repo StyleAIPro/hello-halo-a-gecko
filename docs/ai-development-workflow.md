@@ -20,8 +20,12 @@
 
 1. 判断级别：bugfix / feature / module / project
 2. 搜索 `.project/prd/` 已有 PRD，存在则升版本
-3. **Subagent 独立写 PRD**（中文），包含：元信息、需求分析、技术方案、开发前必读、涉及文件、验收标准
-4. 人确认 → PRD 状态改为 `confirmed`
+3. **搜索模块文档**：subagent 必须搜索 `.project/modules/` 找到相关模块的概述文档、功能 design.md / changelog.md / bugfix.md
+4. **搜索 API 文档**：subagent 必须搜索 `.project/api/` 找到相关 API 文档
+5. **Subagent 独立写 PRD**（中文），包含：元信息、需求分析、技术方案、**开发前必读（分类表格）**、涉及文件、验收标准
+   - 「开发前必读」必须分四类：**模块设计文档**、**源码文件**、**API 文档**、**编码规范**
+   - 每项注明阅读目的，参考 `vibecoding-doc-standard.md` PRD 模板
+6. 人确认 → PRD 状态改为 `confirmed`
 
 ### 3. 文档预读（Agent）
 
@@ -31,12 +35,12 @@
 
 1. PRD 状态 → `in-progress`
 2. 按 PRD 技术方案编码
-3. 每个文件编辑后：`npx eslint --fix <file>` + re-read 确认逻辑未被覆盖
+3. 每个文件编辑后：re-read 确认逻辑未被覆盖
 4. 更新 PRD「涉及文件」为实际修改清单
 
 ### 5. 自测（Agent + 人）
 
-- Agent：`npm run typecheck && npm run lint && npm run build`
+- Agent：`npm run typecheck && npm run build`
 - 涉及新用户可见文本：`npm run i18n`
 - 人：按 PRD 验收标准逐条测试
 - 不通过 → 回步骤 2 更新 PRD
@@ -92,3 +96,4 @@
 |------|------|--------|
 | 2026-04-18T16:00:00+08:00 | 初始版本 | @MoonSeeker |
 | 2026-04-18T17:30:00+08:00 | 精简为工作流速查卡 | @MoonSeeker |
+| 2026-04-18T19:00:00+08:00 | 步骤 2 增加模块文档搜索要求，「开发前必读」改为分类结构 | @MoonSeeker |

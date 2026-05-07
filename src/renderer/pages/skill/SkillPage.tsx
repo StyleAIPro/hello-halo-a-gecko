@@ -16,7 +16,7 @@ import { SkillLibrary } from '../../components/skill/SkillLibrary';
 import { SkillMarket } from '../../components/skill/SkillMarket';
 import { SkillEditorPage } from '../../components/skill/SkillEditor';
 import { useTranslation } from '../../i18n';
-import { Book, Store, FileCode, Settings, ArrowLeft } from 'lucide-react';
+import { Book, Store, FileCode, ArrowLeft } from 'lucide-react';
 
 export function SkillPage() {
   const { t } = useTranslation();
@@ -103,14 +103,6 @@ export function SkillPage() {
             </button>
           );
         })}
-
-        {/* Settings button (future: skill library config) */}
-        <button
-          className="ml-auto p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
-          title={t('Settings')}
-        >
-          <Settings className="w-4 h-4" />
-        </button>
       </div>
 
       {/* Content Area */}

@@ -16,7 +16,7 @@ import {
   readArtifactContent,
   saveArtifactContent,
   detectFileType,
-} from '../services/artifact.service';
+} from '../services/file-watcher/artifact.service';
 
 // Register all artifact handlers
 export function registerArtifactHandlers(): void {

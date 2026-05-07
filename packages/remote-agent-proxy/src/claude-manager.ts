@@ -189,6 +189,7 @@ export interface ChatOptions {
   aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
   contextWindow?: number   // Context window size for compression threshold and usage display
+  isWorkerTask?: boolean   // When true, suppress worker:started/completed for SDK internal subagents
 }
 
 export interface ToolCall {
@@ -444,6 +445,7 @@ You can use the following tools without requiring user approval: Read, Write, Ed
 - Don't create files unless absolutely necessary
 - Avoid over-engineering solutions
 - Be careful not to introduce security vulnerabilities
+- NEVER spawn a sub-agent for build, test, lint, or type-check commands. Always run these directly via Bash (e.g., npm run build, npm test, cargo build).
 
 <env>
 Working directory: ${workDir}
@@ -955,12 +957,16 @@ export class ClaudeManager {
       // Encode real backend config into the API key (same as local AICO-Bot)
       const { encodeBackendConfig } = await import('./openai-compat-router/utils/config.js')
       const { getApiTypeFromUrl } = await import('./openai-compat-router/server/api-type.js')
+      const { normalizeApiUrl } = await import('./openai-compat-router/utils/url.js')
+
+      // Normalize URL: auto-append /v1/chat/completions for bare host URLs (e.g., http://IP:port)
+      const normalizedUrl = normalizeApiUrl(effectiveBaseUrl || '', 'openai')
 
       // Determine API type from URL suffix, default to chat_completions
-      const apiType = getApiTypeFromUrl(effectiveBaseUrl || '') || 'chat_completions'
+      const apiType = getApiTypeFromUrl(normalizedUrl) || 'chat_completions'
 
       const encodedConfig = encodeBackendConfig({
-        url: effectiveBaseUrl || '',
+        url: normalizedUrl,
         key: effectiveApiKey || '',
         model: effectiveModel,
         apiType,
@@ -980,7 +986,7 @@ export class ClaudeManager {
       // which then converts to OpenAI format and replaces the model name with the real one.
       options.model = 'claude-sonnet-4-6'
 
-      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${effectiveBaseUrl} (apiType=${apiType}, model=${effectiveModel})`)
+      console.log(`[ClaudeManager] Routing via OpenAI Compat Router: ${router.baseUrl} -> ${normalizedUrl} (apiType=${apiType}, model=${effectiveModel})`)
     } else {
       // Native Anthropic / Anthropic-compatible proxy — direct passthrough
       // CRITICAL: Must set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN.
@@ -1237,7 +1243,7 @@ export class ClaudeManager {
     const effectiveResumeId = workDirChanged ? undefined : resumeSessionId
 
     // Pre-declared for resume path (options built in parallel) — visible to session creation below
-    let prebuiltOptions: any = undefined
+    const prebuiltOptions: any = undefined
 
     if (existing) {
       // CRITICAL: Check if workDir changed - if so, need to recreate session
@@ -1251,6 +1257,13 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${conversationId}] Session transport not ready, recreating...`)
         this.cleanupSession(conversationId, 'process not ready')
         // Fall through to create new session
+      } else if ((existing.session as any).closed) {
+        // CRITICAL: Check SDK's closed flag — the session may have been closed by
+        // abortController.abort() or SDK internal error without calling cleanupSession(),
+        // leaving a stale entry in this.sessions with closed=true.
+        console.log(`[ClaudeManager][${conversationId}] Session closed flag set, recreating...`)
+        this.cleanupSession(conversationId, 'session closed')
+        // Fall through to create new session (without resume — closed sessions can't resume)
       } else if (effectiveResumeId) {
         // OPTIMIZATION: Try to reuse existing session on resume instead of always
         // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
@@ -1632,6 +1645,10 @@ export class ClaudeManager {
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
     console.log(`[ClaudeManager] streamChat called with resumeSessionId=${resumeSessionId || 'undefined'}, maxThinkingTokens=${options.maxThinkingTokens || 'undefined'}`)
 
+    // When running as a Worker task, suppress worker:started/completed events for
+    // SDK internal sub-agents to avoid creating extra Worker tabs on the frontend.
+    const suppressWorkerEvents = !!options.isWorkerTask
+
     // Update AICO-Bot MCP proxy URL from chat options (per-request, may change across turns)
     if (options.aicoBotMcpUrl) {
       this.aicoBotMcpUrl = options.aicoBotMcpUrl
@@ -1712,7 +1729,7 @@ export class ClaudeManager {
       }
     } : undefined
 
-    const session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
+    let session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -1828,6 +1845,31 @@ export class ClaudeManager {
       }
 
       console.log(`[ClaudeManager] Sending last user message: ${lastMessage.content.substring(0, 50)}...`)
+
+      // DEFENSIVE: Handle race condition where close:session arrives concurrently
+      // (from stopGeneration) and closes the SDK session between getOrCreateSession
+      // returning and session.send() being called. Detect and rebuild.
+      if ((session as any).closed) {
+        console.warn(`[ClaudeManager][${sessionId}] Session closed before send (race condition), rebuilding...`)
+        this.cleanupSession(sessionId, 'session closed before send (race)')
+        // Recreate session — skip resume since the old session is gone
+        const freshSession = await this.getOrCreateSession(
+          sessionId, options.workDir, undefined,
+          options.maxThinkingTokens, hyperSpaceMcpServer, options.system,
+          aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials,
+          askUserQuestionCanUseTool, newMcpToolSignature
+        )
+        // Replace the closed session reference with the fresh one
+        session = freshSession
+        // Re-apply thinking tokens to the new session
+        try {
+          if ((session as any).setMaxThinkingTokens) {
+            const thinkingTokens = options.maxThinkingTokens ?? null
+            await (session as any).setMaxThinkingTokens(thinkingTokens)
+          }
+        } catch (e) { /* ignore */ }
+      }
+
       await session.send(lastMessage.content)
 
       console.log(`[ClaudeManager] Starting stream for session ${sessionId}...`)
@@ -2193,8 +2235,10 @@ export class ClaudeManager {
             subagentStates.set(taskId, state)
             if (toolUseId) toolUseIdToTaskId.set(toolUseId, taskId)
 
-            // Yield worker:started event for the frontend
-            yield { type: 'worker:started', data: { agentId, agentName, taskId, task: description, type: 'remote' } }
+            // Yield worker:started event for the frontend (suppress when running as Worker)
+            if (!suppressWorkerEvents) {
+              yield { type: 'worker:started', data: { agentId, agentName, taskId, task: description, type: 'remote' } }
+            }
 
             // Flush any buffered events that arrived before task_started
             const buffered = pendingSubagentEvents.get(toolUseId || taskId)
@@ -2217,12 +2261,14 @@ export class ClaudeManager {
             if (subagentState) {
               subagentState.status = evt.status === 'completed' ? 'completed' : 'failed'
               subagentState.isComplete = true
-              yield { type: 'worker:completed', data: {
-                agentId: subagentState.agentId, agentName: subagentState.agentName,
-                taskId: notifTaskId, result: evt.summary || '',
-                error: evt.status === 'failed' ? 'Subagent task failed' : undefined,
-                status: evt.status === 'completed' ? 'completed' : 'failed'
-              }}
+              if (!suppressWorkerEvents) {
+                yield { type: 'worker:completed', data: {
+                  agentId: subagentState.agentId, agentName: subagentState.agentName,
+                  taskId: notifTaskId, result: evt.summary || '',
+                  error: evt.status === 'failed' ? 'Subagent task failed' : undefined,
+                  status: evt.status === 'completed' ? 'completed' : 'failed'
+                }}
+              }
               console.log(`[ClaudeManager] Subagent completed: ${notifTaskId} status=${evt.status}`)
             }
             continue
@@ -2476,7 +2522,7 @@ export class ClaudeManager {
       // across turns (streamInput iterator conflict). When this happens, cleanup
       // the session so the next message will rebuild fresh.
       // This is the fallback for the "try reuse first" optimization in getOrCreateSession.
-      if (errorMsg.includes('process aborted') || errorMsg.includes('ECONNRESET') || errorMsg.includes('streamInput')) {
+      if (errorMsg.includes('process aborted') || errorMsg.includes('ECONNRESET') || errorMsg.includes('streamInput') || errorMsg.includes('Cannot send to closed session')) {
         console.warn(`[ClaudeManager][${sessionId}] Session reuse failed (SDK state corruption), cleaning up for next message`)
         this.cleanupSession(sessionId, 'reuse failed - SDK state corruption')
       }
@@ -2486,14 +2532,21 @@ export class ClaudeManager {
       throw new Error(`Claude stream error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       // Clean up any active subagents that didn't complete
-      // Moved here from try-block to ensure cleanup on ALL exit paths (normal end, interrupt, error)
+      // Only send failure events when user explicitly stopped (wasAborted).
+      // On normal completion, silently clean up — SDK doesn't guarantee all
+      // task_notification events arrive before the parent's result event.
+      // Sending failure here on normal completion would cause false "Stream interrupted" errors.
       for (const [taskId, state] of subagentStates) {
         if (!state.isComplete) {
-          yield { type: 'worker:completed', data: {
-            agentId: state.agentId, agentName: state.agentName, taskId,
-            result: '', error: wasAborted ? 'Stopped by user' : 'Stream interrupted', status: 'failed'
-          }}
-          console.log(`[ClaudeManager] Subagent ${taskId} cleaned up (stream ended, aborted=${wasAborted})`)
+          if (wasAborted && !suppressWorkerEvents) {
+            yield { type: 'worker:completed', data: {
+              agentId: state.agentId, agentName: state.agentName, taskId,
+              result: '', error: 'Stopped by user', status: 'failed'
+            }}
+            console.log(`[ClaudeManager] Subagent ${taskId} marked as stopped by user`)
+          } else {
+            console.log(`[ClaudeManager] Subagent ${taskId} silently cleaned up (normal stream end)`)
+          }
         }
       }
 

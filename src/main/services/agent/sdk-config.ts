@@ -20,7 +20,11 @@ import {
   statSync,
 } from 'fs';
 import { app } from 'electron';
-import { ensureOpenAICompatRouter, encodeBackendConfig } from '../../openai-compat-router';
+import {
+  ensureOpenAICompatRouter,
+  encodeBackendConfig,
+  normalizeApiUrl,
+} from '../../openai-compat-router';
 import type { ApiCredentials } from './types';
 import { inferOpenAIWireApi } from './helpers';
 import { buildSystemPrompt, DEFAULT_ALLOWED_TOOLS } from './system-prompt';
@@ -61,6 +65,8 @@ export interface ResolvedSdkCredentials {
   displayModel: string;
   /** Context window size in tokens (for compression threshold calculation) */
   contextWindow?: number;
+  /** Whether sdkModel is a fake placeholder (setModel should be skipped) */
+  isCompatModel?: boolean;
 }
 
 /**
@@ -106,6 +112,8 @@ export interface BaseSdkOptionsParams {
   agentId?: string;
   /** Optional agent name for Hyper Space worker routing */
   agentName?: string;
+  /** Additional tools to disallow (merged with the default disallowedTools list) */
+  additionalDisallowedTools?: string[];
 }
 
 // ============================================
@@ -129,60 +137,79 @@ export interface BaseSdkOptionsParams {
 export async function resolveCredentialsForSdk(
   credentials: ApiCredentials,
 ): Promise<ResolvedSdkCredentials> {
-  // Experimental: route Anthropic through local router for interceptor coverage
-  if (PROXY_ANTHROPIC && credentials.provider === 'anthropic') {
-    return resolveAnthropicPassthrough(credentials);
-  }
-
-  // ── Original logic (identical to pre-optimization code) ──
-  // Start with direct values
-  let anthropicBaseUrl = credentials.baseUrl;
-  let anthropicApiKey = credentials.apiKey;
-  let sdkModel = credentials.model || 'claude-opus-4-5-20251101';
   const displayModel = credentials.displayModel || credentials.model;
 
-  // For non-Anthropic providers (openai or OAuth), use the OpenAI compat router
-  if (credentials.provider !== 'anthropic') {
-    const router = await ensureOpenAICompatRouter({ debug: false });
-    anthropicBaseUrl = router.baseUrl;
+  // Detect whether the backend is native Anthropic or OpenAI-compatible
+  // Mirrors remote ClaudeManager.detectBackendType() logic
+  const isNativeAnthropic = detectNativeAnthropic(credentials.baseUrl);
 
-    // Use apiType from credentials (set by provider), fallback to inference
-    const apiType =
-      credentials.apiType ||
-      (credentials.provider === 'oauth'
-        ? 'chat_completions'
-        : inferOpenAIWireApi(credentials.baseUrl));
-
-    anthropicApiKey = encodeBackendConfig({
-      url: credentials.baseUrl,
-      key: credentials.apiKey,
-      model: credentials.model,
-      headers: credentials.customHeaders,
-      apiType,
-      forceStream: credentials.forceStream,
-      filterContent: credentials.filterContent,
-    });
-
-    // Pass a fake Claude model to CC for normal request handling
-    sdkModel = 'claude-sonnet-4-6';
-
-    console.log(
-      `[SDK Config] ${credentials.provider} provider: routing via ${anthropicBaseUrl}, apiType=${apiType}`,
-    );
+  if (credentials.provider === 'anthropic' && isNativeAnthropic) {
+    // Native Anthropic — passthrough with zero conversion
+    if (PROXY_ANTHROPIC) {
+      return resolveAnthropicPassthrough(credentials);
+    }
+    // Direct path (PROXY_ANTHROPIC = false)
+    return {
+      anthropicBaseUrl: credentials.baseUrl,
+      anthropicApiKey: credentials.apiKey,
+      sdkModel: credentials.model || 'claude-opus-4-5-20251101',
+      displayModel,
+      contextWindow: credentials.contextWindow,
+    };
   }
 
+  // OpenAI-compatible backend (non-Anthropic provider, or Anthropic provider
+  // pointing to a non-Anthropic URL like IP:port) — route through compat router
+  const router = await ensureOpenAICompatRouter({ debug: false });
+
+  // Auto-append /v1/chat/completions for bare host URLs (e.g., 192.168.1.100:8080)
+  const normalizedUrl = normalizeApiUrl(credentials.baseUrl || '', 'openai');
+
+  const apiType =
+    credentials.apiType ||
+    (credentials.provider === 'oauth'
+      ? 'chat_completions'
+      : inferOpenAIWireApi(credentials.baseUrl));
+
+  const anthropicApiKey = encodeBackendConfig({
+    url: normalizedUrl,
+    key: credentials.apiKey,
+    model: credentials.model,
+    headers: credentials.customHeaders,
+    apiType,
+    forceStream: credentials.forceStream,
+    filterContent: credentials.filterContent,
+  });
+
+  console.log(
+    `[SDK Config] ${credentials.provider} provider: routing via ${router.baseUrl}, apiType=${apiType}`,
+  );
+
   return {
-    anthropicBaseUrl,
+    anthropicBaseUrl: router.baseUrl,
     anthropicApiKey,
-    sdkModel,
+    sdkModel: 'claude-sonnet-4-6',
     displayModel,
     contextWindow: credentials.contextWindow,
+    isCompatModel: true,
   };
 }
 
 /**
+ * Detect whether the backend URL is a native Anthropic API.
+ * Mirrors remote ClaudeManager.detectBackendType() logic.
+ */
+function detectNativeAnthropic(baseUrl?: string): boolean {
+  if (!baseUrl) return true;
+  if (baseUrl.includes('api.anthropic.com')) return true;
+  if (baseUrl.includes('/anthropic')) return true;
+  return false;
+}
+
+/**
  * Resolve Anthropic credentials via local router passthrough (experimental).
- * Isolated from the main path — only called when PROXY_ANTHROPIC = true.
+ * Isolated from the main path — only called for native Anthropic backends
+ * when PROXY_ANTHROPIC = true.
  */
 async function resolveAnthropicPassthrough(
   credentials: ApiCredentials,
@@ -585,7 +612,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],
     // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
-    disallowedTools: ['WebFetch', 'WebSearch'],
+    disallowedTools: ['WebFetch', 'WebSearch', ...(params.additionalDisallowedTools ?? [])],
     // Enable both 'user' and 'project' setting sources for skill loading.
     // The SDK in bare mode (Y9() check) only loads skills via the project path
     // (<add-dir>/.claude/skills/), not the user path. We pass configDir as an

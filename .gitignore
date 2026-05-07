@@ -46,4 +46,8 @@ RELEASE_NOTES.md
 # Remote deployment artifacts (contains path chars invalid on Windows)
 root@*/
 
+# Offline deployment bundles (large binary archives, built during CI)
+resources/offline-bundles/
+.cache/
+
 # temp

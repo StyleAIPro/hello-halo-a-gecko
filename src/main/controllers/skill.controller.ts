@@ -7,7 +7,7 @@ import { SkillManager } from '../services/skill/skill-manager';
 import { SkillMarketService } from '../services/skill/skill-market-service';
 import { SkillGeneratorService } from '../services/skill/skill-generator';
 import type { ConversationService } from '../services/conversation.service';
-import { remoteDeployService } from '../services/remote-deploy/remote-deploy.service';
+import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
 import type { SkillGenerateOptions } from '../../shared/skill/skill-types';
 import * as githubSkillSource from '../services/skill/github-skill-source.service';
 import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
@@ -40,29 +40,31 @@ async function ensureInitialized(): Promise<void> {
 /**
  * Source adapter for downloading skill files from different platforms
  */
-type SkillSourceAdapter = {
+export type SkillSourceAdapter = {
   findSkillDirectoryPath: (
     repo: string,
     skillName: string,
     token?: string,
+    signal?: AbortSignal,
   ) => Promise<string | null>;
   fetchSkillDirectoryContents: (
     repo: string,
     dirPath: string,
     token?: string,
+    signal?: AbortSignal,
   ) => Promise<Array<{ path: string; content: string }>>;
   getToken: () => string | undefined | Promise<string | undefined>;
   sourceLabel: string;
 };
 
-const GITHUB_ADAPTER: SkillSourceAdapter = {
+export const GITHUB_ADAPTER: SkillSourceAdapter = {
   findSkillDirectoryPath: githubSkillSource.findSkillDirectoryPath,
   fetchSkillDirectoryContents: githubSkillSource.fetchSkillDirectoryContents,
   getToken: githubSkillSource.getGitHubToken,
   sourceLabel: 'GitHub',
 };
 
-const GITCODE_ADAPTER: SkillSourceAdapter = {
+export const GITCODE_ADAPTER: SkillSourceAdapter = {
   findSkillDirectoryPath: gitcodeSkillSource.findSkillDirectoryPath,
   fetchSkillDirectoryContents: gitcodeSkillSource.fetchSkillDirectoryContents,
   getToken: gitcodeSkillSource.getGitCodeToken,
@@ -77,6 +79,8 @@ async function installSkillFromSource(
   skillName: string,
   adapter: SkillSourceAdapter,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
+  signal?: AbortSignal,
+  knownDirPath?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nodePath = await import('path');
   const nodeFs = await import('fs/promises');
@@ -91,6 +95,14 @@ async function installSkillFromSource(
     .replace(/[^a-z0-9-]/g, '-');
   const skillDir = nodePath.join(configService.getAgentsSkillsDir(), skillId);
 
+  console.log('[SkillController] installSkillFromSource:', {
+    repo,
+    skillName,
+    knownDirPath,
+    skillId,
+    skillDir,
+  });
+
   onOutput?.({ type: 'stdout', content: `Downloading directly from ${adapter.sourceLabel}...\n` });
 
   const token = await adapter.getToken();
@@ -101,9 +113,16 @@ async function installSkillFromSource(
     });
   }
 
-  // Step 1: Find the skill directory
-  onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
-  const dirPath = await adapter.findSkillDirectoryPath(repo, skillName, token);
+  // Step 1: Resolve skill directory path
+  // If knownDirPath is provided (e.g., from downloadSkill's remotePath), skip
+  // the expensive findSkillDirectoryPath call (which re-fetches the full tree).
+  let dirPath: string | null = knownDirPath || null;
+  if (!dirPath) {
+    onOutput?.({ type: 'stdout', content: `  Locating skill directory...\n` });
+    dirPath = await adapter.findSkillDirectoryPath(repo, skillName, token, signal);
+  }
+
+  console.log('[SkillController] resolved dirPath:', dirPath);
 
   if (!dirPath) {
     const error = `Could not find skill directory for "${skillName}" in repo ${repo}`;
@@ -115,7 +134,8 @@ async function installSkillFromSource(
 
   // Step 2: Download all files in the directory recursively
   onOutput?.({ type: 'stdout', content: `  Downloading skill files...\n` });
-  const files = await adapter.fetchSkillDirectoryContents(repo, dirPath, token);
+  console.log('[SkillController] fetchSkillDirectoryContents:', { repo, dirPath });
+  const files = await adapter.fetchSkillDirectoryContents(repo, dirPath, token, signal);
 
   if (files.length === 0) {
     const error = `No files found in skill directory: ${dirPath}`;
@@ -245,13 +265,175 @@ export async function installSkillFromMarket(
   skillId: string,
   onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
 ): Promise<{ success: boolean; error?: string }> {
+  const INSTALL_TIMEOUT = 120_000; // 120 seconds
+  const abortController = new AbortController();
+  const signal = abortController.signal;
+
+  const doInstall = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await ensureInitialized();
+
+      console.log('[SkillController] Installing skill from market:', skillId);
+
+      // 1. 获取技能安装信息（pass onOutput for progress feedback）
+      const downloadResult = await skillMarket.downloadSkill(skillId, (data) => {
+        onOutput?.(data);
+      });
+
+      if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
+        const error = downloadResult.error || 'Failed to download skill';
+        onOutput?.({ type: 'error', content: error });
+        return { success: false, error };
+      }
+
+      console.log('[SkillController] Skill info:', {
+        remoteRepo: downloadResult.remoteRepo,
+        skillName: downloadResult.skillName,
+      });
+
+      // 2. 根据 sourceType 选择安装方式
+      const { remoteRepo: repo, skillName, sourceType } = downloadResult;
+
+      // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
+      // skillName is remotePath (e.g., "Inference/ais-bench"), pass as knownDirPath
+      // to skip the redundant findSkillDirectoryPath call.
+      if (sourceType === 'gitcode') {
+        return installSkillFromSource(
+          repo!,
+          skillName!,
+          GITCODE_ADAPTER,
+          onOutput,
+          signal,
+          skillName!,
+        );
+      }
+
+      // GitHub / skills.sh: npx 安装 + GitHub fallback
+      const { spawn } = await import('child_process');
+
+      const command = 'npx';
+      const args = [
+        '--yes',
+        'skills',
+        'add',
+        `https://github.com/${repo}`,
+        '--skill',
+        skillName,
+        '-y',
+        '--global',
+      ];
+
+      const fullCommand = `${command} ${args.join(' ')}`;
+      console.log('[SkillController] Executing command:', fullCommand);
+      onOutput?.({ type: 'stdout', content: `$ ${fullCommand}\n` });
+
+      return new Promise((resolve) => {
+        const childProcess = spawn(command, args, {
+          env: { ...process.env },
+          timeout: 120000, // 2 分钟超时
+          shell: true, // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
+        });
+
+        let hasError = false;
+
+        childProcess.stdout?.on('data', (data: Buffer) => {
+          const content = data.toString();
+          console.log('[SkillController] stdout:', content);
+          onOutput?.({ type: 'stdout', content });
+        });
+
+        childProcess.stderr?.on('data', (data: Buffer) => {
+          const content = data.toString();
+          // 忽略 npm 警告
+          if (!content.toLowerCase().includes('npm warn')) {
+            console.warn('[SkillController] stderr:', content);
+            onOutput?.({ type: 'stderr', content });
+          }
+        });
+
+        childProcess.on('error', (error: Error) => {
+          console.error('[SkillController] Process error:', error);
+          hasError = true;
+          const msg = error.message;
+          onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
+          // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
+          onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
+          installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
+            .then(resolve)
+            .catch(() => resolve({ success: false, error: msg }));
+        });
+
+        childProcess.on('close', async (code: number) => {
+          console.log('[SkillController] Process exited with code:', code);
+
+          if (code === 0 && !hasError) {
+            onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
+
+            try {
+              await skillManager.refresh();
+            } catch (refreshError) {
+              console.warn('[SkillController] Failed to refresh skills:', refreshError);
+            }
+
+            resolve({ success: true });
+          } else {
+            // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
+            onOutput?.({
+              type: 'stdout',
+              content: '\n--- Fallback: downloading from GitHub ---\n',
+            });
+            const result = await installSkillFromSource(
+              repo!,
+              skillName!,
+              GITHUB_ADAPTER,
+              onOutput,
+            );
+            if (result.success) {
+              resolve({ success: true });
+            } else {
+              onOutput?.({ type: 'error', content: `\n✗ Both npx and GitHub download failed.\n` });
+              resolve({ success: false, error: result.error });
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('[SkillController] Failed to install skill:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to install skill';
+      onOutput?.({ type: 'error', content: errorMessage });
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  // Apply overall timeout — abort all pending API requests on timeout
+  return new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      const msg = 'Installation timed out (60s). Please check your network and try again.';
+      console.warn('[SkillController]', msg, '- aborting pending requests');
+      abortController.abort();
+      onOutput?.({ type: 'error', content: msg });
+      resolve({ success: false, error: msg });
+    }, INSTALL_TIMEOUT);
+
+    doInstall().then((result) => {
+      clearTimeout(timeoutId);
+      resolve(result);
+    });
+  });
+}
+
+/**
+ * Install skill from market using pre-fetched download result (avoids duplicate downloadSkill).
+ * Used by installSkillMultiTarget to prevent calling downloadSkill twice.
+ */
+async function installSkillFromMarketWithInfo(
+  skillId: string,
+  downloadResult: Awaited<ReturnType<SkillMarketService['downloadSkill']>>,
+  onOutput?: (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => void,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; error?: string }> {
   try {
     await ensureInitialized();
-
-    console.log('[SkillController] Installing skill from market:', skillId);
-
-    // 1. 获取技能安装信息
-    const downloadResult = await skillMarket.downloadSkill(skillId);
 
     if (!downloadResult.success || !downloadResult.remoteRepo || !downloadResult.skillName) {
       const error = downloadResult.error || 'Failed to download skill';
@@ -259,23 +441,22 @@ export async function installSkillFromMarket(
       return { success: false, error };
     }
 
-    console.log('[SkillController] Skill info:', {
-      remoteRepo: downloadResult.remoteRepo,
-      skillName: downloadResult.skillName,
-    });
-
-    // 2. 根据 sourceType 选择安装方式
     const { remoteRepo: repo, skillName, sourceType } = downloadResult;
 
-    // GitCode: 跳过 npx（npx 只支持 GitHub），直接通过 GitCode API 下载
     if (sourceType === 'gitcode') {
-      return installSkillFromSource(repo!, skillName!, GITCODE_ADAPTER, onOutput);
+      return installSkillFromSource(
+        repo!,
+        skillName!,
+        GITCODE_ADAPTER,
+        onOutput,
+        signal,
+        skillName!,
+      );
     }
 
-    // GitHub / skills.sh: npx 安装 + GitHub fallback
+    // GitHub / skills.sh: npx install + fallback
     const { spawn } = await import('child_process');
 
-    const command = 'npx';
     const args = [
       '--yes',
       'skills',
@@ -287,74 +468,52 @@ export async function installSkillFromMarket(
       '--global',
     ];
 
-    const fullCommand = `${command} ${args.join(' ')}`;
-    console.log('[SkillController] Executing command:', fullCommand);
-    onOutput?.({ type: 'stdout', content: `$ ${fullCommand}\n` });
+    onOutput?.({ type: 'stdout', content: `$ npx ${args.join(' ')}\n` });
 
     return new Promise((resolve) => {
-      const childProcess = spawn(command, args, {
+      const child = spawn('npx', args, {
         env: { ...process.env },
-        timeout: 120000, // 2 分钟超时
-        shell: true, // Windows 上 npx 是 .cmd 文件，需要 shell 才能执行
+        timeout: 120_000,
+        shell: true,
       });
 
-      let hasError = false;
-
-      childProcess.stdout?.on('data', (data: Buffer) => {
-        const content = data.toString();
-        console.log('[SkillController] stdout:', content);
-        onOutput?.({ type: 'stdout', content });
+      child.stdout?.on('data', (d: Buffer) =>
+        onOutput?.({ type: 'stdout', content: d.toString() }),
+      );
+      child.stderr?.on('data', (d: Buffer) => {
+        const s = d.toString();
+        if (!s.toLowerCase().includes('npm warn')) onOutput?.({ type: 'stderr', content: s });
       });
 
-      childProcess.stderr?.on('data', (data: Buffer) => {
-        const content = data.toString();
-        // 忽略 npm 警告
-        if (!content.toLowerCase().includes('npm warn')) {
-          console.warn('[SkillController] stderr:', content);
-          onOutput?.({ type: 'stderr', content });
-        }
-      });
-
-      childProcess.on('error', (error: Error) => {
-        console.error('[SkillController] Process error:', error);
-        hasError = true;
-        const msg = error.message;
-        onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
-        // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
+      child.on('error', (error: Error) => {
+        onOutput?.({ type: 'stderr', content: `\n✗ ${error.message}\n` });
         onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-        installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
+        installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput, signal)
           .then(resolve)
-          .catch(() => resolve({ success: false, error: msg }));
+          .catch(() => resolve({ success: false, error: error.message }));
       });
 
-      childProcess.on('close', async (code: number) => {
-        console.log('[SkillController] Process exited with code:', code);
-
-        if (code === 0 && !hasError) {
+      child.on('close', async (code: number) => {
+        if (code === 0) {
           onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
-
           try {
             await skillManager.refresh();
-          } catch (refreshError) {
-            console.warn('[SkillController] Failed to refresh skills:', refreshError);
-          }
-
+          } catch {}
           resolve({ success: true });
         } else {
-          // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
           onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
-          const result = await installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput);
-          if (result.success) {
-            resolve({ success: true });
-          } else {
-            onOutput?.({ type: 'error', content: `\n✗ Both npx and GitHub download failed.\n` });
-            resolve({ success: false, error: result.error });
-          }
+          const result = await installSkillFromSource(
+            repo!,
+            skillName!,
+            GITHUB_ADAPTER,
+            onOutput,
+            signal,
+          );
+          resolve(result.success ? { success: true } : { success: false, error: result.error });
         }
       });
     });
   } catch (error) {
-    console.error('[SkillController] Failed to install skill:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to install skill';
     onOutput?.({ type: 'error', content: errorMessage });
     return { success: false, error: errorMessage };
@@ -400,38 +559,56 @@ export async function installSkillMultiTarget(
   ) => void,
 ): Promise<{ results: Record<string, { success: boolean; error?: string }> }> {
   const results: Record<string, { success: boolean; error?: string }> = {};
+  const INSTALL_TIMEOUT = 120_000;
+  const abortController = new AbortController();
+  const signal = abortController.signal;
 
-  // Step 1: Get skill info from market (needed for remote install)
-  let remoteRepo: string | undefined;
-  let skillName: string | undefined;
+  // Step 1: Get skill info once (shared by all targets)
+  let downloadResult: Awaited<ReturnType<SkillMarketService['downloadSkill']>>;
 
   try {
     await ensureInitialized();
-    const downloadResult = await skillMarket.downloadSkill(skillId);
-    if (downloadResult.success && downloadResult.remoteRepo && downloadResult.skillName) {
-      remoteRepo = downloadResult.remoteRepo;
-      skillName = downloadResult.skillName;
-    }
+    downloadResult = await skillMarket.downloadSkill(skillId);
   } catch (e) {
     console.warn('[SkillController] Failed to download skill info for multi-target install:', e);
+    downloadResult = {
+      success: false,
+      sourceType: 'skills.sh' as const,
+      error: 'Failed to get skill info',
+    };
   }
+
+  const timeoutId = setTimeout(() => {
+    console.warn(
+      '[SkillController] Multi-target install timed out (60s), aborting pending requests',
+    );
+    abortController.abort();
+  }, INSTALL_TIMEOUT);
 
   // Step 2: Execute installations in parallel
   const tasks = targets.map(async (target) => {
     const key = target.type === 'local' ? 'local' : `remote:${target.serverId}`;
 
     if (target.type === 'local') {
-      // Local install - use existing market install logic
+      // Local install — use pre-fetched download result to avoid duplicate API calls
       const localOnOutput = onOutput
         ? (data: { type: 'stdout' | 'stderr' | 'complete' | 'error'; content: string }) => {
             onOutput(key, data);
           }
         : undefined;
 
-      const result = await installSkillFromMarket(skillId, localOnOutput);
+      const result = await installSkillFromMarketWithInfo(
+        skillId,
+        downloadResult,
+        localOnOutput,
+        signal,
+      );
       results[key] = result;
     } else {
       // Remote install
+      const remoteRepo = downloadResult.success ? downloadResult.remoteRepo : undefined;
+      const skillName = downloadResult.success ? downloadResult.skillName : undefined;
+
       if (!remoteRepo || !skillName) {
         onOutput?.(key, {
           type: 'error',
@@ -454,6 +631,7 @@ export async function installSkillMultiTarget(
           remoteRepo,
           skillName,
           remoteOnOutput,
+          { sourceType: downloadResult.sourceType },
         );
         results[key] = result;
       } catch (error) {
@@ -465,6 +643,7 @@ export async function installSkillMultiTarget(
   });
 
   await Promise.all(tasks);
+  clearTimeout(timeoutId);
 
   // Refresh local skills if local was a target
   if (targets.some((t) => t.type === 'local')) {
@@ -518,6 +697,19 @@ export async function uninstallSkillMultiTarget(
           remoteOnOutput,
         );
         results[key] = result;
+
+        // Restart proxy if uninstall succeeded so it reloads skill list
+        if (result.success) {
+          try {
+            await remoteDeployService.restartAgentIfRunning(target.serverId, remoteOnOutput);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            onOutput?.(key, {
+              type: 'stderr',
+              content: `[remote] Warning: proxy restart failed (${msg}). Skills may not take effect until next proxy restart.\n`,
+            });
+          }
+        }
       } catch (error) {
         const err = error instanceof Error ? error.message : 'Remote uninstall failed';
         onOutput?.(key, { type: 'error', content: `[remote] ${err}\n` });
@@ -796,8 +988,17 @@ export async function setActiveMarketSource(sourceId: string) {
 }
 
 export async function getMarketSkillDetail(skillId: string) {
+  const DETAIL_TIMEOUT_MS = 30_000;
   try {
-    const skill = await skillMarket.getSkillDetail(skillId);
+    const skill = await Promise.race([
+      skillMarket.getSkillDetail(skillId),
+      new Promise<null>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Skill detail fetch timed out (30s)')),
+          DETAIL_TIMEOUT_MS,
+        ),
+      ),
+    ]);
     if (!skill) {
       return { success: false, error: 'Skill not found' };
     }
@@ -1547,7 +1748,7 @@ export async function pushSkillToGitHub(
     }
 
     // Get GitHub token
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     if (!token) {
       return {
         success: false,
@@ -1589,7 +1790,7 @@ export async function validateGitHubRepo(repo: string): Promise<{
   error?: string;
 }> {
   try {
-    const token = await githubSkillSource.getGitHubToken();
+    const token = githubSkillSource.getGitHubToken();
     const result = await githubSkillSource.validateRepo(repo, token);
     return { success: true, data: result };
   } catch (error: any) {
