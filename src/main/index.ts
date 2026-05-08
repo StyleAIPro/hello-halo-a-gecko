@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import log from 'electron-log/main.js';
-import { initLogger } from './services/log';
+import { initLogger, createLogResolvePath } from './services/log';
 
 // ESM compat shims — electron-vite bundles main process as ESM where
 // CJS globals (__dirname, __filename, require) are not available natively.
@@ -34,7 +34,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // Initialize logging system (configures electron-log transports + console replacement)
 initLogger({
-  logDir: isDev ? join(homedir(), '.aico-bot-dev', 'logs') : '',
+  logDir: isDev ? join(homedir(), '.aico-bot-dev', 'app-logs') : '',
   isDev,
 });
 
@@ -459,9 +459,9 @@ app.whenReady().then(async () => {
 
   // Set production log directory (app.getPath requires app ready)
   if (!isDev) {
-    log.transports.file.resolvePathFn = () => {
-      return join(app.getPath('userData'), 'logs');
-    };
+    log.transports.file.resolvePathFn = createLogResolvePath(
+      join(app.getPath('userData'), 'app-logs')
+    );
   }
 
   // Initialize health system instance ID (synchronous, <1ms)
