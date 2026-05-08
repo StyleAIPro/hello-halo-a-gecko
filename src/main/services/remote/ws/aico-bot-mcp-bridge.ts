@@ -17,7 +17,7 @@
 
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { buildAllTools as buildAiBrowserTools } from '../../ai-browser/sdk-mcp-server';
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '../../log';
 
 const log = createLogger('mcp-bridge');
 import { browserContext } from '../../ai-browser/context';

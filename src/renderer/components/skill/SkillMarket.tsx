@@ -11,6 +11,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useSkillStore } from '../../stores/skill/skill.store';
+import { useAppStore } from '../../stores/app.store';
 import { useTranslation } from '../../i18n';
 import {
   Search,
@@ -30,6 +31,7 @@ import {
   Plus,
   Settings,
   ChevronDown,
+  AlertTriangle,
 } from 'lucide-react';
 import type { RemoteSkillItem, SkillMarketSource } from '../../../shared/skill/skill-types';
 import { api } from '../../api';
@@ -58,6 +60,25 @@ interface InstallOutput {
   targetKey: string;
 }
 
+type ErrorGuidance = 'pat-github' | 'pat-gitcode' | 'network' | null;
+
+function classifySkillMarketError(errorMessage: string | null, sourceType?: string): ErrorGuidance {
+  if (!errorMessage) return null;
+  const lower = errorMessage.toLowerCase();
+  if (lower.includes('pat') && (lower.includes('github') || lower.includes('github')))
+    return 'pat-github';
+  if (lower.includes('pat') && lower.includes('gitcode')) return 'pat-gitcode';
+  if (
+    lower.includes('personal access token') &&
+    (sourceType === 'github' || lower.includes('github'))
+  )
+    return 'pat-github';
+  if (lower.includes('personal access token') && sourceType === 'gitcode') return 'pat-gitcode';
+  if (lower.includes('network') || lower.includes('proxy') || lower.includes('econn'))
+    return 'network';
+  return null;
+}
+
 interface ServerInfo {
   id: string;
   name: string;
@@ -78,6 +99,7 @@ interface EnvStatus {
 
 export function SkillMarket() {
   const { t } = useTranslation();
+  const setView = useAppStore((s) => s.setView);
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirm();
   const {
     installedSkills,
@@ -94,6 +116,14 @@ export function SkillMarket() {
 
   // 选中的技能
   const [selectedSkill, setSelectedSkill] = useState<RemoteSkillItem | null>(null);
+
+  // PAT 配置状态
+  const [patStatus, setPatStatus] = useState<{ github: boolean; gitcode: boolean } | null>(null);
+
+  // 网络代理配置状态
+  const [proxyStatus, setProxyStatus] = useState<{ enabled: boolean; proxyUrl: string } | null>(
+    null,
+  );
 
   // 搜索查询
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,6 +192,16 @@ export function SkillMarket() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // 主动检测 PAT 和代理配置状态
+  useEffect(() => {
+    api.skillMarketPatStatus().then((result) => {
+      if (result.success && result.data) setPatStatus(result.data);
+    });
+    api.skillNetworkProxyStatus().then((result) => {
+      if (result.success && result.data) setProxyStatus(result.data);
+    });
+  }, []);
 
   // 当搜索词切换时重置
   useEffect(() => {
@@ -780,34 +820,119 @@ export function SkillMarket() {
             </div>
           </div>
 
-          {/* 技能列表 - 无限滚动 */}
-          <div
-            ref={scrollContainerRef}
-            onScroll={handleScroll}
-            className="flex-1 overflow-y-auto p-3"
-          >
-            {loadError && skills.length === 0 && !loading ? (
-              <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                <X className="w-12 h-12 mb-4 opacity-50 text-destructive" />
-                <p className="text-destructive mb-1">{loadError}</p>
+        {/* 技能列表 - 无限滚动 */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-3"
+        >
+          {/* Proactive PAT warning (before any error) */}
+          {!loadError && activeSource?.type === 'github' && patStatus?.github === false && (
+            <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                  {t('skill.pat.proactiveWarning', { source: 'GitHub' })}
+                </p>
                 <button
-                  onClick={() => loadSkills(1, true)}
-                  className="text-sm text-primary hover:underline mt-2"
+                  onClick={() => setView('settings')}
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-yellow-600 dark:text-yellow-400 hover:underline"
                 >
-                  {t('Retry')}
+                  <Settings className="w-3.5 h-3.5" />
+                  {t('Go to Settings')}
                 </button>
               </div>
-            ) : skills.length === 0 && !loading ? (
-              <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                <Store className="w-12 h-12 mb-4 opacity-50" />
-                <p>{t('No skills found')}</p>
+            </div>
+          )}
+          {!loadError && activeSource?.type === 'gitcode' && patStatus?.gitcode === false && (
+            <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                  {t('skill.pat.proactiveWarning', { source: 'GitCode' })}
+                </p>
+                <button
+                  onClick={() => setView('settings')}
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-yellow-600 dark:text-yellow-400 hover:underline"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  {t('Go to Settings')}
+                </button>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {skills.map((skill) => {
-                  const appId = extractAppId(skill.id);
-                  const installedTargets = getInstalledTargets(appId);
-                  const isInstalled = installedTargets.length > 0;
+            </div>
+          )}
+          {/* Error guidance banner */}
+          {(() => {
+            const guidance = classifySkillMarketError(loadError, activeSource?.type);
+            if (!guidance) return null;
+
+            const settingsLabel = t('Go to Settings');
+
+            // Network error: show dedicated proxy guidance
+            if (guidance === 'network') {
+              const isProxyConfigured = proxyStatus?.enabled;
+              const bannerMessage = isProxyConfigured
+                ? t('skill.network.proxyFailed')
+                : t('skill.network.proxyNotConfigured');
+              return (
+                <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400">{bannerMessage}</p>
+                    <button
+                      onClick={() => setView('settings')}
+                      className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-yellow-600 dark:text-yellow-400 hover:underline"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      {t('skill.network.goToNetworkSettings')}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            // PAT error: use existing behavior
+            return (
+              <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                    {loadError?.split('\n\n')[0]}
+                  </p>
+                  <button
+                    onClick={() => setView('settings')}
+                    className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-yellow-600 dark:text-yellow-400 hover:underline"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    {settingsLabel}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {loadError && skills.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
+              <X className="w-12 h-12 mb-4 opacity-50 text-destructive" />
+              <p className="text-destructive mb-1">{loadError}</p>
+              <button
+                onClick={() => loadSkills(1, true)}
+                className="text-sm text-primary hover:underline mt-2"
+              >
+                {t('Retry')}
+              </button>
+            </div>
+          ) : skills.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
+              <Store className="w-12 h-12 mb-4 opacity-50" />
+              <p>{t('No skills found')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {skills.map((skill) => {
+                const appId = extractAppId(skill.id);
+                const installedTargets = getInstalledTargets(appId);
+                const isInstalled = installedTargets.length > 0;
 
                   return (
                     <div

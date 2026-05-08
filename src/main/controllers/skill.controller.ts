@@ -106,6 +106,15 @@ async function installSkillFromSource(
   onOutput?.({ type: 'stdout', content: `Downloading directly from ${adapter.sourceLabel}...\n` });
 
   const token = await adapter.getToken();
+  if (!token) {
+    const sourceLabel = adapter.sourceLabel || 'source';
+    const errorMsg =
+      `${sourceLabel} PAT 未配置，无法安装技能。请前往 设置 > ${sourceLabel} 配置 Personal Access Token。\n\n` +
+      `${sourceLabel} PAT not configured. Cannot install skill. Please go to Settings > ${sourceLabel} to configure your Personal Access Token.`;
+    onOutput?.({ type: 'error', content: `  ${errorMsg}\n` });
+    return { success: false, error: errorMsg };
+  }
+
   if (token) {
     onOutput?.({
       type: 'stdout',
@@ -357,6 +366,17 @@ export async function installSkillFromMarket(
           const msg = error.message;
           onOutput?.({ type: 'stderr', content: `\n✗ ${msg}\n` });
           // npx not found 或其他启动错误 -> fallback 到 GitHub 下载
+          const fallbackToken = githubSkillSource.getGitHubToken();
+          if (!fallbackToken) {
+            onOutput?.({
+              type: 'error',
+              content:
+                '\n✗ GitHub PAT 未配置，无法下载技能。请前往 设置 > GitHub 配置。\n\n' +
+                'GitHub PAT not configured. Cannot download skill. Please go to Settings > GitHub.\n',
+            });
+            resolve({ success: false, error: 'GitHub PAT not configured' });
+            return;
+          }
           onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
           installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput)
             .then(resolve)
@@ -378,6 +398,17 @@ export async function installSkillFromMarket(
             resolve({ success: true });
           } else {
             // npx 执行失败（非 0 退出码） -> fallback 到 GitHub 下载
+            const fallbackToken = githubSkillSource.getGitHubToken();
+            if (!fallbackToken) {
+              onOutput?.({
+                type: 'error',
+                content:
+                  '\n✗ GitHub PAT 未配置，无法下载技能。请前往 设置 > GitHub 配置。\n\n' +
+                  'GitHub PAT not configured. Cannot download skill. Please go to Settings > GitHub.\n',
+              });
+              resolve({ success: false, error: 'GitHub PAT not configured' });
+              return;
+            }
             onOutput?.({
               type: 'stdout',
               content: '\n--- Fallback: downloading from GitHub ---\n',
@@ -487,6 +518,17 @@ async function installSkillFromMarketWithInfo(
 
       child.on('error', (error: Error) => {
         onOutput?.({ type: 'stderr', content: `\n✗ ${error.message}\n` });
+        const fallbackToken = githubSkillSource.getGitHubToken();
+        if (!fallbackToken) {
+          onOutput?.({
+            type: 'error',
+            content:
+              '\n✗ GitHub PAT 未配置，无法下载技能。请前往 设置 > GitHub 配置。\n\n' +
+              'GitHub PAT not configured. Cannot download skill. Please go to Settings > GitHub.\n',
+          });
+          resolve({ success: false, error: 'GitHub PAT not configured' });
+          return;
+        }
         onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
         installSkillFromSource(repo!, skillName!, GITHUB_ADAPTER, onOutput, signal)
           .then(resolve)
@@ -501,6 +543,17 @@ async function installSkillFromMarketWithInfo(
           } catch {}
           resolve({ success: true });
         } else {
+          const fallbackToken = githubSkillSource.getGitHubToken();
+          if (!fallbackToken) {
+            onOutput?.({
+              type: 'error',
+              content:
+                '\n✗ GitHub PAT 未配置，无法下载技能。请前往 设置 > GitHub 配置。\n\n' +
+                'GitHub PAT not configured. Cannot download skill. Please go to Settings > GitHub.\n',
+            });
+            resolve({ success: false, error: 'GitHub PAT not configured' });
+            return;
+          }
           onOutput?.({ type: 'stdout', content: '\n--- Fallback: downloading from GitHub ---\n' });
           const result = await installSkillFromSource(
             repo!,

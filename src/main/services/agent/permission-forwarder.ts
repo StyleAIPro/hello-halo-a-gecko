@@ -16,7 +16,7 @@
  * @module permission-forwarder
  */
 
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import { mailboxService } from './mailbox';
 
 const log = createLogger('permission-forwarder');

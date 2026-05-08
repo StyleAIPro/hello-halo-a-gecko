@@ -41,7 +41,7 @@ import {
   setMainWindow,
 } from './helpers';
 import { buildSystemPromptWithAIBrowser } from './system-prompt';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import {
   getOrCreateV2Session,
   closeV2Session,
