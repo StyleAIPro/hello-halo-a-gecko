@@ -46,6 +46,7 @@ export async function execGh(
     const result = await execAsync(`"${ghBin}" ${args}`, {
       timeout,
       maxBuffer: 10 * 1024 * 1024,
+      env: token ? { ...process.env, GH_TOKEN: token } : process.env,
     });
     return result;
   } catch (error: any) {
@@ -81,6 +82,7 @@ async function ghApiDirect(
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'AICO-Bot',
   };
 
   let apiUrl = '';

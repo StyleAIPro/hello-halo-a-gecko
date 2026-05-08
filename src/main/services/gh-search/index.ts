@@ -57,6 +57,7 @@ export async function checkGhCliStatus(): Promise<GhSearchAuthStatus> {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'AICO-Bot',
     };
     try {
       const resp = await proxyFetch('https://api.github.com/user', {
@@ -155,10 +156,6 @@ export const GH_SEARCH_SYSTEM_PROMPT = `
 ## GitHub Search
 
 You have access to GitHub search and view capabilities via the MCP server "gh-search". This provides native GitHub operations without requiring browser automation.
-
-### Prerequisites
-- A GitHub Personal Access Token must be configured in Settings > GitHub
-- GitHub CLI (gh) is optional — if searches fail, suggest the user configure a GitHub token in Settings
 
 ### Search Tools (prefix: mcp__gh-search__)
 

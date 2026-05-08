@@ -66,15 +66,14 @@ export async function listRemoteSkills(service: RemoteDeployService, id: string)
     'done',
   ].join('\n');
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] Listing skills on ${server.name}, executing batch command...`,
   );
   const result = await manager.executeCommandFull(batchCmd);
-  console.log(
+  console.debug(
     `[RemoteDeployService] Batch command result: exitCode=${result.exitCode}, stdoutLen=${result.stdout.length}, stderrLen=${result.stderr.length}`,
   );
   const stdout = result.stdout.trim();
-  console.log(`[RemoteDeployService] Raw stdout (first 500 chars): ${stdout.substring(0, 500)}`);
 
   if (!stdout) return [];
 
@@ -161,7 +160,7 @@ export async function listRemoteSkills(service: RemoteDeployService, id: string)
         });
       }
     } catch (e) {
-      console.warn(
+      console.debug(
         `[RemoteDeployService] Failed to parse skill content for remote skill: ${skillId}`,
         e,
       );
@@ -208,13 +207,13 @@ export async function listRemoteSkillFiles(service: RemoteDeployService, id: str
     'done',
   ].join('\n');
 
-  console.log(`[RemoteDeployService] Listing files for remote skill: ${skillId}`);
+  console.debug(`[RemoteDeployService] Listing files for remote skill: ${skillId}`);
   const result = await manager.executeCommandFull(cmd);
-  console.log(
+  console.debug(
     `[RemoteDeployService] File list exitCode=${result.exitCode}, stdoutLen=${result.stdout.length}, stderr=${result.stderr.substring(0, 200)}`,
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
-    console.log(`[RemoteDeployService] No files found for skill: ${skillId}`);
+    console.debug(`[RemoteDeployService] No files found for skill: ${skillId}`);
     return [];
   }
 
@@ -701,13 +700,12 @@ export async function syncLocalSkillToRemote(
     const remoteSkillDir = `${remoteHome}/.agents/skills/${skillId}`;
     await manager.executeCommand(`mkdir -p ${remoteSkillDir}`);
 
-    // Upload each file via base64 encoding
+    // Upload each file via SFTP (binary-safe, no command length limit)
     for (const file of files) {
       const remotePath = `${remoteSkillDir}/${file.relativePath}`;
       const remoteDir = path.dirname(remotePath);
       await manager.executeCommand(`mkdir -p '${remoteDir}'`);
-      const base64Content = Buffer.from(file.content).toString('base64');
-      await manager.executeCommand(`echo "${base64Content}" | base64 -d > '${remotePath}'`);
+      await manager.writeFile(remotePath, Buffer.from(file.content));
       onOutput?.({ type: 'stdout', content: `  ✓ ${file.relativePath}\n` });
     }
 
