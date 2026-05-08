@@ -4,7 +4,7 @@
  * Routes tasks to NPU servers based on selector expressions and load.
  */
 
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '../../log';
 import type { NpuServer, AcquireWorkersRequest } from '../../../../shared/types/cluster';
 
 const log = createLogger('server-router');

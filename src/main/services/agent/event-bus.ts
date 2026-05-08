@@ -12,7 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../log';
 import type { PipelineEvent } from '../../../shared/types/pipeline';
 import type { ClusterEvent } from '../../../shared/types/cluster';
 

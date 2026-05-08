@@ -6,7 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '../../log';
 import { eventBus } from '../event-bus';
 import { clusterManager } from '../cluster/cluster-manager';
 import { PipelineExecution } from './pipeline-execution';

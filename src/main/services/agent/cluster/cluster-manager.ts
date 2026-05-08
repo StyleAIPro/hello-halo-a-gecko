@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getSpacesDir } from '../../config.service';
-import { createLogger } from '../../../utils/logger';
+import { createLogger } from '../../log';
 import { eventBus } from '../event-bus';
 import { serverRouter } from './server-router';
 import type {
