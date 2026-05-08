@@ -5,7 +5,7 @@
 > 指令人：moonseeker
 > 归属模块：modules/main/services (gh-search, skill, agent)
 > 严重程度：High
-> 状态：done
+> 状态：in-progress
 > 关联 PRD：`.project/prd/bugfix/github/github-auth-proxy-fix-v1.md`
 
 ## 问题描述

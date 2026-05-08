@@ -20,7 +20,7 @@ import {
 } from '../agent/helpers';
 import { getMainWindow } from '../window.service';
 import { resolveCredentialsForSdk, buildBaseSdkOptions } from '../agent/sdk-config';
-import { getOrCreateSkillSpace } from '../space.service';
+import { getOrCreateSkillSpace, getSkillSpaceId } from '../space.service';
 import {
   createConversation,
   getConversation,
@@ -62,7 +62,7 @@ export interface SkillConversationSession {
 // Constants
 // ============================================
 
-const SKILL_SPACE_ID = 'aico-bot-skill-creator';
+const SKILL_SPACE_ID = getSkillSpaceId();
 
 // 活跃的 SDK 会话和流
 const activeSdkSessions = new Map<string, any>();

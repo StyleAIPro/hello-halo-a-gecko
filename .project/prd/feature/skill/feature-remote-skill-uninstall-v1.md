@@ -1,6 +1,6 @@
 ---
 时间: 2026-05-04
-状态: done
+状态: in-progress
 指令人: @moonseeker1
 PRD 级别: feature
 ---

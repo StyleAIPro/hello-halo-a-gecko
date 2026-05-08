@@ -12,7 +12,6 @@ import { getConfig, saveConfig } from '../../config.service';
 import type { RemoteServer } from '../../../../shared/types';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
-import { isOfflineBundleAvailable } from './agent-deployer';
 import type { RemoteDeployService } from './remote-deploy.service';
 
 // Re-export types needed by this module (consumed via barrel)
@@ -209,26 +208,14 @@ export async function addServer(
         await service.updateServer(id, { status: 'deploying' });
 
         try {
-          // Deploy code (and SDK) — prefer offline bundle when available
-          if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
-            const platform = (service as any).servers.get(id)?.detectedArch as
-              | 'x64'
-              | 'arm64'
-              | undefined;
-            if (platform && isOfflineBundleAvailable(service, platform)) {
-              console.log(`[RemoteDeployService] Using offline deployment for ${server.name} (${platform})`);
-              await service.deployAgentCodeOffline(id);
-            } else {
-              console.log(`[RemoteDeployService] Using online deployment for ${server.name}`);
-              // Deploy SDK if needed
-              if (!sdkOk) {
-                await service.deployAgentSDK(id);
-              }
-              // Deploy code if needed
-              if (!deployCheck.filesOk || deployCheck.needsUpdate) {
-                await service.deployAgentCode(id);
-              }
-            }
+          // Deploy SDK if needed
+          if (!sdkOk) {
+            await service.deployAgentSDK(id);
+          }
+
+          // Deploy code if needed
+          if (!deployCheck.filesOk || deployCheck.needsUpdate) {
+            await service.deployAgentCode(id);
           }
 
           await service.updateServer(id, { status: 'connected' });
