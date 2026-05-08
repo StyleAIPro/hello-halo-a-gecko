@@ -107,14 +107,14 @@ export class SSHManager {
         this.config.port === config.port &&
         this.config.username === config.username
       ) {
-        console.log('[SSHManager] Already connected to same server');
+        console.debug('[SSHManager] Already connected to same server');
         return;
       }
     }
 
     // Clean up existing connection
     if (this.client) {
-      console.log('[SSHManager] Cleaning up existing connection...');
+      console.debug('[SSHManager] Cleaning up existing connection...');
       this._ready = false;
       try {
         this.client.end();
@@ -168,7 +168,7 @@ export class SSHManager {
         connectionConfig.password = config.password;
       }
 
-      console.log('[SSHManager] Connecting with basic config');
+      console.debug('[SSHManager] Connecting with basic config');
       this.client.connect(connectionConfig);
     });
   }
@@ -183,7 +183,7 @@ export class SSHManager {
         throw new Error('Not connected');
       }
 
-      console.log(`[SSHManager] Executing command: ${command}`);
+      console.debug(`[SSHManager] Executing command: ${command}`);
 
       const commandPromise = new Promise<string>((resolve, reject) => {
         this.client!.exec(command, (err, stream) => {
@@ -204,8 +204,8 @@ export class SSHManager {
           });
 
           stream.on('close', (code: number | null) => {
-            console.log(`[SSHManager] Command completed with exit code: ${code}`);
             if (code !== 0 && code !== null) {
+              console.log(`[SSHManager] Command completed with exit code: ${code}`);
               reject(new Error(`Command failed with exit code ${code}: ${stderr}`));
             } else {
               resolve(stdout);
@@ -236,7 +236,7 @@ export class SSHManager {
         throw new Error('Not connected');
       }
 
-      console.log(`[SSHManager] Executing command (full): ${command}`);
+      console.debug(`[SSHManager] Executing command (full): ${command}`);
 
       const commandPromise = new Promise<SSHExecuteResult>((resolve, reject) => {
         this.client!.exec(command, (err, stream) => {
@@ -257,7 +257,11 @@ export class SSHManager {
           });
 
           stream.on('close', (code: number | null) => {
-            console.log(`[SSHManager] Command completed with exit code: ${code}`);
+            if (code === 0) {
+              console.debug(`[SSHManager] Command completed with exit code: ${code}`);
+            } else {
+              console.log(`[SSHManager] Command completed with exit code: ${code}`);
+            }
             resolve({ stdout, stderr, exitCode: code });
           });
 
@@ -288,7 +292,7 @@ export class SSHManager {
         throw new Error('Not connected');
       }
 
-      console.log(`[SSHManager] Executing command (streaming): ${command}`);
+      console.debug(`[SSHManager] Executing command (streaming): ${command}`);
 
       // Assigned inside exec callback, used by withTimeout for cleanup
       let streamRef: Parameters<typeof this.withTimeout>[3];
@@ -317,7 +321,7 @@ export class SSHManager {
           });
 
           stream.on('close', (code: number | null) => {
-            console.log(`[SSHManager] Streaming command completed with exit code: ${code}`);
+            console.debug(`[SSHManager] Streaming command completed with exit code: ${code}`);
             resolve({ stdout, stderr, exitCode: code });
           });
 
@@ -351,8 +355,30 @@ export class SSHManager {
           return reject(err);
         }
         this.sftp = sftp;
-        console.log('[SSHManager] SFTP initialized');
+        console.debug('[SSHManager] SFTP initialized');
         resolve();
+      });
+    });
+  }
+
+  /**
+   * Write a buffer directly to a remote file via SFTP.
+   * Binary-safe, no command length limit, no shell escaping issues.
+   */
+  async writeFile(remotePath: string, data: Buffer): Promise<void> {
+    return this.withLock(async () => {
+      await this.initSFTP();
+      return new Promise<void>((resolve, reject) => {
+        const stream = this.sftp!.createWriteStream(remotePath, { mode: 0o644 });
+        stream.on('error', (err: Error) => {
+          console.error(`[SSHManager] SFTP write error for ${remotePath}:`, err);
+          reject(err);
+        });
+        stream.on('close', () => {
+          console.debug(`[SSHManager] SFTP write completed: ${remotePath}`);
+          resolve();
+        });
+        stream.end(data);
       });
     });
   }
@@ -450,7 +476,7 @@ export class SSHManager {
 
     // Check if we already have a server on this port
     if (this.localForwardServers.has(localPort)) {
-      console.log(`[SSHManager] Local port forward already exists on ${localPort}`);
+      console.debug(`[SSHManager] Local port forward already exists on ${localPort}`);
       return;
     }
 
