@@ -34,6 +34,7 @@ import { getConversation, getMessageThoughts, updateLastMessage } from '../conve
 import { extractFileChangesSummaryFromThoughts } from '../../../shared/file-changes';
 import type { Thought } from './types';
 import { mailboxService } from './mailbox';
+import { eventBus } from './event-bus';
 import { taskboardService } from './taskboard';
 
 // ============================================
@@ -365,6 +366,20 @@ class AgentOrchestrator extends EventEmitter {
       agent.currentTaskId = undefined;
       throw error;
     }
+  }
+
+  /**
+   * Start a pipeline execution for a Hyper Space.
+   * Entry point for cluster-scale DAG-based operations.
+   */
+  async startPipeline(
+    spaceId: string,
+    spec: import('../../../shared/types/pipeline').PipelineSpec,
+  ): Promise<string> {
+    const { pipelineEngine } = await import('./pipeline/pipeline-engine');
+    const pipelineId = await pipelineEngine.startPipeline(spec);
+    log.info(`Pipeline started: ${spec.name} (${pipelineId}) for space ${spaceId}`);
+    return pipelineId;
   }
 
   /**
