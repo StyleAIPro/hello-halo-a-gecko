@@ -167,7 +167,7 @@ class ClusterManager {
   private startHeartbeatCheck(): void {
     this.heartbeatTimer = setInterval(() => {
       const now = Date.now();
-      for (const [serverId, server] of this.servers) {
+      for (const [serverId, server] of Array.from(this.servers)) {
         const missed = this.missedHeartbeats.get(serverId) || 0;
         const elapsed = now - server.connection.lastHeartbeat;
 
@@ -188,7 +188,7 @@ class ClusterManager {
   private startCleanup(): void {
     this.cleanupTimer = setInterval(() => {
       const now = Date.now();
-      for (const [serverId, server] of this.servers) {
+      for (const [serverId, server] of Array.from(this.servers)) {
         if (server.status === 'error' && now - server.connection.lastHeartbeat > CLEANUP_INTERVAL) {
           server.status = 'offline';
           this.emitEvent({ type: 'server:offline', serverId });

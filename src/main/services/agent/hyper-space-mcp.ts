@@ -23,6 +23,7 @@
 import { z } from 'zod';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { agentOrchestrator } from './orchestrator';
+import type { AgentInstance } from './orchestrator';
 import { taskboardService } from './taskboard';
 import { getRemoteDeployService } from '../../ipc/remote-server';
 import type { SubagentAnnouncement } from '../../../shared/types/hyper-space';
@@ -163,7 +164,7 @@ function createCheckSubagentStatusTool(spaceId: string, conversationId: string) 
           `Task Status: ${task.status}\n` +
           `Task ID: ${task.id}\n` +
           `Agent: ${task.agentId}\n` +
-          `Started: ${new Date(task.startedAt).toISOString()}`;
+          `Started: ${task.startedAt ? new Date(task.startedAt).toISOString() : 'N/A'}`;
 
         if (task.status === 'completed' && task.result) {
           result += `\n\nResult:\n${task.result}`;
@@ -700,12 +701,12 @@ function createSendMessageTool(spaceId: string, conversationId: string) {
         }
 
         // Find recipient agent
-        let recipientAgent = team.leader;
+        let recipientAgent: AgentInstance | undefined = team.leader;
         if (params.recipient !== 'leader' && params.recipient !== team.leader.id) {
           recipientAgent =
             team.workers.find(
               (w) => w.id === params.recipient || w.config.name === params.recipient,
-            ) || null;
+            );
         }
 
         if (!recipientAgent) {

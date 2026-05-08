@@ -201,12 +201,11 @@ export class PipelineExecution {
     const anyFailed = stageTasks.some((t) => t.status === 'failed');
     const stageStatus: StageStatus = anyFailed ? 'failed' : 'completed';
     this.state.stages.set(stageId, stageStatus);
-    this.emit({
-      type: stageStatus === 'completed' ? 'stage:completed' : 'stage:failed',
-      pipelineId: this.id,
-      stageId,
-      ...(stageStatus === 'failed' ? { error: 'One or more tasks failed' } : {}),
-    });
+    if (stageStatus === 'completed') {
+      this.emit({ type: 'stage:completed', pipelineId: this.id, stageId });
+    } else {
+      this.emit({ type: 'stage:failed', pipelineId: this.id, stageId, error: 'One or more tasks failed' });
+    }
 
     const outgoingEdges = this.spec.edges.filter((e) => e.from === stageId);
     for (const edge of outgoingEdges) {
@@ -248,7 +247,7 @@ export class PipelineExecution {
     for (let i = stageIdx; i < this.spec.stages.length; i++) {
       const id = this.spec.stages[i].id;
       this.state.stages.set(id, 'pending');
-      for (const [taskId, task] of this.state.tasks) {
+      for (const [taskId, task] of Array.from(this.state.tasks)) {
         if (task.stageId === id) {
           this.state.tasks.delete(taskId);
         }
@@ -266,11 +265,11 @@ export class PipelineExecution {
     const anyFailed = Array.from(this.state.stages.values()).some((s) => s === 'failed');
     this.state.status = anyFailed ? 'failed' : 'completed';
     this.state.completedAt = Date.now();
-    this.emit({
-      type: anyFailed ? 'pipeline:failed' : 'pipeline:completed',
-      pipelineId: this.id,
-      ...(anyFailed ? { error: 'One or more stages failed' } : {}),
-    });
+    if (anyFailed) {
+      this.emit({ type: 'pipeline:failed', pipelineId: this.id, error: 'One or more stages failed' });
+    } else {
+      this.emit({ type: 'pipeline:completed', pipelineId: this.id });
+    }
     log.info(`Pipeline ${this.state.status}: ${this.spec.name}`);
   }
 

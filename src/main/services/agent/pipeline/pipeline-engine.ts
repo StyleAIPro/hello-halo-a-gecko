@@ -13,9 +13,9 @@ import { PipelineExecution } from './pipeline-execution';
 import type {
   PipelineSpec,
   PipelineTask,
-  TaskResultReport,
   PipelineEvent,
 } from '../../../../shared/types/pipeline';
+import type { TaskResultReport } from '../event-bus';
 import type { AcquireWorkersRequest, NpuServer } from '../../../../shared/types/cluster';
 
 const log = createLogger('pipeline-engine');
@@ -175,7 +175,7 @@ class PipelineEngine {
   private resolvePrompt(template: string, variables: Record<string, unknown>): string {
     let result = template;
     for (const [key, value] of Object.entries(variables)) {
-      result = result.replaceAll(`{{${key}}}`, String(value));
+      result = result.split(`{{${key}}}`).join(String(value));
     }
     return result;
   }
