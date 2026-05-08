@@ -114,6 +114,11 @@ export interface BaseSdkOptionsParams {
   agentName?: string;
   /** Additional tools to disallow (merged with the default disallowedTools list) */
   additionalDisallowedTools?: string[];
+  /** GitHub search environment status for dynamic system prompt */
+  ghSearchStatus?: {
+    patConfigured: boolean;
+    proxyEnabled: boolean;
+  };
 }
 
 // ============================================
@@ -319,7 +324,7 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
           const targetPath = path.join(targetDir, entry.name);
           try {
             unlinkSync(targetPath);
-            console.log(`[SDK Config] Removed stale skill link: ${entry.name}`);
+            console.debug(`[SDK Config] Removed stale skill link: ${entry.name}`);
           } catch {
             // ignore
           }
@@ -341,7 +346,7 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
     }
     try {
       symlinkSync(sourcePath, targetPath, 'junction');
-      console.log(`[SDK Config] Linked skill: ${name} -> ${sourcePath}`);
+      console.debug(`[SDK Config] Linked skill: ${name} -> ${sourcePath}`);
     } catch (err) {
       console.warn(`[SDK Config] Failed to link skill ${name}:`, err);
     }
@@ -466,7 +471,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
       if (!existsSync(configSkillsDir)) {
         // First time: create a real directory and link each skill individually
         mkdirSync(configSkillsDir, { recursive: true });
-        console.log('[SDK Config] Created skills directory:', configSkillsDir);
+        console.debug('[SDK Config] Created skills directory:', configSkillsDir);
       }
 
       // If configSkillsDir is a junction (legacy), remove it and recreate as real dir
@@ -475,7 +480,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
         try {
           unlinkSync(configSkillsDir);
           mkdirSync(configSkillsDir, { recursive: true });
-          console.log('[SDK Config] Replaced legacy junction with directory:', configSkillsDir);
+          console.debug('[SDK Config] Replaced legacy junction with directory:', configSkillsDir);
         } catch (err) {
           console.warn('[SDK Config] Failed to replace legacy junction:', err);
         }
@@ -497,7 +502,7 @@ export function buildSdkEnv(params: SdkEnvParams): Record<string, string | numbe
       if (!existsSync(dotClaudeSkillsDir)) {
         try {
           symlinkSync(configSkillsDir, dotClaudeSkillsDir, 'junction');
-          console.log('[SDK Config] Created .claude/skills junction ->', configSkillsDir);
+          console.debug('[SDK Config] Created .claude/skills junction ->', configSkillsDir);
         } catch (err) {
           console.warn('[SDK Config] Failed to create .claude/skills junction:', err);
         }
@@ -607,7 +612,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // Use SDK's 'claude_code' preset (includes skills injection) with AICO-Bot customizations appended
     systemPrompt: {
       type: 'preset' as const,
-      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel }),
+      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel, ghSearchStatus: params.ghSearchStatus }),
     },
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],

@@ -50,6 +50,11 @@ export interface SystemPromptContext {
   isGitRepo?: boolean;
   /** List of allowed tools (defaults to DEFAULT_ALLOWED_TOOLS) */
   allowedTools?: readonly string[];
+  /** GitHub search environment status for dynamic system prompt */
+  ghSearchStatus?: {
+    patConfigured: boolean;
+    proxyEnabled: boolean;
+  };
 }
 
 // ============================================
@@ -206,7 +211,7 @@ Today's date: \${TODAY}
 
 You have built-in GitHub capabilities via the MCP server "gh-search". Use these tools to search and view GitHub resources.
 
-**Prerequisites:** A GitHub Personal Access Token must be configured in Settings > GitHub. GitHub CLI (gh) is optional.
+\${GH_SEARCH_STATUS}
 
 **Search Tools (prefix: mcp__gh-search__):**
 - \`gh_search_repos\` - Search repositories (supports stars, language, topic filters; sort: stars, forks, help-wanted-issues, updated)
@@ -228,6 +233,47 @@ Example: Search for popular TypeScript CLI tools: \`mcp__gh-search__gh_search_re
 // ============================================
 // Dynamic System Prompt Builder
 // ============================================
+
+/**
+ * Build the GitHub Search status section for the system prompt.
+ * Dynamically reflects PAT and proxy configuration so the LLM knows
+ * the actual environment state and can give accurate guidance.
+ */
+function buildGhSearchStatus(
+  status?: { patConfigured: boolean; proxyEnabled: boolean },
+): string {
+  if (!status) {
+    return '**Prerequisites:** A GitHub Personal Access Token must be configured in Settings > GitHub. GitHub CLI (gh) is optional.';
+  }
+
+  if (!status.patConfigured) {
+    return [
+      '**Prerequisites:** GitHub PAT is NOT configured.',
+      'To use GitHub search tools, ask the user to configure a GitHub Personal Access Token in Settings > GitHub.',
+      'GitHub CLI (gh) is optional.',
+    ].join('\n');
+  }
+
+  if (status.proxyEnabled) {
+    return [
+      '**Environment:**',
+      '- GitHub PAT: configured',
+      '- Network proxy: enabled',
+      '- GitHub CLI (gh): optional',
+      '',
+      'GitHub search tools authenticate via the configured PAT and route through the network proxy. These tools should work normally.',
+      'If a gh-search tool fails with a network or proxy error, do NOT ask the user to configure a GitHub PAT — it is already configured. Suggest the user check their network proxy settings or retry the request.',
+    ].join('\n');
+  }
+
+  return [
+    '**Environment:**',
+    '- GitHub PAT: configured',
+    '- Network proxy: not enabled (direct connection)',
+    '',
+    'GitHub search tools authenticate via the configured PAT. If tools fail with network errors, the user may need to enable a network proxy in Settings.',
+  ].join('\n');
+}
 
 /**
  * Build the complete system prompt with dynamic context.
@@ -253,7 +299,8 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
     .replace(/\${PLATFORM}/g, platform)
     .replace(/\${OS_VERSION}/g, osVersion)
     .replace(/\${TODAY}/g, today)
-    .replace(/\${MODEL_INFO}/g, safeModelInfo);
+    .replace(/\${MODEL_INFO}/g, safeModelInfo)
+    .replace(/\${GH_SEARCH_STATUS}/g, buildGhSearchStatus(ctx.ghSearchStatus));
 }
 
 /**
