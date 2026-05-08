@@ -915,7 +915,7 @@ export async function detectAgentInstalled(service: RemoteDeployService, id: str
     service.emitDeployProgress(id, 'detect', 'Checking SDK installation...', 60);
     const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
     const stdout = result.stdout.trim();
-    const installed =
+    let installed =
       stdout.includes('@anthropic-ai/claude-agent-sdk') && !stdout.includes('NOT_INSTALLED');
 
     let version: string | undefined;

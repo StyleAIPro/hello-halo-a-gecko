@@ -316,6 +316,7 @@ export interface V2SessionInfo {
   config: SessionConfig
   configGeneration: number  // For config change detection
   mcpToolSignature?: string  // Sorted tool names hash for MCP bridge change detection
+  interrupted?: boolean  // Set when stream was aborted — session may be corrupted, skip reuse
 }
 
 /**
@@ -641,6 +642,8 @@ export class ClaudeManager {
   private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
   // Pending messages queue — stores messages for sessions with active streams
   private pendingMessages: Map<string, Array<{content: string, options?: any}>> = new Map()
+  // Timeout for first event from stream — detects corrupted sessions that hang
+  private static readonly FIRST_EVENT_TIMEOUT_MS = 30_000
 
   // Configuration
   private apiKey?: string
@@ -1264,6 +1267,20 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${conversationId}] Session closed flag set, recreating...`)
         this.cleanupSession(conversationId, 'session closed')
         // Fall through to create new session (without resume — closed sessions can't resume)
+      } else if (existing.interrupted && !(existing.session as any).closed && isSessionTransportReady(existing.session)) {
+        // Session was interrupted but transport is alive — try reuse with first-event timeout.
+        // If session.stream() is corrupted (mid-tool-call), the timeout in streamChat
+        // will abort and trigger a rebuild. This preserves context when the session is healthy.
+        console.log(`[ClaudeManager][${conversationId}] Session was interrupted but transport alive, attempting reuse with safety timeout...`)
+        existing.lastUsedAt = Date.now()
+        // Clear the interrupted flag so next getOrCreateSession doesn't see stale state
+        existing.interrupted = false
+        return existing.session
+      } else if (existing.interrupted) {
+        // Session interrupted AND transport dead — must rebuild
+        console.log(`[ClaudeManager][${conversationId}] Session interrupted with dead transport, rebuilding...`)
+        this.cleanupSession(conversationId, 'session interrupted - dead transport')
+        // Fall through to create new session
       } else if (effectiveResumeId) {
         // OPTIMIZATION: Try to reuse existing session on resume instead of always
         // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
@@ -1291,16 +1308,26 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session for resume (will rebuild on failure)`)
         return existing.session
       } else {
-        // Check if config has changed
-        const currentConfig = this.getCurrentConfig()
-        const needsRebuild = needsSessionRebuild(existing, currentConfig)
+        // Build expected config from current request parameters (including per-request credentials).
+        // In remote proxy mode, credentials are always per-request (never set on the manager),
+        // so getCurrentConfig() returns undefined for model/apiKey/baseUrl. Comparing stored
+        // config against getCurrentConfig() would always mismatch and trigger unnecessary rebuilds.
+        // Instead, we compare stored config against what the current request would store.
+        const requestConfig: SessionConfig = {
+          ...this.getCurrentConfig(),
+          workDir: effectiveWorkDir,
+          ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
+          ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
+          ...(credentials?.model ? { model: credentials.model } : {}),
+        }
+        const needsRebuild = needsSessionRebuild(existing, requestConfig)
         const configChanged = existing.configGeneration !== this.configGeneration
 
         // Debug: Log config comparison
         if (needsRebuild || configChanged) {
           console.log(`[ClaudeManager][${conversationId}] Config check - needsRebuild: ${needsRebuild}, configChanged: ${configChanged}`)
           console.log(`[ClaudeManager][${conversationId}] Existing config:`, JSON.stringify(existing.config))
-          console.log(`[ClaudeManager][${conversationId}] Current config:`, JSON.stringify(currentConfig))
+          console.log(`[ClaudeManager][${conversationId}] Request config:`, JSON.stringify(requestConfig))
           console.log(`[ClaudeManager][${conversationId}] Config generations - existing: ${existing.configGeneration}, current: ${this.configGeneration}`)
         }
 
@@ -1317,6 +1344,9 @@ export class ClaudeManager {
           // Fall through to create new session
         } else {
           // Session is healthy and config matches, reuse it
+          // Update stored config to reflect current request parameters
+          existing.config = requestConfig
+          existing.configGeneration = this.configGeneration
           console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session`)
           existing.lastUsedAt = Date.now()
           return existing.session
@@ -1836,6 +1866,11 @@ export class ClaudeManager {
 
     // Track whether the stream ended abnormally (interrupt/abort)
     let wasAborted = false
+    // For first-event safety timeout (declared outside try so finally can access)
+    let firstEventTimer: ReturnType<typeof setTimeout> | undefined
+    const sessionInfo = this.sessions.get(sessionId)
+    let eventCount = 0
+    let textCount = 0
 
     try {
       // CRITICAL: Only send the LAST user message!
@@ -1873,8 +1908,16 @@ export class ClaudeManager {
       await session.send(lastMessage.content)
 
       console.log(`[ClaudeManager] Starting stream for session ${sessionId}...`)
-      let eventCount = 0
-      let textCount = 0
+
+      // First-event safety timeout: if no event arrives within N seconds,
+      // the session is likely corrupted (mid-tool-call hang). Abort and let caller rebuild.
+      const isFirstEventTimeout = sessionInfo?.interrupted ? ClaudeManager.FIRST_EVENT_TIMEOUT_MS : 0
+      if (isFirstEventTimeout > 0) {
+        firstEventTimer = setTimeout(() => {
+          console.warn(`[ClaudeManager][${sessionId}] No event in ${isFirstEventTimeout / 1000}s — session likely corrupted, aborting`)
+          abortController.abort()
+        }, isFirstEventTimeout)
+      }
 
       // Wrap session.stream() with interrupt-aware iterator
       // This allows forceful exit when SDK stream is blocked
@@ -2508,10 +2551,28 @@ export class ClaudeManager {
           break
         }
       }
+      // First event arrived — cancel safety timeout
+      if (firstEventTimer) {
+        clearTimeout(firstEventTimer)
+        firstEventTimer = undefined
+      }
     } catch (error) {
+      // Clean up first-event timer on any error
+      if (firstEventTimer) {
+        clearTimeout(firstEventTimer)
+        firstEventTimer = undefined
+      }
+
       // Check if this is an expected abort/interrupt
       const errorMsg = error instanceof Error ? error.message : String(error)
       if (errorMsg === 'Stream aborted' || errorMsg === 'Stream interrupted') {
+        // Check if this was caused by first-event timeout (session corruption)
+        if (sessionInfo?.interrupted && eventCount === 0) {
+          console.warn(`[ClaudeManager][${sessionId}] First-event timeout triggered — session is corrupted, cleaning up for rebuild`)
+          this.cleanupSession(sessionId, 'first-event timeout - session corrupted')
+          // Throw a recognizable error so server.ts retries without resume
+          throw new Error('SESSION_CORRUPTED: stream hung, needs rebuild')
+        }
         // Expected interrupt — mark as aborted for cleanup, then exit gracefully
         wasAborted = true
         console.log(`[ClaudeManager][${sessionId}] Stream stopped: ${errorMsg}`)
@@ -2724,6 +2785,13 @@ export class ClaudeManager {
    */
   markAsInterrupted(conversationId: string): void {
     this.interruptedSessions.add(conversationId)
+    // Mark session info so getOrCreateSession() skips reuse
+    // An aborted stream can leave the SDK session in a corrupted state
+    // (e.g. mid-tool-call), causing session.stream() to hang indefinitely.
+    const sessionInfo = this.sessions.get(conversationId)
+    if (sessionInfo) {
+      sessionInfo.interrupted = true
+    }
     console.log(`[ClaudeManager][${conversationId}] Marked as interrupted`)
   }
 
