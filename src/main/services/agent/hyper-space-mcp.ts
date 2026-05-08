@@ -468,6 +468,114 @@ function createAskQuestionTool(
   );
 }
 
+// ============================================
+// Pipeline Tool Factories
+// ============================================
+
+/**
+ * Create report_result tool
+ * Enhanced version of announce_completion for Pipeline Engine integration.
+ */
+function createReportResultTool(spaceId: string, conversationId: string) {
+  return tool(
+    'report_result',
+    'Report the result of your assigned pipeline task. ' +
+      'Use this when you have completed (or failed) your task to submit results, metrics, and artifact paths. ' +
+      'This replaces announce_completion for pipeline-based workflows.',
+    {
+      stageId: z.string().describe('The pipeline stage ID this task belongs to'),
+      taskId: z.string().describe('Your assigned task ID'),
+      status: z.enum(['completed', 'failed']).describe('Task completion status'),
+      result: z.string().optional().describe('Result summary or output data'),
+      error: z.string().optional().describe('Error message if failed'),
+      artifacts: z
+        .array(z.string())
+        .optional()
+        .describe('Paths to output artifacts (model files, logs, etc.)'),
+    },
+    async (params: {
+      stageId: string;
+      taskId: string;
+      status: 'completed' | 'failed';
+      result?: string;
+      error?: string;
+      artifacts?: string[];
+    }) => {
+      try {
+        const { eventBus } = await import('./event-bus');
+        eventBus.reportTaskResult({
+          stageId: params.stageId,
+          taskId: params.taskId,
+          agentId: conversationId,
+          status: params.status,
+          result: params.result,
+          error: params.error,
+          artifacts: params.artifacts,
+        });
+
+        // Also update legacy orchestrator for backward compatibility
+        const task = agentOrchestrator.getTask(params.taskId);
+        if (task) {
+          const announcement: SubagentAnnouncement = {
+            type: 'agent:announce',
+            taskId: params.taskId,
+            agentId: task.agentId,
+            status: params.status,
+            result: params.result,
+            summary: params.result ? params.result.substring(0, 200) : undefined,
+            timestamp: Date.now(),
+          };
+          await agentOrchestrator.sendAnnouncement(announcement);
+        }
+
+        return textResult(
+          `Result reported successfully.\nStage: ${params.stageId}\nTask: ${params.taskId}\nStatus: ${params.status}`,
+        );
+      } catch (e) {
+        return textResult(`Error reporting result: ${(e as Error).message}`, true);
+      }
+    },
+  );
+}
+
+/**
+ * Create report_status tool
+ * Periodic status reporting from agents (progress, GPU utilization, metrics).
+ */
+function createReportStatusTool(spaceId: string, conversationId: string) {
+  return tool(
+    'report_status',
+    'Report your current execution status including progress, resource utilization, and metrics. ' +
+      'Call this periodically during long-running tasks (e.g., model training) to provide real-time updates.',
+    {
+      progress: z.number().min(0).max(1).describe('Task progress from 0 to 1'),
+      gpuUtilization: z.number().optional().describe('GPU utilization percentage (0-100)'),
+      metrics: z.record(z.unknown()).optional().describe('Custom metrics (e.g., { loss: 0.05, epoch: 3 })'),
+      logTail: z.string().optional().describe('Last few lines of log output'),
+    },
+    async (params: {
+      progress: number;
+      gpuUtilization?: number;
+      metrics?: Record<string, unknown>;
+      logTail?: string;
+    }) => {
+      try {
+        const { eventBus } = await import('./event-bus');
+        eventBus.reportAgentStatus({
+          agentId: conversationId,
+          progress: params.progress,
+          gpuUtilization: params.gpuUtilization,
+          metrics: params.metrics,
+          logTail: params.logTail,
+        });
+        return textResult('Status reported.');
+      } catch (e) {
+        return textResult(`Error reporting status: ${(e as Error).message}`, true);
+      }
+    },
+  );
+}
+
 /**
  * Create list_team_members tool
  * List all agents in the current Hyper Space team
@@ -886,6 +994,9 @@ function buildLeaderTools(spaceId: string, conversationId: string) {
     createListTasksTool(spaceId),
     createClaimTaskTool(spaceId, conversationId),
 
+    // Pipeline monitoring
+    createReportStatusTool(spaceId, conversationId),
+
     // Communication tools
     createSendMessageTool(spaceId, conversationId),
     createBroadcastMessageTool(spaceId, conversationId),
@@ -904,6 +1015,10 @@ function buildWorkerTools(
   return [
     // Completion reporting (WORKER ONLY)
     createAnnounceCompletionTool(spaceId, conversationId),
+
+    // Pipeline tools
+    createReportResultTool(spaceId, conversationId),
+    createReportStatusTool(spaceId, conversationId),
 
     // Intermediate reporting (WORKER ONLY)
     createReportToLeaderTool(spaceId, conversationId, workerId, workerName),
