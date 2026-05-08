@@ -3037,6 +3037,83 @@ export const api = {
     });
   },
 
+  // ============================================
+  // Hyper Space Pipeline & Cluster API
+  // ============================================
+
+  hyperSpace: {
+    // Pipeline Engine
+    startPipeline: async (spaceId: string, pipelineId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.startPipeline(spaceId, pipelineId);
+      }
+      return httpRequest('POST', `/api/hyper-space/${spaceId}/pipeline/${pipelineId}/start`);
+    },
+
+    cancelPipeline: async (spaceId: string, pipelineId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.cancelPipeline(spaceId, pipelineId);
+      }
+      return httpRequest('POST', `/api/hyper-space/${spaceId}/pipeline/${pipelineId}/cancel`);
+    },
+
+    getPipelineState: async (spaceId: string, pipelineId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.getPipelineState(spaceId, pipelineId);
+      }
+      return httpRequest('GET', `/api/hyper-space/${spaceId}/pipeline/${pipelineId}/state`);
+    },
+
+    // Cluster Manager
+    registerServer: async (spaceId: string, serverInfo: Record<string, unknown>): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.registerServer(spaceId, serverInfo);
+      }
+      return httpRequest('POST', `/api/hyper-space/${spaceId}/cluster/servers`, serverInfo);
+    },
+
+    unregisterServer: async (spaceId: string, serverId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.unregisterServer(spaceId, serverId);
+      }
+      return httpRequest('DELETE', `/api/hyper-space/${spaceId}/cluster/servers/${serverId}`);
+    },
+
+    getServers: async (spaceId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.getServers(spaceId);
+      }
+      return httpRequest('GET', `/api/hyper-space/${spaceId}/cluster/servers`);
+    },
+
+    saveCluster: async (spaceId: string, config: Record<string, unknown>): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.saveCluster(spaceId, config);
+      }
+      return httpRequest('POST', `/api/hyper-space/${spaceId}/cluster/save`, config);
+    },
+
+    loadCluster: async (spaceId: string): Promise<ApiResponse> => {
+      if (isElectron()) {
+        return window.aicoBot.loadCluster(spaceId);
+      }
+      return httpRequest('GET', `/api/hyper-space/${spaceId}/cluster/load`);
+    },
+
+    // Pipeline & Cluster event listeners
+    onPipelineEvent: (callback: (data: unknown) => void): (() => void) => {
+      return onEvent('hyper-space:pipeline-event', callback);
+    },
+
+    onClusterEvent: (callback: (data: unknown) => void): (() => void) => {
+      return onEvent('hyper-space:cluster-event', callback);
+    },
+
+    onAgentStatus: (callback: (data: unknown) => void): (() => void) => {
+      return onEvent('hyper-space:agent-status', callback);
+    },
+  },
+
   /**
    * Listen to Hyper Space progress events
    */

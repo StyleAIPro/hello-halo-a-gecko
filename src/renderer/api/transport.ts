@@ -322,6 +322,10 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'remote-server:deploy-progress': 'onRemoteServerDeployProgress',
       'remote-server:update-complete': 'onRemoteServerUpdateComplete',
       'skill:market:fetch-progress': 'onSkillMarketFetchProgress',
+      // Hyper Space Pipeline & Cluster events
+      'hyper-space:pipeline-event': 'onPipelineEvent',
+      'hyper-space:cluster-event': 'onClusterEvent',
+      'hyper-space:agent-status': 'onAgentStatus',
     };
 
     const method = methodMap[channel];

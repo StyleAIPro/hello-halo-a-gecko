@@ -714,6 +714,23 @@ export interface AicoBotAPI {
   removeAgentFromHyperSpace: (spaceId: string, agentId: string) => Promise<IpcResponse>;
   updateHyperSpaceConfig: (spaceId: string, config: any) => Promise<IpcResponse>;
   getHyperSpaceTasks: (conversationId: string) => Promise<IpcResponse<{ tasks: any[] }>>;
+
+  // Pipeline Engine API
+  startPipeline: (spaceId: string, pipelineId: string) => Promise<IpcResponse>;
+  cancelPipeline: (spaceId: string, pipelineId: string) => Promise<IpcResponse>;
+  getPipelineState: (spaceId: string, pipelineId: string) => Promise<IpcResponse>;
+
+  // Cluster Manager API
+  registerServer: (spaceId: string, serverInfo: any) => Promise<IpcResponse>;
+  unregisterServer: (spaceId: string, serverId: string) => Promise<IpcResponse>;
+  getServers: (spaceId: string) => Promise<IpcResponse>;
+  saveCluster: (spaceId: string, config: any) => Promise<IpcResponse>;
+  loadCluster: (spaceId: string) => Promise<IpcResponse>;
+
+  // Pipeline & Cluster Events
+  onPipelineEvent: (callback: (data: unknown) => void) => () => void;
+  onClusterEvent: (callback: (data: unknown) => void) => () => void;
+  onAgentStatus: (callback: (data: unknown) => void) => () => void;
 }
 
 interface IpcResponse<T = unknown> {
@@ -1319,6 +1336,24 @@ const api: AicoBotAPI = {
     ipcRenderer.invoke('hyper-space:get-tasks', conversationId),
   getHyperSpaceMembers: (spaceId) => ipcRenderer.invoke('hyper-space:get-members', spaceId),
 
+  // Pipeline Engine API
+  startPipeline: (spaceId, pipelineId) =>
+    ipcRenderer.invoke('hyper-space:start-pipeline', spaceId, pipelineId),
+  cancelPipeline: (spaceId, pipelineId) =>
+    ipcRenderer.invoke('hyper-space:cancel-pipeline', spaceId, pipelineId),
+  getPipelineState: (spaceId, pipelineId) =>
+    ipcRenderer.invoke('hyper-space:get-pipeline-state', spaceId, pipelineId),
+
+  // Cluster Manager API
+  registerServer: (spaceId, serverInfo) =>
+    ipcRenderer.invoke('hyper-space:register-server', spaceId, serverInfo),
+  unregisterServer: (spaceId, serverId) =>
+    ipcRenderer.invoke('hyper-space:unregister-server', spaceId, serverId),
+  getServers: (spaceId) => ipcRenderer.invoke('hyper-space:get-servers', spaceId),
+  saveCluster: (spaceId, config) =>
+    ipcRenderer.invoke('hyper-space:save-cluster', spaceId, config),
+  loadCluster: (spaceId) => ipcRenderer.invoke('hyper-space:load-cluster', spaceId),
+
   // TaskBoard API
   getTaskBoard: (spaceId) => ipcRenderer.invoke('hyper-space:get-taskboard', spaceId),
   postTask: (spaceId, input) => ipcRenderer.invoke('hyper-space:post-task', spaceId, input),
@@ -1340,6 +1375,11 @@ const api: AicoBotAPI = {
       requestId,
       approved,
     ),
+
+  // Pipeline & Cluster Events
+  onPipelineEvent: (callback) => createEventListener('hyper-space:pipeline-event', callback),
+  onClusterEvent: (callback) => createEventListener('hyper-space:cluster-event', callback),
+  onAgentStatus: (callback) => createEventListener('hyper-space:agent-status', callback),
 };
 
 contextBridge.exposeInMainWorld('aicoBot', api);
