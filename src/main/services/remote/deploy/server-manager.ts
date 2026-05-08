@@ -75,7 +75,7 @@ export function loadServers(service: RemoteDeployService): void {
     });
   }
 
-  console.log(`[RemoteDeployService] Loaded ${(service as any).servers.size} servers from config`);
+  console.debug(`[RemoteDeployService] Loaded ${(service as any).servers.size} servers from config`);
 }
 
 /**
@@ -96,7 +96,7 @@ export async function saveServers(service: RemoteDeployService): Promise<void> {
     remoteServers: serverList,
   });
 
-  console.log(`[RemoteDeployService] Saved ${serverList.length} servers to config`);
+  console.debug(`[RemoteDeployService] Saved ${serverList.length} servers to config`);
 }
 
 /**
@@ -122,7 +122,7 @@ export async function addServer(
   config: import('./remote-deploy.service').RemoteServerConfigInput,
 ): Promise<string> {
   const id = generateId(service);
-  console.log('[RemoteDeployService] addServer - Input:', JSON.stringify(config));
+  console.debug('[RemoteDeployService] addServer - Input:', JSON.stringify(config));
 
   // Compute machine identity for per-PC isolation (dev vs packaged)
   const clientId = getClientId(app.isPackaged ? 'packaged' : 'dev');
@@ -147,7 +147,7 @@ export async function addServer(
     deployPath: `/opt/claude-deployment-${clientId}`,
   };
 
-  console.log(
+  console.debug(
     '[RemoteDeployService] addServer - Server object before save:',
     JSON.stringify(server),
   );
@@ -156,8 +156,8 @@ export async function addServer(
   await saveServers(service);
 
   const shared = toSharedConfig(service, server);
-  console.log('[RemoteDeployService] addServer - Shared config:', JSON.stringify(shared));
-  console.log(`[RemoteDeployService] Added server: ${server.name} (${id})`);
+  console.debug('[RemoteDeployService] addServer - Shared config:', JSON.stringify(shared));
+  console.debug(`[RemoteDeployService] Added server: ${server.name} (${id})`);
 
   service.emitDeployProgress(id, 'ssh', 'Establishing SSH connection...', 10);
 
@@ -165,7 +165,7 @@ export async function addServer(
   // Deployment is handled separately via "Update Agent" button
   try {
     await service.connectServer(id);
-    console.log(
+    console.debug(
       `[RemoteDeployService] Server ${server.name} connected (deployment skipped - use Update Agent)`,
     );
 
@@ -176,21 +176,21 @@ export async function addServer(
       try {
         const assignedPort = await resolvePort(manager, clientId);
         await service.updateServer(id, { assignedPort });
-        console.log(`[RemoteDeployService] Assigned port ${assignedPort} for client ${clientId}`);
+        console.debug(`[RemoteDeployService] Assigned port ${assignedPort} for client ${clientId}`);
       } catch (portError) {
-        console.warn(`[RemoteDeployService] Port resolution failed:`, portError);
+        console.debug(`[RemoteDeployService] Port resolution failed:`, portError);
       }
     }
 
     // After SSH is connected, detect existing agent status (SDK + proxy)
     try {
-      console.log(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`);
+      console.debug(`[RemoteDeployService] Auto-detecting existing agent on ${server.name}...`);
       service.emitDeployProgress(id, 'detect', 'Detecting remote agent...', 55);
 
       const deployCheck = await service.checkDeployFilesIntegrity(id);
       const sdkOk = await (service as any).checkRemoteSdkVersion(id);
 
-      console.log(
+      console.debug(
         `[RemoteDeployService] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
       );
 
@@ -203,7 +203,7 @@ export async function addServer(
         const reasonMsg = reasons.join(', ');
 
         service.emitDeployProgress(id, 'deploy', `Deploying (${reasonMsg})...`, 60);
-        console.log(`[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`);
+        console.debug(`[RemoteDeployService] Auto-deploying agent on ${server.name}: ${reasonMsg}`);
 
         await service.updateServer(id, { status: 'deploying' });
 
@@ -224,7 +224,7 @@ export async function addServer(
           await (service as any).verifyProxyHealth(id);
 
           service.emitDeployProgress(id, 'complete', 'Server added and agent deployed', 100);
-          console.log(`[RemoteDeployService] Auto-deploy completed for ${server.name}`);
+          console.debug(`[RemoteDeployService] Auto-deploy completed for ${server.name}`);
         } catch (deployError) {
           console.error(
             `[RemoteDeployService] Auto-deploy failed for ${server.name}:`,
@@ -247,7 +247,7 @@ export async function addServer(
         if (currentServer?.proxyRunning && currentServer.assignedPort) {
           // Proxy running -- restart to sync new authToken
           service.emitDeployProgress(id, 'restart', 'Restarting proxy with new credentials...', 90);
-          console.log(
+          console.debug(
             `[RemoteDeployService] Proxy is running on ${server.name}, restarting to sync new auth token...`,
           );
 
@@ -255,9 +255,9 @@ export async function addServer(
             await service.stopAgent(id);
             await service.startAgent(id);
             await (service as any).verifyProxyHealth(id);
-            console.log(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
+            console.debug(`[RemoteDeployService] Proxy restarted successfully on ${server.name}`);
           } catch (restartError) {
-            console.warn(
+            console.debug(
               `[RemoteDeployService] Failed to restart proxy on ${server.name}:`,
               restartError,
             );
@@ -268,9 +268,9 @@ export async function addServer(
           try {
             await service.startAgent(id);
             await (service as any).verifyProxyHealth(id);
-            console.log(`[RemoteDeployService] Proxy started on ${server.name}`);
+            console.debug(`[RemoteDeployService] Proxy started on ${server.name}`);
           } catch (startError) {
-            console.warn(
+            console.debug(
               `[RemoteDeployService] Failed to start proxy on ${server.name}:`,
               startError,
             );
@@ -281,7 +281,7 @@ export async function addServer(
       }
     } catch (detectError) {
       // Detection failure should not block the server addition
-      console.warn(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError);
+      console.debug(`[RemoteDeployService] Auto-detect failed for ${server.name}:`, detectError);
       service.emitDeployProgress(id, 'complete', 'Server added (detection failed)', 100);
     }
 
@@ -352,7 +352,7 @@ export async function updateServer(
           password: newPassword,
         },
       };
-      console.log(`[RemoteDeployService] Updating password for server ${server.name}`);
+      console.debug(`[RemoteDeployService] Updating password for server ${server.name}`);
     } else {
       // Empty or missing password: preserve original, update other ssh fields
       processedUpdates = {
@@ -365,7 +365,7 @@ export async function updateServer(
           password: originalPassword, // Preserve original
         },
       };
-      console.log(`[RemoteDeployService] Preserving original password for server ${server.name}`);
+      console.debug(`[RemoteDeployService] Preserving original password for server ${server.name}`);
     }
     // Remove flat fields that are now in ssh
     delete processedUpdates.password;
@@ -381,7 +381,7 @@ export async function updateServer(
         ...updates.ssh,
         password: originalPassword,
       };
-      console.log(
+      console.debug(
         `[RemoteDeployService] Preserving original password for server ${server.name} (ssh.password)`,
       );
     }
@@ -424,7 +424,7 @@ export async function updateServerAiSource(
     claudeModel,
   });
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] Updated AI source for server ${server.name}: ${source.name} (${claudeModel})`,
   );
 }
@@ -457,7 +457,7 @@ export async function updateServerModel(
     claudeModel: model,
   });
 
-  console.log(`[RemoteDeployService] Updated model for server ${server.name}: ${model}`);
+  console.debug(`[RemoteDeployService] Updated model for server ${server.name}: ${model}`);
 }
 
 /**
@@ -469,7 +469,7 @@ export async function removeServer(service: RemoteDeployService, id: string): Pr
     await service.disconnectServer(id);
     (service as any).servers.delete(id);
     await saveServers(service);
-    console.log(`[RemoteDeployService] Removed server: ${server.name} (${id})`);
+    console.debug(`[RemoteDeployService] Removed server: ${server.name} (${id})`);
   }
 }
 
@@ -513,7 +513,7 @@ async function ensureSshConnectionInternal(service: RemoteDeployService, id: str
 
   // Reconnect using existing manager (or create new if none exists)
   const mgr = getSSHManager(service, id);
-  console.log(`[RemoteDeployService] Ensuring SSH connection for ${server.name} (${id})...`);
+  console.debug(`[RemoteDeployService] Ensuring SSH connection for ${server.name} (${id})...`);
   await mgr.connect(server.ssh);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   if (!mgr.isConnected()) {
@@ -538,7 +538,7 @@ export async function ensureSshConnectionHealthy(service: RemoteDeployService, i
   }
 
   if (!manager.isConnected()) {
-    console.log(`[RemoteDeployService] SSH connection dropped, reconnecting...`);
+    console.debug(`[RemoteDeployService] SSH connection dropped, reconnecting...`);
     await ensureSshConnectionInternal(service, id);
     return;
   }
@@ -547,7 +547,7 @@ export async function ensureSshConnectionHealthy(service: RemoteDeployService, i
   try {
     await manager.executeCommand('echo ok');
   } catch (err) {
-    console.log(`[RemoteDeployService] SSH health check failed, reconnecting...`);
+    console.debug(`[RemoteDeployService] SSH health check failed, reconnecting...`);
     await ensureSshConnectionInternal(service, id);
   }
 }
@@ -561,33 +561,33 @@ export async function connectServer(service: RemoteDeployService, id: string): P
     throw new Error(`Server not found: ${id}`);
   }
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] connectServer called for ${server.name} (${id}), current status: ${server.status}`,
   );
 
   if (server.status === 'connected') {
-    console.log(
+    console.debug(
       `[RemoteDeployService] Server ${server.name} already connected, checking SSH state...`,
     );
     const manager = (service as any).sshManagers.get(id);
-    console.log(`[RemoteDeployService] SSH state: ${manager?.isConnected()}`);
+    console.debug(`[RemoteDeployService] SSH state: ${manager?.isConnected()}`);
     if (manager && manager.isConnected()) {
-      console.log(`[RemoteDeployService] SSH is connected, reusing connection`);
+      console.debug(`[RemoteDeployService] SSH is connected, reusing connection`);
       return;
     }
-    console.log(`[RemoteDeployService] SSH is not connected, will reconnect`);
+    console.debug(`[RemoteDeployService] SSH is not connected, will reconnect`);
   }
 
   await service.updateServer(id, { status: 'connecting' });
 
   try {
-    console.log(`[RemoteDeployService] Establishing SSH connection for ${server.name}...`);
+    console.debug(`[RemoteDeployService] Establishing SSH connection for ${server.name}...`);
     service.emitDeployProgress(id, 'ssh', 'Connecting to remote server...', 15);
 
     await ensureSshConnectionInternal(service, id);
 
     const manager = (service as any).sshManagers.get(id);
-    console.log(
+    console.debug(
       `[RemoteDeployService] Verifying SSH connection after ensureSshConnection: ${manager?.isConnected()}`,
     );
 
@@ -610,11 +610,11 @@ export async function connectServer(service: RemoteDeployService, id: string): P
             assignedPort,
             deployPath: `/opt/claude-deployment-${clientId}`,
           });
-          console.log(
+          console.debug(
             `[RemoteDeployService] Resolved port ${assignedPort} for client ${clientId} on reconnect`,
           );
         } catch (portError) {
-          console.warn(`[RemoteDeployService] Port resolution failed on reconnect:`, portError);
+          console.debug(`[RemoteDeployService] Port resolution failed on reconnect:`, portError);
         }
       }
     }
@@ -636,7 +636,7 @@ export async function connectServer(service: RemoteDeployService, id: string): P
             arch === 'x86_64' ? 'x64' : arch === 'aarch64' ? 'arm64' : undefined;
           if (detectedArch) {
             await service.updateServer(id, { detectedArch });
-            console.log(
+            console.debug(
               `[RemoteDeployService] Detected architecture on connect: ${arch} (${detectedArch})`,
             );
           }
@@ -650,7 +650,7 @@ export async function connectServer(service: RemoteDeployService, id: string): P
     try {
       await service.detectAgentInstalled(id);
     } catch (detectError) {
-      console.warn(
+      console.debug(
         `[RemoteDeployService] Agent detection failed after connect for ${server.name}:`,
         detectError,
       );
@@ -658,7 +658,7 @@ export async function connectServer(service: RemoteDeployService, id: string): P
 
     // Reset auto-recover failure count on successful (re)connection
 
-    console.log(`[RemoteDeployService] Connected to server: ${server.name}`);
+    console.debug(`[RemoteDeployService] Connected to server: ${server.name}`);
   } catch (error) {
     const err = error as Error;
     console.error(`[RemoteDeployService] connectServer error for ${server.name}:`, err);
@@ -683,7 +683,7 @@ export async function disconnectServer(service: RemoteDeployService, id: string)
   const server = (service as any).servers.get(id);
   if (server && (server.status === 'connected' || server.status === 'connecting')) {
     await service.updateServer(id, { status: 'disconnected', error: undefined });
-    console.log(`[RemoteDeployService] Disconnected from server: ${server.name}`);
+    console.debug(`[RemoteDeployService] Disconnected from server: ${server.name}`);
   }
 }
 

@@ -153,7 +153,7 @@ export async function fetchSkillFileContent(
       return null;
     }
     if (!response.ok) {
-      console.warn('[GitCodeSkillSource] fetchSkillFileContent:', response.status, 'for', filePath);
+      console.debug('[GitCodeSkillSource] fetchSkillFileContent:', response.status, 'for', filePath);
       return null;
     }
     const text = await response.text();
@@ -182,7 +182,7 @@ export async function fetchSkillDirectoryContents(
   try {
     data = await gitcodeApiFetch(apiPath, { token });
   } catch (e: any) {
-    console.warn('[GitCodeSkillSource] fetchSkillDirectoryContents: API call failed:', e.message);
+    console.debug('[GitCodeSkillSource] fetchSkillDirectoryContents: API call failed:', e.message);
     return results;
   }
 
@@ -216,7 +216,7 @@ export async function fetchSkillDirectoryContents(
     filesToFetch.map(async (item: any) => {
       const content = await fetchSkillFileContent(repo, item.path, token, signal);
       if (!content) {
-        console.warn('[GitCodeSkillSource] fetchSkillFileContent returned empty for', item.path);
+        console.debug('[GitCodeSkillSource] fetchSkillFileContent returned empty for', item.path);
       }
       return { path: item.name, content: content || '' };
     }),

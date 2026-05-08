@@ -921,6 +921,13 @@ export const api = {
     return { success: false, error: 'Only available in desktop app' };
   },
 
+  logUserAction: async (action: string, detail?: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.logUserAction(action, detail);
+    }
+    return { success: true };
+  },
+
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => {
     if (!isElectron()) {
       return () => {}; // No-op in remote mode

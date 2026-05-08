@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Space IPC Handlers
  */
@@ -32,7 +33,7 @@ interface SpacePreferences {
 
 export function registerSpaceHandlers(): void {
   // Get AICO-Bot temp space
-  ipcMain.handle('space:get-aico-bot', async () => {
+  wrapIpcHandle('space:get-aico-bot', async () => {
     try {
       const space = getAicoBotSpace();
       console.log('[SpaceIPC] space:get-aico-bot response: id=%s', space?.id);
@@ -45,7 +46,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // List all spaces
-  ipcMain.handle('space:list', async () => {
+  wrapIpcHandle('space:list', async () => {
     try {
       const spaces = listSpaces();
       console.log('[SpaceIPC] space:list response: count=%d', spaces.length);
@@ -58,7 +59,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Create a new space
-  ipcMain.handle(
+  wrapIpcHandle(
     'space:create',
     async (
       _event,
@@ -73,6 +74,7 @@ export function registerSpaceHandlers(): void {
       },
     ) => {
       try {
+        console.info(`[event] createSpace: name=${input.name}`);
         // Validate remote server readiness: SDK installed + Bot Proxy running
         if (input.claudeSource === 'remote' && input.remoteServerId) {
           const server = remoteDeployService.getServer(input.remoteServerId);
@@ -103,7 +105,8 @@ export function registerSpaceHandlers(): void {
   );
 
   // Delete a space
-  ipcMain.handle('space:delete', async (_event, spaceId: string) => {
+  wrapIpcHandle('space:delete', async (_event, spaceId: string) => {
+    console.info(`[event] deleteSpace: spaceId=${spaceId}`);
     try {
       const result = await deleteSpace(spaceId);
       return { success: result.success, error: result.error };
@@ -114,7 +117,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Get a specific space (with preferences for UI)
-  ipcMain.handle('space:get', async (_event, spaceId: string) => {
+  wrapIpcHandle('space:get', async (_event, spaceId: string) => {
     try {
       const space = getSpaceWithPreferences(spaceId);
       return { success: true, data: space };
@@ -125,7 +128,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Open space folder
-  ipcMain.handle('space:open-folder', async (_event, spaceId: string) => {
+  wrapIpcHandle('space:open-folder', async (_event, spaceId: string) => {
     try {
       const result = openSpaceFolder(spaceId);
       return { success: true, data: result };
@@ -136,9 +139,10 @@ export function registerSpaceHandlers(): void {
   });
 
   // Update space
-  ipcMain.handle(
+  wrapIpcHandle(
     'space:update',
     async (_event, spaceId: string, updates: { name?: string; icon?: string }) => {
+      console.info(`[event] updateSpace: spaceId=${spaceId}, keys=${Object.keys(updates).join(',')}`);
       try {
         const space = updateSpace(spaceId, updates);
         return { success: true, data: space };
@@ -150,7 +154,7 @@ export function registerSpaceHandlers(): void {
   );
 
   // Get default space path
-  ipcMain.handle('space:get-default-path', async () => {
+  wrapIpcHandle('space:get-default-path', async () => {
     try {
       const spacesDir = getSpacesDir();
       return { success: true, data: spacesDir };
@@ -161,7 +165,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Select folder dialog (for custom space location)
-  ipcMain.handle('dialog:select-folder', async () => {
+  wrapIpcHandle('dialog:select-folder', async () => {
     try {
       const result = await dialog.showOpenDialog({
         title: 'Select Space Location',
@@ -181,7 +185,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Update space preferences (layout settings)
-  ipcMain.handle(
+  wrapIpcHandle(
     'space:update-preferences',
     async (_event, spaceId: string, preferences: Partial<SpacePreferences>) => {
       try {
@@ -195,7 +199,7 @@ export function registerSpaceHandlers(): void {
   );
 
   // Get space preferences
-  ipcMain.handle('space:get-preferences', async (_event, spaceId: string) => {
+  wrapIpcHandle('space:get-preferences', async (_event, spaceId: string) => {
     try {
       const preferences = getSpacePreferences(spaceId);
       return { success: true, data: preferences };
@@ -206,7 +210,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Get or create skill space
-  ipcMain.handle('space:get-skill-space', async () => {
+  wrapIpcHandle('space:get-skill-space', async () => {
     try {
       const space = getOrCreateSkillSpace();
       console.log('[SpaceIPC] space:get-skill-space response: id=%s', space?.id);
@@ -219,7 +223,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Get skill space ID
-  ipcMain.handle('space:get-skill-space-id', async () => {
+  wrapIpcHandle('space:get-skill-space-id', async () => {
     try {
       const spaceId = getSkillSpaceId();
       return { success: true, data: spaceId };
@@ -230,7 +234,7 @@ export function registerSpaceHandlers(): void {
   });
 
   // Check if space is skill space
-  ipcMain.handle('space:is-skill-space', async (_event, spaceId: string) => {
+  wrapIpcHandle('space:is-skill-space', async (_event, spaceId: string) => {
     try {
       const result = isSkillSpace(spaceId);
       return { success: true, data: result };

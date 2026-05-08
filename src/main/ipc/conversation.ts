@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Conversation IPC Handlers
  */
@@ -20,7 +21,7 @@ import {
 
 export function registerConversationHandlers(): void {
   // List conversations for a space
-  ipcMain.handle('conversation:list', async (_event, spaceId: string) => {
+  wrapIpcHandle('conversation:list', async (_event, spaceId: string) => {
     try {
       const conversations = listConversations(spaceId);
       return { success: true, data: conversations };
@@ -31,7 +32,7 @@ export function registerConversationHandlers(): void {
   });
 
   // Create a new conversation
-  ipcMain.handle('conversation:create', async (_event, spaceId: string, title?: string) => {
+  wrapIpcHandle('conversation:create', async (_event, spaceId: string, title?: string) => {
     try {
       const conversation = createConversation(spaceId, title);
       return { success: true, data: conversation };
@@ -42,7 +43,7 @@ export function registerConversationHandlers(): void {
   });
 
   // Get a specific conversation
-  ipcMain.handle('conversation:get', async (_event, spaceId: string, conversationId: string) => {
+  wrapIpcHandle('conversation:get', async (_event, spaceId: string, conversationId: string) => {
     try {
       const conversation = getConversation(spaceId, conversationId);
       return { success: true, data: conversation };
@@ -53,7 +54,7 @@ export function registerConversationHandlers(): void {
   });
 
   // Update a conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:update',
     async (_event, spaceId: string, conversationId: string, updates: Record<string, unknown>) => {
       try {
@@ -67,7 +68,7 @@ export function registerConversationHandlers(): void {
   );
 
   // Delete a conversation
-  ipcMain.handle('conversation:delete', async (_event, spaceId: string, conversationId: string) => {
+  wrapIpcHandle('conversation:delete', async (_event, spaceId: string, conversationId: string) => {
     try {
       const result = deleteConversation(spaceId, conversationId);
       return { success: true, data: result };
@@ -78,7 +79,7 @@ export function registerConversationHandlers(): void {
   });
 
   // Add a message to a conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:add-message',
     async (
       _event,
@@ -97,7 +98,7 @@ export function registerConversationHandlers(): void {
   );
 
   // Update the last message (for saving content and thoughts)
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:update-last-message',
     async (_event, spaceId: string, conversationId: string, updates: Record<string, unknown>) => {
       try {
@@ -111,7 +112,7 @@ export function registerConversationHandlers(): void {
   );
 
   // Get thoughts for a specific message (lazy loading)
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:get-thoughts',
     async (_event, spaceId: string, conversationId: string, messageId: string) => {
       try {
@@ -125,7 +126,7 @@ export function registerConversationHandlers(): void {
   );
 
   // Toggle starred status on a conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:toggle-star',
     async (_event, spaceId: string, conversationId: string, starred: boolean) => {
       try {
@@ -142,7 +143,7 @@ export function registerConversationHandlers(): void {
   );
 
   // Load agent commands for a conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:get-agent-commands',
     async (_event, spaceId: string, conversationId: string) => {
       try {
@@ -156,7 +157,7 @@ export function registerConversationHandlers(): void {
   );
 
   // List child (worker) conversations for a parent conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'conversation:list-children',
     async (_event, spaceId: string, parentConversationId: string) => {
       try {
@@ -170,7 +171,7 @@ export function registerConversationHandlers(): void {
   );
 
   // List all worker conversations across all parent conversations in a space (HyperSpace)
-  ipcMain.handle('conversation:list-all-workers', async (_event, spaceId: string) => {
+  wrapIpcHandle('conversation:list-all-workers', async (_event, spaceId: string) => {
     try {
       const workerMap = listAllWorkerConversations(spaceId);
       // Convert Map to plain object for IPC serialization

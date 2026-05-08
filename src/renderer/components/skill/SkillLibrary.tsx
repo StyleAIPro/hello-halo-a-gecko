@@ -535,7 +535,7 @@ export function SkillLibrary() {
             {activeSkills.map((skill) => (
               <div
                 key={skill.appId}
-                onClick={() => setSelectedSkillId(skill.appId)}
+                onClick={() => { api.logUserAction('skill:select', skill.appId); setSelectedSkillId(skill.appId); }}
                 className={`
                 p-4 cursor-pointer transition-colors
                 ${

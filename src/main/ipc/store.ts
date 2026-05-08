@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Store IPC Handlers
  *
@@ -20,7 +21,7 @@ import * as storeController from '../controllers/store.controller';
 
 export function registerStoreHandlers(): void {
   // ── store:list-apps ────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'store:list-apps',
     async (
       _event,
@@ -31,12 +32,12 @@ export function registerStoreHandlers(): void {
   );
 
   // ── store:get-app-detail ───────────────────────────────────────────────
-  ipcMain.handle('store:get-app-detail', async (_event, slug: string) => {
+  wrapIpcHandle('store:get-app-detail', async (_event, slug: string) => {
     return storeController.getStoreAppDetail(slug);
   });
 
   // ── store:install ──────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'store:install',
     async (
       _event,
@@ -47,32 +48,32 @@ export function registerStoreHandlers(): void {
   );
 
   // ── store:refresh ──────────────────────────────────────────────────────
-  ipcMain.handle('store:refresh', async () => {
+  wrapIpcHandle('store:refresh', async () => {
     return storeController.refreshStoreIndex();
   });
 
   // ── store:check-updates ────────────────────────────────────────────────
-  ipcMain.handle('store:check-updates', async () => {
+  wrapIpcHandle('store:check-updates', async () => {
     return storeController.checkStoreUpdates();
   });
 
   // ── store:get-registries ───────────────────────────────────────────────
-  ipcMain.handle('store:get-registries', async () => {
+  wrapIpcHandle('store:get-registries', async () => {
     return storeController.getStoreRegistries();
   });
 
   // ── store:add-registry ─────────────────────────────────────────────────
-  ipcMain.handle('store:add-registry', async (_event, input: { name: string; url: string }) => {
+  wrapIpcHandle('store:add-registry', async (_event, input: { name: string; url: string }) => {
     return storeController.addStoreRegistry(input);
   });
 
   // ── store:remove-registry ──────────────────────────────────────────────
-  ipcMain.handle('store:remove-registry', async (_event, registryId: string) => {
+  wrapIpcHandle('store:remove-registry', async (_event, registryId: string) => {
     return storeController.removeStoreRegistry(registryId);
   });
 
   // ── store:toggle-registry ──────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'store:toggle-registry',
     async (_event, input: { registryId: string; enabled: boolean }) => {
       return storeController.toggleStoreRegistry(input.registryId, input.enabled);

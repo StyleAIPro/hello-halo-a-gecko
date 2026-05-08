@@ -1,10 +1,12 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * System IPC Handlers - Auto launch, window controls, and logging
  */
 
 import type { BrowserWindow } from 'electron';
-import { ipcMain, shell } from 'electron';
-import { dirname } from 'path';
+import { app, ipcMain, shell } from 'electron';
+import { dirname, join } from 'path';
+import { homedir } from 'os';
 import log from 'electron-log/main.js';
 import { setAutoLaunch, getAutoLaunch } from '../services/config.service';
 import { getMainWindow, onMainWindowChange } from '../services/window.service';
@@ -40,7 +42,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Get auto launch status
-  ipcMain.handle('system:get-auto-launch', async () => {
+  wrapIpcHandle('system:get-auto-launch', async () => {
     console.log('[Settings] system:get-auto-launch - Getting auto launch status');
     try {
       const enabled = getAutoLaunch();
@@ -54,7 +56,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Set auto launch
-  ipcMain.handle('system:set-auto-launch', async (_event, enabled: boolean) => {
+  wrapIpcHandle('system:set-auto-launch', async (_event, enabled: boolean) => {
     console.log('[Settings] system:set-auto-launch - Setting to:', enabled);
     try {
       setAutoLaunch(enabled);
@@ -68,7 +70,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Set title bar overlay (Windows/Linux only)
-  ipcMain.handle(
+  wrapIpcHandle(
     'window:set-title-bar-overlay',
     async (_event, options: { color: string; symbolColor: string }) => {
       try {
@@ -89,7 +91,7 @@ export function registerSystemHandlers(): void {
   );
 
   // Maximize window
-  ipcMain.handle('window:maximize', async () => {
+  wrapIpcHandle('window:maximize', async () => {
     try {
       if (mainWindow) {
         mainWindow.maximize();
@@ -102,7 +104,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Unmaximize window
-  ipcMain.handle('window:unmaximize', async () => {
+  wrapIpcHandle('window:unmaximize', async () => {
     try {
       if (mainWindow) {
         mainWindow.unmaximize();
@@ -115,7 +117,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Check if window is maximized
-  ipcMain.handle('window:is-maximized', async () => {
+  wrapIpcHandle('window:is-maximized', async () => {
     try {
       const isMaximized = mainWindow?.isMaximized() ?? false;
       return { success: true, data: isMaximized };
@@ -126,7 +128,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Toggle maximize
-  ipcMain.handle('window:toggle-maximize', async () => {
+  wrapIpcHandle('window:toggle-maximize', async () => {
     try {
       if (mainWindow) {
         if (mainWindow.isMaximized()) {
@@ -143,11 +145,13 @@ export function registerSystemHandlers(): void {
   });
 
   // Open log folder in system file manager
-  ipcMain.handle('system:open-log-folder', async () => {
+  wrapIpcHandle('system:open-log-folder', async () => {
     console.log('[Settings] system:open-log-folder - Opening log folder');
     try {
-      const logFile = log.transports.file.getFile();
-      const logDir = dirname(logFile.path);
+      const isDev = process.env.NODE_ENV === 'development';
+      const logDir = isDev
+        ? join(homedir(), '.aico-bot-dev', 'app-logs')
+        : join(app.getPath('userData'), 'app-logs');
       await shell.openPath(logDir);
       console.log('[Settings] system:open-log-folder - Opened:', logDir);
       return { success: true, data: logDir };
@@ -159,7 +163,7 @@ export function registerSystemHandlers(): void {
   });
 
   // Get terminal WebSocket URL
-  ipcMain.handle(
+  wrapIpcHandle(
     'system:get-terminal-websocket-url',
     async (_event, spaceId: string, conversationId: string) => {
       try {
@@ -177,7 +181,7 @@ export function registerSystemHandlers(): void {
   );
 
   // Send command to user terminal
-  ipcMain.handle(
+  wrapIpcHandle(
     'terminal:send-command',
     async (
       _event,
@@ -204,7 +208,7 @@ export function registerSystemHandlers(): void {
   );
 
   // Get recent terminal output
-  ipcMain.handle(
+  wrapIpcHandle(
     'terminal:get-output',
     async (
       _event,
@@ -234,7 +238,7 @@ export function registerSystemHandlers(): void {
   );
 
   // Force window repaint (fixes BrowserView HWND click-blocking on Windows)
-  ipcMain.handle('window:force-repaint', async () => {
+  wrapIpcHandle('window:force-repaint', async () => {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
         forceRepaint(mainWindow);
@@ -245,6 +249,11 @@ export function registerSystemHandlers(): void {
       console.error('[System] force-repaint failed:', err.message);
       return { success: false, error: err.message };
     }
+  });
+
+  wrapIpcHandle('log:user-action', async (_event, action: string, detail?: string) => {
+    console.info(`[event] ${action}${detail ? `: ${detail}` : ''}`);
+    return { success: true };
   });
 
   console.log('[Settings] System handlers registered');

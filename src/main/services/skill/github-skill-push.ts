@@ -173,7 +173,7 @@ export async function pushSkillAsPR(
           });
         } catch (forkError: any) {
           if (!forkError.message?.includes('already')) {
-            console.warn('[GitHubSkillSource] Fork warning:', forkError.message);
+            console.debug('[GitHubSkillSource] Fork warning:', forkError.message);
           }
         }
         targetRepo = `${username}/${repo.split('/')[1]}`;
@@ -302,7 +302,7 @@ export async function pushSkillAsPR(
       } else {
         const errText = await prResp.text();
         warnings.push(`PR creation failed. Files committed to branch: ${branchUrl}`);
-        console.warn(`[GitHubSkillSource] PR creation failed: ${prResp.status} ${errText}`);
+        console.debug(`[GitHubSkillSource] PR creation failed: ${prResp.status} ${errText}`);
       }
     } catch (prError: any) {
       warnings.push(

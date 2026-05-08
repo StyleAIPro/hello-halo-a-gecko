@@ -24,14 +24,14 @@ export async function registerTokenOnRemote(service: RemoteDeployService, id: st
   const manager = service.getSSHManager(id);
   const port = server.assignedPort;
   if (!port) {
-    console.warn('[RemoteDeployService] No port assigned, cannot register token');
+    console.debug('[RemoteDeployService] No port assigned, cannot register token');
     return;
   }
 
   const healthPort = port + 1;
   const token = server.authToken;
   if (!token) {
-    console.warn('[RemoteDeployService] No auth token, skipping registration');
+    console.debug('[RemoteDeployService] No auth token, skipping registration');
     return;
   }
 
@@ -44,17 +44,17 @@ export async function registerTokenOnRemote(service: RemoteDeployService, id: st
     try {
       const response = JSON.parse(result.stdout || '{}');
       if (response.success) {
-        console.log(
+        console.debug(
           `[RemoteDeployService] Token registered on remote proxy (total tokens: ${response.totalTokens}, new: ${response.added})`,
         );
       } else {
-        console.warn(
+        console.debug(
           '[RemoteDeployService] Token registration returned failure:',
           response.error,
         );
       }
     } catch {
-      console.warn(
+      console.debug(
         '[RemoteDeployService] Could not parse token registration response, proxy may be running old version',
       );
     }
@@ -67,7 +67,7 @@ export async function registerTokenOnRemote(service: RemoteDeployService, id: st
   const tokenB64 = Buffer.from(token).toString('base64');
   const persistCmd = `node -e "const fs=require('fs');const p='${deployPath}/tokens.json';let t=[];try{t=JSON.parse(fs.readFileSync(p,'utf8'));}catch{}const tk=Buffer.from('${tokenB64}','base64').toString();if(!t.includes(tk)){t.push(tk);fs.writeFileSync(p,JSON.stringify(t,null,2));}"`;
   await manager.executeCommand(persistCmd).catch((e: Error) => {
-    console.warn('[RemoteDeployService] Failed to persist token to tokens.json:', e);
+    console.debug('[RemoteDeployService] Failed to persist token to tokens.json:', e);
   });
 }
 
@@ -103,12 +103,12 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
         `  Platform: ${buildInfo.platform || 'unknown'} (${buildInfo.arch || 'unknown'})`,
         '========================================',
       ].join('\n');
-      console.log('[RemoteDeployService] Remote agent build info:');
-      console.log(buildInfoMsg);
+      console.debug('[RemoteDeployService] Remote agent build info:');
+      console.debug(buildInfoMsg);
       service.emitCommandOutput(id, 'output', buildInfoMsg);
     }
   } catch (e) {
-    console.warn('[RemoteDeployService] Could not read remote build info:', e);
+    console.debug('[RemoteDeployService] Could not read remote build info:', e);
   }
 
   // Check if proxy is healthy via health endpoint (authoritative)
@@ -125,7 +125,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
   }
 
   if (proxyHealthy) {
-    console.log(
+    console.debug(
       '[RemoteDeployService] Agent already running and healthy, skipping start (proxy supports multiple connections)',
     );
     await registerTokenOnRemote(service, id);
@@ -146,13 +146,13 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
     try {
       const healthData = JSON.parse(healthCheck.stdout || '{}');
       if (healthData.status === 'ok') {
-        console.log('[RemoteDeployService] Agent already running and healthy, skipping start');
+        console.debug('[RemoteDeployService] Agent already running and healthy, skipping start');
         return;
       }
     } catch {
       // Health check failed -- process is zombie, kill and restart
     }
-    console.log(
+    console.debug(
       '[RemoteDeployService] Agent process exists but unhealthy, killing and restarting...',
     );
     await service.stopAgent(id);
@@ -176,7 +176,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
 
   const indexPath = `${deployPath}/dist/index.js`;
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] Starting agent with env: PORT=${port}, WORK_DIR=${server.workDir || '(not set, will use per-session workDir)'}, DEPLOY_DIR=${deployPath}`,
   );
 
@@ -209,12 +209,12 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
     const processCheck = await manager.executeCommandFull(
       `ps aux | grep -E "node.*${deployPath}" | grep -v grep || echo "NO_PROCESS"`,
     );
-    console.log('[RemoteDeployService] Process check:', processCheck.stdout);
+    console.debug('[RemoteDeployService] Process check:', processCheck.stdout);
 
     // Self-repair: if logs indicate missing dependencies, run npm install and retry once
     const missingDepPattern = /ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package/;
     if (missingDepPattern.test(logOutput)) {
-      console.log(
+      console.debug(
         '[RemoteDeployService] Startup failed due to missing dependencies, attempting self-repair...',
       );
       service.emitCommandOutput(id, 'output', '检测到依赖缺失，自动修复中...');
@@ -264,7 +264,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
         );
       }
 
-      console.log(
+      console.debug(
         `[RemoteDeployService] Agent started after self-repair on: ${server.name}, port ${port}`,
       );
       return;
@@ -275,7 +275,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
     );
   }
 
-  console.log(`[RemoteDeployService] Agent started on: ${server.name}, port ${port}`);
+  console.debug(`[RemoteDeployService] Agent started on: ${server.name}, port ${port}`);
 }
 
 /**
@@ -303,7 +303,7 @@ export async function stopAgent(service: RemoteDeployService, id: string): Promi
   const deployPath = getDeployPath(server);
   await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
 
-  console.log(`[RemoteDeployService] Agent stopped on: ${server.name}`);
+  console.debug(`[RemoteDeployService] Agent stopped on: ${server.name}`);
 }
 
 /**
@@ -316,7 +316,7 @@ export async function restartAgentWithNewConfig(service: RemoteDeployService, id
     throw new Error(`Server not found: ${id}`);
   }
 
-  console.log(`[RemoteDeployService] Restarting agent with new config for: ${server.name}`);
+  console.debug(`[RemoteDeployService] Restarting agent with new config for: ${server.name}`);
 
   // Check if agent is currently running
   const manager = service.getSSHManager(id);
@@ -327,12 +327,12 @@ export async function restartAgentWithNewConfig(service: RemoteDeployService, id
 
   if (checkResult.exitCode === 0 && !checkResult.stdout.includes('not running')) {
     // Agent is running, restart it with new config
-    console.log(`[RemoteDeployService] Agent is running, restarting with new config...`);
+    console.debug(`[RemoteDeployService] Agent is running, restarting with new config...`);
     await service.stopAgent(id);
     await service.startAgent(id);
-    console.log(`[RemoteDeployService] Agent restarted with new config`);
+    console.debug(`[RemoteDeployService] Agent restarted with new config`);
   } else {
-    console.log(`[RemoteDeployService] Agent not running, no restart needed`);
+    console.debug(`[RemoteDeployService] Agent not running, no restart needed`);
   }
 }
 
@@ -400,7 +400,7 @@ export async function syncSystemPrompt(service: RemoteDeployService, id: string)
 
     await manager.executeCommand(uploadCommand);
 
-    console.log(`[RemoteDeployService] System prompt template synced to ${remotePath}`);
+    console.debug(`[RemoteDeployService] System prompt template synced to ${remotePath}`);
   } catch (error) {
     console.error('[RemoteDeployService] Failed to sync system prompt:', error);
     throw error;
@@ -578,14 +578,14 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
 }> {
   const server = (service as any).servers.get(id);
   if (!server) throw new Error(`Server not found: ${id}`);
-  console.log(`[RemoteDeploy] Updating agent for ${id}...`);
+  console.debug(`[RemoteDeploy] Updating agent for ${id}...`);
 
   // Check remote environment: files, version freshness, and SDK independently
   const deployCheck = await service.checkDeployFilesIntegrity(id);
   const sdkOk = await (service as any).checkRemoteSdkVersion(id);
   const needsCodeDeploy = !deployCheck.filesOk || deployCheck.needsUpdate;
 
-  console.log(
+  console.debug(
     `[RemoteDeploy] Detection for ${server.name}: files=${deployCheck.filesOk}, needsUpdate=${deployCheck.needsUpdate}, sdk=${sdkOk}`,
   );
 
@@ -602,16 +602,16 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
     service.emitDeployProgress(id, 'update', `Deploying (${reasons.join(', ')})...`);
 
     if (!sdkOk) {
-      console.log(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
+      console.debug(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
       await service.deployAgentSDK(id);
     }
 
     if (needsCodeDeploy) {
-      console.log(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
+      console.debug(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
       await service.deployAgentCode(id);
     }
   } else {
-    console.log(`[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`);
+    console.debug(`[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`);
     service.emitDeployProgress(id, 'update', 'Files and SDK verified, restarting agent...');
   }
 
@@ -635,7 +635,7 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
     localBuildTime: localVersionInfo?.buildTime,
   };
 
-  console.log(`[RemoteDeploy] Agent update complete for ${id}`, result);
+  console.debug(`[RemoteDeploy] Agent update complete for ${id}`, result);
   service.completeUpdate(id, result);
   return result;
 }
@@ -662,10 +662,10 @@ export async function verifyProxyHealth(service: RemoteDeployService, id: string
     const healthData = JSON.parse(healthResult.stdout || '{}');
     const isOk = healthData.status === 'ok';
     await service.updateServer(id, { proxyRunning: isOk });
-    console.log(`[RemoteDeploy] Immediate health check for ${server.name}: proxyRunning=${isOk}`);
+    console.debug(`[RemoteDeploy] Immediate health check for ${server.name}: proxyRunning=${isOk}`);
   } catch {
     await service.updateServer(id, { proxyRunning: false });
-    console.warn(`[RemoteDeploy] Immediate health check failed for ${server.name}`);
+    console.debug(`[RemoteDeploy] Immediate health check failed for ${server.name}`);
   }
 }
 
@@ -719,7 +719,7 @@ export async function sendAgentMessage(service: RemoteDeployService, id: string,
 
   // For now, this is a placeholder
   // In the full implementation, this would use WebSocket client
-  console.log(`[RemoteDeployService] Sending message to agent:`, message.type);
+  console.debug(`[RemoteDeployService] Sending message to agent:`, message.type);
 
   return {
     type: 'response',
@@ -941,7 +941,7 @@ export async function detectAgentInstalled(service: RemoteDeployService, id: str
         version = fbVersionMatch[1];
         versionMatched = version === REQUIRED_SDK_VERSION;
         installed = true;
-        console.log(
+        console.debug(
           `[RemoteDeployService] SDK found via file existence check, version=${version}`,
         );
       }
@@ -977,7 +977,7 @@ export async function detectAgentInstalled(service: RemoteDeployService, id: str
       proxyRunning,
     });
 
-    console.log(
+    console.debug(
       `[RemoteDeployService] detectAgentInstalled for ${server.name}: installed=${installed}, version=${version}, required=${REQUIRED_SDK_VERSION}, matched=${versionMatched}, proxyRunning=${proxyRunning}`,
     );
 
@@ -1000,7 +1000,7 @@ export async function checkAgentInstalled(
     throw new Error(`Server not found: ${id}`);
   }
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] Starting SDK check for ${server.name}, current status: ${server.status}`,
   );
 
@@ -1008,19 +1008,19 @@ export async function checkAgentInstalled(
   const manager = service.getSSHManager(id);
 
   // Check if SSH connection is actually established
-  console.log(`[RemoteDeployService] Checking SSH connection state: ${manager.isConnected()}`);
+  console.debug(`[RemoteDeployService] Checking SSH connection state: ${manager.isConnected()}`);
 
   // Only connect if not already connected
   if (!manager.isConnected()) {
-    console.log(`[RemoteDeployService] Not connected, connecting to ${server.name}...`);
+    console.debug(`[RemoteDeployService] Not connected, connecting to ${server.name}...`);
     await service.connectServer(id);
     // Wait for connection to stabilize
-    console.log(`[RemoteDeployService] Waiting for SSH connection to stabilize...`);
+    console.debug(`[RemoteDeployService] Waiting for SSH connection to stabilize...`);
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 
   // Verify connection is ready
-  console.log(
+  console.debug(
     `[RemoteDeployService] Verifying SSH connection state after connect: ${manager.isConnected()}`,
   );
   if (!manager.isConnected()) {
@@ -1029,18 +1029,18 @@ export async function checkAgentInstalled(
 
   try {
     // First, test connection with a simple pwd command
-    console.log(
+    console.debug(
       `[RemoteDeployService] Testing SSH connection to ${server.name} with pwd command...`,
     );
     service.emitCommandOutput(id, 'command', 'pwd');
     const testResult = await manager.executeCommandFull('pwd');
-    console.log(`[RemoteDeployService] pwd result: ${testResult.stdout}`);
+    console.debug(`[RemoteDeployService] pwd result: ${testResult.stdout}`);
     if (testResult.stdout.trim()) {
       service.emitCommandOutput(id, 'output', testResult.stdout.trim());
     }
 
     // Check if claude-agent-sdk is installed (try fast local check first, then fallback to npm list -g)
-    console.log(`[RemoteDeployService] Checking for claude-agent-sdk...`);
+    console.debug(`[RemoteDeployService] Checking for claude-agent-sdk...`);
 
     let installed = false;
     let version: string | undefined;
@@ -1049,7 +1049,7 @@ export async function checkAgentInstalled(
     const deployPath = getDeployPath(server);
     const localSdkCheckCmd = `test -f "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json" && cat "${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk/package.json" | grep -oP '"version"\\s*:\\s*"\\K[^"]+' || echo ""`;
 
-    console.log(`[RemoteDeployService] Trying fast local SDK check...`);
+    console.debug(`[RemoteDeployService] Trying fast local SDK check...`);
     service.emitCommandOutput(
       id,
       'command',
@@ -1062,23 +1062,23 @@ export async function checkAgentInstalled(
       if (localVersion) {
         version = localVersion;
         installed = true;
-        console.log(`[RemoteDeployService] Found SDK locally: version ${version}`);
+        console.debug(`[RemoteDeployService] Found SDK locally: version ${version}`);
         service.emitCommandOutput(id, 'success', `SDK 在本地部署路径找到 (版本: ${version})`);
       }
     } catch (error) {
-      console.warn(`[RemoteDeployService] Local SDK check failed:`, error);
+      console.debug(`[RemoteDeployService] Local SDK check failed:`, error);
     }
 
     // Fallback: If not found locally, try npm list -g (slower but catches globally installed SDK)
     if (!installed) {
-      console.log(`[RemoteDeployService] Local check failed, trying npm list -g...`);
+      console.debug(`[RemoteDeployService] Local check failed, trying npm list -g...`);
       service.emitCommandOutput(id, 'command', AGENT_CHECK_COMMAND);
       try {
         const result = await manager.executeCommandFull(AGENT_CHECK_COMMAND, { timeout: 10000 });
         const stdout = result.stdout.trim();
         const stderr = result.stderr.trim();
 
-        console.log(
+        console.debug(
           `[RemoteDeployService] npm list output: stdout="${stdout}", stderr="${stderr}"`,
         );
 
@@ -1102,7 +1102,7 @@ export async function checkAgentInstalled(
           version = versionMatch ? versionMatch[1] : 'unknown';
         }
       } catch (npmError) {
-        console.warn(`[RemoteDeployService] npm list -g timed out or failed:`, npmError);
+        console.debug(`[RemoteDeployService] npm list -g timed out or failed:`, npmError);
         service.emitCommandOutput(id, 'warning', 'npm list -g 检查超时，可能是权限问题');
       }
     }
@@ -1112,7 +1112,7 @@ export async function checkAgentInstalled(
       : 'claude-agent-sdk is not installed';
 
     service.emitCommandOutput(id, 'success', statusMessage);
-    console.log(
+    console.debug(
       `[RemoteDeployService] Agent check for ${server.name}: installed=${installed}, version=${version}`,
     );
 
@@ -1135,7 +1135,7 @@ export async function checkAgentInstalled(
         const remotePackageJson = JSON.parse(packageJsonResult.stdout);
         if (remotePackageJson.buildTime) {
           buildTime = remotePackageJson.buildTime;
-          console.log(`[RemoteDeployService] Remote agent build time: ${buildTime}`);
+          console.debug(`[RemoteDeployService] Remote agent build time: ${buildTime}`);
         }
         if (remotePackageJson.version && !version) {
           // Use package.json version as fallback
@@ -1143,7 +1143,7 @@ export async function checkAgentInstalled(
         }
       }
     } catch (pkgError) {
-      console.warn('[RemoteDeployService] Failed to read remote package.json:', pkgError);
+      console.debug('[RemoteDeployService] Failed to read remote package.json:', pkgError);
     }
 
     return { installed, version, buildTime };
@@ -1162,7 +1162,7 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
     throw new Error(`Server not found: ${id}`);
   }
 
-  console.log(
+  console.debug(
     `[RemoteDeployService] Starting SDK deployment for ${server.name}, current status: ${server.status}`,
   );
 
@@ -1170,19 +1170,19 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
   const manager = service.getSSHManager(id);
 
   // Check if SSH connection is actually established
-  console.log(`[RemoteDeployService] Checking SSH connection state: ${manager.isConnected()}`);
+  console.debug(`[RemoteDeployService] Checking SSH connection state: ${manager.isConnected()}`);
 
   // Only connect if not already connected
   if (!manager.isConnected()) {
-    console.log(`[RemoteDeployService] Not connected, connecting to ${server.name}...`);
+    console.debug(`[RemoteDeployService] Not connected, connecting to ${server.name}...`);
     await service.connectServer(id);
     // Wait for connection to stabilize
-    console.log(`[RemoteDeployService] Waiting for SSH connection to stabilize...`);
+    console.debug(`[RemoteDeployService] Waiting for SSH connection to stabilize...`);
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 
   // Verify connection is ready
-  console.log(
+  console.debug(
     `[RemoteDeployService] Verifying SSH connection state after connect: ${manager.isConnected()}`,
   );
   if (!manager.isConnected()) {
@@ -1190,30 +1190,30 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
   }
 
   try {
-    console.log(`[RemoteDeployService] Deploying agent SDK to ${server.name}`);
+    console.debug(`[RemoteDeployService] Deploying agent SDK to ${server.name}`);
     service.emitCommandOutput(id, 'command', 'Starting deployment of claude-agent-sdk...');
 
     // First, test connection with a simple pwd command
-    console.log(
+    console.debug(
       `[RemoteDeployService] Testing SSH connection to ${server.name} with pwd command...`,
     );
     service.emitCommandOutput(id, 'command', 'pwd');
     const testResult = await manager.executeCommandFull('pwd');
-    console.log(`[RemoteDeployService] pwd result: ${testResult.stdout}`);
+    console.debug(`[RemoteDeployService] pwd result: ${testResult.stdout}`);
     if (testResult.stdout.trim()) {
       service.emitCommandOutput(id, 'output', testResult.stdout.trim());
     }
 
     // Check if Node.js is installed, install if not
-    console.log('[RemoteDeployService] Checking Node.js installation...');
+    console.debug('[RemoteDeployService] Checking Node.js installation...');
     service.emitCommandOutput(id, 'command', 'node --version');
     try {
       const nodeVersion = await manager.executeCommandFull('node --version');
-      console.log(`[RemoteDeployService] Node.js version: ${nodeVersion.stdout.trim()}`);
+      console.debug(`[RemoteDeployService] Node.js version: ${nodeVersion.stdout.trim()}`);
       service.emitCommandOutput(id, 'output', nodeVersion.stdout.trim());
     } catch {
       // Node.js not installed, install it automatically
-      console.log('[RemoteDeployService] Node.js not found, installing...');
+      console.debug('[RemoteDeployService] Node.js not found, installing...');
       service.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
 
       // Detect OS and architecture, then install Node.js
@@ -1242,11 +1242,11 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
     }
 
     // Check if npm is installed (usually comes with Node.js)
-    console.log('[RemoteDeployService] Checking npm installation...');
+    console.debug('[RemoteDeployService] Checking npm installation...');
     service.emitCommandOutput(id, 'command', 'npm --version');
     try {
       const npmVersion = await manager.executeCommandFull('npm --version');
-      console.log(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`);
+      console.debug(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`);
       service.emitCommandOutput(id, 'output', npmVersion.stdout.trim());
     } catch {
       // npm not found - this shouldn't happen if Node.js was just installed
@@ -1259,15 +1259,15 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
     }
 
     // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
-    console.log('[RemoteDeployService] Checking npx installation...');
+    console.debug('[RemoteDeployService] Checking npx installation...');
     service.emitCommandOutput(id, 'command', 'npx --version');
     try {
       const npxVersion = await manager.executeCommandFull('npx --version');
-      console.log(`[RemoteDeployService] npx version: ${npxVersion.stdout.trim()}`);
+      console.debug(`[RemoteDeployService] npx version: ${npxVersion.stdout.trim()}`);
       service.emitCommandOutput(id, 'output', `npx: ${npxVersion.stdout.trim()}`);
     } catch {
       // npx not found - install it using npm
-      console.log('[RemoteDeployService] npx not found, installing...');
+      console.debug('[RemoteDeployService] npx not found, installing...');
       service.emitCommandOutput(id, 'command', 'npm install -g npx --force');
       const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
         timeoutMs: 120_000,
@@ -1282,7 +1282,7 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
       service.emitCommandOutput(id, 'success', 'npx installed successfully');
 
       // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
-      console.log('[RemoteDeployService] Checking for standalone npx package...');
+      console.debug('[RemoteDeployService] Checking for standalone npx package...');
       const checkStandaloneNpx = await manager.executeCommandFull(
         'npm list -g npx 2>/dev/null || echo "NOT_FOUND"',
       );
@@ -1290,7 +1290,7 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
         checkStandaloneNpx.stdout.includes('npx@') &&
         !checkStandaloneNpx.stdout.includes('npm@')
       ) {
-        console.log('[RemoteDeployService] Found standalone npx package, removing...');
+        console.debug('[RemoteDeployService] Found standalone npx package, removing...');
         const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true';
         await manager.executeCommandFull(removeStandaloneCmd);
         service.emitCommandOutput(
@@ -1344,7 +1344,7 @@ export async function deployAgentSDK(service: RemoteDeployService, id: string): 
         if (verifyNpxCmd.exitCode === 0 && verifyNpxCmd.stdout.trim()) {
           service.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`);
         } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
-          console.log(
+          console.debug(
             '[RemoteDeployService] npx still not working, creating alternative wrapper...',
           );
           const createWrapperCmd = `
@@ -1358,21 +1358,21 @@ WRAPPER
           service.emitCommandOutput(id, 'output', 'Created npx wrapper script');
         }
       } catch (linkError) {
-        console.warn('[RemoteDeployService] Failed to create npx symlink:', linkError);
+        console.debug('[RemoteDeployService] Failed to create npx symlink:', linkError);
         // Don't throw - continue with deployment
       }
     }
 
     // Install Claude CLI globally (required for SDK to work)
-    console.log('[RemoteDeployService] Checking Claude CLI installation...');
+    console.debug('[RemoteDeployService] Checking Claude CLI installation...');
     service.emitCommandOutput(id, 'command', 'claude --version');
     try {
       const claudeVersion = await manager.executeCommandFull('claude --version');
-      console.log(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`);
+      console.debug(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`);
       service.emitCommandOutput(id, 'output', `Claude CLI: ${claudeVersion.stdout.trim()}`);
     } catch {
       // Claude CLI not installed, install it
-      console.log('[RemoteDeployService] Claude CLI not found, installing...');
+      console.debug('[RemoteDeployService] Claude CLI not found, installing...');
       service.emitCommandOutput(id, 'command', 'npm install -g @anthropic-ai/claude-code');
       const claudeInstallResult = await manager.executeCommandFull(
         'npm install -g @anthropic-ai/claude-code',
@@ -1393,7 +1393,7 @@ WRAPPER
     }
 
     // Install claude-agent-sdk globally (skip if already at target version)
-    console.log('[RemoteDeployService] Checking @anthropic-ai/claude-agent-sdk version...');
+    console.debug('[RemoteDeployService] Checking @anthropic-ai/claude-agent-sdk version...');
     service.emitCommandOutput(id, 'command', AGENT_CHECK_COMMAND);
     const sdkCheckResult = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
     const sdkCheckStdout = sdkCheckResult.stdout.trim();
@@ -1422,21 +1422,21 @@ WRAPPER
     }
 
     if (sdkNeedsInstall) {
-      console.log('[RemoteDeployService] Installing @anthropic-ai/claude-agent-sdk globally...');
+      console.debug('[RemoteDeployService] Installing @anthropic-ai/claude-agent-sdk globally...');
 
       // Configure npm to use Chinese mirror for faster installation
-      console.log('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
+      console.debug('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
       await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
 
       const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
       service.emitCommandOutput(id, 'command', installCmd);
       const installResult = await manager.executeCommandFull(installCmd, { timeoutMs: 180_000 });
-      console.log('[RemoteDeployService] npm install output:', installResult.stdout);
+      console.debug('[RemoteDeployService] npm install output:', installResult.stdout);
       if (installResult.stdout.trim()) {
         service.emitCommandOutput(id, 'output', installResult.stdout.trim());
       }
       if (installResult.stderr) {
-        console.log('[RemoteDeployService] npm install stderr:', installResult.stderr);
+        console.debug('[RemoteDeployService] npm install stderr:', installResult.stderr);
         service.emitCommandOutput(id, 'error', installResult.stderr.trim());
       }
 
@@ -1453,7 +1453,7 @@ WRAPPER
 
       const successMsg = 'claude-agent-sdk installed successfully';
       service.emitCommandOutput(id, 'success', successMsg);
-      console.log(`[RemoteDeployService] Agent SDK deployment completed for ${server.name}`);
+      console.debug(`[RemoteDeployService] Agent SDK deployment completed for ${server.name}`);
 
       // Update SDK status after deployment
       const sdkCheck = await service.checkAgentInstalled(id);

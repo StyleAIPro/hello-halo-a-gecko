@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Agent IPC Handlers
  */
@@ -20,7 +21,7 @@ import { getRemoteWsClient } from '../services/remote/ws/remote-ws-client';
 
 export function registerAgentHandlers(): void {
   // Send message to agent (with optional images for multi-modal, optional thinking mode)
-  ipcMain.handle(
+  wrapIpcHandle(
     'agent:send-message',
     async (
       _event,
@@ -43,9 +44,22 @@ export function registerAgentHandlers(): void {
       },
     ) => {
       try {
-        console.log(
-          `[IPC] agent:send-message called with spaceId=${request.spaceId}, conversationId=${request.conversationId}, agentId=${request.agentId || 'leader'}`,
-        );
+        const inputLines = [
+          '================================================================================',
+          `[USER INPUT] conversationId=${request.conversationId} | spaceId=${request.spaceId}`,
+          `  Message: "${request.message}" (${request.message.length} chars)`,
+        ];
+        if (request.images?.length) {
+          inputLines.push(`  Images: ${request.images.length} attachment(s)`);
+        }
+        const modes: string[] = [];
+        if (request.thinkingEnabled) modes.push('thinking=on');
+        if (request.aiBrowserEnabled) modes.push('aiBrowser=on');
+        if (request.resumeSessionId) modes.push(`resume=${request.resumeSessionId.substring(0, 8)}`);
+        if (request.agentId) modes.push(`agent=${request.agentId}`);
+        if (modes.length) inputLines.push(`  Mode: ${modes.join(', ')}`);
+        inputLines.push('--------------------------------------------------------------------------------');
+        console.info(inputLines.join('\n'));
         await sendMessage(getMainWindow(), request);
         return { success: true };
       } catch (error: unknown) {
@@ -58,8 +72,8 @@ export function registerAgentHandlers(): void {
   // Stop generation for a specific conversation (or all if not specified)
   // Note: abortController.abort() is synchronous and takes effect immediately.
   // The interrupt/drain cleanup runs in the background and should not block the IPC response.
-  ipcMain.handle('agent:stop', async (_event, conversationId?: string) => {
-    console.log(`[IPC] agent:stop called with conversationId=${conversationId || 'undefined'}`);
+  wrapIpcHandle('agent:stop', async (_event, conversationId?: string) => {
+    console.info(`[event] stopGeneration: conversationId=${conversationId || 'all'}`);
     try {
       // Fire-and-forget: abort is already synchronous via abortController.abort()
       // interrupt/drain may hang, so don't await — let it run in background
@@ -74,7 +88,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Inject message at turn boundary (for turn-level message injection)
-  ipcMain.handle(
+  wrapIpcHandle(
     'agent:inject-message',
     async (
       _event,
@@ -109,11 +123,11 @@ export function registerAgentHandlers(): void {
   );
 
   // Approve/reject tool execution - no-op (all permissions auto-allowed)
-  ipcMain.handle('agent:approve-tool', async () => ({ success: true }));
-  ipcMain.handle('agent:reject-tool', async () => ({ success: true }));
+  wrapIpcHandle('agent:approve-tool', async () => ({ success: true }));
+  wrapIpcHandle('agent:reject-tool', async () => ({ success: true }));
 
   // Get current session state for recovery after refresh
-  ipcMain.handle('agent:get-session-state', async (_event, conversationId: string) => {
+  wrapIpcHandle('agent:get-session-state', async (_event, conversationId: string) => {
     try {
       const state = getSessionState(conversationId);
       return { success: true, data: state };
@@ -124,7 +138,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Warm up V2 session - call when switching conversations to prepare for faster message sending
-  ipcMain.handle(
+  wrapIpcHandle(
     'agent:ensure-session-warm',
     async (_event, spaceId: string, conversationId: string) => {
       try {
@@ -141,7 +155,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Answer a pending AskUserQuestion
-  ipcMain.handle(
+  wrapIpcHandle(
     'agent:answer-question',
     async (
       _event,
@@ -177,7 +191,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Reject a pending AskUserQuestion (renderer cannot handle it)
-  ipcMain.handle(
+  wrapIpcHandle(
     'agent:reject-question',
     async (
       _event,
@@ -200,7 +214,7 @@ export function registerAgentHandlers(): void {
   );
 
   // Test MCP server connections
-  ipcMain.handle('agent:test-mcp', async () => {
+  wrapIpcHandle('agent:test-mcp', async () => {
     try {
       const result = await testMcpConnections(getMainWindow());
       return result;
@@ -211,7 +225,7 @@ export function registerAgentHandlers(): void {
   });
 
   // Manually trigger context compression for a conversation
-  ipcMain.handle('agent:compact-context', async (_event, conversationId: string) => {
+  wrapIpcHandle('agent:compact-context', async (_event, conversationId: string) => {
     try {
       const result = await compactContext(conversationId);
       return result;

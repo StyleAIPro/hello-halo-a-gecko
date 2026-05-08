@@ -153,6 +153,7 @@ export function SkillMarket() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const fetchGenerationRef = useRef(0); // Race condition guard
+  const fetchIdRef = useRef(0); // Current fetch ID for progress event filtering
 
   // 远程服务器列表
   const [servers, setServers] = useState<ServerInfo[]>([]);
@@ -253,9 +254,10 @@ export function SkillMarket() {
     });
   }, []);
 
-  // 监听安装/卸载输出
+  // 监听加载进度（过滤过期 fetchId 的事件）
   useEffect(() => {
-    const cleanupProgress = api.onSkillMarketFetchProgress((progress) => {
+    const cleanupProgress = api.onSkillMarketFetchProgress((progress: any) => {
+      if (progress.fetchId && progress.fetchId !== fetchIdRef.current) return;
       setFetchProgress(progress);
     });
     return () => cleanupProgress();
@@ -417,6 +419,7 @@ export function SkillMarket() {
       if (loadingRef.current) return;
       loadingRef.current = true;
       const generation = ++fetchGenerationRef.current;
+      fetchIdRef.current = generation; // sync fetchId with generation for progress filtering
       setLoading(true);
       setLoadError(null);
       if (reset) setFetchProgress(null);
@@ -938,6 +941,7 @@ export function SkillMarket() {
                     <div
                       key={skill.id}
                       onClick={() => {
+                        api.logUserAction('skill:market-select', skill.id);
                         setSelectedSkill(skill);
                         setInstallOutputs([]);
                       }}

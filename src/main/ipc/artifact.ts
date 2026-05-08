@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Artifact IPC Handlers - Handle artifact-related requests from renderer
  *
@@ -21,7 +22,7 @@ import {
 // Register all artifact handlers
 export function registerArtifactHandlers(): void {
   // List artifacts in a space (flat list for card view)
-  ipcMain.handle('artifact:list', async (_event, spaceId: string) => {
+  wrapIpcHandle('artifact:list', async (_event, spaceId: string) => {
     try {
       const artifacts = await listArtifacts(spaceId);
       return { success: true, data: artifacts };
@@ -32,7 +33,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // List artifacts as tree structure (for developer view)
-  ipcMain.handle('artifact:list-tree', async (_event, spaceId: string) => {
+  wrapIpcHandle('artifact:list-tree', async (_event, spaceId: string) => {
     try {
       const tree = await listArtifactsTree(spaceId);
       return { success: true, data: tree };
@@ -43,7 +44,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Load children for lazy tree expansion
-  ipcMain.handle('artifact:load-children', async (_event, spaceId: string, dirPath: string) => {
+  wrapIpcHandle('artifact:load-children', async (_event, spaceId: string, dirPath: string) => {
     try {
       console.log(`[IPC] artifact:load-children - spaceId: ${spaceId}, path: ${dirPath}`);
       const children = await loadTreeChildren(spaceId, dirPath);
@@ -55,7 +56,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Initialize file watcher for a space
-  ipcMain.handle('artifact:init-watcher', async (_event, spaceId: string) => {
+  wrapIpcHandle('artifact:init-watcher', async (_event, spaceId: string) => {
     try {
       console.log(`[IPC] artifact:init-watcher - spaceId: ${spaceId}`);
       await initArtifactWatcher(spaceId);
@@ -67,7 +68,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Open file or folder with system default application
-  ipcMain.handle('artifact:open', async (_event, filePath: string) => {
+  wrapIpcHandle('artifact:open', async (_event, filePath: string) => {
     try {
       console.log(`[IPC] artifact:open - path: ${filePath}`);
       // shell.openPath opens file with default app, or folder with file manager
@@ -84,7 +85,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Show file in folder (highlight in file manager)
-  ipcMain.handle('artifact:show-in-folder', async (_event, filePath: string) => {
+  wrapIpcHandle('artifact:show-in-folder', async (_event, filePath: string) => {
     try {
       console.log(`[IPC] artifact:show-in-folder - path: ${filePath}`);
       // shell.showItemInFolder opens the folder and selects the file
@@ -97,7 +98,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Read file content for Content Canvas
-  ipcMain.handle('artifact:read-content', async (_event, filePath: string) => {
+  wrapIpcHandle('artifact:read-content', async (_event, filePath: string) => {
     try {
       console.log(`[IPC] artifact:read-content - path: ${filePath}`);
       const content = readArtifactContent(filePath);
@@ -109,7 +110,7 @@ export function registerArtifactHandlers(): void {
   });
 
   // Save file content from Content Canvas (edit mode)
-  ipcMain.handle('artifact:save-content', async (_event, filePath: string, content: string) => {
+  wrapIpcHandle('artifact:save-content', async (_event, filePath: string, content: string) => {
     try {
       console.log(`[IPC] artifact:save-content - path: ${filePath}`);
       saveArtifactContent(filePath, content);
@@ -122,7 +123,7 @@ export function registerArtifactHandlers(): void {
 
   // Detect file type for Canvas viewability
   // Used by renderer to determine if unknown file types can be opened in Canvas
-  ipcMain.handle('artifact:detect-file-type', async (_event, filePath: string) => {
+  wrapIpcHandle('artifact:detect-file-type', async (_event, filePath: string) => {
     try {
       console.log(`[IPC] artifact:detect-file-type - path: ${filePath}`);
       const fileTypeInfo = detectFileType(filePath);

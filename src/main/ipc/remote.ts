@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Remote Access IPC Handlers
  * Allows renderer to control remote access features
@@ -27,7 +28,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Enable remote access
-  ipcMain.handle('remote:enable', async (_event, port?: number) => {
+  wrapIpcHandle('remote:enable', async (_event, port?: number) => {
     console.log('[Settings] remote:enable - Enabling remote access', port ? `on port ${port}` : '');
     try {
       const status = await enableRemoteAccess(port);
@@ -41,7 +42,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Disable remote access
-  ipcMain.handle('remote:disable', async () => {
+  wrapIpcHandle('remote:disable', async () => {
     console.log('[Settings] remote:disable - Disabling remote access');
     try {
       await disableRemoteAccess();
@@ -55,7 +56,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Enable tunnel
-  ipcMain.handle('remote:tunnel:enable', async () => {
+  wrapIpcHandle('remote:tunnel:enable', async () => {
     console.log('[Settings] remote:tunnel:enable - Enabling tunnel');
     try {
       const url = await enableTunnel();
@@ -69,7 +70,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Disable tunnel
-  ipcMain.handle('remote:tunnel:disable', async () => {
+  wrapIpcHandle('remote:tunnel:disable', async () => {
     console.log('[Settings] remote:tunnel:disable - Disabling tunnel');
     try {
       await disableTunnel();
@@ -83,7 +84,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Get status
-  ipcMain.handle('remote:status', async () => {
+  wrapIpcHandle('remote:status', async () => {
     try {
       const status = getRemoteAccessStatus();
       return { success: true, data: status };
@@ -95,7 +96,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Generate QR code
-  ipcMain.handle('remote:qrcode', async (_event, includeToken?: boolean) => {
+  wrapIpcHandle('remote:qrcode', async (_event, includeToken?: boolean) => {
     console.log('[Settings] remote:qrcode - Generating QR code, includeToken:', includeToken);
     try {
       const qrCode = await generateQRCode(includeToken);
@@ -116,7 +117,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Set custom password
-  ipcMain.handle('remote:set-password', async (_event, password: string) => {
+  wrapIpcHandle('remote:set-password', async (_event, password: string) => {
     console.log('[Settings] remote:set-password - Setting custom password');
     try {
       const result = setCustomPassword(password);
@@ -135,7 +136,7 @@ export function registerRemoteHandlers(): void {
   });
 
   // Regenerate random password
-  ipcMain.handle('remote:regenerate-password', async () => {
+  wrapIpcHandle('remote:regenerate-password', async () => {
     console.log('[Settings] remote:regenerate-password - Regenerating password');
     try {
       regeneratePassword();

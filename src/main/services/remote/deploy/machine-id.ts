@@ -41,7 +41,7 @@ export function getMachineId(): string {
       }
     }
   } catch (e) {
-    console.warn('[MachineId] Failed to read OS machine ID:', e);
+    console.debug('[MachineId] Failed to read OS machine ID:', e);
   }
 
   // Fallback: hostname + username hash
