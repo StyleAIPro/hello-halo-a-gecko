@@ -8,7 +8,7 @@
 import type { SSHManager } from '../ssh/ssh-manager';
 import { SYSTEM_PROMPT_TEMPLATE } from '../../agent/system-prompt';
 import { removePooledConnection } from '../ws/remote-ws-client';
-import { getDeployPath, escapeEnvValue, REQUIRED_SDK_VERSION, AGENT_CHECK_COMMAND } from './agent-deployer';
+import { getDeployPath, escapeEnvValue, REQUIRED_SDK_VERSION, AGENT_CHECK_COMMAND, isOfflineBundleAvailable } from './agent-deployer';
 import type { RemoteDeployService } from './remote-deploy.service';
 
 /**
@@ -601,14 +601,21 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
 
     service.emitDeployProgress(id, 'update', `Deploying (${reasons.join(', ')})...`);
 
-    if (!sdkOk) {
-      console.log(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
-      await service.deployAgentSDK(id);
-    }
+    // Prefer offline deployment when bundle is available
+    const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+    if (platform && isOfflineBundleAvailable(service, platform)) {
+      console.log(`[RemoteDeploy] Using offline deployment for ${server.name} (${platform})`);
+      await service.deployAgentCodeOffline(id);
+    } else {
+      if (!sdkOk) {
+        console.log(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
+        await service.deployAgentSDK(id);
+      }
 
-    if (needsCodeDeploy) {
-      console.log(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
-      await service.deployAgentCode(id);
+      if (needsCodeDeploy) {
+        console.log(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
+        await service.deployAgentCode(id);
+      }
     }
   } else {
     console.log(`[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`);

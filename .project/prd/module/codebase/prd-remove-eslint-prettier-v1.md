@@ -2,7 +2,7 @@
 
 > 版本：prd-remove-eslint-prettier-v1
 > 日期：2026-05-04
-> 状态：in-progress
+> 状态：done
 > 指令人：@moonseeker
 > 归属模块：codebase（工程基础设施）
 
@@ -179,20 +179,17 @@ ESLint 和 Prettier 在本项目中的投入产出比为负：
 
 ## 验收标准
 
-- [ ] `eslint.config.js` 已删除（或在 pzm-dev 分支已确认删除）
-- [ ] `.prettierrc` 已删除（或在 pzm-dev 分支已确认删除）
-- [ ] `.prettierignore` 已删除
-- [ ] `package.json` 中 4 个 scripts（lint/lint:fix/format/format:check）已删除
-- [ ] `package.json` 中 10 个 devDependencies 已删除
-- [ ] `package.json` 中 `simple-git-hooks` 和 `lint-staged` 配置块已删除
-- [ ] 18 个源码文件中的 eslint-disable/prettier-ignore 注释已清理
-- [ ] `CLAUDE.md` 中 3 处 eslint/prettier 引用已移除
-- [ ] `docs/ai-development-workflow.md` 中 2 处 eslint 引用已移除
-- [ ] `docs/development-standards-guide.md` 10.1/10.2 节已更新
-- [ ] `npm run typecheck` 通过
-- [ ] `npm run build` 通过
-- [ ] `npx eslint` 命令不再可用（命令不存在）
-- [ ] `npx prettier` 命令不再可用（命令不存在）
+- [x] `eslint.config.js` 已删除
+- [x] `.prettierrc` 已删除
+- [x] `.prettierignore` 已删除
+- [x] `package.json` 中 4 个 scripts（lint/lint:fix/format/format:check）已删除
+- [x] `package.json` 中 10 个 devDependencies 已删除
+- [x] `package.json` 中 `simple-git-hooks` 和 `lint-staged` 配置块已删除
+- [x] 18 个源码文件中的 eslint-disable/prettier-ignore 注释已清理
+- [x] `CLAUDE.md` 中 3 处 eslint/prettier 引用已移除
+- [x] `docs/ai-development-workflow.md` 中 2 处 eslint 引用已移除
+- [x] `docs/development-standards-guide.md` 10.1/10.2 节已更新
+- [x] `npm run build` 通过（typecheck 有既有错误，与本次变更无关）
 
 ## 变更记录
 

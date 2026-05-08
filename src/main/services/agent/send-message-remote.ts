@@ -130,6 +130,10 @@ export async function executeRemoteMessage(
   // It will be initialized inside the try block after abortController is created
   let sessionState: { thoughts: any[]; streamingContent?: string; isRemote?: boolean } | undefined;
 
+  // SDK session ID — declared before try so it's accessible in catch for saving on interrupt.
+  // It's set inside try when the claude:session event arrives from the remote server.
+  let sdkSessionId: string | undefined;
+
   // CRITICAL: Declare these variables before try block so they're accessible in catch block
   // These need to be accessible in catch block for content persistence on abort
   let streamingContent = '';
@@ -172,7 +176,7 @@ export async function executeRemoteMessage(
     const localTunnelPort = await sshTunnelPromise;
 
     // Additional variables for SDK session management
-    let sdkSessionId: string | undefined;
+    // sdkSessionId is declared before try block (for catch access)
     // CRITICAL: effectiveSessionId always equals conversationId for consistent session
     // lookup on remote server. sdkSessionId (SDK's internal session ID) is only used
     // for the --resume parameter. This prevents session key mismatch across turns.
@@ -944,6 +948,14 @@ export async function executeRemoteMessage(
     // CRITICAL: Send completion event to notify frontend to stop streaming and reload
     // This ensures the frontend knows the generation is complete and can display the final content
     sendToRenderer('agent:complete', spaceId, conversationId, {});
+
+    // Save SDK session ID even on interrupt for future resumption.
+    // Without this, the next sendMessageRemote call starts a fresh session, losing all context.
+    if (sdkSessionId || sessionId) {
+      const sessionToSave = sdkSessionId || sessionId;
+      saveSessionId(spaceId, conversationId, sessionToSave);
+      log.info(`Session ID saved (on ${isAbort ? 'interrupt' : 'error'}): ${sessionToSave}`);
+    }
 
     // Clean up event handlers and release pooled connection on error too
     try {

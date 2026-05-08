@@ -247,11 +247,19 @@ export async function deployToServer(service: RemoteDeployService, id: string): 
   await service.updateServer(id, { status: 'deploying' });
 
   try {
-    // Deploy agent SDK
-    await service.deployAgentSDK(id);
+    // Prefer offline deployment when bundle is available
+    const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+    if (platform && isOfflineBundleAvailable(service, platform)) {
+      console.log(`[RemoteDeployService] Using offline deployment for ${server.name} (${platform})`);
+      await service.deployAgentCodeOffline(id);
+    } else {
+      console.log(`[RemoteDeployService] Using online deployment for ${server.name}`);
+      // Deploy agent SDK
+      await service.deployAgentSDK(id);
 
-    // Deploy agent code (includes system prompt sync and auto restart)
-    await service.deployAgentCode(id);
+      // Deploy agent code (includes system prompt sync and auto restart)
+      await service.deployAgentCode(id);
+    }
 
     await service.updateServer(id, { status: 'connected' });
     console.log(`[RemoteDeployService] Deployment completed for: ${server.name}`);
