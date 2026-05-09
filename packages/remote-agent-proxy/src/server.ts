@@ -170,15 +170,23 @@ export class RemoteAgentServer {
       })
 
       ws.on('close', () => {
-        // Don't close the SDK session on WebSocket disconnect!
-        // The SDK session maintains conversation history and should persist
-        // across WebSocket reconnections. Sessions have their own 30-minute
-        // idle timeout cleanup in ClaudeManager.
-        // This fixes the multi-turn conversation issue where history was lost
-        // on every WebSocket reconnection.
         const client = this.clients.get(ws)
         if (client?.sessionId) {
-          console.log(`Client disconnected, keeping SDK session ${client.sessionId} alive for future reconnection`)
+          const sid = client.sessionId
+          // Interrupt active stream to release session lock.
+          // Without this, the old handleClaudeChat keeps the lock while blocked
+          // on the SDK stream (e.g. waiting for a long tool call like aisbench).
+          // When the client reconnects and sends a new message, it gets queued
+          // behind the zombie handler whose responses go to this dead WebSocket,
+          // causing the UI to hang in "thinking" state forever.
+          if (this.sessionProcessingLocks.has(sid)) {
+            console.log(`[RemoteAgentServer] Client disconnected with active stream for ${sid}, aborting`)
+            this.claudeManager.markAsInterrupted(sid)
+            this.claudeManager.forceAbortStreamIterator(sid)
+          }
+          // Don't close the SDK session - keep it for reconnection.
+          // Sessions have their own 30-minute idle timeout cleanup in ClaudeManager.
+          console.log(`Client disconnected, keeping SDK session ${sid} alive for future reconnection`)
         }
         this.clients.delete(ws)
         // Reject all pending MCP tool calls for this connection
@@ -593,25 +601,17 @@ export class RemoteAgentServer {
     try {
       console.log(`[RemoteAgentServer] Handling interrupt for session: ${sessionId}`)
 
-      // Get the active session from ClaudeManager and interrupt it
-      const v2Session = this.claudeManager.getSession(sessionId)
-      if (v2Session) {
-        try {
-          // Mark session as interrupted (for streamChat loop to detect)
-          this.claudeManager.markAsInterrupted(sessionId)
+      // Mark session as interrupted (for streamChat loop to detect via poll)
+      this.claudeManager.markAsInterrupted(sessionId)
 
-          // Call SDK's interrupt method
-          await (v2Session as any).interrupt()
-          console.log(`[RemoteAgentServer] V2 session interrupted for: ${sessionId}`)
-        } catch (e) {
-          console.error(`[RemoteAgentServer] Failed to interrupt V2 session:`, e)
-        }
-      } else {
-        console.log(`[RemoteAgentServer] No active session found for: ${sessionId}`)
-      }
-
-      // CRITICAL: Force abort the stream iterator to stop any pending async operations
-      // This is necessary because SDK's interrupt() may not stop long-running operations
+      // Force abort the stream iterator to release the session lock.
+      // This is sufficient to stop the server-side stream processing.
+      // We intentionally do NOT call v2Session.interrupt() here because:
+      // 1. It sends SIGINT to the SDK subprocess, which exits and triggers
+      //    process-exit cleanup that removes the session from memory
+      // 2. Without the session, the next message creates a fresh session, losing all context
+      // 3. forceAbortStreamIterator + markAsInterrupted already stops the stream and releases the lock
+      // 4. The SDK subprocess will continue running (idle), ready for session reuse
       const forceAborted = this.claudeManager.forceAbortStreamIterator(sessionId)
       if (forceAborted) {
         console.log(`[RemoteAgentServer] Stream iterator force aborted for: ${sessionId}`)
@@ -917,6 +917,18 @@ export class RemoteAgentServer {
           const pending = this.claudeManager.consumePendingMessages(sessionId)
           if (pending.length === 0) break
 
+          // If our WebSocket is dead (e.g. client disconnected after interrupt),
+          // don't process pending messages — a new connection will handle them.
+          // Without this check, the old handler consumes new client's messages
+          // and sends responses to the dead ws, causing the new client to hang forever.
+          if (ws.readyState !== WebSocket.OPEN) {
+            console.log(`[RemoteAgentServer] WebSocket dead with ${pending.length} pending message(s), putting back for new connection`)
+            for (const msg of pending) {
+              this.claudeManager.queueMessage(sessionId, msg.content, msg.options)
+            }
+            break
+          }
+
           // Process first pending message, put the rest back
           const nextMsg = pending[0]
           for (const extra of pending.slice(1)) {
@@ -933,6 +945,12 @@ export class RemoteAgentServer {
             // Expected interrupt - mark and continue normally
             wasInterrupted = true
             console.log(`[RemoteAgentServer] Stream interrupted for session ${sessionId}`)
+          } else if (errorMessage.includes('SESSION_CORRUPTED') && !needsClosedSessionRetry) {
+            // First-event timeout: session was corrupted after interrupt reuse.
+            // Force rebuild (skip resume) and retry once.
+            console.warn(`[RemoteAgentServer] Session corrupted (first-event timeout) for session ${sessionId}, rebuilding and retrying...`)
+            this.claudeManager.forceSessionRebuild(sessionId)
+            needsClosedSessionRetry = true
           } else if (errorMessage.includes('Cannot send to closed session') && !wasInterrupted && !needsClosedSessionRetry) {
             // Race condition: close:session arrived concurrently and closed the SDK session
             // before/during session.send(). Rebuild session and retry once.

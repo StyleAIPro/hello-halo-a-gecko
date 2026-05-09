@@ -185,12 +185,13 @@ export class RemoteWsClient extends EventEmitter {
 
         if (!settled) {
           let errorMessage: string;
-          if (event.code === 1008) {
+          const closeCode = event.code ?? 1006;
+          if (closeCode === 1008) {
             errorMessage = `Authentication rejected by remote proxy (invalid token). Ensure the token is registered on the remote server.`;
-          } else if (event.code === 1006) {
+          } else if (closeCode === 1006) {
             errorMessage = `Remote proxy connection lost abruptly. The agent process may have crashed or is not running on port ${port}.`;
           } else {
-            errorMessage = `WebSocket disconnected (code: ${event.code}, reason: ${reason}). The remote process may still be running.`;
+            errorMessage = `WebSocket disconnected (code: ${closeCode}, reason: ${reason}). The remote process may still be running.`;
           }
           log.error(`[${this.config.serverId}] ${errorMessage}`);
           settle('reject', new Error(errorMessage));
@@ -204,7 +205,7 @@ export class RemoteWsClient extends EventEmitter {
           for (const [sessionId, pending] of this.activeStreamSessions) {
             pending.reject(
               new Error(
-                `WebSocket disconnected (code: ${event.code}) while stream ${sessionId} was active. ` +
+                `WebSocket disconnected (code: ${event.code ?? 1006}) while stream ${sessionId} was active. ` +
                   `The remote process may still be running.`,
               ),
             );
@@ -702,6 +703,7 @@ export class RemoteWsClient extends EventEmitter {
     );
 
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.reconnectAttempts++;
       this.connect().catch((err) => {
         log.error(`[${this.config.serverId}] Reconnect failed:`, err);
@@ -745,6 +747,47 @@ export class RemoteWsClient extends EventEmitter {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.authenticated;
   }
 
+  isReconnecting(): boolean {
+    return this.reconnectTimer !== null;
+  }
+
+  waitForReconnect(timeoutMs: number = 15000): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.isConnected()) {
+        resolve(true);
+        return;
+      }
+      if (!this.reconnectTimer) {
+        resolve(false);
+        return;
+      }
+
+      const timeoutHandle = setTimeout(() => {
+        cleanup();
+        resolve(false);
+      }, timeoutMs);
+
+      const onAuthenticated = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      const onReconnectFailed = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeoutHandle);
+        this.off('authenticated', onAuthenticated);
+        this.off('reconnectFailed', onReconnectFailed);
+      };
+
+      this.once('authenticated', onAuthenticated);
+      this.once('reconnectFailed', onReconnectFailed);
+    });
+  }
+
   disconnect(): void {
     this.shouldReconnect = false;
     this.cancelReconnect();
@@ -769,9 +812,8 @@ export class RemoteWsClient extends EventEmitter {
           this.ws!.send(JSON.stringify(interruptMessage));
           log.debug(`[${this.config.serverId}] Interrupt message sent to remote server`);
 
-          const closeMessage = { type: 'close:session', sessionId };
-          this.ws!.send(JSON.stringify(closeMessage));
-          log.debug(`[${this.config.serverId}] close:session message sent to remote server`);
+          // Don't send close:session — keep the SDK session alive on the server
+          // so the next message can reuse it and preserve conversation context.
           return true;
         } catch (error) {
           log.error(`[${this.config.serverId}] Failed to send messages:`, error);

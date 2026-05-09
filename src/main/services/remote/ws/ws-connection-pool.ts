@@ -45,6 +45,22 @@ export async function acquireConnection(
         );
         return existing.client;
       }
+    } else if (existing.client.isReconnecting()) {
+      log.info(
+        `[${serverId}] Pooled connection is reconnecting, waiting up to 15s...`,
+      );
+      const reconnected = await existing.client.waitForReconnect(15000);
+      if (reconnected && existing.client.isConnected()) {
+        existing.createdAt = Date.now();
+        existing.refs.add(callerId);
+        log.info(`[${serverId}] Reconnected successfully, reusing connection`);
+        return existing.client;
+      }
+      log.info(
+        `[${serverId}] Reconnect did not succeed, creating new connection`,
+      );
+      existing.client.destroy();
+      connectionPool.delete(serverId);
     } else {
       log.info(`[${serverId}] Pooled connection is dead, removing`);
       existing.client.destroy();
@@ -67,6 +83,16 @@ export async function acquireConnection(
     if (entry && entry.client === client) {
       connectionPool.delete(serverId);
       log.info(`[${serverId}] Pooled connection closed, removed from pool`);
+    }
+  });
+
+  client.once('reconnectFailed', () => {
+    const entry = connectionPool.get(serverId);
+    if (entry && entry.client === client) {
+      connectionPool.delete(serverId);
+      log.info(
+        `[${serverId}] Pooled connection reconnect failed, removed from pool`,
+      );
     }
   });
 

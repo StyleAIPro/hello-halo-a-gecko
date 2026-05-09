@@ -427,7 +427,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   // ── skill:market:pat-status ──────────────────────────────────────
   ipcMain.handle('skill:market:pat-status', async () => {
     try {
-      const { getGitHubToken } = await import('../services/auth/github-auth.service');
+      const { getGitHubToken } = await import('../services/config.service');
       const { getGitCodeToken } = await import('../services/config.service');
       return {
         success: true,

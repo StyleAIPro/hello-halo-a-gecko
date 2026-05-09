@@ -467,6 +467,8 @@ class AgentOrchestrator extends EventEmitter {
     // For Leader agents, disable the SDK built-in Agent/Task tool to prevent
     // duplicate sub-agents (Leader should only use spawn_subagent MCP tool)
     const isLeader = agent.config.role === 'leader';
+    const { getGitHubToken } = await import('../config.service');
+    const { getEffectiveProxyUrl } = await import('../proxy');
     const sdkOptions = buildBaseSdkOptions({
       credentials: resolvedCredentials,
       workDir,
@@ -480,6 +482,10 @@ class AgentOrchestrator extends EventEmitter {
       mcpServers,
       contextWindow: resolvedCredentials.contextWindow,
       ...(isLeader ? { additionalDisallowedTools: ['Agent', 'Task'] } : {}),
+      ghSearchStatus: {
+        patConfigured: !!getGitHubToken(),
+        proxyEnabled: !!getEffectiveProxyUrl(),
+      },
     });
 
     // Apply custom system prompt if provided
@@ -1785,7 +1791,7 @@ Respond with a JSON array of agent IDs that should handle this task.`;
             const worker = this.getWorkerById(task.agentId);
             if (worker?.lastHeartbeat && worker.lastHeartbeat > lastProgressTime) {
               lastProgressTime = worker.lastHeartbeat;
-              console.log(
+              console.debug(
                 `[Orchestrator] waitForCompletion: heartbeat from worker ${task.agentId}, ` +
                   `extended deadline by ${heartbeatTimeout / 1000}s`,
               );

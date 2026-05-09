@@ -17,7 +17,6 @@ import {
   Terminal,
   ChevronDown,
   ChevronRight,
-  RefreshCw,
   Edit,
   AlertTriangle,
   AlertCircle,
@@ -78,7 +77,6 @@ export function RemoteServersSection() {
   >([]);
   const [saving, setSaving] = React.useState(false);
   const [updatingAgent, setUpdatingAgent] = React.useState<string | null>(null);
-  const [deployMode, setDeployMode] = React.useState<'online' | 'offline'>('offline');
   const [offlineBundleReady, setOfflineBundleReady] = React.useState(false);
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set());
   // Add server progress tracking
@@ -958,12 +956,8 @@ export function RemoteServersSection() {
     }
   };
 
-  // Unified deploy handler that delegates based on mode
   const handleDeploy = async (serverId: string): Promise<boolean> => {
-    if (deployMode === 'offline') {
-      return handleDeployOffline(serverId);
-    }
-    return handleUpdateAgent(serverId);
+    return handleDeployOffline(serverId);
   };
 
   // Cancel an in-flight deploy/update operation
@@ -1141,51 +1135,8 @@ export function RemoteServersSection() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Deploy mode selector */}
-            <div className="flex items-center gap-1 text-xs border border-border rounded-lg p-0.5">
-              <button
-                onClick={() => setDeployMode('offline')}
-                className={`px-2 py-1 rounded-md transition-colors ${
-                  deployMode === 'offline'
-                    ? 'bg-green-500/15 text-green-600'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={
-                  offlineBundleReady ? t('Deploy Agent (Offline)') : t('Offline bundle not built')
-                }
-              >
-                <Package className="w-3.5 h-3.5 inline-block" />
-                <span className="ml-1">{t('Offline')}</span>
-              </button>
-              <button
-                onClick={() => setDeployMode('online')}
-                className={`px-2 py-1 rounded-md transition-colors ${
-                  deployMode === 'online'
-                    ? 'bg-green-500/15 text-green-600'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={t('Update Agent')}
-              >
-                <RefreshCw className="w-3.5 h-3.5 inline-block" />
-                <span className="ml-1">{t('Online')}</span>
-              </button>
-            </div>
-
             {/* Auto-detected architecture indicator (offline mode only) */}
 
-            <button
-              onClick={handleBatchUpdate}
-              disabled={batchUpdating || servers.length === 0 || deployMode === 'offline'}
-              className="px-3 py-2 border border-green-500/30 text-green-600 rounded-lg flex items-center gap-2 hover:bg-green-500/10 transition-colors disabled:opacity-50 text-sm whitespace-nowrap"
-              title={t('Batch Update All')}
-            >
-              {batchUpdating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              {t('Batch Update')}
-            </button>
             <button
               onClick={() => {
                 loadAiSources();
@@ -1296,21 +1247,17 @@ export function RemoteServersSection() {
                           disabled={
                             updatingAgent === server.id ||
                             batchUpdating ||
-                            (deployMode === 'offline' && !offlineBundleReady)
+                            !offlineBundleReady
                           }
                           className="p-1.5 hover:bg-green-500/10 text-green-600 rounded-lg transition-colors disabled:opacity-50"
                           title={
-                            deployMode === 'offline'
-                              ? t('Deploy Agent (Offline)')
-                              : t('Update Agent')
+                            offlineBundleReady ? t('Deploy Agent (Offline)') : t('Offline bundle not built')
                           }
                         >
                           {updatingAgent === server.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : deployMode === 'offline' ? (
-                            <Package className="w-4 h-4" />
                           ) : (
-                            <RefreshCw className="w-4 h-4" />
+                            <Package className="w-4 h-4" />
                           )}
                         </button>
                         {updatingAgent === server.id && (
