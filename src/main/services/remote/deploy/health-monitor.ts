@@ -87,7 +87,7 @@ async function checkServerHealth(service: RemoteDeployService, id: string): Prom
   try {
     const port = server.assignedPort;
     const healthPort = port + 1;
-    const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+    const healthCmd = `curl --noproxy '*' -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
     const healthResult = await manager.executeCommandFull(healthCmd);
 
     let proxyRunning = false;

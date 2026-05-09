@@ -38,7 +38,7 @@ export async function registerTokenOnRemote(service: RemoteDeployService, id: st
   try {
     // Register token via health port HTTP endpoint
     const tokenB64 = Buffer.from(JSON.stringify({ token })).toString('base64');
-    const cmd = `echo '${tokenB64}' | base64 -d | curl -s -X POST -H "Content-Type: application/json" -d @- http://localhost:${healthPort}/tokens`;
+    const cmd = `echo '${tokenB64}' | base64 -d | curl --noproxy '*' -s -X POST -H "Content-Type: application/json" -d @- http://localhost:${healthPort}/tokens`;
     const result = await manager.executeCommandFull(cmd);
 
     try {
@@ -116,7 +116,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
   let proxyHealthy = false;
   try {
     const healthResult = await manager.executeCommandFull(
-      `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`,
+      `curl --noproxy '*' -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`,
     );
     const healthData = JSON.parse(healthResult.stdout || '{}');
     proxyHealthy = healthData.status === 'ok';
@@ -141,7 +141,7 @@ export async function startAgent(service: RemoteDeployService, id: string): Prom
     // Process exists -- verify it's actually healthy via health endpoint
     const healthPortLocal = port + 1;
     const healthCheck = await manager.executeCommandFull(
-      `curl -s --connect-timeout 2 http://localhost:${healthPortLocal}/health 2>/dev/null || echo '{}'`,
+      `curl --noproxy '*' -s --connect-timeout 2 http://localhost:${healthPortLocal}/health 2>/dev/null || echo '{}'`,
     );
     try {
       const healthData = JSON.parse(healthCheck.stdout || '{}');
@@ -656,7 +656,7 @@ export async function verifyProxyHealth(service: RemoteDeployService, id: string
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
   const healthPort = server.assignedPort + 1;
-  const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+  const healthCmd = `curl --noproxy '*' -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
   try {
     const healthResult = await manager.executeCommandFull(healthCmd);
     const healthData = JSON.parse(healthResult.stdout || '{}');
@@ -954,7 +954,7 @@ export async function detectAgentInstalled(service: RemoteDeployService, id: str
       try {
         const port = server.assignedPort;
         const healthPort = port + 1;
-        const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+        const healthCmd = `curl --noproxy '*' -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
         const healthResult = await manager.executeCommandFull(healthCmd);
         try {
           const healthData = JSON.parse(healthResult.stdout || '{}');
