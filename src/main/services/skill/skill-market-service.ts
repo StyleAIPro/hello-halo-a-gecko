@@ -62,6 +62,12 @@ export class SkillMarketService {
   // 技能缓存：源ID -> 技能列表
   private skillsCache: Map<string, RemoteSkillItem[]> = new Map();
 
+  // 进行中的 fetch Promise，防止同一 source 并发重复请求
+  private fetchInProgress: Map<string, Promise<RemoteSkillItem[]>> = new Map();
+
+  // 递增的 fetch ID，用于前端过滤过期的进度事件
+  private fetchIdCounter = 0;
+
   private constructor() {
     this.configPath = path.join(getAgentsSkillsDir(), '..', 'skill-market-config.json');
     this.config = {
@@ -241,7 +247,7 @@ export class SkillMarketService {
     page: number = 1,
     pageSize: number = 20,
   ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
-    console.log('[SkillMarketService] getSkills called:', { page, pageSize });
+    console.debug('[SkillMarketService] getSkills called:', { page, pageSize });
 
     const activeSource = this.getActiveSource();
     const sourceType = activeSource?.type || 'builtin';
@@ -264,10 +270,21 @@ export class SkillMarketService {
   resetCache(sourceId?: string): void {
     if (sourceId) {
       this.skillsCache.delete(sourceId);
+      this.fetchInProgress.delete(sourceId);
     } else {
       this.skillsCache.clear();
+      this.fetchInProgress.clear();
     }
-    console.log('[SkillMarketService] Cache reset for:', sourceId || 'all');
+    console.debug('[SkillMarketService] Cache reset for:', sourceId || 'all');
+  }
+
+  private createProgressSender(fetchId: number) {
+    return (progress: { phase: string; current: number; total: number }) => {
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('skill:market:fetch-progress', { ...progress, fetchId });
+      }
+    };
   }
 
   /**
@@ -298,10 +315,10 @@ export class SkillMarketService {
 
     // 如果缓存为空，从首页爬取
     if (cachedSkills.length === 0) {
-      console.log('[SkillMarketService] Fetching skills from skills.sh homepage');
+      console.debug('[SkillMarketService] Fetching skills from skills.sh homepage');
       cachedSkills = await this.fetchFromSkillsShHomepage();
       this.skillsCache.set(sourceId, cachedSkills);
-      console.log(`[SkillMarketService] Cached ${cachedSkills.length} skills from homepage`);
+      console.debug(`[SkillMarketService] Cached ${cachedSkills.length} skills from homepage`);
     }
 
     // 从缓存中分页
@@ -309,7 +326,7 @@ export class SkillMarketService {
     const hasMore = offset + pageSize < total;
     const skills = cachedSkills.slice(offset, offset + pageSize);
 
-    console.log(
+    console.debug(
       `[SkillMarketService] Returning ${skills.length} skills, total: ${total}, hasMore: ${hasMore}`,
     );
 
@@ -405,7 +422,7 @@ export class SkillMarketService {
       });
     }
 
-    console.log('[SkillMarketService] Parsed', skills.length, 'skills from HTML');
+    console.debug('[SkillMarketService] Parsed', skills.length, 'skills from HTML');
     return skills;
   }
 
@@ -416,7 +433,7 @@ export class SkillMarketService {
     try {
       const limit = 50;
       const url = `https://skills.sh/api/search?q=${encodeURIComponent(searchTerm)}&limit=${limit}`;
-      console.log('[SkillMarketService] Fetching from skills.sh API:', url);
+      console.debug('[SkillMarketService] Fetching from skills.sh API:', url);
 
       const response = await proxyFetch(url, {
         headers: {
@@ -441,7 +458,7 @@ export class SkillMarketService {
         count: number;
       };
 
-      console.log('[SkillMarketService] skills.sh API returned:', data.skills.length, 'skills');
+      console.debug('[SkillMarketService] skills.sh API returned:', data.skills.length, 'skills');
 
       return data.skills.map((skill) => {
         const sourceParts = skill.source.split('/');
@@ -478,7 +495,7 @@ export class SkillMarketService {
     page: number = 1,
     pageSize: number = 20,
   ): Promise<{ skills: RemoteSkillItem[]; total: number; hasMore: boolean }> {
-    console.log('[SkillMarketService] searchSkills called:', { query, page, pageSize });
+    console.debug('[SkillMarketService] searchSkills called:', { query, page, pageSize });
 
     const activeSource = this.getActiveSource();
     const sourceType = activeSource?.type || 'builtin';
@@ -499,7 +516,7 @@ export class SkillMarketService {
 
     if (!cachedSkills) {
       // 从 API 获取
-      console.log('[SkillMarketService] Searching skills.sh with query:', query);
+      console.debug('[SkillMarketService] Searching skills.sh with query:', query);
       cachedSkills = await this.fetchFromSkillsShAPI(query);
       this.skillsCache.set(searchCacheKey, cachedSkills);
     }
@@ -521,7 +538,7 @@ export class SkillMarketService {
    * 支持 skills.sh: 和 github: 前缀的 ID
    */
   async getSkillDetail(skillId: string): Promise<RemoteSkillItem | null> {
-    console.log('[SkillMarketService] getSkillDetail called:', skillId);
+    console.debug('[SkillMarketService] getSkillDetail called:', skillId);
 
     // GitHub source: ID format "github:owner/repo:full/path/to/skill"
     if (skillId.startsWith('github:')) {
@@ -546,7 +563,7 @@ export class SkillMarketService {
       if (parts.length >= 3) {
         const repo = parts[1];
         let skillPath = parts.slice(2).join(':');
-        console.log('[SkillMarket] getSkillDetail GitCode:', {
+        console.debug('[SkillMarket] getSkillDetail GitCode:', {
           skillId,
           repo,
           rawSkillPath: skillPath,
@@ -554,15 +571,15 @@ export class SkillMarketService {
         const cachedItem = this.findSkillInCache(skillId);
         if (cachedItem?.remotePath) {
           skillPath = cachedItem.remotePath;
-          console.log('[SkillMarket] getSkillDetail: cache hit, path =', skillPath);
+          console.debug('[SkillMarket] getSkillDetail: cache hit, path =', skillPath);
         } else {
           // Cache miss: skillId path is lowercased, but GitCode API is case-sensitive.
           // Use findSkillDirsViaContents to resolve the original-case path.
-          console.log('[SkillMarket] getSkillDetail: cache miss, resolving case-sensitive path...');
+          console.debug('[SkillMarket] getSkillDetail: cache miss, resolving case-sensitive path...');
           try {
             const token = gitcodeSkillSource.getGitCodeToken();
             const allDirs = await gitcodeSkillSource.findSkillDirsViaContents(repo, token);
-            console.log('[SkillMarket] getSkillDetail: found', allDirs.length, 'skill dirs');
+            console.debug('[SkillMarket] getSkillDetail: found', allDirs.length, 'skill dirs');
             const normalized = skillPath.toLowerCase();
             const match = allDirs.find(
               (d) =>
@@ -571,9 +588,9 @@ export class SkillMarketService {
             );
             if (match) {
               skillPath = match.path;
-              console.log('[SkillMarket] getSkillDetail: resolved path =', skillPath);
+              console.debug('[SkillMarket] getSkillDetail: resolved path =', skillPath);
             } else {
-              console.warn(
+              console.debug(
                 '[SkillMarket] getSkillDetail: could not resolve path for',
                 skillId,
                 '(normalized:',
@@ -582,11 +599,11 @@ export class SkillMarketService {
               );
             }
           } catch (e: any) {
-            console.warn('[SkillMarket] getSkillDetail: path resolution failed:', e.message);
+            console.debug('[SkillMarket] getSkillDetail: path resolution failed:', e.message);
           }
         }
         const token = gitcodeSkillSource.getGitCodeToken();
-        console.log('[SkillMarket] getSkillDetail: calling getSkillDetailFromRepo with', {
+        console.debug('[SkillMarket] getSkillDetail: calling getSkillDetailFromRepo with', {
           repo,
           skillPath,
         });
@@ -665,9 +682,9 @@ export class SkillMarketService {
     }
 
     onOutput?.({ type: 'stdout', content: '  Resolving skill metadata...\n' });
-    console.log('[SkillMarketService] downloadSkill: calling getSkillDetail for', skillId);
+    console.debug('[SkillMarketService] downloadSkill: calling getSkillDetail for', skillId);
     const skill = await this.getSkillDetail(skillId);
-    console.log(
+    console.debug(
       '[SkillMarketService] downloadSkill: getSkillDetail returned',
       skill ? { remoteRepo: skill.remoteRepo, remotePath: skill.remotePath } : null,
     );
@@ -724,7 +741,7 @@ export class SkillMarketService {
       skillName: skill.remotePath || skill.name.toLowerCase().replace(/\s+/g, '-'),
       sourceType,
     };
-    console.log('[SkillMarketService] downloadSkill: returning', result);
+    console.debug('[SkillMarketService] downloadSkill: returning', result);
     return result;
   }
 
@@ -792,43 +809,54 @@ export class SkillMarketService {
 
     let cachedSkills = this.skillsCache.get(sourceId);
     if (!cachedSkills) {
-      cachedSkills = [];
-      const token = await githubSkillSource.getGitHubToken();
+      // Deduplicate: if a fetch is already in progress for this source, wait for it
+      const inProgress = this.fetchInProgress.get(sourceId);
+      if (inProgress) {
+        console.debug('[SkillMarketService] GitHub fetch already in progress, waiting...');
+        cachedSkills = await inProgress;
+      } else {
+        const fetchId = ++this.fetchIdCounter;
+        const sendProgress = this.createProgressSender(fetchId);
+        const fetchPromise = (async (): Promise<RemoteSkillItem[]> => {
+          const result: RemoteSkillItem[] = [];
+          const token = await githubSkillSource.getGitHubToken();
 
-      const sendProgress = (progress: { phase: string; current: number; total: number }) => {
-        const mainWindow = BrowserWindow.getAllWindows()[0];
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('skill:market:fetch-progress', progress);
-        }
-      };
+          if (!token) {
+            console.debug('[SkillMarketService] GitHub PAT not configured, listing without auth');
+          }
 
-      if (!token) {
-        console.warn('[SkillMarketService] GitHub PAT not configured, listing without auth');
-      }
+          for (const repo of repos) {
+            try {
+              const repoSkills = await githubSkillSource.listSkillsFromRepo(repo, token, sendProgress);
+              result.push(...repoSkills);
+            } catch (error: any) {
+              const msg = error?.message || String(error);
+              console.error(`[SkillMarketService] Failed to fetch from GitHub repo ${repo}:`, error);
+              if (!token && (msg.includes('403') || msg.includes('rate limit'))) {
+                throw new Error(
+                  'GitHub PAT 未配置，技能列表无法加载。请前往 设置 > GitHub 配置 Personal Access Token。\n\nGitHub PAT not configured. Please go to Settings > GitHub to configure your Personal Access Token.',
+                );
+              }
+              if (isNetworkError(msg)) {
+                throw new Error(
+                  '网络连接失败，无法加载 GitHub 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitHub skill list. Go to Settings > Network to configure a proxy.',
+                );
+              }
+            }
+          }
 
-      for (const repo of repos) {
+          sendProgress({ phase: 'scanning', current: 0, total: 0 });
+          return result;
+        })();
+
+        this.fetchInProgress.set(sourceId, fetchPromise);
         try {
-          const repoSkills = await githubSkillSource.listSkillsFromRepo(repo, token, sendProgress);
-          cachedSkills.push(...repoSkills);
-        } catch (error: any) {
-          const msg = error?.message || String(error);
-          console.error(`[SkillMarketService] Failed to fetch from GitHub repo ${repo}:`, error);
-          // Enrich error with actionable guidance
-          if (!token && (msg.includes('403') || msg.includes('rate limit'))) {
-            throw new Error(
-              'GitHub PAT 未配置，技能列表无法加载。请前往 设置 > GitHub 配置 Personal Access Token。\n\nGitHub PAT not configured. Please go to Settings > GitHub to configure your Personal Access Token.',
-            );
-          }
-          if (isNetworkError(msg)) {
-            throw new Error(
-              '网络连接失败，无法加载 GitHub 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitHub skill list. Go to Settings > Network to configure a proxy.',
-            );
-          }
+          cachedSkills = await fetchPromise;
+          this.skillsCache.set(sourceId, cachedSkills);
+        } finally {
+          this.fetchInProgress.delete(sourceId);
         }
       }
-
-      sendProgress({ phase: 'scanning', current: 0, total: 0 });
-      this.skillsCache.set(sourceId, cachedSkills);
     }
 
     const total = cachedSkills.length;
@@ -895,52 +923,64 @@ export class SkillMarketService {
 
     let cachedSkills = this.skillsCache.get(sourceId);
     if (!cachedSkills) {
-      invalidateProxyCache();
+      // Deduplicate: if a fetch is already in progress for this source, wait for it
+      const inProgress = this.fetchInProgress.get(sourceId);
+      if (inProgress) {
+        console.debug('[SkillMarketService] GitCode fetch already in progress, waiting...');
+        cachedSkills = await inProgress;
+      } else {
+        invalidateProxyCache();
 
-      cachedSkills = [];
-      const errors: string[] = [];
+        const fetchId = ++this.fetchIdCounter;
+        const sendProgress = this.createProgressSender(fetchId);
+        const errors: string[] = [];
 
-      if (!token) {
-        console.warn('[SkillMarketService] GitCode PAT not configured, listing without auth');
-      }
+        const fetchPromise = (async (): Promise<RemoteSkillItem[]> => {
+          const result: RemoteSkillItem[] = [];
 
-      const sendProgress = (progress: { phase: string; current: number; total: number }) => {
-        const mainWindow = BrowserWindow.getAllWindows()[0];
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('skill:market:fetch-progress', progress);
-        }
-      };
+          if (!token) {
+            console.debug('[SkillMarketService] GitCode PAT not configured, listing without auth');
+          }
 
-      for (const repo of repos) {
+          for (const repo of repos) {
+            try {
+              const repoSkills = await gitcodeSkillSource.listSkillsFromRepo(repo, token, sendProgress);
+              result.push(...repoSkills);
+            } catch (error: any) {
+              const msg = error?.message || String(error);
+              errors.push(`${repo}: ${msg}`);
+              console.error(`[SkillMarketService] Failed to fetch from GitCode repo ${repo}:`, error);
+            }
+          }
+
+          sendProgress({ phase: 'scanning', current: 0, total: 0 });
+          return result;
+        })();
+
+        this.fetchInProgress.set(sourceId, fetchPromise);
         try {
-          const repoSkills = await gitcodeSkillSource.listSkillsFromRepo(repo, token, sendProgress);
-          cachedSkills.push(...repoSkills);
-        } catch (error: any) {
-          const msg = error?.message || String(error);
-          errors.push(`${repo}: ${msg}`);
-          console.error(`[SkillMarketService] Failed to fetch from GitCode repo ${repo}:`, error);
-        }
-      }
+          cachedSkills = await fetchPromise;
 
-      sendProgress({ phase: 'scanning', current: 0, total: 0 });
+          if (cachedSkills.length > 0 || errors.length === 0) {
+            this.skillsCache.set(sourceId, cachedSkills);
+          }
 
-      if (cachedSkills.length > 0 || errors.length === 0) {
-        this.skillsCache.set(sourceId, cachedSkills);
-      }
-
-      if (cachedSkills.length === 0 && errors.length > 0) {
-        // Check if the error is likely due to missing PAT
-        if (!token && errors.some((e) => e.includes('401') || e.includes('403'))) {
-          throw new Error(
-            'GitCode PAT 未配置，技能列表无法加载。请前往 设置 > GitCode 配置 Personal Access Token。\n\nGitCode PAT not configured. Please go to Settings > GitCode to configure your Personal Access Token.',
-          );
+          if (cachedSkills.length === 0 && errors.length > 0) {
+            if (!token && errors.some((e) => e.includes('401') || e.includes('403'))) {
+              throw new Error(
+                'GitCode PAT 未配置，技能列表无法加载。请前往 设置 > GitCode 配置 Personal Access Token。\n\nGitCode PAT not configured. Please go to Settings > GitCode to configure your Personal Access Token.',
+              );
+            }
+            if (errors.some((e) => isNetworkError(e))) {
+              throw new Error(
+                '网络连接失败，无法加载 GitCode 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitCode skill list. Go to Settings > Network to configure a proxy.',
+              );
+            }
+            throw new Error(`Failed to fetch GitCode skills: ${errors.join('; ')}`);
+          }
+        } finally {
+          this.fetchInProgress.delete(sourceId);
         }
-        if (errors.some((e) => isNetworkError(e))) {
-          throw new Error(
-            '网络连接失败，无法加载 GitCode 技能列表。请前往 设置 > 网络 配置代理。\n\nNetwork connection failed. Cannot load GitCode skill list. Go to Settings > Network to configure a proxy.',
-          );
-        }
-        throw new Error(`Failed to fetch GitCode skills: ${errors.join('; ')}`);
       }
     }
 

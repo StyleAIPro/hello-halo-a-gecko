@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Git Bash IPC Handlers - Windows Git Bash detection and installation
  *
@@ -23,7 +24,7 @@ export { initializeGitBashOnStartup, setGitBashSkipped };
  */
 export function registerGitBashHandlers(): void {
   // Get Git Bash detection status
-  ipcMain.handle('git-bash:status', async () => {
+  wrapIpcHandle('git-bash:status', async () => {
     try {
       const data = getGitBashStatus();
       return { success: true, data };
@@ -34,7 +35,7 @@ export function registerGitBashHandlers(): void {
   });
 
   // Install Git Bash (download Portable Git)
-  ipcMain.handle('git-bash:install', async (_event, { progressChannel }) => {
+  wrapIpcHandle('git-bash:install', async (_event, { progressChannel }) => {
     try {
       const result = await downloadAndInstallGitBash((progress) => {
         const window = getMainWindow();
@@ -55,7 +56,7 @@ export function registerGitBashHandlers(): void {
   });
 
   // Open external URL (for manual download link)
-  ipcMain.handle('shell:open-external', async (_event, url: string) => {
+  wrapIpcHandle('shell:open-external', async (_event, url: string) => {
     await shell.openExternal(url);
   });
 }

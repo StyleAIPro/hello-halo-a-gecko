@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Health IPC Handlers
  *
@@ -21,7 +22,7 @@ import {
  */
 export function registerHealthHandlers(): void {
   // Get current health status (quick query)
-  ipcMain.handle('health:get-status', async () => {
+  wrapIpcHandle('health:get-status', async () => {
     try {
       const data = getHealthStatus();
       return { success: true, data };
@@ -32,7 +33,7 @@ export function registerHealthHandlers(): void {
   });
 
   // Get full health state (detailed)
-  ipcMain.handle('health:get-state', async () => {
+  wrapIpcHandle('health:get-state', async () => {
     try {
       const data = getHealthState();
       return { success: true, data };
@@ -43,7 +44,7 @@ export function registerHealthHandlers(): void {
   });
 
   // Trigger manual recovery
-  ipcMain.handle(
+  wrapIpcHandle(
     'health:trigger-recovery',
     async (_event, strategyId: string, userConsented: boolean) => {
       console.log(
@@ -70,7 +71,7 @@ export function registerHealthHandlers(): void {
   );
 
   // Generate diagnostic report
-  ipcMain.handle('health:generate-report', async () => {
+  wrapIpcHandle('health:generate-report', async () => {
     console.log('[Settings] health:generate-report - Generating diagnostic report');
     try {
       const report = await collectDiagnosticReport();
@@ -83,7 +84,7 @@ export function registerHealthHandlers(): void {
   });
 
   // Generate diagnostic report as text
-  ipcMain.handle('health:generate-report-text', async () => {
+  wrapIpcHandle('health:generate-report-text', async () => {
     console.log('[Settings] health:generate-report-text - Generating text report');
     try {
       const report = await collectDiagnosticReport();
@@ -97,7 +98,7 @@ export function registerHealthHandlers(): void {
   });
 
   // Export diagnostic report to file
-  ipcMain.handle('health:export-report', async (_event, filePath?: string) => {
+  wrapIpcHandle('health:export-report', async (_event, filePath?: string) => {
     console.log(
       '[Settings] health:export-report - Exporting report',
       filePath ? `to ${filePath}` : '',
@@ -113,7 +114,7 @@ export function registerHealthHandlers(): void {
   });
 
   // Run immediate health check (PPID scanning + service probes)
-  ipcMain.handle('health:run-check', async () => {
+  wrapIpcHandle('health:run-check', async () => {
     console.log('[Settings] health:run-check - Running immediate health check');
     try {
       const result = await runImmediateCheck();

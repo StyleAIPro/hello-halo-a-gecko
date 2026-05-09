@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Config IPC Handlers (v2)
  */
@@ -11,7 +12,7 @@ import type { AISourcesConfig } from '../../shared/types';
 
 export function registerConfigHandlers(): void {
   // Get configuration
-  ipcMain.handle('config:get', async () => {
+  wrapIpcHandle('config:get', async () => {
     console.log('[Settings] config:get - Loading settings');
     try {
       const decryptedConfig = getDecryptedConfig();
@@ -26,9 +27,10 @@ export function registerConfigHandlers(): void {
   });
 
   // Save configuration
-  ipcMain.handle('config:set', async (_event, updates: Record<string, unknown>) => {
+  wrapIpcHandle('config:set', async (_event, updates: Record<string, unknown>) => {
     const updateKeys = Object.keys(updates);
     const incomingAiSources = updates.aiSources as AISourcesConfig | undefined;
+    console.info(`[event] updateConfig: keys=[${updateKeys.join(', ')}]`);
     console.log(
       '[Settings] config:set - Saving:',
       updateKeys.join(', '),
@@ -45,7 +47,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Validate API connection via SDK
-  ipcMain.handle(
+  wrapIpcHandle(
     'config:validate-api',
     async (_event, apiKey: string, apiUrl: string, provider: string, model?: string) => {
       console.log(
@@ -72,7 +74,7 @@ export function registerConfigHandlers(): void {
   );
 
   // Fetch available models from API endpoint
-  ipcMain.handle('config:fetch-models', async (_event, apiKey: string, apiUrl: string) => {
+  wrapIpcHandle('config:fetch-models', async (_event, apiKey: string, apiUrl: string) => {
     console.log(
       '[Settings] config:fetch-models - Fetching from:',
       apiUrl ? `${apiUrl.slice(0, 30)}...` : '(no url)',
@@ -89,7 +91,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Refresh AI sources configuration (auto-detects logged-in sources)
-  ipcMain.handle('config:refresh-ai-sources', async () => {
+  wrapIpcHandle('config:refresh-ai-sources', async () => {
     console.log('[Settings] config:refresh-ai-sources - Refreshing all AI sources');
     try {
       const manager = getAISourceManager();
@@ -111,7 +113,7 @@ export function registerConfigHandlers(): void {
   // These handlers read from disk before writing, ensuring rotating tokens are never overwritten.
 
   // Switch current source
-  ipcMain.handle('ai-sources:switch-source', async (_event, sourceId: string) => {
+  wrapIpcHandle('ai-sources:switch-source', async (_event, sourceId: string) => {
     console.log('[Settings] ai-sources:switch-source - Switching to:', sourceId);
     try {
       const manager = getAISourceManager();
@@ -132,7 +134,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Set model for current source
-  ipcMain.handle('ai-sources:set-model', async (_event, modelId: string) => {
+  wrapIpcHandle('ai-sources:set-model', async (_event, modelId: string) => {
     console.log('[Settings] ai-sources:set-model - Setting model:', modelId);
     try {
       const manager = getAISourceManager();
@@ -147,7 +149,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Add new source
-  ipcMain.handle('ai-sources:add-source', async (_event, source: AISource) => {
+  wrapIpcHandle('ai-sources:add-source', async (_event, source: AISource) => {
     console.log('[Settings] ai-sources:add-source - Adding source:', source.name);
     try {
       const manager = getAISourceManager();
@@ -165,7 +167,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Update existing source (merges updates into disk state via manager.updateSource)
-  ipcMain.handle(
+  wrapIpcHandle(
     'ai-sources:update-source',
     async (_event, sourceId: string, updates: Partial<AISource>) => {
       console.log('[Settings] ai-sources:update-source - Updating:', sourceId);
@@ -186,7 +188,7 @@ export function registerConfigHandlers(): void {
   );
 
   // Delete source
-  ipcMain.handle('ai-sources:delete-source', async (_event, sourceId: string) => {
+  wrapIpcHandle('ai-sources:delete-source', async (_event, sourceId: string) => {
     console.log('[Settings] ai-sources:delete-source - Deleting:', sourceId);
     try {
       const manager = getAISourceManager();
@@ -201,7 +203,7 @@ export function registerConfigHandlers(): void {
   });
 
   // Test proxy connectivity
-  ipcMain.handle('config:test-proxy', async (_event, proxyUrl: string) => {
+  wrapIpcHandle('config:test-proxy', async (_event, proxyUrl: string) => {
     console.log('[Settings] config:test-proxy - Testing:', proxyUrl);
     try {
       const { proxyFetchWithUrl } = await import('../services/proxy');

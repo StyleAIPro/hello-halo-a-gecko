@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Search IPC Handlers
  *
@@ -34,7 +35,7 @@ export function initializeSearchHandlers(): void {
    *
    * Returns: SearchResult[]
    */
-  ipcMain.handle('search:execute', async (_event, query, scope, conversationId, spaceId) => {
+  wrapIpcHandle('search:execute', async (_event, query, scope, conversationId, spaceId) => {
     const searchId = Math.random().toString(36).slice(2);
     currentSearchId = searchId;
 
@@ -90,7 +91,7 @@ export function initializeSearchHandlers(): void {
    *
    * Returns: void
    */
-  ipcMain.handle('search:cancel', () => {
+  wrapIpcHandle('search:cancel', () => {
     currentSearchId = null;
     searchService.cancel();
 

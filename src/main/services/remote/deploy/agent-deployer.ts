@@ -216,13 +216,13 @@ export async function checkRemoteDependencies(
     const missing = (result.stdout || '').match(/MISSING:(\S+)/g);
     if (missing && missing.length > 0) {
       const names = missing.map((m: string) => m.replace('MISSING:', ''));
-      console.log(`[RemoteDeployService] Missing dependencies on remote: ${names.join(', ')}`);
+      console.debug(`[RemoteDeployService] Missing dependencies on remote: ${names.join(', ')}`);
       return names.join(', ');
     }
     return null;
   } catch (e) {
     // If check itself fails (e.g., SSH error), be conservative and trigger npm install
-    console.warn('[RemoteDeployService] Dependency check failed, will run npm install:', e);
+    console.debug('[RemoteDeployService] Dependency check failed, will run npm install:', e);
     return 'check-error';
   }
 }
@@ -255,7 +255,7 @@ export async function deployToServer(service: RemoteDeployService, id: string): 
     await service.deployAgentCode(id);
 
     await service.updateServer(id, { status: 'connected' });
-    console.log(`[RemoteDeployService] Deployment completed for: ${server.name}`);
+    console.debug(`[RemoteDeployService] Deployment completed for: ${server.name}`);
   } catch (error) {
     const err = error as Error;
     await service.updateServer(id, {
@@ -344,7 +344,7 @@ export async function deployAgentCode(service: RemoteDeployService, id: string):
     const nodeCheck = await manager.executeCommandFull('node --version');
     if (nodeCheck.exitCode !== 0 || !nodeCheck.stdout.trim()) {
       // Node.js not installed, install it automatically
-      console.log('[RemoteDeployService] Node.js not found, installing...');
+      console.debug('[RemoteDeployService] Node.js not found, installing...');
       service.emitDeployProgress(id, 'prepare', 'Node.js 未安装，正在自动安装...', 43);
       service.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
 
@@ -399,7 +399,7 @@ export async function deployAgentCode(service: RemoteDeployService, id: string):
       }
     } catch {
       // npx not found - install it using npm
-      console.log('[RemoteDeployService] npx not found, installing...');
+      console.debug('[RemoteDeployService] npx not found, installing...');
       service.emitCommandOutput(id, 'command', 'npm install -g npx --force');
       service.emitDeployProgress(id, 'install', 'npx 未安装，正在自动安装...', 46);
       const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
@@ -416,7 +416,7 @@ export async function deployAgentCode(service: RemoteDeployService, id: string):
 
       // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
       // Modern npm (v10+) includes npx built-in, standalone npx package conflicts with it
-      console.log('[RemoteDeployService] Checking for standalone npx package...');
+      console.debug('[RemoteDeployService] Checking for standalone npx package...');
       const checkStandaloneNpx = await manager.executeCommandFull(
         'npm list -g npx 2>/dev/null || echo "NOT_FOUND"',
       );
@@ -424,7 +424,7 @@ export async function deployAgentCode(service: RemoteDeployService, id: string):
         checkStandaloneNpx.stdout.includes('npx@') &&
         !checkStandaloneNpx.stdout.includes('npm@')
       ) {
-        console.log('[RemoteDeployService] Found standalone npx package, removing...');
+        console.debug('[RemoteDeployService] Found standalone npx package, removing...');
         const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true';
         await manager.executeCommandFull(removeStandaloneCmd);
         service.emitCommandOutput(
@@ -481,7 +481,7 @@ export async function deployAgentCode(service: RemoteDeployService, id: string):
           service.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`);
         } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
           // npx still broken - try alternative approach: use npm exec instead
-          console.log(
+          console.debug(
             '[RemoteDeployService] npx still not working, creating alternative wrapper...',
           );
           const createWrapperCmd = `
@@ -495,7 +495,7 @@ WRAPPER
           service.emitCommandOutput(id, 'output', 'Created npx wrapper script');
         }
       } catch (linkError) {
-        console.warn('[RemoteDeployService] Failed to create npx symlink:', linkError);
+        console.debug('[RemoteDeployService] Failed to create npx symlink:', linkError);
         // Don't throw - continue with deployment
       }
     }

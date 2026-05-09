@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Browser IPC Handlers
  *
@@ -29,7 +30,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Create a new BrowserView
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:create',
     async (_event, { viewId, url }: { viewId: string; url?: string }) => {
       console.log(`[Browser IPC] >>> browser:create received - viewId: ${viewId}, url: ${url}`);
@@ -47,7 +48,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Destroy a BrowserView
    */
-  ipcMain.handle('browser:destroy', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:destroy', async (_event, { viewId }: { viewId: string }) => {
     try {
       browserViewManager.destroy(viewId);
       return { success: true };
@@ -60,7 +61,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Show a BrowserView at specified bounds
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:show',
     async (_event, { viewId, bounds }: { viewId: string; bounds: BrowserViewBounds }) => {
       console.log(`[Browser IPC] >>> browser:show received - viewId: ${viewId}, bounds:`, bounds);
@@ -78,7 +79,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Hide a BrowserView
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:hide',
     async (_event, { viewId, force = false }: { viewId: string; force?: boolean }) => {
       try {
@@ -94,7 +95,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Resize a BrowserView
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:resize',
     async (_event, { viewId, bounds }: { viewId: string; bounds: BrowserViewBounds }) => {
       try {
@@ -114,7 +115,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Navigate to a URL
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:navigate',
     async (_event, { viewId, url }: { viewId: string; url: string }) => {
       try {
@@ -130,7 +131,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Go back in history
    */
-  ipcMain.handle('browser:go-back', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:go-back', async (_event, { viewId }: { viewId: string }) => {
     try {
       const result = browserViewManager.goBack(viewId);
       return { success: result };
@@ -143,7 +144,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Go forward in history
    */
-  ipcMain.handle('browser:go-forward', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:go-forward', async (_event, { viewId }: { viewId: string }) => {
     try {
       const result = browserViewManager.goForward(viewId);
       return { success: result };
@@ -156,7 +157,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Reload the page
    */
-  ipcMain.handle('browser:reload', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:reload', async (_event, { viewId }: { viewId: string }) => {
     try {
       const result = browserViewManager.reload(viewId);
       return { success: result };
@@ -169,7 +170,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Stop loading
    */
-  ipcMain.handle('browser:stop', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:stop', async (_event, { viewId }: { viewId: string }) => {
     try {
       const result = browserViewManager.stop(viewId);
       return { success: result };
@@ -186,7 +187,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Get current state
    */
-  ipcMain.handle('browser:get-state', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:get-state', async (_event, { viewId }: { viewId: string }) => {
     try {
       const state = browserViewManager.getState(viewId);
       return { success: true, data: state };
@@ -199,7 +200,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Capture screenshot
    */
-  ipcMain.handle('browser:capture', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:capture', async (_event, { viewId }: { viewId: string }) => {
     try {
       const dataUrl = await browserViewManager.capture(viewId);
       return { success: true, data: dataUrl };
@@ -212,7 +213,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Execute JavaScript
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:execute-js',
     async (_event, { viewId, code }: { viewId: string; code: string }) => {
       try {
@@ -228,7 +229,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Set zoom level
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'browser:zoom',
     async (_event, { viewId, level }: { viewId: string; level: number }) => {
       try {
@@ -244,7 +245,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Toggle DevTools
    */
-  ipcMain.handle('browser:dev-tools', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('browser:dev-tools', async (_event, { viewId }: { viewId: string }) => {
     try {
       const result = browserViewManager.toggleDevTools(viewId);
       return { success: result };
@@ -257,7 +258,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Show native context menu for browser
    */
-  ipcMain.handle('browser:show-context-menu', async (_event, options: BrowserMenuOptions) => {
+  wrapIpcHandle('browser:show-context-menu', async (_event, options: BrowserMenuOptions) => {
     try {
       const { buildBrowserContextMenu } = await import('../services/browser/browser-menu.service');
       const menu = buildBrowserContextMenu(options, mainWindow);
@@ -271,7 +272,7 @@ export function registerBrowserHandlers(mainWindow: BrowserWindow | null) {
   /**
    * Show native context menu for canvas tabs
    */
-  ipcMain.handle('canvas:show-tab-context-menu', async (_event, options: CanvasTabMenuOptions) => {
+  wrapIpcHandle('canvas:show-tab-context-menu', async (_event, options: CanvasTabMenuOptions) => {
     try {
       const { buildCanvasTabContextMenu } = await import('../services/browser/browser-menu.service');
       const menu = buildCanvasTabContextMenu(options, mainWindow);

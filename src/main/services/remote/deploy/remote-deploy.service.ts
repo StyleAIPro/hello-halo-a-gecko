@@ -106,7 +106,7 @@ export class RemoteDeployService {
     message: string,
     progress?: number,
   ): void {
-    console.log(`[RemoteDeployService][${serverId}] ${stage}: ${message}`);
+    console.debug(`[RemoteDeployService][${serverId}] ${stage}: ${message}`);
     this.deployProgressCallbacks.forEach((callback) =>
       callback(serverId, stage, message, progress),
     );
@@ -123,7 +123,7 @@ export class RemoteDeployService {
     const watchdog = setTimeout(() => {
       const op = this.updateOperations.get(id);
       if (op?.inProgress) {
-        console.warn(`[RemoteDeployService] Operation watchdog triggered for ${id}`);
+        console.debug(`[RemoteDeployService] Operation watchdog triggered for ${id}`);
         this.failUpdate(
           id,
           `操作超时（超过 ${Math.round(RemoteDeployService.OPERATION_WATCHDOG_MS / 1000)}s 未完成）`,
@@ -166,7 +166,7 @@ export class RemoteDeployService {
   }
 
   cancelOperation(id: string): void {
-    console.log(`[RemoteDeployService] cancelOperation called for ${id}`);
+    console.debug(`[RemoteDeployService] cancelOperation called for ${id}`);
     const watchdog = this.operationWatchdogs.get(id);
     if (watchdog) {
       clearTimeout(watchdog);

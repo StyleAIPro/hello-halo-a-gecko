@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Auth IPC Handlers (v2)
  *
@@ -28,7 +29,7 @@ export function registerAuthHandlers(): void {
   /**
    * Get list of available authentication providers (OAuth)
    */
-  ipcMain.handle('auth:get-providers', async () => {
+  wrapIpcHandle('auth:get-providers', async () => {
     try {
       const providers = getEnabledAuthProviderConfigs();
       return { success: true, data: providers };
@@ -42,7 +43,7 @@ export function registerAuthHandlers(): void {
   /**
    * Get list of built-in providers (for UI display)
    */
-  ipcMain.handle('auth:get-builtin-providers', async () => {
+  wrapIpcHandle('auth:get-builtin-providers', async () => {
     try {
       return { success: true, data: BUILTIN_PROVIDERS };
     } catch (error: unknown) {
@@ -55,7 +56,7 @@ export function registerAuthHandlers(): void {
   /**
    * Start OAuth login flow for a provider
    */
-  ipcMain.handle('auth:start-login', async (_event, providerType: ProviderId) => {
+  wrapIpcHandle('auth:start-login', async (_event, providerType: ProviderId) => {
     try {
       console.log(`[Auth IPC] Starting login for provider: ${providerType}`);
       const result = await manager.startOAuthLogin(providerType);
@@ -70,7 +71,7 @@ export function registerAuthHandlers(): void {
   /**
    * Complete OAuth login flow for a provider
    */
-  ipcMain.handle('auth:complete-login', async (_event, providerType: ProviderId, state: string) => {
+  wrapIpcHandle('auth:complete-login', async (_event, providerType: ProviderId, state: string) => {
     try {
       console.log(`[Auth IPC] Completing login for provider: ${providerType}`);
       const mainWindow = BrowserWindow.getAllWindows()[0];
@@ -99,7 +100,7 @@ export function registerAuthHandlers(): void {
   /**
    * Refresh token for a source (by source ID)
    */
-  ipcMain.handle('auth:refresh-token', async (_event, sourceId: string) => {
+  wrapIpcHandle('auth:refresh-token', async (_event, sourceId: string) => {
     try {
       const result = await manager.ensureValidToken(sourceId);
       return result;
@@ -113,7 +114,7 @@ export function registerAuthHandlers(): void {
   /**
    * Check token status for a source (by source ID)
    */
-  ipcMain.handle('auth:check-token', async (_event, sourceId: string) => {
+  wrapIpcHandle('auth:check-token', async (_event, sourceId: string) => {
     try {
       const result = await manager.ensureValidToken(sourceId);
       if (result.success) {
@@ -130,7 +131,7 @@ export function registerAuthHandlers(): void {
   /**
    * Logout from a source (by source ID)
    */
-  ipcMain.handle('auth:logout', async (_event, sourceId: string) => {
+  wrapIpcHandle('auth:logout', async (_event, sourceId: string) => {
     try {
       const result = await manager.logout(sourceId);
       return result;
