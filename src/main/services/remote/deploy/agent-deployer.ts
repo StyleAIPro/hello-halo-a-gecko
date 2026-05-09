@@ -115,7 +115,8 @@ export async function createDeployPackage(
   // Normalize all paths to forward slashes for the tar command.
   const normalizedPackagePath = packagePath.replace(/\\/g, '/');
   const normalizedPackageDir = packageDir.replace(/\\/g, '/');
-  const tarArgs = `-czf "${normalizedPackagePath}" -C "${normalizedPackageDir}" ${includes.join(' ')}`;
+  // --force-local: prevents GNU tar from interpreting "C:" in paths as a remote host
+  const tarArgs = `--force-local -czf "${normalizedPackagePath}" -C "${normalizedPackageDir}" ${includes.join(' ')}`;
 
   try {
     execSync(`tar ${tarArgs}`, { stdio: 'pipe' });
@@ -626,7 +627,7 @@ WRAPPER
       const healthPort = (server.assignedPort || 8080) + 1;
 
       // Check if agent is running and get active session count via HTTP health endpoint
-      const checkHealthCmd = `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+      const checkHealthCmd = `curl --noproxy '*' -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
       const healthCheck = await managerRef.executeCommandFull(checkHealthCmd);
 
       let hasActiveSessions = false;
@@ -912,7 +913,7 @@ export async function updateAgentCode(service: RemoteDeployService, id: string):
   await service.ensureSshConnectionHealthy(id);
   try {
     const healthPort = (server.assignedPort || 8080) + 1;
-    const checkHealthCmd = `curl -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+    const checkHealthCmd = `curl --noproxy '*' -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
     const healthCheck = await manager.executeCommandFull(checkHealthCmd);
 
     let hasActiveSessions = false;
@@ -1215,6 +1216,9 @@ export async function deployAgentCodeOffline(service: RemoteDeployService, id: s
     service.emitDeployProgress(id, 'start', '正在启动 Agent...', 75);
     await startAgentOffline(service, id, deployPath);
 
+    // Verify proxy health so UI immediately reflects the running status
+    await (service as any).verifyProxyHealth(id);
+
     service.emitDeployProgress(id, 'complete', '✓ 离线部署完成!', 100);
     service.emitCommandOutput(id, 'success', '========================================');
     service.emitCommandOutput(id, 'success', '离线部署成功完成!');
@@ -1355,6 +1359,9 @@ export async function updateAgentCodeOffline(service: RemoteDeployService, id: s
   // Restart agent using bundled Node.js
   service.emitDeployProgress(id, 'start', '正在重启 Agent...', 85);
   await startAgentOffline(service, id, deployPath);
+
+  // Verify proxy health so UI immediately reflects the running status
+  await (service as any).verifyProxyHealth(id);
 
   service.emitDeployProgress(id, 'complete', '✓ 离线增量更新完成!', 100);
   service.emitCommandOutput(id, 'success', '离线增量更新成功!');
