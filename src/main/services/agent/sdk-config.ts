@@ -17,6 +17,8 @@ import {
   lstatSync,
   unlinkSync,
   readdirSync,
+  renameSync,
+  rmSync,
   statSync,
 } from 'fs';
 import { app } from 'electron';
@@ -30,6 +32,7 @@ import { inferOpenAIWireApi } from './helpers';
 import { buildSystemPrompt, DEFAULT_ALLOWED_TOOLS } from './system-prompt';
 import { createCanUseTool } from './permission-handler';
 import { sendToRenderer } from './helpers';
+import { SkillManager } from '../skill/skill-manager';
 
 // ============================================
 // Configuration
@@ -278,6 +281,7 @@ let sandboxSettingsWritten = false;
  * For duplicate skill names, the one with the most recent modification time wins.
  * Creates individual junctions in targetDir pointing to the winning source directories.
  */
+
 function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
   // Collect candidates: skillName -> { sourcePath, mtime }
   const candidates = new Map<string, { sourcePath: string; mtime: number }>();
@@ -288,6 +292,7 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
       const entries = readdirSync(sourceDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith('.disabled-')) continue;
         const sourcePath = path.join(sourceDir, entry.name);
         try {
           // Skip disabled skills (META.json.enabled === false)
@@ -314,20 +319,28 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
     }
   }
 
-  // Clean up existing junctions in targetDir that no longer have a source
+  // Clean up existing entries in targetDir that no longer have a source.
+  // Must handle both junctions (symlinks) and real directories — unlinkSync
+  // only works for the former; rmSync is needed for the latter.
   try {
     if (existsSync(targetDir)) {
       const existingEntries = readdirSync(targetDir, { withFileTypes: true });
       for (const entry of existingEntries) {
-        if (!entry.isDirectory()) continue;
-        if (!candidates.has(entry.name)) {
-          const targetPath = path.join(targetDir, entry.name);
-          try {
+        // On Windows, junctions are reported as symlinks (not directories)
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+        const targetPath = path.join(targetDir, entry.name);
+        const shouldRemove = entry.name.startsWith('.disabled-') || !candidates.has(entry.name);
+        if (!shouldRemove) continue;
+        try {
+          const st = lstatSync(targetPath);
+          if (st.isSymbolicLink()) {
             unlinkSync(targetPath);
-            console.debug(`[SDK Config] Removed stale skill link: ${entry.name}`);
-          } catch {
-            // ignore
+          } else {
+            rmSync(targetPath, { recursive: true, force: true });
           }
+          console.debug(`[SDK Config] Removed stale entry: ${entry.name}`);
+        } catch {
+          // ignore
         }
       }
     }
@@ -340,7 +353,12 @@ function mergeSkillsDirs(sourceDirs: string[], targetDir: string): void {
     const targetPath = path.join(targetDir, name);
     // Remove existing link/dir to recreate with the winning source
     try {
-      unlinkSync(targetPath);
+      const st = lstatSync(targetPath);
+      if (st.isSymbolicLink()) {
+        unlinkSync(targetPath);
+      } else {
+        rmSync(targetPath, { recursive: true, force: true });
+      }
     } catch {
       // doesn't exist, proceed to create
     }
@@ -406,6 +424,87 @@ const AI_SDK_ENV_PREFIXES = ['ANTHROPIC_', 'OPENAI_', 'CLAUDE_'];
  * These are vars that don't match the prefix patterns but should still be removed.
  */
 const AI_SDK_ENV_VARS_TO_STRIP = ['CLAUDECODE'];
+
+/**
+ * Immediately refresh the merged skill directories by re-executing mergeSkillsDirs.
+ * Called after toggleSkill to ensure configSkillsDir junctions are up-to-date,
+ * without waiting for the next SDK session creation.
+ */
+export function refreshSkillDirectories(): void {
+  const agentsDir = path.join(os.homedir(), '.agents');
+  const skillsDir = path.join(agentsDir, 'skills');
+  const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
+  const configSkillsDir = path.join(agentsDir, 'claude-config', 'skills');
+  mergeSkillsDirs([skillsDir, claudeSkillsDir], configSkillsDir);
+  hideDisabledSkillsInSource(skillsDir);
+  hideDisabledSkillsInSource(claudeSkillsDir);
+}
+
+/**
+ * Build a system prompt section listing disabled skills.
+ * This tells the LLM not to use or invoke these skills, providing natural-language
+ * enforcement on top of the code-level canUseTool deny.
+ */
+function buildDisabledSkillsPrompt(): string {
+  const disabledIds = SkillManager.getGlobalDisabledSkillIds();
+  if (disabledIds.size === 0) return '';
+  const list = Array.from(disabledIds).map((id) => `/${id}`).join(', ');
+  return (
+    `\n\nIMPORTANT: The following skills are DISABLED and must NOT be used or invoked under any circumstances: ${list}. ` +
+    `Do not call the Skill tool for these commands. Ignore any system-reminder that lists them as available.\n`
+  );
+}
+
+/**
+ * Hide disabled skills in a source directory by renaming to .disabled-<name>.
+ * This prevents the SDK's project walk-up (from cwd upward) from discovering
+ * disabled skills in ~/.claude/skills/ which bypasses the managed configSkillsDir.
+ */
+function hideDisabledSkillsInSource(sourceDir: string): void {
+  if (!existsSync(sourceDir)) return;
+  try {
+    const entries = readdirSync(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const sourcePath = path.join(sourceDir, entry.name);
+
+      if (!entry.name.startsWith('.disabled-')) {
+        // Check if this skill is disabled → hide it
+        const metaPath = path.join(sourcePath, 'META.json');
+        try {
+          const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+          if (meta.enabled === false) {
+            const hiddenPath = path.join(sourceDir, `.disabled-${entry.name}`);
+            if (!existsSync(hiddenPath)) {
+              renameSync(sourcePath, hiddenPath);
+              console.debug(`[SDK Config] Hidden disabled skill: ${entry.name}`);
+            }
+          }
+        } catch {
+          // META.json missing or invalid, skip
+        }
+      } else {
+        // .disabled-<name> → check if it should be restored
+        const metaPath = path.join(sourcePath, 'META.json');
+        try {
+          const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+          if (meta.enabled !== false) {
+            const originalName = entry.name.slice('.disabled-'.length);
+            const restoredPath = path.join(sourceDir, originalName);
+            if (!existsSync(restoredPath)) {
+              renameSync(sourcePath, restoredPath);
+              console.debug(`[SDK Config] Restored enabled skill: ${originalName}`);
+            }
+          }
+        } catch {
+          // META.json missing, skip
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[SDK Config] Failed to hide disabled skills in:', sourceDir, err);
+  }
+}
 
 /**
  * Copy of process.env with all AI SDK variables removed.
@@ -612,7 +711,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // Use SDK's 'claude_code' preset (includes skills injection) with AICO-Bot customizations appended
     systemPrompt: {
       type: 'preset' as const,
-      append: buildSystemPrompt({ workDir, modelInfo: credentials.displayModel, ghSearchStatus: params.ghSearchStatus }),
+      append: buildDisabledSkillsPrompt() + buildSystemPrompt({ workDir, modelInfo: credentials.displayModel, ghSearchStatus: params.ghSearchStatus }),
     },
     maxTurns: params.maxTurns ?? 50,
     allowedTools: [...DEFAULT_ALLOWED_TOOLS],

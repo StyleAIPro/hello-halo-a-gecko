@@ -1324,6 +1324,18 @@ export function saveSessionId(spaceId: string, conversationId: string, sessionId
   cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
 }
 
+// Clear session ID for a conversation (forces SDK to create a new session instead of resuming)
+export function clearSessionId(spaceId: string, conversationId: string): void {
+  const result = cachedRead(spaceId, conversationId);
+  if (!result) return;
+
+  const { conversation, filePath, conversationsDir } = result;
+  if (conversation.sessionId) {
+    delete conversation.sessionId;
+    cachedWrite(conversationId, conversation, filePath, conversationsDir, spaceId);
+  }
+}
+
 // Generate a default title
 function generateTitle(): string {
   const now = new Date();

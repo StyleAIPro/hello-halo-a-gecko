@@ -9,6 +9,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type {
   SkillSpec,
@@ -22,6 +23,19 @@ export class SkillManager {
   private static instance: SkillManager;
   private skillsDirs: string[];
   private configPath: string;
+
+  // 禁用的技能 ID 集合（供 permission-handler 和 system prompt 查询）
+  private disabledSkillIds: Set<string> = new Set();
+
+  /** 获取所有已禁用的技能 ID */
+  getDisabledSkillIds(): ReadonlySet<string> {
+    return this.disabledSkillIds;
+  }
+
+  /** 获取全局单例的禁用技能集合（供跨模块访问） */
+  static getGlobalDisabledSkillIds(): ReadonlySet<string> {
+    return SkillManager.instance?.disabledSkillIds ?? new Set();
+  }
 
   // 已安装的技能缓存
   private installedSkills: Map<string, InstalledSkill> = new Map();
@@ -113,23 +127,27 @@ export class SkillManager {
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
 
+          // Recognize .disabled-<name> directories (hidden by refreshSkillDirectories)
+          const isHidden = entry.name.startsWith('.disabled-');
+          const skillId = isHidden ? entry.name.slice('.disabled-'.length) : entry.name;
+
           const skillDir = path.join(skillsDir, entry.name);
           try {
             const stat = await fs.stat(skillDir);
             const mtime = stat.mtimeMs;
 
-            const skill = await this.loadSkillFromDir(skillDir, entry.name);
+            const skill = await this.loadSkillFromDir(skillDir, skillId);
             if (!skill) {
-              console.debug('[SkillManager] Failed to parse skill:', entry.name);
+              console.debug('[SkillManager] Failed to parse skill:', skillId);
               continue;
             }
 
-            const existing = candidates.get(entry.name);
+            const existing = candidates.get(skillId);
             if (!existing || mtime > existing.mtime) {
-              candidates.set(entry.name, { dir: skillsDir, mtime, skill });
+              candidates.set(skillId, { dir: skillsDir, mtime, skill });
               console.debug(
                 '[SkillManager] Candidate skill:',
-                entry.name,
+                skillId,
                 'from',
                 skillsDir,
                 'mtime:',
@@ -139,7 +157,7 @@ export class SkillManager {
             } else {
               console.debug(
                 '[SkillManager] Skipping older duplicate skill:',
-                entry.name,
+                skillId,
                 'from',
                 skillsDir,
                 'mtime:',
@@ -147,7 +165,7 @@ export class SkillManager {
               );
             }
           } catch (error) {
-            console.error(`[SkillManager] Failed to load skill ${entry.name}:`, error);
+            console.error(`[SkillManager] Failed to load skill ${skillId}:`, error);
           }
         }
       } catch (error) {
@@ -156,9 +174,29 @@ export class SkillManager {
     }
 
     // 将最终候选写入缓存
+    this.disabledSkillIds.clear();
     for (const [skillId, candidate] of candidates) {
+      // 修复 .disabled- 目录状态与 META.json 不一致的情况
+      if (candidate.skill.enabled) {
+        for (const skillsDir of this.skillsDirs) {
+          const staleDir = path.join(skillsDir, `.disabled-${skillId}`);
+          const normalDir = path.join(skillsDir, skillId);
+          if (existsSync(staleDir)) {
+            if (!existsSync(normalDir)) {
+              // 只有 .disabled- 目录且技能已启用 → 恢复目录名
+              fs.rename(staleDir, normalDir).catch(() => {});
+            } else {
+              // 同时存在 .disabled- 和正常目录 → 删除残留
+              fs.rm(staleDir, { recursive: true, force: true }).catch(() => {});
+            }
+          }
+        }
+      }
       this.installedSkills.set(skillId, candidate.skill);
       this.skillDirMap.set(skillId, candidate.dir);
+      if (!candidate.skill.enabled) {
+        this.disabledSkillIds.add(skillId);
+      }
       console.debug('[SkillManager] Loaded skill:', skillId, 'from', candidate.dir);
     }
   }
@@ -253,7 +291,16 @@ export class SkillManager {
         tags: frontmatter.tags as string[] | undefined,
       };
     } catch {
-      return null;
+      // YAML frontmatter 存在但解析失败，回退到默认值（与无 frontmatter 相同）
+      return {
+        name: skillId,
+        type: 'skill',
+        description: `Skill: ${skillId}`,
+        system_prompt: content,
+        version: '1.0',
+        author: 'Unknown',
+        trigger_command: `/${skillId}`,
+      };
     }
   }
 
@@ -460,9 +507,22 @@ export class SkillManager {
     skill.enabled = enabled;
     this.installedSkills.set(skillId, skill);
 
+    if (enabled) {
+      this.disabledSkillIds.delete(skillId);
+    } else {
+      this.disabledSkillIds.add(skillId);
+    }
+
     // 更新 META.json
     const baseDir = this.skillDirMap.get(skillId) || this.skillsDirs[0];
-    const skillDir = path.join(baseDir, skillId);
+    let skillDir = path.join(baseDir, skillId);
+    // Directory may have been renamed to .disabled-<name> by hideDisabledSkillsInSource
+    if (!existsSync(skillDir)) {
+      const hiddenDir = path.join(baseDir, `.disabled-${skillId}`);
+      if (existsSync(hiddenDir)) {
+        skillDir = hiddenDir;
+      }
+    }
     const metaFile = path.join(skillDir, 'META.json');
     await fs.writeFile(metaFile, JSON.stringify(skill, null, 2), 'utf-8');
 

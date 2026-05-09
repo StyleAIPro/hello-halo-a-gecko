@@ -11,6 +11,9 @@ import { remoteDeployService } from '../services/remote/deploy/remote-deploy.ser
 import type { SkillGenerateOptions } from '../../shared/skill/skill-types';
 import * as githubSkillSource from '../services/skill/github-skill-source.service';
 import * as gitcodeSkillSource from '../services/skill/gitcode-skill-source.service';
+import { invalidateAllSessions, v2Sessions } from '../services/agent/session-lifecycle';
+import { refreshSkillDirectories } from '../services/agent/sdk-config';
+import { clearSessionId } from '../services/conversation.service';
 
 let skillManager: SkillManager;
 let skillMarket: SkillMarketService;
@@ -226,8 +229,9 @@ async function installSkillFromSource(
       await nodeFs.writeFile(metaPath, JSON.stringify(metaJson, null, 2), 'utf-8');
     }
 
-    // Refresh skill list
+    // Refresh skill list and sync to SDK
     await skillManager.refresh();
+    await syncSkillStateToSdk();
 
     onOutput?.({
       type: 'complete',
@@ -391,6 +395,7 @@ export async function installSkillFromMarket(
 
             try {
               await skillManager.refresh();
+              await syncSkillStateToSdk();
             } catch (refreshError) {
               console.debug('[SkillController] Failed to refresh skills:', refreshError);
             }
@@ -540,6 +545,7 @@ async function installSkillFromMarketWithInfo(
           onOutput?.({ type: 'complete', content: '\n✓ Skill installed successfully!\n' });
           try {
             await skillManager.refresh();
+            await syncSkillStateToSdk();
           } catch {}
           resolve({ success: true });
         } else {
@@ -578,6 +584,7 @@ export async function installSkillFromYaml(
 ): Promise<{ success: boolean; skillId?: string; error?: string }> {
   try {
     const skillId = await skillManager.importSkill(yamlContent);
+    await syncSkillStateToSdk();
     return { success: true, skillId };
   } catch (error) {
     return {
@@ -590,6 +597,9 @@ export async function installSkillFromYaml(
 export async function uninstallSkill(skillId: string) {
   try {
     const result = await skillManager.uninstallSkill(skillId);
+    if (result) {
+      await syncSkillStateToSdk();
+    }
     return { success: result, error: result ? undefined : 'Failed to uninstall skill' };
   } catch (error) {
     return {
@@ -875,9 +885,24 @@ export async function syncRemoteSkillToLocal(
   }
 }
 
+/**
+ * Sync skill state to SDK after install/uninstall/toggle operations.
+ * Ensures configSkillsDir junctions are updated and SDK sessions are invalidated.
+ */
+async function syncSkillStateToSdk(): Promise<void> {
+  refreshSkillDirectories();
+  for (const info of Array.from(v2Sessions.values())) {
+    clearSessionId(info.spaceId, info.conversationId);
+  }
+  invalidateAllSessions();
+}
+
 export async function toggleSkill(skillId: string, enabled: boolean) {
   try {
     const result = await skillManager.toggleSkill(skillId, enabled);
+    if (result) {
+      await syncSkillStateToSdk();
+    }
     return { success: result, error: result ? undefined : 'Failed to toggle skill' };
   } catch (error) {
     return {
