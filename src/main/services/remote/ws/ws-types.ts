@@ -49,6 +49,7 @@ export interface ServerMessage {
     | 'fs:result'
     | 'fs:error'
     | 'pong'
+    | 'ping'
     | 'tool:call'
     | 'tool:delta'
     | 'tool:result'

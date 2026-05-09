@@ -387,6 +387,11 @@ export class RemoteWsClient extends EventEmitter {
           this.lastPongTime = Date.now();
           break;
 
+        case 'ping':
+          // Server-initiated heartbeat ping — respond with pong
+          this.send({ type: 'pong' } as any);
+          break;
+
         case 'task:update':
           this.emit('task:update', message.data);
           break;

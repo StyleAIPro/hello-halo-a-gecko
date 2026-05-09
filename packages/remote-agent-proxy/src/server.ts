@@ -25,6 +25,7 @@ export class RemoteAgentServer {
     // WebSocket MCP Bridge: tools registered by the AICO-Bot client
     aicoBotMcpTools?: Array<{ name: string; description: string; inputSchema: Record<string, any>; serverName: string }>
     aicoBotMcpCapabilities?: { aiBrowser: boolean; ghSearch: boolean; version?: number }
+    lastClientActivityAt: number  // Timestamp of last received message from client (for heartbeat detection)
   }> = new Map()
   private claudeManager: ClaudeManager
   // BackgroundTaskManager for HTTP/WS API tasks (separate from MCP server's own manager)
@@ -60,6 +61,11 @@ export class RemoteAgentServer {
   private lastClientActivity: Date = new Date()
   private idleCheckInterval?: NodeJS.Timeout
   private static readonly IDLE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000  // 7 days
+
+  // Bidirectional heartbeat: detect dead clients
+  private heartbeatCheckInterval?: NodeJS.Timeout
+  private static readonly HEARTBEAT_INTERVAL_MS = 30 * 1000   // 30s — send ping if no client activity
+  private static readonly HEARTBEAT_TIMEOUT_MS = 90 * 1000    // 90s — close if no client activity
 
   constructor(config: RemoteServerConfig) {
     this.config = config
@@ -106,6 +112,9 @@ export class RemoteAgentServer {
 
     // Start idle timeout check (hourly)
     this.idleCheckInterval = setInterval(() => this.checkIdleTimeout(), 60 * 60 * 1000)
+
+    // Start bidirectional heartbeat check (every 15s)
+    this.startHeartbeatCheck()
   }
 
   private checkIdleTimeout(): void {
@@ -141,7 +150,7 @@ export class RemoteAgentServer {
           const token = authHeader.split(' ')[1]
           if (token && this.authTokens.has(token)) {
             console.log('Client authenticated via Authorization header')
-            this.clients.set(ws, { authenticated: true, authToken: token })
+            this.clients.set(ws, { authenticated: true, authToken: token, lastClientActivityAt: Date.now() })
             this.lastClientActivity = new Date()
             ws.send(JSON.stringify({ type: 'auth:success' }))
           } else {
@@ -150,12 +159,12 @@ export class RemoteAgentServer {
             return
           }
         } else {
-          this.clients.set(ws, { authenticated: false })
+          this.clients.set(ws, { authenticated: false, lastClientActivityAt: Date.now() })
         }
       } else {
         // No auth configured, auto-authenticate
         console.log('No auth required, auto-authenticating')
-        this.clients.set(ws, { authenticated: true })
+        this.clients.set(ws, { authenticated: true, lastClientActivityAt: Date.now() })
         this.lastClientActivity = new Date()
       }
       console.log('New client connected')
@@ -170,31 +179,7 @@ export class RemoteAgentServer {
       })
 
       ws.on('close', () => {
-        const client = this.clients.get(ws)
-        if (client?.sessionId) {
-          const sid = client.sessionId
-          // Interrupt active stream to release session lock.
-          // Without this, the old handleClaudeChat keeps the lock while blocked
-          // on the SDK stream (e.g. waiting for a long tool call like aisbench).
-          // When the client reconnects and sends a new message, it gets queued
-          // behind the zombie handler whose responses go to this dead WebSocket,
-          // causing the UI to hang in "thinking" state forever.
-          if (this.sessionProcessingLocks.has(sid)) {
-            console.log(`[RemoteAgentServer] Client disconnected with active stream for ${sid}, aborting`)
-            this.claudeManager.markAsInterrupted(sid)
-            this.claudeManager.forceAbortStreamIterator(sid)
-          }
-          // Don't close the SDK session - keep it for reconnection.
-          // Sessions have their own 30-minute idle timeout cleanup in ClaudeManager.
-          console.log(`Client disconnected, keeping SDK session ${sid} alive for future reconnection`)
-        }
-        this.clients.delete(ws)
-        // Reject all pending MCP tool calls for this connection
-        for (const [callId, pending] of this.pendingMcpToolCalls) {
-          pending.reject(new Error('WebSocket disconnected'))
-          this.pendingMcpToolCalls.delete(callId)
-        }
-        console.log('Client disconnected')
+        this.handleClientDisconnect(ws)
       })
 
       ws.on('error', (error) => {
@@ -419,6 +404,9 @@ export class RemoteAgentServer {
     const client = this.clients.get(ws)
     if (!client) return
 
+    // Update client activity timestamp for bidirectional heartbeat detection
+    client.lastClientActivityAt = Date.now()
+
     // Check authentication for non-auth messages
     if (message.type !== 'auth' && !client.authenticated) {
       this.sendMessage(ws, {
@@ -480,6 +468,8 @@ export class RemoteAgentServer {
       await this.handleFileOperation(ws, sid, message.type, message.payload)
     } else if (message.type === 'ping') {
       this.sendMessage(ws, { type: 'pong', sessionId })
+    } else if (message.type === 'pong') {
+      // Client responded to server's heartbeat ping — lastClientActivityAt already updated above
     } else if (message.type === 'tool:approve' || message.type === 'tool:reject') {
       // Tool approval/rejection — used by Hyper Space MCP proxy tools.
       // When remote Claude calls a hyper-space tool (e.g., report_to_leader),
@@ -1179,7 +1169,80 @@ export class RemoteAgentServer {
     })
   }
 
+  /**
+   * Start bidirectional heartbeat check.
+   * Every 15s, checks all clients for liveness.
+   * If a client hasn't sent any message in 30s, sends a ping to nudge it.
+   * If a client hasn't responded in 90s, closes the connection.
+   */
+  private startHeartbeatCheck(): void {
+    this.stopHeartbeatCheck()
+    this.heartbeatCheckInterval = setInterval(() => {
+      const now = Date.now()
+      for (const [ws, client] of this.clients) {
+        if (!client.authenticated || ws.readyState !== WebSocket.OPEN) continue
+        const elapsed = now - client.lastClientActivityAt
+        if (elapsed > RemoteAgentServer.HEARTBEAT_TIMEOUT_MS) {
+          console.log(`[Heartbeat] Client timeout (${Math.round(elapsed / 1000)}s) — closing connection`)
+          ws.close(4002, 'Heartbeat timeout — client unresponsive')
+          continue
+        }
+        // Nudge inactive clients with a server ping
+        if (elapsed > RemoteAgentServer.HEARTBEAT_INTERVAL_MS) {
+          try {
+            ws.send(JSON.stringify({ type: 'ping' }))
+          } catch {
+            // Send failed — socket likely dead, will be caught on next check
+          }
+        }
+      }
+    }, 15_000)
+  }
+
+  private stopHeartbeatCheck(): void {
+    if (this.heartbeatCheckInterval) {
+      clearInterval(this.heartbeatCheckInterval)
+      this.heartbeatCheckInterval = undefined
+    }
+  }
+
+  /**
+   * Handle client disconnection — centralized cleanup for ws.on('close') and
+   * heartbeat-triggered closes. Rejects all pending promises and releases
+   * the session lock (if any). SDK sessions are kept alive for reconnection.
+   */
+  private handleClientDisconnect(ws: WebSocket): void {
+    const client = this.clients.get(ws)
+    if (client?.sessionId) {
+      const sid = client.sessionId
+      if (this.sessionProcessingLocks.has(sid)) {
+        console.log(`[Disconnect] Client disconnected with active stream for ${sid}, aborting`)
+        this.claudeManager.markAsInterrupted(sid)
+        this.claudeManager.forceAbortStreamIterator(sid)
+      }
+      // Keep SDK session alive for reconnection (2h idle timeout in ClaudeManager)
+      console.log(`[Disconnect] Keeping SDK session ${sid} alive for future reconnection`)
+    }
+    this.clients.delete(ws)
+
+    // Reject all pending promises that were waiting on this WebSocket
+    const disconnectError = new Error('WebSocket disconnected')
+    for (const [callId, pending] of this.pendingMcpToolCalls) {
+      pending.reject(disconnectError)
+      this.pendingMcpToolCalls.delete(callId)
+    }
+    for (const [toolId, pending] of this.pendingHyperSpaceTools) {
+      pending.reject(disconnectError)
+      this.pendingHyperSpaceTools.delete(toolId)
+    }
+    for (const [questionId, pending] of this.pendingAskQuestions) {
+      pending.reject(disconnectError)
+      this.pendingAskQuestions.delete(questionId)
+    }
+  }
+
   close(): void {
+    this.stopHeartbeatCheck()
     if (this.idleCheckInterval) {
       clearInterval(this.idleCheckInterval)
     }
