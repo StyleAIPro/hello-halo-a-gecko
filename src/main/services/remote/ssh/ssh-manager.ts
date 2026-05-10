@@ -39,6 +39,10 @@ export class SSHManager {
   // Prevents concurrent exec/SFTP calls from stepping on each other.
   private _operationLock: Promise<void> = Promise.resolve();
 
+  // Callback invoked when the SSH connection drops (close event or disconnect()).
+  // Used by RemoteDeployService to clear runtime status fields.
+  private _onDisconnectCallback: (() => void) | null = null;
+
   // Set to true by disconnect() so in-flight withLock operations reject immediately.
   private _forceDisconnected = false;
 
@@ -88,6 +92,15 @@ export class SSHManager {
     return Promise.race([promise, timeoutPromise]).finally(() => {
       if (timer) clearTimeout(timer);
     });
+  }
+
+  /**
+   * Register a callback invoked when the SSH connection drops.
+   * Only a single callback is supported (overwrites previous).
+   * Pass null to clear.
+   */
+  onDisconnect(callback: (() => void) | null): void {
+    this._onDisconnectCallback = callback;
   }
 
   /**
@@ -148,6 +161,7 @@ export class SSHManager {
         console.log('[SSHManager] Connection closed, reason:', reason);
         this.client = null;
         this.sftp = null;
+        this._onDisconnectCallback?.();
       });
 
       // Simplified connection config - use basic keepalive
@@ -755,5 +769,8 @@ export class SSHManager {
     // Reset the operation lock so future operations don't queue behind a dead lock
     this._operationLock = Promise.resolve();
     this._forceDisconnected = false;
+
+    // Notify connection drop after all cleanup is done
+    this._onDisconnectCallback?.();
   }
 }
