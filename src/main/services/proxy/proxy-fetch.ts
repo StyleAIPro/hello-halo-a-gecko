@@ -161,7 +161,12 @@ function fetchViaCurl(
 
     // Request body
     if (init?.body) {
-      args.push('-d', typeof init.body === 'string' ? init.body : String(init.body));
+      const bodyStr = Buffer.isBuffer(init.body)
+        ? init.body.toString('utf-8')
+        : typeof init.body === 'string'
+          ? init.body
+          : String(init.body);
+      args.push('-d', bodyStr);
     }
 
     // Target URL (always last)
@@ -231,6 +236,13 @@ function fetchViaProxy(
       req.destroy();
       reject(new Error(`Request timed out after ${timeoutMs / 1000}s: ${targetUrl}`));
     }, timeoutMs);
+
+    // If external signal already aborted, bail out immediately
+    if (init?.signal?.aborted) {
+      clearTimeout(timeout);
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+      return;
+    }
 
     const proxyHeaders: Record<string, string> = {
       Host: `${target.hostname}:${target.port || (isHttps ? 443 : 80)}`,
@@ -302,7 +314,12 @@ function fetchViaProxy(
           reject(err);
         });
         if (init?.body) {
-          tlsReq.write(typeof init.body === 'string' ? init.body : String(init.body));
+          const bodyData = Buffer.isBuffer(init.body)
+            ? init.body
+            : typeof init.body === 'string'
+              ? init.body
+              : String(init.body);
+          tlsReq.write(bodyData);
         }
         tlsReq.end();
       } else {
@@ -326,7 +343,12 @@ function fetchViaProxy(
           reject(err);
         });
         if (init?.body) {
-          httpReq.write(typeof init.body === 'string' ? init.body : String(init.body));
+          const bodyData = Buffer.isBuffer(init.body)
+            ? init.body
+            : typeof init.body === 'string'
+              ? init.body
+              : String(init.body);
+          httpReq.write(bodyData);
         }
         httpReq.end();
       }
@@ -338,6 +360,20 @@ function fetchViaProxy(
     });
 
     const req = proxyReq;
+
+    // Forward external AbortSignal
+    const onExternalAbort = () => {
+      clearTimeout(timeout);
+      req.destroy();
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+    init?.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
+    // Clean up external signal listener when the request settles
+    proxyReq.on('close', () => {
+      init?.signal?.removeEventListener('abort', onExternalAbort);
+    });
+
     proxyReq.end();
   });
 }
@@ -411,6 +447,16 @@ export async function proxyFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
+  // If external signal already aborted, bail out immediately
+  if (init?.signal?.aborted) {
+    clearTimeout(timer);
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
+
+  // Forward external signal to our internal controller
+  const onExternalAbort = () => controller.abort();
+  init?.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
   try {
     const response = await fetch(url, {
       ...init,
@@ -424,5 +470,6 @@ export async function proxyFetch(
     throw error;
   } finally {
     clearTimeout(timer);
+    init?.signal?.removeEventListener('abort', onExternalAbort);
   }
 }
