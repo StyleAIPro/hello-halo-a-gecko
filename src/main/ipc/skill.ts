@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Skill IPC Handlers
  *
@@ -28,17 +29,17 @@ export function registerSkillHandlers(conversationService: ConversationService):
   skillController.initialize(conversationService);
 
   // ── skill:list ─────────────────────────────────────────────────────────
-  ipcMain.handle('skill:list', async () => {
+  wrapIpcHandle('skill:list', async () => {
     return skillController.listInstalledSkills();
   });
 
   // ── skill:get-detail ───────────────────────────────────────────────────
-  ipcMain.handle('skill:get-detail', async (_event, skillId: string) => {
+  wrapIpcHandle('skill:get-detail', async (_event, skillId: string) => {
     return skillController.getSkillDetail(skillId);
   });
 
   // ── skill:install ──────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:install',
     async (
       event,
@@ -49,6 +50,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
       },
     ) => {
       if (input.mode === 'market' && input.skillId) {
+        console.info(`[event] installSkill: skillId=${input.skillId}, mode=market`);
         // 流式输出回调
         const onOutput = (data: {
           type: 'stdout' | 'stderr' | 'complete' | 'error';
@@ -58,6 +60,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
         };
         return skillController.installSkillFromMarket(input.skillId, onOutput);
       } else if (input.mode === 'yaml' && input.yamlContent) {
+        console.info(`[event] installSkill: mode=yaml`);
         return skillController.installSkillFromYaml(input.yamlContent);
       }
       return {
@@ -68,12 +71,13 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:uninstall ────────────────────────────────────────────────────
-  ipcMain.handle('skill:uninstall', async (_event, skillId: string) => {
+  wrapIpcHandle('skill:uninstall', async (_event, skillId: string) => {
+    console.info(`[event] uninstallSkill: skillId=${skillId}`);
     return skillController.uninstallSkill(skillId);
   });
 
   // ── skill:install-multi ────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:install-multi',
     async (
       event,
@@ -93,7 +97,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:uninstall-multi ──────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:uninstall-multi',
     async (
       event,
@@ -113,7 +117,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:sync-to-remote ───────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:sync-to-remote',
     async (event, input: { skillId: string; serverId: string }) => {
       const onOutput = (data: {
@@ -127,7 +131,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:sync-from-remote ─────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:sync-from-remote',
     async (event, input: { skillId: string; serverId: string }) => {
       const onOutput = (data: {
@@ -141,18 +145,18 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:toggle ───────────────────────────────────────────────────────
-  ipcMain.handle('skill:toggle', async (_event, input: { skillId: string; enabled: boolean }) => {
+  wrapIpcHandle('skill:toggle', async (_event, input: { skillId: string; enabled: boolean }) => {
     return skillController.toggleSkill(input.skillId, input.enabled);
   });
 
   // ── skill:export ───────────────────────────────────────────────────────
-  ipcMain.handle('skill:export', async (_event, skillId: string) => {
+  wrapIpcHandle('skill:export', async (_event, skillId: string) => {
     return skillController.exportSkill(skillId);
   });
 
   // ── skill:generate ─────────────────────────────────────────────────────
   // Note: spaceId is kept for conversation lookup, not for installation location
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:generate',
     async (
       _event,
@@ -184,12 +188,12 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:market:list ──────────────────────────────────────────────────
-  ipcMain.handle('skill:market:list', async (_event, page?: number, pageSize?: number) => {
+  wrapIpcHandle('skill:market:list', async (_event, page?: number, pageSize?: number) => {
     return skillController.listMarketSkills(page, pageSize);
   });
 
   // ── skill:market:search ────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:market:search',
     async (_event, query: string, page?: number, pageSize?: number) => {
       return skillController.searchMarketSkills(query, page, pageSize);
@@ -197,17 +201,17 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:market:detail ────────────────────────────────────────────────
-  ipcMain.handle('skill:market:detail', async (_event, skillId: string) => {
+  wrapIpcHandle('skill:market:detail', async (_event, skillId: string) => {
     return skillController.getMarketSkillDetail(skillId);
   });
 
   // ── skill:market:sources ────────────────────────────────────────────────
-  ipcMain.handle('skill:market:sources', async () => {
+  wrapIpcHandle('skill:market:sources', async () => {
     return skillController.getMarketSources();
   });
 
   // ── skill:market:add-source ─────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:market:add-source',
     async (
       _event,
@@ -218,12 +222,12 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:market:remove-source ──────────────────────────────────────────
-  ipcMain.handle('skill:market:remove-source', async (_event, sourceId: string) => {
+  wrapIpcHandle('skill:market:remove-source', async (_event, sourceId: string) => {
     return skillController.removeMarketSource(sourceId);
   });
 
   // ── skill:market:toggle-source ──────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:market:toggle-source',
     async (_event, input: { sourceId: string; enabled: boolean }) => {
       return skillController.toggleMarketSource(input.sourceId, input.enabled);
@@ -231,37 +235,37 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:market:set-active ─────────────────────────────────────────────
-  ipcMain.handle('skill:market:set-active', async (_event, sourceId: string) => {
+  wrapIpcHandle('skill:market:set-active', async (_event, sourceId: string) => {
     return skillController.setActiveMarketSource(sourceId);
   });
 
   // ── skill:config:get ───────────────────────────────────────────────────
-  ipcMain.handle('skill:config:get', async () => {
+  wrapIpcHandle('skill:config:get', async () => {
     return skillController.getSkillConfig();
   });
 
   // ── skill:config:update ────────────────────────────────────────────────
-  ipcMain.handle('skill:config:update', async (_event, config: Record<string, unknown>) => {
+  wrapIpcHandle('skill:config:update', async (_event, config: Record<string, unknown>) => {
     return skillController.updateSkillConfig(config);
   });
 
   // ── skill:refresh ──────────────────────────────────────────────────────
-  ipcMain.handle('skill:refresh', async () => {
+  wrapIpcHandle('skill:refresh', async () => {
     return skillController.refreshSkills();
   });
 
   // ── skill:files ────────────────────────────────────────────────────────
-  ipcMain.handle('skill:files', async (_event, skillId: string) => {
+  wrapIpcHandle('skill:files', async (_event, skillId: string) => {
     return skillController.getSkillFiles(skillId);
   });
 
   // ── skill:file-content ─────────────────────────────────────────────────
-  ipcMain.handle('skill:file-content', async (_event, skillId: string, filePath: string) => {
+  wrapIpcHandle('skill:file-content', async (_event, skillId: string, filePath: string) => {
     return skillController.getSkillFileContent(skillId, filePath);
   });
 
   // ── skill:file-save ────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:file-save',
     async (_event, skillId: string, filePath: string, content: string) => {
       return skillController.saveSkillFileContent(skillId, filePath, content);
@@ -269,7 +273,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:analyze-conversations ───────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:analyze-conversations',
     async (_event, spaceId: string, conversationIds: string[]) => {
       return skillController.analyzeConversations(spaceId, conversationIds);
@@ -277,7 +281,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:create-temp-session ───────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:create-temp-session',
     async (
       event,
@@ -299,7 +303,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:send-temp-message ───────────────────────────────────────────────────────
-  ipcMain.handle('skill:send-temp-message', async (event, sessionId: string, message: string) => {
+  wrapIpcHandle('skill:send-temp-message', async (event, sessionId: string, message: string) => {
     // Set up streaming callback
     const onChunk = (chunk: string) => {
       event.sender.send('skill:temp-message-chunk', sessionId, chunk);
@@ -308,7 +312,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   });
 
   // ── skill:close-temp-session ────────────────────────────────────────────────────────
-  ipcMain.handle('skill:close-temp-session', async (_event, sessionId: string) => {
+  wrapIpcHandle('skill:close-temp-session', async (_event, sessionId: string) => {
     return skillController.closeTempAgentSession(sessionId);
   });
 
@@ -317,17 +321,17 @@ export function registerSkillHandlers(conversationService: ConversationService):
   // ============================================
 
   // ── skill:conversation:list ────────────────────────────────────────────────────────
-  ipcMain.handle('skill:conversation:list', async (_event, relatedSkillId?: string) => {
+  wrapIpcHandle('skill:conversation:list', async (_event, relatedSkillId?: string) => {
     return skillController.listSkillConversations(relatedSkillId);
   });
 
   // ── skill:conversation:get ──────────────────────────────────────────────────────────
-  ipcMain.handle('skill:conversation:get', async (_event, conversationId: string) => {
+  wrapIpcHandle('skill:conversation:get', async (_event, conversationId: string) => {
     return skillController.getSkillConversation(conversationId);
   });
 
   // ── skill:conversation:create ───────────────────────────────────────────────────────
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:conversation:create',
     async (_event, title?: string, relatedSkillId?: string) => {
       return skillController.createSkillConversation(title, relatedSkillId);
@@ -335,13 +339,13 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:conversation:delete ───────────────────────────────────────────────────────
-  ipcMain.handle('skill:conversation:delete', async (_event, conversationId: string) => {
+  wrapIpcHandle('skill:conversation:delete', async (_event, conversationId: string) => {
     return skillController.deleteSkillConversation(conversationId);
   });
 
   // ── skill:conversation:send ─────────────────────────────────────────────────────────
   // 注意：现在使用标准的 agent:* IPC 事件发送流式数据（与主对话框相同）
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:conversation:send',
     async (
       _event,
@@ -367,24 +371,24 @@ export function registerSkillHandlers(conversationService: ConversationService):
   );
 
   // ── skill:conversation:stop ─────────────────────────────────────────────────────────
-  ipcMain.handle('skill:conversation:stop', async (_event, conversationId: string) => {
+  wrapIpcHandle('skill:conversation:stop', async (_event, conversationId: string) => {
     return skillController.stopSkillGeneration(conversationId);
   });
 
   // ── skill:conversation:close ────────────────────────────────────────────────────────
-  ipcMain.handle('skill:conversation:close', async (_event, conversationId: string) => {
+  wrapIpcHandle('skill:conversation:close', async (_event, conversationId: string) => {
     return skillController.closeSkillConversation(conversationId);
   });
 
   // ── skill:fetch-webpage ────────────────────────────────────────────────────────────
   // 获取网页内容（用于从网页创建技能）
-  ipcMain.handle('skill:fetch-webpage', async (_event, url: string) => {
+  wrapIpcHandle('skill:fetch-webpage', async (_event, url: string) => {
     return skillController.fetchWebPageContent(url);
   });
 
   // ── skill:market:push-to-github ────────────────────────────────────────────────
   // 推送本地技能到 GitHub 仓库（通过 PR）
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:market:push-to-github',
     async (_event, skillId: string, targetRepo: string, targetPath?: string) => {
       return skillController.pushSkillToGitHub(skillId, targetRepo, targetPath);
@@ -393,41 +397,41 @@ export function registerSkillHandlers(conversationService: ConversationService):
 
   // ── skill:market:list-repo-dirs ────────────────────────────────────────────────
   // 列出 GitHub 仓库 skills/ 目录下的子目录
-  ipcMain.handle('skill:market:list-repo-dirs', async (_event, repo: string) => {
+  wrapIpcHandle('skill:market:list-repo-dirs', async (_event, repo: string) => {
     return skillController.listRepoDirectories(repo);
   });
 
   // ── skill:market:validate-repo ─────────────────────────────────────────────────
   // 验证 GitHub 仓库是否可用作技能源
-  ipcMain.handle('skill:market:validate-repo', async (_event, repo: string) => {
+  wrapIpcHandle('skill:market:validate-repo', async (_event, repo: string) => {
     return skillController.validateGitHubRepo(repo);
   });
 
   // ── GitCode skill operations ────────────────────────────────────────────────
 
-  ipcMain.handle(
+  wrapIpcHandle(
     'skill:market:push-to-gitcode',
     async (_event, skillId: string, targetRepo: string, targetPath?: string) => {
       return skillController.pushSkillToGitCode(skillId, targetRepo, targetPath);
     },
   );
 
-  ipcMain.handle('skill:market:list-gitcode-repo-dirs', async (_event, repo: string) => {
+  wrapIpcHandle('skill:market:list-gitcode-repo-dirs', async (_event, repo: string) => {
     return skillController.listGitCodeRepoDirectories(repo);
   });
 
-  ipcMain.handle('skill:market:validate-gitcode-repo', async (_event, repo: string) => {
+  wrapIpcHandle('skill:market:validate-gitcode-repo', async (_event, repo: string) => {
     return skillController.validateGitCodeRepo(repo);
   });
 
-  ipcMain.handle('skill:market:set-gitcode-token', async (_event, token: string) => {
+  wrapIpcHandle('skill:market:set-gitcode-token', async (_event, token: string) => {
     return skillController.setGitCodeToken(token);
   });
 
   // ── skill:market:pat-status ──────────────────────────────────────
-  ipcMain.handle('skill:market:pat-status', async () => {
+  wrapIpcHandle('skill:market:pat-status', async () => {
     try {
-      const { getGitHubToken } = await import('../services/config.service');
+      const { getGitHubToken } = await import('../services/auth/github-auth.service');
       const { getGitCodeToken } = await import('../services/config.service');
       return {
         success: true,
@@ -442,7 +446,7 @@ export function registerSkillHandlers(conversationService: ConversationService):
   });
 
   // ── skill:network:proxy-status ──────────────────────────────────
-  ipcMain.handle('skill:network:proxy-status', async () => {
+  wrapIpcHandle('skill:network:proxy-status', async () => {
     try {
       const { getConfig } = await import('../services/config.service');
       const config = getConfig();

@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Remote Server IPC Handlers
  * Manages remote server configurations and deployments
@@ -60,7 +61,7 @@ export function registerRemoteServerHandlers(): void {
 
   // ===== Remote Server Handlers =====
 
-  ipcMain.handle('remote-server:add', async (_event, input: RemoteServerConfigInput) => {
+  wrapIpcHandle('remote-server:add', async (_event, input: RemoteServerConfigInput) => {
     console.log('[IPC] remote-server:add - Adding server:', input.name);
     console.log('[IPC] remote-server:add - Full input:', JSON.stringify(input));
     try {
@@ -74,7 +75,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:list', async () => {
+  wrapIpcHandle('remote-server:list', async () => {
     try {
       const servers = deployService.getServers();
       return { success: true, data: servers };
@@ -85,7 +86,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:get', async (_event, id: string) => {
+  wrapIpcHandle('remote-server:get', async (_event, id: string) => {
     try {
       const server = deployService.getServer(id);
       if (!server) {
@@ -99,7 +100,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle(
+  wrapIpcHandle(
     'remote-server:update',
     async (_event, server: Partial<RemoteServer> & { id: string }) => {
       const { id, ...updates } = server;
@@ -141,7 +142,7 @@ export function registerRemoteServerHandlers(): void {
     },
   );
 
-  ipcMain.handle(
+  wrapIpcHandle(
     'remote-server:update-ai-source',
     async (_event, serverId: string, aiSourceId: string) => {
       console.log(
@@ -158,7 +159,7 @@ export function registerRemoteServerHandlers(): void {
     },
   );
 
-  ipcMain.handle('remote-server:update-model', async (_event, serverId: string, model: string) => {
+  wrapIpcHandle('remote-server:update-model', async (_event, serverId: string, model: string) => {
     console.log(`[IPC] remote-server:update-model - serverId=${serverId}, model=${model}`);
     try {
       await deployService.updateServerModel(serverId, model);
@@ -170,7 +171,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:delete', async (_event, id: string) => {
+  wrapIpcHandle('remote-server:delete', async (_event, id: string) => {
     console.log('[IPC] remote-server:delete - Removing server:', id);
     try {
       deployService.removeServer(id);
@@ -182,8 +183,8 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:deploy', async (_event, serverId: string) => {
-    console.log('[IPC] remote-server:deploy - Deploying to server:', serverId);
+  wrapIpcHandle('remote-server:deploy', async (_event, serverId: string) => {
+    console.info(`[event] remoteDeploy: serverId=${serverId}`);
     try {
       await deployService.deployToServer(serverId);
       const server = deployService.getServer(serverId);
@@ -195,8 +196,8 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:connect', async (_event, serverId: string) => {
-    console.log('[IPC] remote-server:connect - Connecting to server:', serverId);
+  wrapIpcHandle('remote-server:connect', async (_event, serverId: string) => {
+    console.info(`[event] remoteConnect: serverId=${serverId}`);
     try {
       await deployService.connectServer(serverId);
       const server = deployService.getServer(serverId);
@@ -208,8 +209,8 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:disconnect', async (_event, serverId: string) => {
-    console.log('[IPC] remote-server:disconnect - Disconnecting from server:', serverId);
+  wrapIpcHandle('remote-server:disconnect', async (_event, serverId: string) => {
+    console.info(`[event] remoteDisconnect: serverId=${serverId}`);
     try {
       deployService.disconnectServer(serverId);
       const server = deployService.getServer(serverId);
@@ -221,7 +222,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:execute', async (_event, id: string, command: string) => {
+  wrapIpcHandle('remote-server:execute', async (_event, id: string, command: string) => {
     console.log('[IPC] remote-server:execute - Executing command on server:', id);
     try {
       const output = await deployService.executeCommand(id, command);
@@ -235,7 +236,7 @@ export function registerRemoteServerHandlers(): void {
 
   // ===== Remote Agent Handlers =====
 
-  ipcMain.handle('remote-agent:send-message', async (_event, serverId: string, message: any) => {
+  wrapIpcHandle('remote-agent:send-message', async (_event, serverId: string, message: any) => {
     console.log(
       '[IPC] remote-agent:sendMessage - Sending message to agent:',
       serverId,
@@ -252,7 +253,7 @@ export function registerRemoteServerHandlers(): void {
   });
 
   // Send chat message to remote agent via WebSocket and return response with tokenUsage
-  ipcMain.handle(
+  wrapIpcHandle(
     'remote-agent:chat',
     async (
       _event,
@@ -271,7 +272,7 @@ export function registerRemoteServerHandlers(): void {
     },
   );
 
-  ipcMain.handle('remote-agent:fs-list', async (_event, serverId: string, directory?: string) => {
+  wrapIpcHandle('remote-agent:fs-list', async (_event, serverId: string, directory?: string) => {
     try {
       const files = await deployService.listRemoteFiles(serverId, directory);
       return { success: true, data: { files } };
@@ -280,7 +281,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-agent:fs-read', async (_event, serverId: string, path: string) => {
+  wrapIpcHandle('remote-agent:fs-read', async (_event, serverId: string, path: string) => {
     try {
       const content = await deployService.readRemoteFile(serverId, path);
       return { success: true, data: { content } };
@@ -289,7 +290,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle(
+  wrapIpcHandle(
     'remote-agent:fs-write',
     async (_event, serverId: string, path: string, content: string) => {
       try {
@@ -301,7 +302,7 @@ export function registerRemoteServerHandlers(): void {
     },
   );
 
-  ipcMain.handle('remote-agent:fs-delete', async (_event, serverId: string, path: string) => {
+  wrapIpcHandle('remote-agent:fs-delete', async (_event, serverId: string, path: string) => {
     try {
       await deployService.deleteRemoteFile(serverId, path);
       return { success: true };
@@ -313,7 +314,7 @@ export function registerRemoteServerHandlers(): void {
   console.log('[IPC] Remote server handlers registered');
 
   // Test connection handler
-  ipcMain.handle('remote-server:test-connection', async (_event, serverId: string) => {
+  wrapIpcHandle('remote-server:test-connection', async (_event, serverId: string) => {
     console.log('[IPC] remote-server:test-connection - Testing connection:', serverId);
     try {
       const server = deployService.getServer(serverId);
@@ -331,7 +332,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-agent:check-connection', async (_event, serverId: string) => {
+  wrapIpcHandle('remote-agent:check-connection', async (_event, serverId: string) => {
     console.log('[IPC] remote-agent:check-connection - Checking connection:', serverId);
     try {
       // TODO: Implement actual connection check
@@ -344,7 +345,7 @@ export function registerRemoteServerHandlers(): void {
   });
 
   // Get messages handler
-  ipcMain.handle(
+  wrapIpcHandle(
     'remote-agent:get-messages',
     async (_event, serverId: string, sessionId: string) => {
       console.log('[IPC] remote-agent:get-messages - Getting messages:', serverId, sessionId);
@@ -364,7 +365,7 @@ export function registerRemoteServerHandlers(): void {
   // ===== Background Task Handlers =====
 
   // Subscribe to task updates via WebSocket push (called when entering remote space)
-  ipcMain.handle('remote-server:subscribe-tasks', async (_event, serverId: string) => {
+  wrapIpcHandle('remote-server:subscribe-tasks', async (_event, serverId: string) => {
     try {
       deployService.subscribeToTaskUpdates(serverId);
       return { success: true };
@@ -375,7 +376,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:list-tasks', async (_event, serverId: string) => {
+  wrapIpcHandle('remote-server:list-tasks', async (_event, serverId: string) => {
     try {
       const tasks = await deployService.listRemoteTasks(serverId);
       return { success: true, data: tasks };
@@ -386,7 +387,7 @@ export function registerRemoteServerHandlers(): void {
     }
   });
 
-  ipcMain.handle('remote-server:cancel-task', async (_event, serverId: string, taskId: string) => {
+  wrapIpcHandle('remote-server:cancel-task', async (_event, serverId: string, taskId: string) => {
     try {
       const ok = await deployService.cancelRemoteTask(serverId, taskId);
       return { success: true, data: { success: ok } };
@@ -399,7 +400,7 @@ export function registerRemoteServerHandlers(): void {
 }
 
 // Check if claude-agent-sdk is installed on remote server
-ipcMain.handle('remote-server:check-agent', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:check-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:check-agent - Checking agent installation:', serverId);
   try {
     const result = await deployService.checkAgentInstalled(serverId);
@@ -412,7 +413,7 @@ ipcMain.handle('remote-server:check-agent', async (_event, serverId: string) => 
 });
 
 // Deploy agent SDK to remote server via SCP
-ipcMain.handle('remote-server:deploy-agent', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:deploy-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:deploy-agent - Deploying agent SDK:', serverId);
   try {
     await deployService.deployAgentSDK(serverId);
@@ -425,7 +426,7 @@ ipcMain.handle('remote-server:deploy-agent', async (_event, serverId: string) =>
 });
 
 // Start agent server on remote server
-ipcMain.handle('remote-server:start-agent', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:start-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:start-agent - Starting agent:', serverId);
   try {
     await deployService.startAgent(serverId);
@@ -438,7 +439,7 @@ ipcMain.handle('remote-server:start-agent', async (_event, serverId: string) => 
 });
 
 // Stop agent server on remote server
-ipcMain.handle('remote-server:stop-agent', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:stop-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:stop-agent - Stopping agent:', serverId);
   try {
     await deployService.stopAgent(serverId);
@@ -451,7 +452,7 @@ ipcMain.handle('remote-server:stop-agent', async (_event, serverId: string) => {
 });
 
 // Get agent server logs
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:get-agent-logs',
   async (_event, serverId: string, lines: number = 100) => {
     console.log('[IPC] remote-server:get-agent-logs - Getting logs:', serverId);
@@ -467,7 +468,7 @@ ipcMain.handle(
 );
 
 // Check if agent server is running
-ipcMain.handle('remote-server:is-agent-running', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:is-agent-running', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:is-agent-running - Checking status:', serverId);
   try {
     const running = await deployService.isAgentRunning(serverId);
@@ -480,7 +481,7 @@ ipcMain.handle('remote-server:is-agent-running', async (_event, serverId: string
 });
 
 // Force update agent code and restart (for deploying new features)
-ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:update-agent', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:update-agent - Updating agent code:', serverId);
   deployService.startUpdate(serverId);
 
@@ -526,19 +527,19 @@ ipcMain.handle('remote-server:update-agent', async (_event, serverId: string) =>
 });
 
 // Query update operation state (for restoring UI after tab switch)
-ipcMain.handle('remote-server:get-update-status', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:get-update-status', async (_event, serverId: string) => {
   const status = deployService.getUpdateStatus(serverId);
   return { success: true, data: status };
 });
 
 // Acknowledge an update result (UI has shown it, clear stored state)
-ipcMain.handle('remote-server:acknowledge-update', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:acknowledge-update', async (_event, serverId: string) => {
   deployService.acknowledgeUpdate(serverId);
   return { success: true };
 });
 
 // Deploy agent using embedded offline bundle (no remote network needed)
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:deploy-offline',
   async (_event, serverId: string, platform?: 'x64' | 'arm64') => {
     console.log(
@@ -588,7 +589,7 @@ ipcMain.handle(
 );
 
 // Check if offline deployment bundle is available
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:check-offline-bundle',
   async (_event, platform: 'x64' | 'arm64' = 'x64') => {
     const available = deployService.isOfflineBundleAvailable(platform);
@@ -597,7 +598,7 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:list-skills', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:list-skills - Listing skills on server:', serverId);
   try {
     const skills = await deployService.listRemoteSkills(serverId);
@@ -609,7 +610,7 @@ ipcMain.handle('remote-server:list-skills', async (_event, serverId: string) => 
   }
 });
 
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:list-skill-files',
   async (_event, serverId: string, skillId: string) => {
     console.log(
@@ -629,7 +630,7 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:read-skill-file',
   async (_event, serverId: string, skillId: string, filePath: string) => {
     console.log(
@@ -652,7 +653,7 @@ ipcMain.handle(
 );
 
 // Per-PC Isolation: scan for orphan deployments
-ipcMain.handle('remote-server:cleanup-scan', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:cleanup-scan', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:cleanup-scan - Scanning for orphan deployments:', serverId);
   try {
     const result = await deployService.cleanupOrphanDeployments(serverId);
@@ -665,7 +666,7 @@ ipcMain.handle('remote-server:cleanup-scan', async (_event, serverId: string) =>
 });
 
 // Per-PC Isolation: delete an inactive deployment
-ipcMain.handle(
+wrapIpcHandle(
   'remote-server:delete-deployment',
   async (_event, serverId: string, clientId: string) => {
     console.log('[IPC] remote-server:delete-deployment - Deleting deployment:', serverId, clientId);
@@ -681,7 +682,7 @@ ipcMain.handle(
 );
 
 // Cancel an in-flight deploy/update operation
-ipcMain.handle('remote-server:cancel-operation', async (_event, serverId: string) => {
+wrapIpcHandle('remote-server:cancel-operation', async (_event, serverId: string) => {
   console.log('[IPC] remote-server:cancel-operation - Cancelling operation for:', serverId);
   try {
     deployService.cancelOperation(serverId);

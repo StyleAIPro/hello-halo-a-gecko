@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * IPC Handlers for Hyper Space
  *
@@ -32,7 +33,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Create a Hyper Space with agent team
    */
-  ipcMain.handle('hyper-space:create', async (_event, input: CreateHyperSpaceInput) => {
+  wrapIpcHandle('hyper-space:create', async (_event, input: CreateHyperSpaceInput) => {
     try {
       // Use createHyperSpace for hyper spaces
       if (input.spaceType === 'hyper') {
@@ -114,7 +115,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Get Hyper Space team status
    */
-  ipcMain.handle('hyper-space:get-status', async (_event, spaceId: string) => {
+  wrapIpcHandle('hyper-space:get-status', async (_event, spaceId: string) => {
     try {
       const status = agentOrchestrator.getTeamStatus(
         agentOrchestrator.getTeamBySpace(spaceId)?.id || '',
@@ -137,7 +138,7 @@ export function registerHyperSpaceHandlers(): void {
    * Get worker session states for recovery after page refresh.
    * Returns status info for all workers that have been started.
    */
-  ipcMain.handle('hyper-space:get-worker-states', async (_event, spaceId: string) => {
+  wrapIpcHandle('hyper-space:get-worker-states', async (_event, spaceId: string) => {
     try {
       const workerStates = agentOrchestrator.getWorkerSessionStates(spaceId);
       return { success: true, data: workerStates };
@@ -152,7 +153,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Add agent to existing Hyper Space
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:add-agent',
     async (
       _event,
@@ -182,7 +183,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Remove agent from Hyper Space
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:remove-agent',
     async (
       _event,
@@ -216,7 +217,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Dispatch a task to agents
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:dispatch-task',
     async (
       _event,
@@ -259,7 +260,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Get task status
    */
-  ipcMain.handle('hyper-space:get-task', async (_event, taskId: string) => {
+  wrapIpcHandle('hyper-space:get-task', async (_event, taskId: string) => {
     try {
       const task = agentOrchestrator.getTask(taskId);
       if (!task) {
@@ -278,7 +279,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Get all tasks for a conversation
    */
-  ipcMain.handle('hyper-space:get-tasks', async (_event, conversationId: string) => {
+  wrapIpcHandle('hyper-space:get-tasks', async (_event, conversationId: string) => {
     try {
       const tasks = agentOrchestrator.getTasksForConversation(conversationId);
       return { success: true, tasks };
@@ -293,7 +294,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Wait for all tasks to complete
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:wait-completion',
     async (
       _event,
@@ -321,7 +322,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Aggregate results from multiple tasks
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:aggregate-results',
     async (
       _event,
@@ -351,7 +352,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Update orchestration configuration
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:update-config',
     async (
       _event,
@@ -382,7 +383,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Get HyperSpace members for @ mention autocomplete
    */
-  ipcMain.handle('hyper-space:get-members', async (_event, spaceId: string) => {
+  wrapIpcHandle('hyper-space:get-members', async (_event, spaceId: string) => {
     try {
       const members = agentOrchestrator.getTeamMembers(spaceId);
 
@@ -423,7 +424,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Get all tasks on the shared TaskBoard
    */
-  ipcMain.handle('hyper-space:get-taskboard', async (_event, spaceId: string) => {
+  wrapIpcHandle('hyper-space:get-taskboard', async (_event, spaceId: string) => {
     try {
       const tasks = taskboardService.getTasks(spaceId);
       return { success: true, data: { tasks } };
@@ -438,7 +439,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Post a new task to the TaskBoard
    */
-  ipcMain.handle('hyper-space:post-task', async (_event, spaceId: string, input: PostTaskInput) => {
+  wrapIpcHandle('hyper-space:post-task', async (_event, spaceId: string, input: PostTaskInput) => {
     try {
       const task = taskboardService.postTask(spaceId, input);
       return { success: true, data: task };
@@ -453,7 +454,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Claim a task from the TaskBoard
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:claim-task',
     async (_event, spaceId: string, taskId: string, agentId: string, agentName?: string) => {
       try {
@@ -474,7 +475,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Update task status on the TaskBoard
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:update-task-status',
     async (
       _event,
@@ -513,7 +514,7 @@ export function registerHyperSpaceHandlers(): void {
    * Enable/disable persistent worker mode for a team.
    * When enabled, workers stay alive between tasks and auto-claim from TaskBoard.
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:set-persistent-mode',
     async (_event, spaceId: string, enabled: boolean) => {
       try {
@@ -541,7 +542,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Check if persistent mode is active for a space.
    */
-  ipcMain.handle('hyper-space:get-persistent-mode', async (_event, spaceId: string) => {
+  wrapIpcHandle('hyper-space:get-persistent-mode', async (_event, spaceId: string) => {
     try {
       const team = agentOrchestrator.getTeamBySpace(spaceId);
       if (!team) {
@@ -563,7 +564,7 @@ export function registerHyperSpaceHandlers(): void {
   /**
    * Resolve a worker's permission request (approve/deny from UI).
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'hyper-space:resolve-permission',
     async (
       _event,

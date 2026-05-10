@@ -146,7 +146,7 @@ function isSessionStuck(conversationId: string): boolean {
   const isIdle = timeSinceActivity > HEALTH_CHECK_CONFIG.requestTimeout;
 
   if (hasStarted && isIdle) {
-    console.log(
+    console.debug(
       `[Agent][${conversationId}] Session stuck: request=${Math.round(requestDuration / 60000)}m, ` +
         `idle=${Math.round(timeSinceActivity / 60000)}m`,
     );
@@ -266,10 +266,10 @@ export function registerProcessExitListener(
         }
         const errorMsg = error ? `: ${error.message}` : '';
         cleanupSession(conversationId, `process exited${errorMsg}`);
-        console.log(`[Agent][${conversationId}] Remaining sessions: ${v2Sessions.size}`);
+        console.debug(`[Agent][${conversationId}] Remaining sessions: ${v2Sessions.size}`);
       });
 
-      console.log(`[Agent][${conversationId}] Process exit listener registered`);
+      console.debug(`[Agent][${conversationId}] Process exit listener registered`);
 
       // Note: unsubscribe is returned but we don't need to call it
       // The listener will be automatically removed when transport.close() is called
@@ -310,7 +310,7 @@ export function cleanupSession(
   const info = v2Sessions.get(conversationId);
   if (!info && !skipMapCheck) return;
 
-  console.log(`[Agent][${conversationId}] Cleaning up session: ${reason}`);
+  console.debug(`[Agent][${conversationId}] Cleaning up session: ${reason}`);
 
   if (info) {
     try {
@@ -332,7 +332,7 @@ export function cleanupSession(
  * Force restart a stuck or unhealthy session
  */
 function forceRestartSession(conversationId: string, reason: string): void {
-  console.log(`[Agent][${conversationId}] Force restarting session: ${reason}`);
+  console.debug(`[Agent][${conversationId}] Force restarting session: ${reason}`);
   cleanupSession(conversationId, reason);
   sessionHealthMap.delete(conversationId);
 }
@@ -372,7 +372,7 @@ export function startSessionCleanup(): void {
 
       // Check 2: Detect stuck sessions (request taking too long)
       if (isSessionStuck(convId)) {
-        console.log(`[Agent][${convId}] Session stuck (request timeout), forcing restart`);
+        console.debug(`[Agent][${convId}] Session stuck (request timeout), forcing restart`);
         forceRestartSession(convId, 'stuck session (request timeout)');
         continue;
       }
@@ -380,7 +380,7 @@ export function startSessionCleanup(): void {
       // Check 3: Check health status - restart if too many failures
       const health = sessionHealthMap.get(convId);
       if (health && !health.isHealthy) {
-        console.log(`[Agent][${convId}] Session marked unhealthy, forcing restart`);
+        console.debug(`[Agent][${convId}] Session marked unhealthy, forcing restart`);
         forceRestartSession(convId, 'unhealthy session');
         continue;
       }

@@ -11,7 +11,8 @@
  */
 
 import type { BrowserWindow } from 'electron';
-import { getConfig } from '../config.service';
+import { getConfig, getGitHubToken } from '../config.service';
+import { getEffectiveProxyUrl } from '../proxy';
 import {
   getConversation,
   saveSessionId,
@@ -89,39 +90,15 @@ export async function sendMessage(
     canvasContext,
   } = request;
 
-  console.log('[Agent] ========== FUNCTION START ==========');
-  console.log('[Agent] sendMessage: conv=', conversationId);
-  console.log('[Agent] sendMessage: spaceId=', spaceId);
-
   // === Remote execution routing ===
-  console.log('[Agent] ===== BEFORE GETSPACE =====');
-  console.log('[Agent] getSpace function type:', typeof getSpace);
-  console.log('[Agent] ===== AFTER GETSPACE =====');
-  console.log(`[Agent] About to call getSpace with spaceId=${spaceId}`);
   const space = getSpace(spaceId);
-  console.log(
-    `[Agent] getSpace returned:`,
-    space
-      ? {
-          id: space.id,
-          name: space.name,
-          claudeSource: space.claudeSource,
-          remoteServerId: space.remoteServerId,
-          useSshTunnel: space.useSshTunnel,
-        }
-      : 'null',
-  );
-  console.log(
-    `[Agent] Remote routing check: space=${space ? space.name : 'null'}, claudeSource=${space?.claudeSource}, remoteServerId=${space?.remoteServerId}, useSshTunnel=${space?.useSshTunnel}`,
-  );
   if (space?.claudeSource === 'remote' && space.remoteServerId) {
     // Default to using SSH tunnel for security (most servers don't expose ports publicly)
     const useSshTunnel = space.useSshTunnel !== false; // Default true, only false if explicitly set
-    console.log(
+    console.debug(
       `[Agent] *** ROUTING TO REMOTE EXECUTION *** server=${space.remoteServerId}, path=${space.remotePath || '/home'}, useSshTunnel=${useSshTunnel}`,
     );
     try {
-      console.log('[Agent] Calling executeRemoteMessage...');
       await executeRemoteMessage(
         mainWindow,
         request,
@@ -130,7 +107,6 @@ export async function sendMessage(
         useSshTunnel,
         space.systemPrompt,
       );
-      console.log('[Agent] executeRemoteMessage completed');
     } catch (error) {
       console.error('[Agent] executeRemoteMessage error:', error);
       throw error;
@@ -352,6 +328,10 @@ export async function sendMessage(
       mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
       maxTurns: config.agent?.maxTurns,
       contextWindow: resolvedCredentials.contextWindow,
+      ghSearchStatus: {
+        patConfigured: !!getGitHubToken(),
+        proxyEnabled: !!getEffectiveProxyUrl(),
+      },
     });
 
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
@@ -360,7 +340,14 @@ export async function sendMessage(
       sdkOptions.systemPrompt = {
         type: 'preset' as const,
         append: buildSystemPromptWithAIBrowser(
-          { workDir, modelInfo: resolvedCredentials.displayModel },
+          {
+            workDir,
+            modelInfo: resolvedCredentials.displayModel,
+            ghSearchStatus: {
+              patConfigured: !!getGitHubToken(),
+              proxyEnabled: !!getEffectiveProxyUrl(),
+            },
+          },
           AI_BROWSER_SYSTEM_PROMPT,
         ),
       };
@@ -479,6 +466,33 @@ export async function sendMessage(
                 // Mark session request complete for health tracking
                 markSessionRequestComplete(conversationId);
               }
+
+              // Log model output summary with separator
+              const toolCallCount = streamResult.thoughts.filter(
+                (t: { type: string }) => t.type === 'tool_use',
+              ).length;
+              const duration = ((Date.now() - t0) / 1000).toFixed(1);
+              const responsePreview = streamResult.finalContent
+                ? `"${streamResult.finalContent.substring(0, 200)}${streamResult.finalContent.length > 200 ? '...' : ''}" (${streamResult.finalContent.length} chars, truncated)`
+                : '(empty response)';
+
+              const outputLines = [
+                '--------------------------------------------------------------------------------',
+                `[MODEL OUTPUT] conversationId=${conversationId} | ${toolCallCount} tool call(s) | ${duration}s`,
+                `  Response: ${responsePreview}`,
+              ];
+              if (streamResult.tokenUsage) {
+                const t = streamResult.tokenUsage;
+                outputLines.push(
+                  `  Tokens: input=${t.inputTokens} output=${t.outputTokens} cache=${t.cacheReadTokens} | cost=$${t.totalCostUsd.toFixed(4)}`,
+                );
+              }
+              if (streamResult.isInterrupted) outputLines.push('  Status: INTERRUPTED');
+              if (streamResult.hasErrorThought && streamResult.errorThought) {
+                outputLines.push(`  Error: ${streamResult.errorThought.content}`);
+              }
+              outputLines.push('================================================================================');
+              console.info(outputLines.join('\n'));
 
               // Save session ID for future resumption
               if (streamResult.capturedSessionId) {

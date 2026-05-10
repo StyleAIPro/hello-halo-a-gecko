@@ -347,7 +347,7 @@ export async function installSkillFromMarket(
 
         childProcess.stdout?.on('data', (data: Buffer) => {
           const content = data.toString();
-          console.log('[SkillController] stdout:', content);
+          console.debug('[SkillController] stdout:', content);
           onOutput?.({ type: 'stdout', content });
         });
 
@@ -355,7 +355,7 @@ export async function installSkillFromMarket(
           const content = data.toString();
           // 忽略 npm 警告
           if (!content.toLowerCase().includes('npm warn')) {
-            console.warn('[SkillController] stderr:', content);
+            console.debug('[SkillController] stderr:', content);
             onOutput?.({ type: 'stderr', content });
           }
         });
@@ -392,7 +392,7 @@ export async function installSkillFromMarket(
             try {
               await skillManager.refresh();
             } catch (refreshError) {
-              console.warn('[SkillController] Failed to refresh skills:', refreshError);
+              console.debug('[SkillController] Failed to refresh skills:', refreshError);
             }
 
             resolve({ success: true });
@@ -440,7 +440,7 @@ export async function installSkillFromMarket(
   return new Promise<{ success: boolean; error?: string }>((resolve) => {
     const timeoutId = setTimeout(() => {
       const msg = 'Installation timed out (60s). Please check your network and try again.';
-      console.warn('[SkillController]', msg, '- aborting pending requests');
+      console.debug('[SkillController]', msg, '- aborting pending requests');
       abortController.abort();
       onOutput?.({ type: 'error', content: msg });
       resolve({ success: false, error: msg });
@@ -623,7 +623,7 @@ export async function installSkillMultiTarget(
     await ensureInitialized();
     downloadResult = await skillMarket.downloadSkill(skillId);
   } catch (e) {
-    console.warn('[SkillController] Failed to download skill info for multi-target install:', e);
+    console.debug('[SkillController] Failed to download skill info for multi-target install:', e);
     downloadResult = {
       success: false,
       sourceType: 'skills.sh' as const,
@@ -632,7 +632,7 @@ export async function installSkillMultiTarget(
   }
 
   const timeoutId = setTimeout(() => {
-    console.warn(
+    console.debug(
       '[SkillController] Multi-target install timed out (60s), aborting pending requests',
     );
     abortController.abort();
@@ -703,7 +703,7 @@ export async function installSkillMultiTarget(
     try {
       await skillManager.refresh();
     } catch (e) {
-      console.warn('[SkillController] Failed to refresh skills after multi-target install:', e);
+      console.debug('[SkillController] Failed to refresh skills after multi-target install:', e);
     }
   }
 
@@ -778,7 +778,7 @@ export async function uninstallSkillMultiTarget(
     try {
       await skillManager.refresh();
     } catch (e) {
-      console.warn('[SkillController] Failed to refresh skills after multi-target uninstall:', e);
+      console.debug('[SkillController] Failed to refresh skills after multi-target uninstall:', e);
     }
   }
 
@@ -929,9 +929,9 @@ export async function generateSkillFromPrompt(options: SkillGenerateOptions) {
 // Market functions
 export async function listMarketSkills(page?: number, pageSize?: number) {
   try {
-    console.log('[SkillController] listMarketSkills called:', { page, pageSize });
+    console.debug('[SkillController] listMarketSkills called:', { page, pageSize });
     const result = await skillMarket.getSkills(page, pageSize);
-    console.log('[SkillController] listMarketSkills result:', {
+    console.debug('[SkillController] listMarketSkills result:', {
       skillsCount: result.skills.length,
       total: result.total,
       hasMore: result.hasMore,
@@ -1382,7 +1382,7 @@ export async function createTempAgentSession(options: {
   try {
     // 如果直接提供了 context，直接使用
     if (options.context) {
-      console.log('[SkillController] Using provided context:', {
+      console.debug('[SkillController] Using provided context:', {
         hasInitialPrompt: !!options.context.initialPrompt,
         mode: options.context.mode,
       });
@@ -1431,7 +1431,7 @@ export async function createTempAgentSession(options: {
           };
         }
       } catch (error) {
-        console.warn(
+        console.debug(
           '[SkillController] Failed to analyze conversations, creating without analysis:',
           error,
         );
@@ -1824,9 +1824,9 @@ export async function listRepoDirectories(
   repo: string,
 ): Promise<{ success: boolean; data?: string[]; error?: string }> {
   try {
-    console.log(`[SkillController] listRepoDirectories for: ${repo}`);
+    console.debug(`[SkillController] listRepoDirectories for: ${repo}`);
     const dirs = await githubSkillSource.listRepoDirectories(repo);
-    console.log(`[SkillController] listRepoDirectories result:`, dirs);
+    console.debug(`[SkillController] listRepoDirectories result:`, dirs);
     return { success: true, data: dirs };
   } catch (error: any) {
     console.error(`[SkillController] listRepoDirectories error:`, error);

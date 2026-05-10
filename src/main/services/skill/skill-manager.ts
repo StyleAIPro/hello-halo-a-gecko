@@ -104,11 +104,11 @@ export class SkillManager {
     const candidates = new Map<string, { dir: string; mtime: number; skill: InstalledSkill }>();
 
     for (const skillsDir of this.skillsDirs) {
-      console.log('[SkillManager] Loading skills from:', skillsDir);
+      console.debug('[SkillManager] Loading skills from:', skillsDir);
 
       try {
         const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-        console.log('[SkillManager] Found', entries.length, 'entries in', skillsDir);
+        console.debug('[SkillManager] Found', entries.length, 'entries in', skillsDir);
 
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
@@ -120,14 +120,14 @@ export class SkillManager {
 
             const skill = await this.loadSkillFromDir(skillDir, entry.name);
             if (!skill) {
-              console.warn('[SkillManager] Failed to parse skill:', entry.name);
+              console.debug('[SkillManager] Failed to parse skill:', entry.name);
               continue;
             }
 
             const existing = candidates.get(entry.name);
             if (!existing || mtime > existing.mtime) {
               candidates.set(entry.name, { dir: skillsDir, mtime, skill });
-              console.log(
+              console.debug(
                 '[SkillManager] Candidate skill:',
                 entry.name,
                 'from',
@@ -137,7 +137,7 @@ export class SkillManager {
                 existing ? '(replacing older version)' : '',
               );
             } else {
-              console.log(
+              console.debug(
                 '[SkillManager] Skipping older duplicate skill:',
                 entry.name,
                 'from',
@@ -159,7 +159,7 @@ export class SkillManager {
     for (const [skillId, candidate] of candidates) {
       this.installedSkills.set(skillId, candidate.skill);
       this.skillDirMap.set(skillId, candidate.dir);
-      console.log('[SkillManager] Loaded skill:', skillId, 'from', candidate.dir);
+      console.debug('[SkillManager] Loaded skill:', skillId, 'from', candidate.dir);
     }
   }
 

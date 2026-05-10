@@ -189,7 +189,7 @@ export async function gitcodeApiFetch(path: string, options?: GitCodeApiOptions)
     const maxRetries = 3;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const delayMs = Math.min(2000 * Math.pow(2, attempt), 8000);
-      console.warn(
+      console.debug(
         `[GitCodeAPI] Rate limited, attempt ${attempt + 1}/${maxRetries}, waiting ${delayMs}ms...`,
       );
       await new Promise((r) => setTimeout(r, delayMs));

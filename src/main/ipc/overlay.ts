@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Overlay IPC Handlers
  *
@@ -16,14 +17,14 @@ import { overlayManager } from '../services/browser/overlay.service';
  */
 export function registerOverlayHandlers(mainWindow: BrowserWindow | null): void {
   // Show chat capsule overlay (async - triggers lazy initialization on first call)
-  ipcMain.handle('overlay:show-chat-capsule', async () => {
+  wrapIpcHandle('overlay:show-chat-capsule', async () => {
     console.log('[IPC] overlay:show-chat-capsule');
     await overlayManager.showChatCapsule();
     return true;
   });
 
   // Hide chat capsule overlay
-  ipcMain.handle('overlay:hide-chat-capsule', async () => {
+  wrapIpcHandle('overlay:hide-chat-capsule', async () => {
     console.log('[IPC] overlay:hide-chat-capsule');
     overlayManager.hideChatCapsule();
     return true;

@@ -60,11 +60,11 @@ export async function listRepoDirectories(repo: string, basePath?: string): Prom
     const apiPath = basePath ? `/repos/${repo}/contents/${basePath}` : `/repos/${repo}/contents`;
     console.log(`[GitHubSkillSource] listRepoDirectories: ${apiPath}`);
     const data = await githubApiFetch(apiPath, { token });
-    console.log(
+    console.debug(
       `[GitHubSkillSource] listRepoDirectories response type: ${typeof data}, isArray: ${Array.isArray(data)}`,
     );
     if (!Array.isArray(data)) {
-      console.warn(
+      console.debug(
         `[GitHubSkillSource] listRepoDirectories unexpected response:`,
         JSON.stringify(data).slice(0, 200),
       );

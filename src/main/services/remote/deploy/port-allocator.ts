@@ -86,7 +86,7 @@ export async function resolvePort(sshManager: SSHManager, clientId: string): Pro
     }
 
     // Port is occupied by something else, try next
-    console.warn(`[PortAllocator] Port ${port} is occupied, trying ${port + 1}`);
+    console.debug(`[PortAllocator] Port ${port} is occupied, trying ${port + 1}`);
     port = PORT_RANGE_START + ((port - PORT_RANGE_START + 1) % PORT_RANGE_SIZE);
   }
 

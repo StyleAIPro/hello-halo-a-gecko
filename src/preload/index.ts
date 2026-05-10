@@ -264,6 +264,9 @@ export interface AicoBotAPI {
   forceRepaint: () => Promise<IpcResponse>;
   onWindowMaximizeChange: (callback: (isMaximized: boolean) => void) => () => void;
 
+  // User action logging
+  logUserAction: (action: string, detail?: string) => Promise<IpcResponse>;
+
   // Search
   search: (
     query: string,
@@ -1340,6 +1343,10 @@ const api: AicoBotAPI = {
       requestId,
       approved,
     ),
+
+  // User action logging
+  logUserAction: (action: string, detail?: string) =>
+    ipcRenderer.invoke('log:user-action', action, detail),
 };
 
 contextBridge.exposeInMainWorld('aicoBot', api);

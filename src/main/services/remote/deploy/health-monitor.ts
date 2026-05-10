@@ -29,7 +29,7 @@ export function startHealthMonitor(service: RemoteDeployService): void {
   }, clazz.HEALTH_CHECK_INTERVAL_MS);
   svc.healthCheckTimer = clazz.globalHealthTimer;
 
-  console.log('[RemoteDeployService] Health monitor started');
+  console.debug('[RemoteDeployService] Health monitor started');
 }
 
 /**
@@ -43,7 +43,7 @@ export function stopHealthMonitor(service: RemoteDeployService): void {
     clearInterval(svc.healthCheckTimer);
     svc.healthCheckTimer = null;
     clazz.globalHealthTimer = null;
-    console.log('[RemoteDeployService] Health monitor stopped');
+    console.debug('[RemoteDeployService] Health monitor stopped');
   }
 }
 
@@ -87,7 +87,7 @@ async function checkServerHealth(service: RemoteDeployService, id: string): Prom
   try {
     const port = server.assignedPort;
     const healthPort = port + 1;
-    const healthCmd = `curl -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
+    const healthCmd = `curl --noproxy '*' -s --connect-timeout 3 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
     const healthResult = await manager.executeCommandFull(healthCmd);
 
     let proxyRunning = false;
@@ -102,16 +102,16 @@ async function checkServerHealth(service: RemoteDeployService, id: string): Prom
       if (server.proxyRunning !== true) {
         await service.updateServer(id, { proxyRunning: true });
         service.emitDeployProgress(id, 'health-ok', 'Proxy is running');
-        console.log(`[HealthMonitor] ${server.name}: proxy recovered, status OK`);
+        console.debug(`[HealthMonitor] ${server.name}: proxy recovered, status OK`);
       }
     } else {
       if (server.proxyRunning !== false) {
         await service.updateServer(id, { proxyRunning: false });
-        console.log(`[HealthMonitor] ${server.name}: proxy is down`);
+        console.debug(`[HealthMonitor] ${server.name}: proxy is down`);
       }
     }
   } catch (err) {
-    console.warn(`[HealthMonitor] ${server?.name}: health check failed:`, err);
+    console.debug(`[HealthMonitor] ${server?.name}: health check failed:`, err);
   }
 }
 
@@ -159,7 +159,7 @@ export async function checkDeployFilesIntegrity(service: RemoteDeployService, id
       const remoteTs = remoteVersion.buildTimestamp || '';
       const needsUpdate = remoteTs !== localVersion.buildTimestamp;
       if (needsUpdate) {
-        console.log(
+        console.debug(
           `[RemoteDeploy] Version mismatch for ${server.name}: remote=${remoteTs}, local=${localVersion.buildTimestamp}`,
         );
       }
@@ -256,5 +256,5 @@ export async function deleteDeployment(service: RemoteDeployService, id: string,
   // Delete directory
   await manager.executeCommand(`rm -rf ${deployPath}`);
 
-  console.log(`[RemoteDeployService] Deleted deployment: ${deployPath}`);
+  console.debug(`[RemoteDeployService] Deleted deployment: ${deployPath}`);
 }

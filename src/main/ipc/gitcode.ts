@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * GitCode IPC Handlers - GitCode authentication
  */
@@ -11,7 +12,7 @@ import {
 
 export function registerGitCodeHandlers(): void {
   // Get GitCode authentication status
-  ipcMain.handle('gitcode:auth-status', async () => {
+  wrapIpcHandle('gitcode:auth-status', async () => {
     try {
       const data = await getGitCodeAuthStatus();
       return { success: true, data };
@@ -22,7 +23,7 @@ export function registerGitCodeHandlers(): void {
   });
 
   // Login with Personal Access Token
-  ipcMain.handle('gitcode:login-token', async (_event, token: string) => {
+  wrapIpcHandle('gitcode:login-token', async (_event, token: string) => {
     try {
       return await loginWithGitCodeToken(token);
     } catch (error) {
@@ -32,7 +33,7 @@ export function registerGitCodeHandlers(): void {
   });
 
   // Logout from GitCode
-  ipcMain.handle('gitcode:logout', async () => {
+  wrapIpcHandle('gitcode:logout', async () => {
     try {
       return logoutGitCode();
     } catch (error) {

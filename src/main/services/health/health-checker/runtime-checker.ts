@@ -55,7 +55,7 @@ const MIN_CHECK_INTERVAL_MS = 2000; // Minimum 2 seconds between checks
  */
 export function startFallbackPolling(callback: HealthChangeCallback): void {
   if (pollIntervalId) {
-    console.log('[Health][Runtime] Fallback polling already running');
+    console.debug('[Health][Runtime] Fallback polling already running');
     return;
   }
 
@@ -84,7 +84,7 @@ export function stopFallbackPolling(): void {
     clearInterval(pollIntervalId);
     pollIntervalId = null;
     healthChangeCallback = null;
-    console.log('[Health][Runtime] Fallback polling stopped');
+    console.debug('[Health][Runtime] Fallback polling stopped');
   }
 }
 
@@ -106,7 +106,7 @@ export function isPollingActive(): boolean {
  * These active checks are triggered by events or user action.
  */
 async function performFallbackCheck(): Promise<void> {
-  console.log('[Health][Runtime] Running passive status collection...');
+  console.debug('[Health][Runtime] Running passive status collection...');
 
   try {
     const issues: string[] = [];
@@ -174,7 +174,7 @@ async function performFallbackCheck(): Promise<void> {
       lastKnownStatus = newStatus;
     }
 
-    console.log(`[Health][Runtime] Passive check complete: ${newStatus}`);
+    console.debug(`[Health][Runtime] Passive check complete: ${newStatus}`);
   } catch (error) {
     console.error('[Health][Runtime] Passive check error:', error);
   }
@@ -196,13 +196,13 @@ export async function runImmediateCheck(): Promise<ImmediateCheckResult> {
   // Debounce: if check was run recently, return the last result
   const now = Date.now();
   if (lastCheckTime && now - lastCheckTime < MIN_CHECK_INTERVAL_MS && lastCheckPromise) {
-    console.log('[Health][Runtime] Debounced: returning cached result');
+    console.debug('[Health][Runtime] Debounced: returning cached result');
     return lastCheckPromise;
   }
 
   // Lock: if check is already running, wait for it
   if (isCheckRunning && lastCheckPromise) {
-    console.log('[Health][Runtime] Check already running, waiting...');
+    console.debug('[Health][Runtime] Check already running, waiting...');
     return lastCheckPromise;
   }
 
@@ -248,7 +248,7 @@ async function doImmediateCheck(): Promise<ImmediateCheckResult> {
         .filter((p) => p.name === 'cloudflared' || p.name === 'cloudflared.exe')
         .map((p) => p.pid);
 
-      console.log(
+      console.debug(
         `[Health][Runtime] PPID scan: ${claudeProcesses.length} claude, ${cloudflaredProcesses.length} cloudflared`,
       );
     } catch (error) {
@@ -460,7 +460,7 @@ export async function runPpidScanAndCleanup(): Promise<{
   removed: number;
   orphans: number;
 }> {
-  console.log('[Health][Runtime] Running event-driven PPID scan...');
+  console.debug('[Health][Runtime] Running event-driven PPID scan...');
 
   let removed = 0;
   let orphans = 0;
@@ -526,7 +526,7 @@ export async function runPpidScanAndCleanup(): Promise<{
       }
     }
 
-    console.log(`[Health][Runtime] PPID scan complete: removed=${removed}, orphans=${orphans}`);
+    console.debug(`[Health][Runtime] PPID scan complete: removed=${removed}, orphans=${orphans}`);
   } catch (error) {
     console.error('[Health][Runtime] PPID scan failed:', error);
   }

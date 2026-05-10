@@ -138,10 +138,10 @@ export async function pushSkillAsMR(
             token,
           );
           if (!forkResp.ok && forkResp.status !== 409) {
-            console.warn(`[GitCodeSkillSource] Fork failed: ${forkResp.status}`);
+            console.debug(`[GitCodeSkillSource] Fork failed: ${forkResp.status}`);
           }
         } catch (forkError: any) {
-          console.warn('[GitCodeSkillSource] Fork warning:', forkError.message);
+          console.debug('[GitCodeSkillSource] Fork warning:', forkError.message);
         }
         targetRepo = `${username}/${repo.split('/')[1]}`;
       }
@@ -237,9 +237,9 @@ export async function pushSkillAsMR(
           { method: 'DELETE' },
           token,
         );
-        console.warn('[GitCodeSkillSource] Cleaned up orphan branch:', branchName);
+        console.debug('[GitCodeSkillSource] Cleaned up orphan branch:', branchName);
       } catch (e: any) {
-        console.warn('[GitCodeSkillSource] Branch cleanup failed:', e.message);
+        console.debug('[GitCodeSkillSource] Branch cleanup failed:', e.message);
       }
       return { success: false, error: `All files failed. First: ${commitErrors[0]}` };
     }
@@ -277,7 +277,7 @@ export async function pushSkillAsMR(
 
       if (!mrResp.ok) {
         const errText = await mrResp.text();
-        console.warn(`[GitCodeSkillSource] MR creation failed: ${mrResp.status} ${errText}`);
+        console.debug(`[GitCodeSkillSource] MR creation failed: ${mrResp.status} ${errText}`);
         mrWarnings.push(
           `MR creation failed (${mrResp.status}). Files committed to branch: ${branchUrl}`,
         );
@@ -289,13 +289,13 @@ export async function pushSkillAsMR(
           if (mrNumber) {
             mrUrl = `https://gitcode.com/${mrTargetRepo}/pulls/${mrNumber}`;
           } else {
-            console.warn(`[GitCodeSkillSource] MR response has no URL fields:`, mrData);
+            console.debug(`[GitCodeSkillSource] MR response has no URL fields:`, mrData);
             mrWarnings.push(`MR created but no URL returned. Branch: ${branchUrl}`);
           }
         }
       }
     } catch (mrError: any) {
-      console.warn(`[GitCodeSkillSource] MR creation error: ${mrError.message}`);
+      console.debug(`[GitCodeSkillSource] MR creation error: ${mrError.message}`);
       mrWarnings.push(
         `MR creation error: ${mrError.message}. Files committed to branch: ${branchUrl}`,
       );

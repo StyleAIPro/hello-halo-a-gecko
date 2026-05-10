@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * Onboarding IPC Handlers
  */
@@ -10,7 +11,7 @@ import {
 
 export function registerOnboardingHandlers(): void {
   // Write onboarding artifact (HTML file)
-  ipcMain.handle(
+  wrapIpcHandle(
     'onboarding:write-artifact',
     async (_event, spaceId: string, filename: string, content: string) => {
       console.log(
@@ -32,7 +33,7 @@ export function registerOnboardingHandlers(): void {
   );
 
   // Save onboarding conversation
-  ipcMain.handle(
+  wrapIpcHandle(
     'onboarding:save-conversation',
     async (_event, spaceId: string, userPrompt: string, aiResponse: string) => {
       console.log('[Settings] onboarding:save-conversation - Saving to space:', spaceId);

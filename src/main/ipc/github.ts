@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * GitHub IPC Handlers - GitHub authentication and git configuration
  */
@@ -24,7 +25,7 @@ import { getMainWindow } from '../services/window.service';
  */
 export function registerGitHubHandlers(): void {
   // Combined auth status (PAT primary + gh CLI optional)
-  ipcMain.handle('github:auth-status-combined', async () => {
+  wrapIpcHandle('github:auth-status-combined', async () => {
     try {
       const data = await getCombinedGitHubAuthStatus();
       return { success: true, data };
@@ -36,7 +37,7 @@ export function registerGitHubHandlers(): void {
 
   // DEPRECATED: Get GitHub CLI authentication status only
   // Use github:auth-status-combined instead
-  ipcMain.handle('github:auth-status', async () => {
+  wrapIpcHandle('github:auth-status', async () => {
     try {
       const data = await getGitHubAuthStatus();
       return { success: true, data };
@@ -48,7 +49,7 @@ export function registerGitHubHandlers(): void {
 
   // Login via browser OAuth
   // Uses spawn to capture the device code, then opens browser via shell.openExternal
-  ipcMain.handle('github:login-browser', async () => {
+  wrapIpcHandle('github:login-browser', async () => {
     try {
       const result = await loginWithBrowser((progress) => {
         // When we get the code, open the browser automatically
@@ -69,7 +70,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Login with Personal Access Token
-  ipcMain.handle('github:login-token', async (_event, token: string) => {
+  wrapIpcHandle('github:login-token', async (_event, token: string) => {
     try {
       const result = await loginWithToken(token);
       return result;
@@ -80,7 +81,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Logout from GitHub
-  ipcMain.handle('github:logout', async () => {
+  wrapIpcHandle('github:logout', async () => {
     try {
       const result = await logoutGitHub();
       return result;
@@ -91,7 +92,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Setup git credential helper
-  ipcMain.handle('github:setup-git-credentials', async () => {
+  wrapIpcHandle('github:setup-git-credentials', async () => {
     try {
       const result = await setupGitCredentialHelper();
       return result;
@@ -102,7 +103,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Set git global config
-  ipcMain.handle('github:git-config', async (_event, key: string, value: string) => {
+  wrapIpcHandle('github:git-config', async (_event, key: string, value: string) => {
     try {
       const result = await setGitConfig(key, value);
       return result;
@@ -113,7 +114,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Get git global config
-  ipcMain.handle('github:get-git-config', async (_event, key: string) => {
+  wrapIpcHandle('github:get-git-config', async (_event, key: string) => {
     try {
       const result = await getGitConfig(key);
       return result;
@@ -126,7 +127,7 @@ export function registerGitHubHandlers(): void {
   // ── Direct PAT authentication (no gh CLI) ──────────────────────────
 
   // Get direct PAT auth status
-  ipcMain.handle('github:direct-auth-status', async () => {
+  wrapIpcHandle('github:direct-auth-status', async () => {
     try {
       const data = await getDirectGitHubAuthStatus();
       return { success: true, data };
@@ -137,7 +138,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Login with direct PAT
-  ipcMain.handle('github:direct-login-token', async (_event, token: string) => {
+  wrapIpcHandle('github:direct-login-token', async (_event, token: string) => {
     try {
       const result = await loginWithDirectToken(token);
       return result;
@@ -148,7 +149,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Logout from direct PAT mode
-  ipcMain.handle('github:direct-logout', async () => {
+  wrapIpcHandle('github:direct-logout', async () => {
     try {
       await logoutDirectGitHub();
       return { success: true };
@@ -159,7 +160,7 @@ export function registerGitHubHandlers(): void {
   });
 
   // Setup git credentials with stored PAT
-  ipcMain.handle('github:direct-setup-credentials', async () => {
+  wrapIpcHandle('github:direct-setup-credentials', async () => {
     try {
       const result = await setupGitCredentialsWithToken();
       return result;

@@ -82,10 +82,10 @@ function forkWorker(): ChildProcess {
 
   // Pipe worker stdout/stderr to main process log
   child.stdout?.on('data', (data: Buffer) => {
-    console.log(`[WatcherWorker] ${data.toString().trim()}`);
+    console.debug(`[WatcherWorker] ${data.toString().trim()}`);
   });
   child.stderr?.on('data', (data: Buffer) => {
-    console.error(`[WatcherWorker] ${data.toString().trim()}`);
+    console.debug(`[WatcherWorker] ${data.toString().trim()}`);
   });
 
   // Handle worker exit

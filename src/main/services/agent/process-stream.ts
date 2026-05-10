@@ -645,7 +645,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             if (blockState.toolId) {
               toolIdToThoughtId.set(blockState.toolId, blockState.thoughtId);
               toolIdToCommandId.set(blockState.toolId, commandId);
-              console.log(
+              console.debug(
                 `[Agent][${conversationId}] Stored mappings for tool ${blockState.toolId}: thought=${blockState.thoughtId}, command=${commandId}`,
               );
             }
@@ -689,7 +689,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
             if (blockState.toolName === 'Bash' && toolInput.command) {
               const command = toolInput.command as string;
               const toolId = blockState.toolId || '';
-              console.log(
+              console.debug(
                 `[Agent][${conversationId}] Bash command intercepted for terminal: ${command}`,
               );
 
@@ -783,7 +783,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
     // DEBUG: Log all SDK messages with timestamp
     const elapsed = Date.now() - t1;
-    console.log(
+    console.debug(
       `[Agent] SDK messages [${conversationId}] 🔵 +${elapsed}ms ${sdkMessage.type}:`,
       safeJsonStringify(sdkMessage, 2),
     );
@@ -897,13 +897,13 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
 
           // Check if frontend queued an injection during the wait
           if (hasPendingInjection(conversationId)) {
-            console.log(`[Agent][${conversationId}] Injection detected at turn boundary!`);
+            console.debug(`[Agent][${conversationId}] Injection detected at turn boundary!`);
             // Set flag to tell the outer loop to continue with new message
             hadPendingInjection = true;
             // Don't break - let the stream complete naturally with the result message
           }
 
-          console.log(
+          console.debug(
             `[Agent][${conversationId}] Tool result merged into thought ${toolUseThoughtId}`,
           );
         } else {
@@ -925,12 +925,12 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           // Wait briefly for frontend to respond with injection request
           await new Promise((resolve) => setTimeout(resolve, 150));
           if (hasPendingInjection(conversationId)) {
-            console.log(
+            console.debug(
               `[Agent][${conversationId}] Injection detected at turn boundary (fallback)`,
             );
           }
 
-          console.log(
+          console.debug(
             `[Agent][${conversationId}] Tool result fallback (no mapping): ${thought.id}`,
           );
         }
@@ -1162,7 +1162,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         msg.session_id || (msg.message as Record<string, unknown>)?.session_id;
       if (sessionIdFromMsg) {
         capturedSessionId = sessionIdFromMsg as string;
-        console.log(`[Agent][${conversationId}] Captured session ID:`, capturedSessionId);
+        console.debug(`[Agent][${conversationId}] Captured session ID:`, capturedSessionId);
       }
 
       // Handle compact_boundary - context compression notification
@@ -1171,7 +1171,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
           | { trigger: 'manual' | 'auto'; pre_tokens: number }
           | undefined;
         if (compactMetadata) {
-          console.log(
+          console.debug(
             `[Agent][${conversationId}] Context compressed: trigger=${compactMetadata.trigger}, pre_tokens=${compactMetadata.pre_tokens}`,
           );
           // Send compact notification to renderer
@@ -1197,7 +1197,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       // Also capture tools list if available
       const tools = msg.tools as string[] | undefined;
       if (tools) {
-        console.log(`[Agent][${conversationId}] Available tools: ${tools.length}`);
+        console.debug(`[Agent][${conversationId}] Available tools: ${tools.length}`);
       }
     } else if (sdkMessage.type === 'result') {
       receivedResult = true; // Mark that we received a result message
@@ -1234,7 +1234,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       // Extract token usage from result message
       tokenUsage = extractResultUsage(msg, lastSingleUsage, params.contextWindow);
       if (tokenUsage) {
-        console.log(`[Agent][${conversationId}] Token usage (single API):`, tokenUsage);
+        console.debug(`[Agent][${conversationId}] Token usage (single API):`, tokenUsage);
       }
     }
   }
@@ -1279,7 +1279,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         error: wasAborted ? 'Stopped by user' : 'Stream interrupted',
         status: 'failed',
       });
-      console.log(`[Agent][${conversationId}] Subagent ${taskId} cleaned up (stream ended)`);
+      console.debug(`[Agent][${conversationId}] Subagent ${taskId} cleaned up (stream ended)`);
     }
   });
 
@@ -1295,14 +1295,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Log content source for debugging
   if (finalContent) {
     const contentSource = lastTextContent ? 'lastTextContent' : 'currentStreamingText (fallback)';
-    console.log(
+    console.debug(
       `[Agent][${conversationId}] Stream content from ${contentSource}: ${finalContent.length} chars`,
     );
   } else {
-    console.log(`[Agent][${conversationId}] No content from stream`);
+    console.debug(`[Agent][${conversationId}] No content from stream`);
   }
   if (hasErrorThought) {
-    console.log(`[Agent][${conversationId}] Error thought present: ${errorThought?.content}`);
+    console.debug(`[Agent][${conversationId}] Error thought present: ${errorThought?.content}`);
   }
 
   // Build the result object
@@ -1330,7 +1330,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // If there's a pending injection, DON'T send complete event yet
   // The caller will handle continuation and send complete later
   if (hasPendingInjectionFlag) {
-    console.log(`[Agent][${conversationId}] Pending injection detected - deferring agent:complete`);
+    console.debug(`[Agent][${conversationId}] Pending injection detected - deferring agent:complete`);
     return result;
   }
 
@@ -1379,7 +1379,7 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       error: errorMessage,
     });
   } else if (wasAborted) {
-    console.log(`[Agent][${conversationId}] User stopped - no error sent`);
+    console.debug(`[Agent][${conversationId}] User stopped - no error sent`);
   }
 
   return result;

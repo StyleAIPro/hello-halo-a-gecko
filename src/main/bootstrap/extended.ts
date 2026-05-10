@@ -279,8 +279,8 @@ export function initializeExtendedServices(): void {
   // Cleanup old log files in background (non-blocking)
   const isDev = process.env.NODE_ENV === 'development';
   const logDir = isDev
-    ? join(homedir(), '.aico-bot-dev', 'logs')
-    : join(app.getPath('userData'), 'logs');
+    ? join(homedir(), '.aico-bot-dev', 'app-logs')
+    : join(app.getPath('userData'), 'app-logs');
   cleanupOldLogs(logDir).catch(() => {});
 
   // Mark state as ready (for Pull-based queries from renderer)

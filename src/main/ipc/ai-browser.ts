@@ -1,3 +1,4 @@
+import { wrapIpcHandle } from './ipc-logger';
 /**
  * AI Browser IPC Handlers
  *
@@ -68,7 +69,7 @@ export function registerAIBrowserHandlers(): void {
    * Get all AI Browser tool names
    * Used by SDK to populate allowedTools
    */
-  ipcMain.handle('ai-browser:get-tool-names', async () => {
+  wrapIpcHandle('ai-browser:get-tool-names', async () => {
     try {
       const module = await ensureInitialized();
       const toolNames = module.getAIBrowserToolNames();
@@ -83,7 +84,7 @@ export function registerAIBrowserHandlers(): void {
    * Get AI Browser system prompt addition
    * Used to augment system prompt when AI Browser is enabled
    */
-  ipcMain.handle('ai-browser:get-system-prompt', async () => {
+  wrapIpcHandle('ai-browser:get-system-prompt', async () => {
     try {
       const module = await ensureInitialized();
       return { success: true, data: module.AI_BROWSER_SYSTEM_PROMPT };
@@ -96,7 +97,7 @@ export function registerAIBrowserHandlers(): void {
   /**
    * Check if a tool is an AI Browser tool
    */
-  ipcMain.handle(
+  wrapIpcHandle(
     'ai-browser:is-browser-tool',
     async (_event, { toolName }: { toolName: string }) => {
       try {
@@ -115,7 +116,7 @@ export function registerAIBrowserHandlers(): void {
   /**
    * Set the active browser view for AI operations
    */
-  ipcMain.handle('ai-browser:set-active-view', async (_event, { viewId }: { viewId: string }) => {
+  wrapIpcHandle('ai-browser:set-active-view', async (_event, { viewId }: { viewId: string }) => {
     try {
       const module = await ensureInitialized();
       module.setActiveBrowserView(viewId);
