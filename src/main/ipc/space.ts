@@ -20,6 +20,9 @@ import {
 } from '../services/space.service';
 import { getSpacesDir } from '../services/config.service';
 import { remoteDeployService } from '../services/remote/deploy/remote-deploy.service';
+import { acquireConnection, releaseConnection, type RemoteWsClientConfig } from '../services/remote/ws/remote-ws-client';
+import sshTunnelService from '../services/remote/ssh/ssh-tunnel.service';
+import { decryptString } from '../services/auth/secure-storage.service';
 
 // Import types for preferences
 interface SpaceLayoutPreferences {
@@ -29,6 +32,61 @@ interface SpaceLayoutPreferences {
 
 interface SpacePreferences {
   layout?: SpaceLayoutPreferences;
+}
+
+/**
+ * Create a temporary remote WS connection for one-off operations (stat, mkdir).
+ * Handles SSH tunnel establishment if needed.
+ * Caller must call the returned cleanup function when done.
+ */
+async function createTempRemoteClient(
+  serverId: string,
+  callerId: string,
+): Promise<{ statPath: (path: string) => Promise<{ exists: boolean; isDirectory: boolean; error?: string }>; mkdir: (path: string) => Promise<{ success: boolean; error?: string }>; cleanup: () => void }> {
+  const server = remoteDeployService.getServer(serverId);
+  if (!server) throw new Error('Remote server not found');
+
+  let useSshTunnel = false;
+  let port = server.assignedPort || 30000;
+
+  // Check if SSH tunnel is needed — try direct connection first
+  const decryptedPassword = decryptString(server.password || '');
+  if (server.sshPort && server.username && decryptedPassword) {
+    try {
+      const tunnelPort = await sshTunnelService.establishTunnel({
+        spaceId: '__temp__',
+        serverId,
+        host: server.host,
+        port: server.sshPort || 22,
+        username: server.username,
+        password: decryptedPassword,
+        localPort: 0, // Let OS assign a free port
+        remotePort: port,
+      });
+      useSshTunnel = true;
+      port = tunnelPort;
+    } catch (err) {
+      console.warn('[SpaceIPC] SSH tunnel failed, trying direct connection:', err);
+    }
+  }
+
+  const wsConfig: RemoteWsClientConfig = {
+    serverId,
+    host: useSshTunnel ? 'localhost' : server.host,
+    port,
+    authToken: server.authToken || '',
+    useSshTunnel,
+  };
+
+  const client = await acquireConnection(serverId, wsConfig, callerId);
+
+  return {
+    statPath: (path: string) => client.statPath(path),
+    mkdir: (path: string) => client.mkdir(path),
+    cleanup: () => {
+      releaseConnection(serverId, callerId);
+    },
+  };
 }
 
 export function registerSpaceHandlers(): void {
@@ -93,10 +151,62 @@ export function registerSpaceHandlers(): void {
               error: `Remote server "${server.name}" is not ready: Bot Proxy is not running. Please update the agent first.`,
             };
           }
+
+          // Check remote directory existence (blocking)
+          if (input.remotePath) {
+            const { statPath, cleanup } = await createTempRemoteClient(
+              input.remoteServerId,
+              `space-create-check-${Date.now()}`,
+            );
+            try {
+              const stat = await statPath(input.remotePath);
+              if (stat.error) {
+                return { success: false, error: 'REMOTE_DIR_CHECK_FAILED', data: { remotePath: input.remotePath, detail: stat.error } };
+              }
+              if (!stat.exists) {
+                return { success: false, error: 'REMOTE_DIR_NOT_FOUND', data: { remotePath: input.remotePath } };
+              }
+              if (!stat.isDirectory) {
+                return { success: false, error: 'REMOTE_DIR_NOT_DIRECTORY', data: { remotePath: input.remotePath } };
+              }
+            } finally {
+              cleanup();
+            }
+          }
         }
 
         const space = createSpace(input);
         return { success: true, data: space };
+      } catch (error: unknown) {
+        const err = error as Error;
+        return { success: false, error: err.message };
+      }
+    },
+  );
+
+  // Create directory on remote server (used when remotePath doesn't exist)
+  wrapIpcHandle(
+    'space:create-dir',
+    async (
+      _event,
+      input: { remoteServerId: string; remotePath: string },
+    ) => {
+      try {
+        const server = remoteDeployService.getServer(input.remoteServerId);
+        if (!server) {
+          return { success: false, error: 'Remote server not found' };
+        }
+
+        const { mkdir, cleanup } = await createTempRemoteClient(
+          input.remoteServerId,
+          `space-create-dir-${Date.now()}`,
+        );
+        try {
+          const result = await mkdir(input.remotePath);
+          return { success: result.success, error: result.error };
+        } finally {
+          cleanup();
+        }
       } catch (error: unknown) {
         const err = error as Error;
         return { success: false, error: err.message };

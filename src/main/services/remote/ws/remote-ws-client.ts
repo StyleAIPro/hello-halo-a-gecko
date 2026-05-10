@@ -627,6 +627,60 @@ export class RemoteWsClient extends EventEmitter {
     return this.send({ type: 'fs:download', payload: { path } });
   }
 
+  /**
+   * Check if a path exists on the remote server and whether it's a directory.
+   * Does NOT require an SDK session — uses session-less fs:stat.
+   */
+  statPath(path: string): Promise<{ exists: boolean; isDirectory: boolean; error?: string }> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.off('fs:result', handler);
+        reject(new Error('fs:stat request timed out (10s)'));
+      }, 10_000);
+
+      // fs:result event emits { sessionId, data } wrapper
+      const handler = (wrapped: any) => {
+        clearTimeout(timeout);
+        this.off('fs:result', handler);
+        resolve(wrapped.data);
+      };
+
+      this.once('fs:result', handler);
+      if (!this.send({ type: 'fs:stat', payload: { path } })) {
+        clearTimeout(timeout);
+        this.off('fs:result', handler);
+        reject(new Error('Failed to send fs:stat request'));
+      }
+    });
+  }
+
+  /**
+   * Create a directory on the remote server (recursive).
+   * Does NOT require an SDK session — uses session-less fs:mkdir.
+   */
+  mkdir(path: string): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.off('fs:result', handler);
+        reject(new Error('fs:mkdir request timed out (10s)'));
+      }, 10_000);
+
+      // fs:result event emits { sessionId, data } wrapper
+      const handler = (wrapped: any) => {
+        clearTimeout(timeout);
+        this.off('fs:result', handler);
+        resolve(wrapped.data);
+      };
+
+      this.once('fs:result', handler);
+      if (!this.send({ type: 'fs:mkdir', payload: { path } })) {
+        clearTimeout(timeout);
+        this.off('fs:result', handler);
+        reject(new Error('Failed to send fs:mkdir request'));
+      }
+    });
+  }
+
   approveToolCall(sessionId: string, toolId: string, result?: string): boolean {
     const payload: any = { toolId };
     if (result !== undefined) {

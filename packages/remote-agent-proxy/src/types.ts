@@ -9,7 +9,7 @@ export interface RemoteServerConfig {
 }
 
 export interface ClientMessage {
-  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'ping' | 'pong' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
+  type: 'auth' | 'claude:chat' | 'fs:list' | 'fs:read' | 'fs:write' | 'fs:upload' | 'fs:delete' | 'fs:stat' | 'fs:mkdir' | 'ping' | 'pong' | 'tool:approve' | 'tool:reject' | 'claude:interrupt' | 'close:session' |
         'agent:spawn' | 'agent:steer' | 'agent:kill' | 'agent:list' |  // Hyper Space agent management
         'mcp:tools:register' | 'mcp:tool:response' | 'mcp:tool:error' |  // WebSocket MCP Bridge
         'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background task management

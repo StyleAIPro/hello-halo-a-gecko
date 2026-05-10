@@ -455,6 +455,36 @@ export class RemoteAgentServer {
         return
       }
       await this.handleClaudeChat(ws, sid, message.payload)
+    } else if (message.type === 'fs:stat') {
+      // Session-less path stat — check if path exists and is a directory
+      const path = message.payload?.path
+      if (!path) {
+        this.sendMessage(ws, { type: 'fs:result', data: { exists: false, isDirectory: false, error: 'Path is required' } })
+        return
+      }
+      try {
+        const stat = fs.statSync(path)
+        this.sendMessage(ws, { type: 'fs:result', data: { exists: true, isDirectory: stat.isDirectory() } })
+      } catch (err: any) {
+        if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
+          this.sendMessage(ws, { type: 'fs:result', data: { exists: false, isDirectory: false } })
+        } else {
+          this.sendMessage(ws, { type: 'fs:result', data: { exists: false, isDirectory: false, error: err.message } })
+        }
+      }
+    } else if (message.type === 'fs:mkdir') {
+      // Session-less mkdir — recursively create directory
+      const path = message.payload?.path
+      if (!path) {
+        this.sendMessage(ws, { type: 'fs:result', data: { success: false, error: 'Path is required' } })
+        return
+      }
+      try {
+        fs.mkdirSync(path, { recursive: true })
+        this.sendMessage(ws, { type: 'fs:result', data: { success: true } })
+      } catch (err: any) {
+        this.sendMessage(ws, { type: 'fs:result', data: { success: false, error: err.message } })
+      }
     } else if (['fs:list', 'fs:read', 'fs:write', 'fs:delete', 'fs:upload', 'fs:download'].includes(message.type)) {
       const sid = sessionId || client.sessionId
       if (!sid) {

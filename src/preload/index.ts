@@ -45,6 +45,7 @@ export interface AicoBotAPI {
   getAicoBotSpace: () => Promise<IpcResponse>;
   listSpaces: () => Promise<IpcResponse>;
   createSpace: (input: { name: string; icon: string; customPath?: string }) => Promise<IpcResponse>;
+  createRemoteDir: (input: { remoteServerId: string; remotePath: string }) => Promise<IpcResponse>;
   deleteSpace: (spaceId: string) => Promise<IpcResponse>;
   getSpace: (spaceId: string) => Promise<IpcResponse>;
   openSpaceFolder: (spaceId: string) => Promise<IpcResponse>;
@@ -777,6 +778,7 @@ const api: AicoBotAPI = {
   getAicoBotSpace: () => ipcRenderer.invoke('space:get-aico-bot'),
   listSpaces: () => ipcRenderer.invoke('space:list'),
   createSpace: (input) => ipcRenderer.invoke('space:create', input),
+  createRemoteDir: (input) => ipcRenderer.invoke('space:create-dir', input),
   deleteSpace: (spaceId) => ipcRenderer.invoke('space:delete', spaceId),
   getSpace: (spaceId) => ipcRenderer.invoke('space:get', spaceId),
   openSpaceFolder: (spaceId) => ipcRenderer.invoke('space:open-folder', spaceId),

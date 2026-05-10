@@ -208,10 +208,24 @@ export function HomePage() {
       systemPrompt: claudeSource === 'remote' ? systemPrompt : undefined,
     };
 
-    const newSpace = await createSpace(input);
+    const result = await createSpace(input);
 
-    if (newSpace) {
+    if (result.space) {
       resetDialog();
+    } else if (result.error === 'REMOTE_DIR_NOT_FOUND' && result.data?.remotePath) {
+      const confirmed = await confirmDialog(
+        t('远程服务器上不存在目录 "{{path}}"，是否自动创建？', { path: result.data.remotePath }),
+      );
+      if (confirmed && remoteServerId) {
+        const dirResult = await api.createRemoteDir({ remoteServerId, remotePath: result.data.remotePath });
+        if (dirResult.success) {
+          // Retry space creation after directory is created
+          const retryResult = await createSpace(input);
+          if (retryResult.space) {
+            resetDialog();
+          }
+        }
+      }
     }
   };
 

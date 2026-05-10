@@ -23,6 +23,8 @@ export interface ClientMessage {
     | 'fs:upload'
     | 'fs:download'
     | 'fs:delete'
+    | 'fs:stat'
+    | 'fs:mkdir'
     | 'ping'
     | 'tool:approve'
     | 'tool:reject'
