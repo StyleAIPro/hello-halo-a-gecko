@@ -24,6 +24,7 @@ import type { BackendConfig } from '../../openai-compat-router';
 import { getCleanUserEnv } from '../agent/sdk-config';
 import { AVAILABLE_MODELS } from '../../../shared/types/ai-sources';
 import { getHeadlessElectronPath } from '../agent/helpers';
+import { normalizeModelsUrl } from '../../openai-compat-router/utils/url';
 
 // Re-export normalizeApiUrl for external use (moved to router module)
 export { normalizeApiUrl } from '../../openai-compat-router';
@@ -50,21 +51,8 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
     throw new Error('API key and URL are required');
   }
 
-  // Normalize URL: strip trailing slashes, known path suffixes, and auto-append /v1
-  let baseUrl = apiUrl.replace(/\/+$/, '');
-  const suffixes = ['/chat/completions', '/completions', '/responses', '/v1/chat'];
-  for (const suffix of suffixes) {
-    if (baseUrl.endsWith(suffix)) {
-      baseUrl = baseUrl.slice(0, -suffix.length);
-      break;
-    }
-  }
-
-  if (!baseUrl.includes('/v1') && !baseUrl.includes('/api/paas')) {
-    baseUrl = `${baseUrl}/v1`;
-  }
-
-  const modelsUrl = `${baseUrl}/models`;
+  // Normalize URL using shared function (consistent with test connection)
+  const modelsUrl = normalizeModelsUrl(apiUrl);
 
   console.log('[API Validator] Fetching models from:', modelsUrl);
 
@@ -77,7 +65,7 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
         'Content-Type': 'application/json',
       },
     },
-    15_000,
+    20_000,
   );
 
   if (!response.ok) {
@@ -86,14 +74,34 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
 
   const data = await response.json();
 
-  if (!data.data || !Array.isArray(data.data)) {
+  // Support multiple response formats from different providers
+  let models: Array<{ id: string; name: string }>;
+
+  // Format 1: OpenAI standard { data: [...] }
+  if (data.data && Array.isArray(data.data)) {
+    models = data.data
+      .filter((m: any) => typeof m.id === 'string')
+      .map((m: any) => ({ id: m.id, name: m.owned_by || m.id }));
+  }
+  // Format 2: { models: [...] } (Ollama /api/tags, some Chinese providers)
+  else if (data.models && Array.isArray(data.models)) {
+    models = data.models
+      .filter((m: any) => typeof m.id === 'string' || typeof m.name === 'string')
+      .map((m: any) => ({ id: m.id || m.name, name: m.name || m.id }));
+  }
+  // Format 3: Direct array [...]
+  else if (Array.isArray(data)) {
+    models = data
+      .filter((m: any) => typeof m.id === 'string')
+      .map((m: any) => ({ id: m.id, name: m.owned_by || m.id }));
+  } else {
     throw new Error('Invalid API response format');
   }
 
-  const models = data.data
-    .filter((m: any) => typeof m.id === 'string')
-    .map((m: any) => ({ id: m.id, name: m.id }))
-    .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+  // Sort and deduplicate
+  models = models
+    .filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   if (models.length === 0) {
     throw new Error('No models found');
@@ -169,10 +177,10 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
   // Step 5: Create temporary SDK session with same pattern as session-manager.ts
   const abortController = new AbortController();
 
-  // Set timeout for validation (15 seconds)
+  // Set timeout for validation (20 seconds — accounts for cold start scenarios)
   const timeoutId = setTimeout(() => {
     abortController.abort();
-  }, 15000);
+  }, 20000);
 
   try {
     const sdkOptions: Record<string, unknown> = {
@@ -209,6 +217,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
     // Step 7: Stream response and check for valid reply
     let hasResponse = false;
     let responseContent = '';
+    let lastError = '';
 
     for await (const msg of session.stream()) {
       // Check for abort
@@ -228,7 +237,25 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
           }
         }
       } else if (msg.type === 'result') {
-        hasResponse = true;
+        // Check result for errors (consistent with process-stream.ts pattern)
+        const resultMsg = msg as any;
+        const isError = resultMsg.is_error === true;
+        const errorSubtype = resultMsg.subtype;
+        const errorContent =
+          resultMsg.result || resultMsg.message?.result || '';
+
+        if (isError) {
+          // API-level error (auth failure, model not found, etc.)
+          hasResponse = false;
+          lastError = errorContent || 'API returned an error';
+        } else if (errorSubtype === 'error_during_execution') {
+          // Execution interrupted (network issue, etc.)
+          hasResponse = false;
+          lastError = 'Connection interrupted during execution';
+        } else {
+          // Normal result or error_max_turns (graceful SDK termination)
+          hasResponse = true;
+        }
         break;
       }
     }
@@ -242,7 +269,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
     }
 
     console.log(
-      `[API Validator] Validation complete: hasResponse=${hasResponse}, content="${responseContent.substring(0, 50)}"`,
+      `[API Validator] Validation complete: hasResponse=${hasResponse}, content="${responseContent.substring(0, 50)}", lastError="${lastError.substring(0, 100)}"`,
     );
 
     if (hasResponse) {
@@ -256,7 +283,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
       return {
         valid: false,
         normalizedUrl,
-        message: 'No response received from API',
+        message: lastError || 'No response received from API',
       };
     }
   } catch (error) {
@@ -282,8 +309,21 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
       userFriendlyMessage = 'Rate limited - try again later';
     } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND')) {
       userFriendlyMessage = 'Cannot connect to API server - check URL';
-    } else if (errorMessage.includes('timeout')) {
+    } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
       userFriendlyMessage = 'Connection timeout - server may be slow or unreachable';
+    } else if (
+      errorMessage.includes('model_not_found') ||
+      errorMessage.includes('invalid_model') ||
+      errorMessage.includes('model does not exist')
+    ) {
+      userFriendlyMessage = 'Model not found - check model ID';
+    } else if (
+      errorMessage.includes('permission denied') ||
+      errorMessage.includes('insufficient')
+    ) {
+      userFriendlyMessage = 'Permission denied - check API key permissions';
+    } else if (errorMessage.includes('ECONNRESET') || errorMessage.includes('socket hang up')) {
+      userFriendlyMessage = 'Connection reset by server - try again';
     }
 
     return {
