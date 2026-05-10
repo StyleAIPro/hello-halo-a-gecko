@@ -29,6 +29,7 @@ import {
 import { withRequestQueue, generateQueueKey } from './request-queue';
 import { runInterceptors } from '../interceptors';
 import { applyProviderAdapter } from './provider-adapters';
+import { proxyFetch, getEffectiveProxyUrl } from '../../services/proxy';
 
 export interface RequestHandlerOptions {
   debug?: boolean;
@@ -135,7 +136,8 @@ function sendError(res: ExpressResponse, errorType: string, message: string): vo
 // ============================================================================
 
 /**
- * Make upstream request with OpenAI-style Authorization header
+ * Make upstream request with OpenAI-style Authorization header.
+ * Uses proxyFetch to route through the user's configured network proxy.
  */
 async function fetchUpstream(
   targetUrl: string,
@@ -145,37 +147,35 @@ async function fetchUpstream(
   signal?: AbortSignal,
   customHeaders?: Record<string, string>,
 ): Promise<globalThis.Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    console.log('[RequestHandler] Request timeout, aborting...');
-    controller.abort();
-  }, timeoutMs);
+  // Build headers: start with custom headers, then add defaults
+  // Custom headers can override Authorization if needed (e.g., OAuth providers)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(customHeaders || {}),
+  };
+  // Only add Authorization if not provided in custom headers
+  if (!headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
 
-  try {
-    // Build headers: start with custom headers, then add defaults
-    // Custom headers can override Authorization if needed (e.g., OAuth providers)
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(customHeaders || {}),
-    };
-    // Only add Authorization if not provided in custom headers
-    if (!headers['Authorization']) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
+  const proxyUrl = getEffectiveProxyUrl();
+  console.log(`[RequestHandler] Fetch upstream via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl}`);
 
-    return await fetch(targetUrl, {
+  return proxyFetch(
+    targetUrl,
+    {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      signal: signal ?? controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+      signal,
+    },
+    timeoutMs,
+  );
 }
 
 /**
  * Make upstream request with Anthropic-style x-api-key header.
+ * Uses proxyFetch to route through the user's configured network proxy.
  *
  * Header merge order (later wins):
  *   1. SDK headers (content-type, anthropic-version, anthropic-beta, etc. from the SDK's request)
@@ -192,28 +192,26 @@ async function fetchAnthropicUpstream(
   sdkHeaders?: Record<string, string>,
   customHeaders?: Record<string, string>,
 ): Promise<globalThis.Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    console.log('[RequestHandler] Anthropic passthrough timeout, aborting...');
-    controller.abort();
-  }, timeoutMs);
+  const headers: Record<string, string> = {
+    ...(sdkHeaders || {}),
+    ...(customHeaders || {}),
+    'x-api-key': apiKey,
+  };
 
-  try {
-    const headers: Record<string, string> = {
-      ...(sdkHeaders || {}),
-      ...(customHeaders || {}),
-      'x-api-key': apiKey,
-    };
+  const body = Buffer.isBuffer(bodyOrBuffer) ? bodyOrBuffer : JSON.stringify(bodyOrBuffer);
 
-    return await fetch(targetUrl, {
+  const proxyUrl = getEffectiveProxyUrl();
+  console.log(`[RequestHandler] Fetch Anthropic via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl} (rawBody=${Buffer.isBuffer(bodyOrBuffer)})`);
+
+  return proxyFetch(
+    targetUrl,
+    {
       method: 'POST',
       headers,
-      body: Buffer.isBuffer(bodyOrBuffer) ? bodyOrBuffer : JSON.stringify(bodyOrBuffer),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+      body,
+    },
+    timeoutMs,
+  );
 }
 
 // ============================================================================

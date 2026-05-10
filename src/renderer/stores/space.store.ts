@@ -115,15 +115,15 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
           spaces: [newSpace, ...state.spaces],
         }));
 
-        return newSpace;
+        return { space: newSpace };
       } else {
         set({ error: response.error || 'Failed to create space' });
-        return null;
+        return { error: response.error, data: response.data };
       }
     } catch (error) {
       console.error('Failed to create space:', error);
       set({ error: 'Failed to create space' });
-      return null;
+      return { error: 'Failed to create space' };
     }
   },
 

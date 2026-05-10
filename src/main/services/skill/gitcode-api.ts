@@ -43,9 +43,9 @@ export const _apiSemaphore = new Semaphore();
 
 // ── Rate Limiter ──────────────────────────────────────────────────
 
-const RATE_LIMIT_MAX_TOKENS = 150;
-const RATE_LIMIT_MIN_INTERVAL_MS = 100;
-const RATE_LIMIT_REFILL_INTERVAL_MS = 1000;
+const RATE_LIMIT_MAX_TOKENS = 80;
+const RATE_LIMIT_MIN_INTERVAL_MS = 30;
+const RATE_LIMIT_REFILL_INTERVAL_MS = 200;
 
 class RateLimiter {
   private _tokens: number;
@@ -53,7 +53,7 @@ class RateLimiter {
   private _lastAcquire: number;
 
   constructor() {
-    this._tokens = 1;
+    this._tokens = 20;
     this._lastRefill = Date.now();
     this._lastAcquire = 0;
   }
