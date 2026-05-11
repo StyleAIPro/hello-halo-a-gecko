@@ -71,8 +71,12 @@ export function normalizeModelsUrl(apiUrl: string): string {
     }
   }
 
-  // Consistent with normalizeApiUrl: only auto-append /v1 for host-only URLs
+  // Auto-append /v1 for host-only URLs
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]+$/.test(baseUrl)) {
+    baseUrl = `${baseUrl}/v1`;
+  }
+  // URL has a path but no /v1 — also append it (e.g. open.bigmodel.cn/api/anthropic)
+  else if (!baseUrl.includes('/v1') && !baseUrl.includes('/api/paas')) {
     baseUrl = `${baseUrl}/v1`;
   }
 
