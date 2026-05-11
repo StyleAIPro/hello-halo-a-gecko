@@ -110,15 +110,16 @@ export async function createDeployPackage(
     packageDir = stagingDir;
   }
 
-  // Windows Git Bash tar interprets backslashes as escape characters,
-  // causing paths like C:\Users\... to fail with "Cannot connect to C: resolve failed".
   // Normalize all paths to forward slashes for the tar command.
   const normalizedPackagePath = packagePath.replace(/\\/g, '/');
   const normalizedPackageDir = packageDir.replace(/\\/g, '/');
-  // --force-local: prevents GNU tar from interpreting "C:" in paths as a remote host
-  const tarArgs = `--force-local -czf "${normalizedPackagePath}" -C "${normalizedPackageDir}" ${includes.join(' ')}`;
+  const tarArgs = `-czf "${normalizedPackagePath}" -C "${normalizedPackageDir}" ${includes.join(' ')}`;
 
+  // --force-local is only supported by GNU tar (Git Bash); Windows built-in tar (bsdtar) does not.
+  // Try with --force-local first (for GNU tar), retry without it (for bsdtar).
   try {
+    execSync(`tar --force-local ${tarArgs}`, { stdio: 'pipe' });
+  } catch {
     execSync(`tar ${tarArgs}`, { stdio: 'pipe' });
   } catch (err) {
     // Clean up staging dir on failure

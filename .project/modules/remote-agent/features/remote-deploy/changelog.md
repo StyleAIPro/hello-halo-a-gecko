@@ -2,6 +2,7 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-05-10 | 修复 SSH 断连后 UI 状态不更新：`SSHManager` 新增 `onDisconnect` 回调，`connectServer` 注册回调在断开时立即清理 `proxyRunning`/`apiReachable` 并通知 UI；`saveServers`/`loadServers` 不再持久化运行时状态字段 | @moonseeker | bugfix-remote-status-stale-v1 |
 | 2026-04-27 | 修复 SSH 命令执行无超时导致部署/更新卡死：`SSHManager` 三个执行方法添加默认超时（30s/600s），`disconnect()` 改为强制断开不排队，部署流程关键调用（npm install 5min、Node.js 安装 5min、tar 解压 2-5min）添加显式超时覆盖 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
 | 2026-04-27 | 修复端口分配无总超时：`resolvePort()` 添加 2 分钟累积超时保护 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
 | 2026-04-27 | 修复离线部署无架构预检：`deployAgentCodeOffline()` 上传前执行 `uname -m` 检测 CPU 架构，选错立即报错；新增 `RemoteServer.detectedArch` 字段，UI 自动预选正确架构 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |

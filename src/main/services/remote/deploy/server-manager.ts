@@ -12,6 +12,8 @@ import { getConfig, saveConfig } from '../../config.service';
 import type { RemoteServer } from '../../../../shared/types';
 import { getClientId } from './machine-id';
 import { resolvePort } from './port-allocator';
+import { getDeployPath } from './agent-deployer';
+import { removePooledConnection } from '../ws/remote-ws-client';
 import type { RemoteDeployService } from './remote-deploy.service';
 
 // Re-export types needed by this module (consumed via barrel)
@@ -60,6 +62,9 @@ export function toSharedConfig(
   };
 }
 
+/** Runtime-only fields that should not be persisted across restarts */
+const RUNTIME_ONLY_FIELDS = ['sdkInstalled', 'sdkVersion', 'sdkVersionMismatch', 'proxyRunning', 'apiReachable'];
+
 /**
  * Load servers from config
  */
@@ -69,10 +74,12 @@ export function loadServers(service: RemoteDeployService): void {
 
   for (const server of servers) {
     const internalConfig = toInternalConfig(service, server);
-    (service as any).servers.set(server.id, {
-      ...internalConfig,
-      status: 'disconnected',
-    });
+    // Clear runtime-only fields — they must be re-detected after connect
+    const cleaned: Record<string, any> = { ...internalConfig, status: 'disconnected' };
+    for (const field of RUNTIME_ONLY_FIELDS) {
+      delete cleaned[field];
+    }
+    (service as any).servers.set(server.id, cleaned);
   }
 
   console.debug(`[RemoteDeployService] Loaded ${(service as any).servers.size} servers from config`);
@@ -83,12 +90,18 @@ export function loadServers(service: RemoteDeployService): void {
  */
 export async function saveServers(service: RemoteDeployService): Promise<void> {
   const config = getConfig();
-  const serverList = Array.from((service as any).servers.values()).map((s: any) => {
+  const serverList: RemoteServer[] = Array.from((service as any).servers.values()).map((s: any) => {
     const shared = toSharedConfig(service, s);
-    return {
+    const cleaned = {
       ...shared,
       status: 'disconnected' as const, // Don't persist connection status
     };
+    // Strip runtime-only fields from persisted config
+    const result: Record<string, any> = { ...cleaned };
+    for (const field of RUNTIME_ONLY_FIELDS) {
+      delete result[field];
+    }
+    return result as RemoteServer;
   });
 
   saveConfig({
@@ -124,6 +137,15 @@ export async function addServer(
   const id = generateId(service);
   console.debug('[RemoteDeployService] addServer - Input:', JSON.stringify(config));
 
+  // Normalize flat input to SSHConfig (UI sends flat fields, not nested ssh object)
+  const anyConfig = config as any;
+  const ssh: SSHConfig = config.ssh || {
+    host: anyConfig.host,
+    port: anyConfig.port ?? anyConfig.sshPort ?? 22,
+    username: anyConfig.username,
+    password: anyConfig.password,
+  };
+
   // Compute machine identity for per-PC isolation (dev vs packaged)
   const clientId = getClientId(app.isPackaged ? 'packaged' : 'dev');
 
@@ -133,7 +155,7 @@ export async function addServer(
   const server: import('./remote-deploy.service').RemoteServerConfig = {
     id,
     name: config.name,
-    ssh: config.ssh,
+    ssh,
     authToken: config.authToken || generateAuthToken(service),
     status: 'disconnected',
     // Include optional fields for Claude API configuration
@@ -208,14 +230,21 @@ export async function addServer(
         await service.updateServer(id, { status: 'deploying' });
 
         try {
-          // Deploy SDK if needed
-          if (!sdkOk) {
-            await service.deployAgentSDK(id);
-          }
-
-          // Deploy code if needed
-          if (!deployCheck.filesOk || deployCheck.needsUpdate) {
-            await service.deployAgentCode(id);
+          // Deploy code and/or SDK via offline bundle (handles both)
+          if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
+            // Re-read server from Map (connectServer may have updated detectedArch)
+            const latestServer = (service as any).servers.get(id);
+            const platform = latestServer?.detectedArch as 'x64' | 'arm64' | undefined;
+            if (!platform) {
+              throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
+            }
+            if (!(service as any).isOfflineBundleAvailable(platform)) {
+              throw new Error(
+                `离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`,
+              );
+            }
+            console.debug(`[RemoteDeployService] Using offline deploy for ${latestServer?.name}`);
+            await service.deployAgentCodeOffline(id, platform);
           }
 
           await service.updateServer(id, { status: 'connected' });
@@ -465,12 +494,29 @@ export async function updateServerModel(
  */
 export async function removeServer(service: RemoteDeployService, id: string): Promise<void> {
   const server = (service as any).servers.get(id);
-  if (server) {
-    await service.disconnectServer(id);
-    (service as any).servers.delete(id);
-    await saveServers(service);
-    console.debug(`[RemoteDeployService] Removed server: ${server.name} (${id})`);
+  if (!server) return;
+
+  // Best-effort cleanup: stop remote agent and remove deployment directory
+  try {
+    removePooledConnection(id);
+
+    const manager = getSSHManager(service, id);
+    if (!manager.isConnected()) {
+      await service.connectServer(id);
+    }
+
+    const deployPath = getDeployPath(server);
+    await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
+    await manager.executeCommand(`rm -rf ${deployPath}`);
+    console.debug(`[RemoteDeployService] Cleaned up remote proxy on: ${server.name}`);
+  } catch (err) {
+    console.warn(`[RemoteDeployService] Remote cleanup failed for ${server.name}:`, err);
   }
+
+  await service.disconnectServer(id);
+  (service as any).servers.delete(id);
+  await saveServers(service);
+  console.debug(`[RemoteDeployService] Removed server: ${server.name} (${id})`);
 }
 
 // ===== SSH Connection Management =====
@@ -587,6 +633,25 @@ export async function connectServer(service: RemoteDeployService, id: string): P
     await ensureSshConnectionInternal(service, id);
 
     const manager = (service as any).sshManagers.get(id);
+
+    // Register disconnect callback so runtime status is cleared immediately
+    // when SSH drops (network issue, server reboot, etc.)
+    if (manager) {
+      manager.onDisconnect(() => {
+        const s = (service as any).servers.get(id);
+        if (s && s.status !== 'disconnected') {
+          console.debug(`[RemoteDeployService] SSH disconnected for ${s.name}, clearing runtime status`);
+          (service as any).servers.set(id, {
+            ...s,
+            status: 'disconnected',
+            proxyRunning: false,
+            apiReachable: false,
+          });
+          (service as any).notifyStatusChange(id, (service as any).servers.get(id));
+        }
+      });
+    }
+
     console.debug(
       `[RemoteDeployService] Verifying SSH connection after ensureSshConnection: ${manager?.isConnected()}`,
     );

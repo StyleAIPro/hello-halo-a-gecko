@@ -112,6 +112,13 @@
 - **根因**：`createDeployPackage()` 拼接 tar 参数时使用 Node.js 路径（含 `\`），Git Bash tar 将 `\` 视为转义符
 - **PRD**：`prd/bugfix/remote-agent/bugfix-tar-path-windows-backslash-v1.md`
 
+### SSH 断连后 UI 状态显示过期
+- **严重程度**：Major
+- **日期**：2026-05-10
+- **现象**：SSH 连接断开后（网络中断、服务器宕机等），UI 仍显示 SDK 和 Bot Proxy 状态为"正常"（绿色）
+- **根因**：`SSHManager` 的 `close`/`error` 事件只设 `_ready = false`，无回调通知上层；健康监控跳过已断开服务器；`sdkInstalled`/`proxyRunning` 运行时状态被持久化到配置文件
+- **PRD**：`prd/bugfix/remote-deploy/bugfix-remote-status-stale-v1.md`
+
 ### connectServer 重连后代理状态未刷新
 - **严重程度**：Major
 - **日期**：2026-04-16
