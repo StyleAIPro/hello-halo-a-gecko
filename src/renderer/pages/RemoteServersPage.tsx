@@ -29,6 +29,7 @@ import { useAppStore } from '../stores/app.store';
 import { useSpaceStore } from '../stores/space.store';
 import { useChatStore } from '../stores/chat.store';
 import { useTranslation } from '../i18n';
+import { useNotificationStore } from '../stores/notification.store';
 
 export interface RemoteServer {
   id: string;
@@ -264,11 +265,12 @@ export function RemoteServersPage() {
       progress: 0,
     });
     try {
-      const newServer: Omit<RemoteServer, 'id'> = {
+      const newServer: Omit<RemoteServer, 'id'> & { password?: string } = {
         name: serverName.trim(),
         host: serverHost.trim(),
         port: parseInt(serverPort, 10) || 22,
         username: serverUsername.trim() || undefined,
+        password: password.trim() || undefined,
         authType,
         workDir: workDir.trim() || undefined,
         claudeApiKey: (editingServer as any)?.claudeApiKey || undefined,
@@ -279,6 +281,17 @@ export function RemoteServersPage() {
 
       const result = await api.addRemoteServer(newServer);
       if (result.success) {
+        const data = result.data as any;
+        if (data?.partial) {
+          useNotificationStore.getState().show({
+            title: t('Server added but connection failed'),
+            body: data.error
+              ? t('SSH connection failed: {{error}}. You can retry later in the server list.', { error: data.error })
+              : t('SSH connection failed. You can retry later in the server list.'),
+            variant: 'warning',
+            duration: 8000,
+          });
+        }
         await loadServers();
         resetForm();
       } else {
