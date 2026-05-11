@@ -127,18 +127,19 @@ export const api = {
     apiUrl: string,
     provider: string,
     model?: string,
+    useProxy?: boolean,
   ): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.validateApi(apiKey, apiUrl, provider, model);
+      return window.aicoBot.validateApi(apiKey, apiUrl, provider, model, useProxy);
     }
-    return httpRequest('POST', '/api/config/validate', { apiKey, apiUrl, provider, model });
+    return httpRequest('POST', '/api/config/validate', { apiKey, apiUrl, provider, model, useProxy });
   },
 
-  fetchModels: async (apiKey: string, apiUrl: string): Promise<ApiResponse> => {
+  fetchModels: async (apiKey: string, apiUrl: string, useProxy?: boolean): Promise<ApiResponse> => {
     if (isElectron()) {
-      return window.aicoBot.fetchModels(apiKey, apiUrl);
+      return window.aicoBot.fetchModels(apiKey, apiUrl, useProxy);
     }
-    return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl });
+    return httpRequest('POST', '/api/config/fetch-models', { apiKey, apiUrl, useProxy });
   },
 
   testProxy: async (proxyUrl: string): Promise<ApiResponse> => {

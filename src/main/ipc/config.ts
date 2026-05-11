@@ -49,12 +49,13 @@ export function registerConfigHandlers(): void {
   // Validate API connection via SDK
   wrapIpcHandle(
     'config:validate-api',
-    async (_event, apiKey: string, apiUrl: string, provider: string, model?: string) => {
+    async (_event, apiKey: string, apiUrl: string, provider: string, model?: string, useProxy?: boolean) => {
       console.log(
         '[Settings] config:validate-api - Validating:',
         provider,
         apiUrl ? `(url: ${apiUrl.slice(0, 30)}...)` : '(default url)',
         model ? `(model: ${model})` : '(no model)',
+        'useProxy:', useProxy,
       );
       try {
         const result = await validateApiConnection({
@@ -62,6 +63,7 @@ export function registerConfigHandlers(): void {
           apiUrl,
           provider: provider as 'anthropic' | 'openai',
           model,
+          useProxy,
         });
         console.log('[Settings] config:validate-api - Result:', result.valid ? 'valid' : 'invalid');
         return { success: true, data: result };
@@ -74,13 +76,14 @@ export function registerConfigHandlers(): void {
   );
 
   // Fetch available models from API endpoint
-  wrapIpcHandle('config:fetch-models', async (_event, apiKey: string, apiUrl: string) => {
+  wrapIpcHandle('config:fetch-models', async (_event, apiKey: string, apiUrl: string, useProxy?: boolean) => {
     console.log(
       '[Settings] config:fetch-models - Fetching from:',
       apiUrl ? `${apiUrl.slice(0, 30)}...` : '(no url)',
+      'useProxy:', useProxy,
     );
     try {
-      const result = await fetchModelsFromApi({ apiKey, apiUrl });
+      const result = await fetchModelsFromApi({ apiKey, apiUrl, useProxy });
       console.log('[Settings] config:fetch-models - Found', result.models.length, 'models');
       return { success: true, data: result };
     } catch (error: unknown) {

@@ -141,6 +141,7 @@ export async function testMcpConnections(
         apiType,
         forceStream: credentials.forceStream,
         filterContent: credentials.filterContent,
+        useProxy: credentials.useProxy,
       });
       sdkModel = 'claude-sonnet-4-6';
       console.log(

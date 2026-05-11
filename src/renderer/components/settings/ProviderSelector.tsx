@@ -92,6 +92,7 @@ export function ProviderSelector({
   const [contextWindow, setContextWindow] = useState<number | undefined>(
     editingSource?.contextWindow,
   );
+  const [useProxy, setUseProxy] = useState(editingSource?.useProxy ?? false);
 
   // Get current provider config
   const currentProvider = useMemo(() => getBuiltinProvider(selectedProvider), [selectedProvider]);
@@ -158,6 +159,9 @@ export function ProviderSelector({
     setCustomModelInput('');
     setShowProviderDropdown(false);
     setProviderSearchQuery('');
+    if (!editingSource) {
+      setUseProxy(false);
+    }
   };
 
   // Handle delete model from list
@@ -192,7 +196,7 @@ export function ProviderSelector({
     setValidationResult(null);
 
     try {
-      const response = await api.fetchModels(apiKey, apiUrl);
+      const response = await api.fetchModels(apiKey, apiUrl, useProxy);
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to fetch models');
@@ -258,6 +262,7 @@ export function ProviderSelector({
         model: finalModel,
         availableModels,
         contextWindow: contextWindow || undefined,
+        useProxy: useProxy || undefined,
         createdAt: editingSource?.createdAt || now,
         updatedAt: now,
       };
@@ -291,6 +296,7 @@ export function ProviderSelector({
         apiUrl,
         isAnthropicProvider(selectedProvider) ? 'anthropic' : 'openai',
         finalModel,
+        useProxy,
       );
 
       if (!validationResponse.success || !validationResponse.data?.valid) {
@@ -671,6 +677,23 @@ export function ProviderSelector({
                 'Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.',
               )}
             </p>
+          </div>
+
+          {/* Use Network Proxy */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="useProxy"
+              checked={useProxy}
+              onChange={(e) => setUseProxy(e.target.checked)}
+              className="rounded border-border"
+            />
+            <label htmlFor="useProxy" className="text-sm text-muted-foreground">
+              {t('Use network proxy')}
+            </label>
+            <span className="text-xs text-muted-foreground">
+              ({t('uses global proxy from System settings')})
+            </span>
           </div>
 
           {/* Notes */}

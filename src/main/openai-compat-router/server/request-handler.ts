@@ -146,6 +146,7 @@ async function fetchUpstream(
   timeoutMs: number,
   signal?: AbortSignal,
   customHeaders?: Record<string, string>,
+  useProxy?: boolean,
 ): Promise<globalThis.Response> {
   // Build headers: start with custom headers, then add defaults
   // Custom headers can override Authorization if needed (e.g., OAuth providers)
@@ -158,8 +159,9 @@ async function fetchUpstream(
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  const proxyUrl = getEffectiveProxyUrl();
-  console.log(`[RequestHandler] Fetch upstream via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl}`);
+  const proxyUrl = useProxy ? getEffectiveProxyUrl() : undefined;
+  const forceNoProxy = !useProxy;
+  console.log(`[RequestHandler] Fetch upstream via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl} (useProxy=${useProxy ?? false})`);
 
   return proxyFetch(
     targetUrl,
@@ -170,6 +172,7 @@ async function fetchUpstream(
       signal,
     },
     timeoutMs,
+    forceNoProxy,
   );
 }
 
@@ -191,6 +194,7 @@ async function fetchAnthropicUpstream(
   timeoutMs: number,
   sdkHeaders?: Record<string, string>,
   customHeaders?: Record<string, string>,
+  useProxy?: boolean,
 ): Promise<globalThis.Response> {
   const headers: Record<string, string> = {
     ...(sdkHeaders || {}),
@@ -200,8 +204,9 @@ async function fetchAnthropicUpstream(
 
   const body = Buffer.isBuffer(bodyOrBuffer) ? bodyOrBuffer : JSON.stringify(bodyOrBuffer);
 
-  const proxyUrl = getEffectiveProxyUrl();
-  console.log(`[RequestHandler] Fetch Anthropic via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl} (rawBody=${Buffer.isBuffer(bodyOrBuffer)})`);
+  const proxyUrl = useProxy ? getEffectiveProxyUrl() : undefined;
+  const forceNoProxy = !useProxy;
+  console.log(`[RequestHandler] Fetch Anthropic via ${proxyUrl ? `proxy (${proxyUrl})` : 'direct'}: ${targetUrl} (rawBody=${Buffer.isBuffer(bodyOrBuffer)}, useProxy=${useProxy ?? false})`);
 
   return proxyFetch(
     targetUrl,
@@ -211,6 +216,7 @@ async function fetchAnthropicUpstream(
       body,
     },
     timeoutMs,
+    forceNoProxy,
   );
 }
 
@@ -265,7 +271,7 @@ async function handleAnthropicPassthrough(
     rawBody,
     requestModified,
   } = options;
-  const { url: backendUrl, key: apiKey, model, headers: customHeaders } = config;
+  const { url: backendUrl, key: apiKey, model, headers: customHeaders, useProxy } = config;
 
   // Append SDK query string to upstream URL (e.g., ?beta=true)
   const targetUrl = queryString ? `${backendUrl}?${queryString}` : backendUrl;
@@ -298,6 +304,7 @@ async function handleAnthropicPassthrough(
       timeoutMs,
       sdkHeaders,
       customHeaders,
+      useProxy,
     );
     console.log(`[RequestHandler] Anthropic upstream response: ${upstreamResp.status}`);
 
@@ -324,6 +331,7 @@ async function handleAnthropicPassthrough(
           timeoutMs,
           sdkHeaders,
           customHeaders,
+          useProxy,
         );
         console.log(`[RequestHandler] 429 retry result: ${retryResp.status}`);
 
@@ -439,6 +447,7 @@ async function handleOpenAIConversion(
     model,
     headers: customHeaders,
     apiType: configApiType,
+    useProxy,
   } = config;
 
   // Validate URL has valid endpoint suffix
@@ -506,6 +515,7 @@ async function handleOpenAIConversion(
         timeoutMs,
         undefined,
         requestHeaders,
+        useProxy,
       );
       console.log(`[RequestHandler] Upstream response: ${upstreamResp.status}`);
 
@@ -546,6 +556,7 @@ async function handleOpenAIConversion(
             timeoutMs,
             undefined,
             requestHeaders,
+            useProxy,
           );
 
           if (!upstreamResp.ok) {

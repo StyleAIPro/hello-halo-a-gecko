@@ -32,6 +32,7 @@ export { normalizeApiUrl } from '../../openai-compat-router';
 export interface FetchModelsParams {
   apiKey: string;
   apiUrl: string;
+  useProxy?: boolean;
 }
 
 export interface FetchModelsResult {
@@ -45,7 +46,7 @@ export interface FetchModelsResult {
  * that block direct renderer fetch() calls to external APIs.
  */
 export async function fetchModelsFromApi(params: FetchModelsParams): Promise<FetchModelsResult> {
-  const { apiKey, apiUrl } = params;
+  const { apiKey, apiUrl, useProxy } = params;
 
   if (!apiKey || !apiUrl) {
     throw new Error('API key and URL are required');
@@ -54,7 +55,7 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
   // Normalize URL using shared function (consistent with test connection)
   const modelsUrl = normalizeModelsUrl(apiUrl);
 
-  console.log('[API Validator] Fetching models from:', modelsUrl);
+  console.log('[API Validator] Fetching models from:', modelsUrl, 'useProxy:', useProxy);
 
   const response = await proxyFetch(
     modelsUrl,
@@ -62,10 +63,11 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
     },
-    20_000,
+    40_000,
+    !useProxy,
   );
 
   if (!response.ok) {
@@ -117,6 +119,7 @@ export interface ValidateApiParams {
   apiUrl: string;
   provider: 'anthropic' | 'openai';
   model?: string;
+  useProxy?: boolean;
 }
 
 export interface ValidateApiResult {
@@ -139,7 +142,7 @@ export interface ValidateApiResult {
  * Uses the same SDK pattern as session-manager.ts: send() + stream()
  */
 export async function validateApiConnection(params: ValidateApiParams): Promise<ValidateApiResult> {
-  const { apiKey, apiUrl, provider, model } = params;
+  const { apiKey, apiUrl, provider, model, useProxy } = params;
 
   // Step 1: Normalize URL
   const normalizedUrl = normalizeApiUrl(apiUrl, provider);
@@ -180,7 +183,7 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
   // Set timeout for validation (20 seconds — accounts for cold start scenarios)
   const timeoutId = setTimeout(() => {
     abortController.abort();
-  }, 20000);
+  }, 40000);
 
   try {
     const sdkOptions: Record<string, unknown> = {
@@ -193,8 +196,8 @@ export async function validateApiConnection(params: ValidateApiParams): Promise<
         ELECTRON_NO_ATTACH_CONSOLE: 1,
         ANTHROPIC_API_KEY: anthropicApiKey,
         ANTHROPIC_BASE_URL: anthropicBaseUrl,
-        NO_PROXY: 'localhost,127.0.0.1',
-        no_proxy: 'localhost,127.0.0.1',
+        NO_PROXY: useProxy ? 'localhost,127.0.0.1' : '*',
+        no_proxy: useProxy ? 'localhost,127.0.0.1' : '*',
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         DISABLE_TELEMETRY: '1',
         DISABLE_COST_WARNINGS: '1',

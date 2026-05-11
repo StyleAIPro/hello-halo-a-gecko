@@ -31,6 +31,8 @@ export interface ApiCredentials {
   filterContent?: boolean;
   /** Context window size in tokens (for compression threshold calculation) */
   contextWindow?: number;
+  /** Whether to route API requests through the global network proxy */
+  useProxy?: boolean;
 }
 
 // ============================================

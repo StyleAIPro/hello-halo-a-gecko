@@ -29,8 +29,8 @@ export interface AicoBotAPI {
   // Config
   getConfig: () => Promise<IpcResponse>;
   setConfig: (updates: Record<string, unknown>) => Promise<IpcResponse>;
-  validateApi: (apiKey: string, apiUrl: string, provider: string) => Promise<IpcResponse>;
-  fetchModels: (apiKey: string, apiUrl: string) => Promise<IpcResponse>;
+  validateApi: (apiKey: string, apiUrl: string, provider: string, model?: string, useProxy?: boolean) => Promise<IpcResponse>;
+  fetchModels: (apiKey: string, apiUrl: string, useProxy?: boolean) => Promise<IpcResponse>;
   testProxy: (proxyUrl: string) => Promise<IpcResponse>;
   refreshAISourcesConfig: () => Promise<IpcResponse>;
 
@@ -760,9 +760,9 @@ const api: AicoBotAPI = {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (updates) => ipcRenderer.invoke('config:set', updates),
-  validateApi: (apiKey, apiUrl, provider, model?) =>
-    ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model),
-  fetchModels: (apiKey, apiUrl) => ipcRenderer.invoke('config:fetch-models', apiKey, apiUrl),
+  validateApi: (apiKey, apiUrl, provider, model?, useProxy?) =>
+    ipcRenderer.invoke('config:validate-api', apiKey, apiUrl, provider, model, useProxy),
+  fetchModels: (apiKey, apiUrl, useProxy?) => ipcRenderer.invoke('config:fetch-models', apiKey, apiUrl, useProxy),
   testProxy: (proxyUrl) => ipcRenderer.invoke('config:test-proxy', proxyUrl),
   refreshAISourcesConfig: () => ipcRenderer.invoke('config:refresh-ai-sources'),
 

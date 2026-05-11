@@ -250,6 +250,7 @@ export async function getApiCredentials(
     forceStream: backendConfig.forceStream,
     filterContent: backendConfig.filterContent,
     contextWindow: currentSource?.contextWindow,
+    useProxy: backendConfig.useProxy,
   };
 }
 
@@ -320,6 +321,7 @@ export async function getApiCredentialsForSource(
     apiType: backendConfig.apiType,
     forceStream: backendConfig.forceStream,
     filterContent: backendConfig.filterContent,
+    useProxy: backendConfig.useProxy,
   };
 }
 

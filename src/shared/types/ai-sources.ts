@@ -195,6 +195,9 @@ export interface AISource {
   /** Context window size in tokens (for automatic compression threshold calculation) */
   contextWindow?: number;
 
+  /** Whether to route API requests through the global network proxy */
+  useProxy?: boolean;
+
   // ===== Metadata (Required) =====
   /** Creation timestamp (ISO 8601) */
   createdAt: string;
@@ -272,6 +275,8 @@ export interface BackendRequestConfig {
   apiType?: 'chat_completions' | 'responses' | 'anthropic_passthrough';
   forceStream?: boolean;
   filterContent?: boolean;
+  /** Whether to route through the global network proxy */
+  useProxy?: boolean;
 }
 
 // ============================================================================

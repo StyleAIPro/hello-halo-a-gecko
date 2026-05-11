@@ -155,14 +155,14 @@ export function registerApiRoutes(app: Express, mainWindow: BrowserWindow | null
   });
 
   app.post('/api/config/validate', async (req: Request, res: Response) => {
-    const { apiKey, apiUrl, provider, model } = req.body;
-    const result = await configController.validateApi(apiKey, apiUrl, provider, model);
+    const { apiKey, apiUrl, provider, model, useProxy } = req.body;
+    const result = await configController.validateApi(apiKey, apiUrl, provider, model, useProxy);
     res.json(result);
   });
 
   app.post('/api/config/fetch-models', async (req: Request, res: Response) => {
-    const { apiKey, apiUrl } = req.body;
-    const result = await configController.fetchModels(apiKey, apiUrl);
+    const { apiKey, apiUrl, useProxy } = req.body;
+    const result = await configController.fetchModels(apiKey, apiUrl, useProxy);
     res.json(result);
   });
 
