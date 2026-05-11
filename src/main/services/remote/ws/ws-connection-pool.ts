@@ -7,6 +7,7 @@
 import { createLogger } from '../../log';
 import { RemoteWsClient } from './remote-ws-client';
 import type { RemoteWsClientConfig } from './ws-types';
+import sshTunnelService from '../../remote/ssh/ssh-tunnel.service';
 
 const log = createLogger('remote-ws-pool');
 
@@ -46,21 +47,32 @@ export async function acquireConnection(
         return existing.client;
       }
     } else if (existing.client.isReconnecting()) {
-      log.info(
-        `[${serverId}] Pooled connection is reconnecting, waiting up to 15s...`,
-      );
-      const reconnected = await existing.client.waitForReconnect(15000);
-      if (reconnected && existing.client.isConnected()) {
-        existing.createdAt = Date.now();
-        existing.refs.add(callerId);
-        log.info(`[${serverId}] Reconnected successfully, reusing connection`);
-        return existing.client;
+      // Defensive check: if SSH tunnel is down, the reconnecting client's
+      // connection target is unreachable — skip waiting and create a fresh connection.
+      // (Fix #1 already removes pool entry on tunnel death; this handles race conditions.)
+      if (config.useSshTunnel && !sshTunnelService.isServerTunnelAlive(serverId)) {
+        log.info(
+          `[${serverId}] SSH tunnel is down, skipping reconnect wait — destroying stale connection`,
+        );
+        existing.client.destroy();
+        connectionPool.delete(serverId);
+      } else {
+        log.info(
+          `[${serverId}] Pooled connection is reconnecting, waiting up to 15s...`,
+        );
+        const reconnected = await existing.client.waitForReconnect(15000);
+        if (reconnected && existing.client.isConnected()) {
+          existing.createdAt = Date.now();
+          existing.refs.add(callerId);
+          log.info(`[${serverId}] Reconnected successfully, reusing connection`);
+          return existing.client;
+        }
+        log.info(
+          `[${serverId}] Reconnect did not succeed, creating new connection`,
+        );
+        existing.client.destroy();
+        connectionPool.delete(serverId);
       }
-      log.info(
-        `[${serverId}] Reconnect did not succeed, creating new connection`,
-      );
-      existing.client.destroy();
-      connectionPool.delete(serverId);
     } else {
       log.info(`[${serverId}] Pooled connection is dead, removing`);
       existing.client.destroy();
@@ -82,7 +94,10 @@ export async function acquireConnection(
     const entry = connectionPool.get(serverId);
     if (entry && entry.client === client) {
       connectionPool.delete(serverId);
-      log.info(`[${serverId}] Pooled connection closed, removed from pool`);
+      // Also destroy the client to cancel any pending reconnect timer.
+      // Prevents stale reconnect attempts from competing with future acquireConnection calls.
+      client.destroy();
+      log.info(`[${serverId}] Pooled connection closed, removed and destroyed`);
     }
   });
 

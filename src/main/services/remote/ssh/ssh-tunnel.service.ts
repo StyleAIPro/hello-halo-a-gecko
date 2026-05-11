@@ -17,6 +17,7 @@ import { Client } from 'ssh2';
 import { EventEmitter } from 'events';
 import * as net from 'net';
 import { execSync } from 'child_process';
+import { removePooledConnection } from '../ws/ws-connection-pool';
 
 export interface SshTunnelConfig {
   spaceId: string;
@@ -380,6 +381,16 @@ class SshTunnelService extends EventEmitter {
   }
 
   /**
+   * Check if a tunnel exists and its SSH connection is alive for a server.
+   * Does not require spaceId — only checks transport-level connectivity.
+   * Used by WebSocket connection pool to decide whether to wait for reconnect.
+   */
+  isServerTunnelAlive(serverId: string): boolean {
+    const tunnel = this.tunnels.get(serverId);
+    return tunnel !== undefined && isClientConnected(tunnel.client);
+  }
+
+  /**
    * Get all active tunnel statuses
    */
   getTunnelStatuses(): TunnelStatus[] {
@@ -516,6 +527,13 @@ class SshTunnelService extends EventEmitter {
     // Remove from map
     this.tunnels.delete(tunnelKey);
     console.log(`[SshTunnel] Tunnel ${tunnelKey} closed and removed`);
+
+    // Notify WebSocket connection pool to invalidate pooled connections for this server.
+    // SSH tunnel is the transport layer for WebSocket — tunnel death means all WS
+    // connections through it are unreachable. Must clean up immediately to prevent
+    // acquireConnection from waiting on a stale reconnecting client.
+    removePooledConnection(tunnelKey);
+
     return true;
   }
 }

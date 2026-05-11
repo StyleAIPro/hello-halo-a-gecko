@@ -50,3 +50,31 @@ export function normalizeApiUrl(apiUrl: string, provider: 'anthropic' | 'openai'
 
   return `${normalized}/chat/completions`;
 }
+
+/**
+ * Normalize URL for fetching model list.
+ *
+ * Shares the same base URL extraction logic as normalizeApiUrl to ensure
+ * consistency: both operations derive the same base path for a given input URL
+ * (they only differ in the trailing endpoint: /models vs /chat/completions).
+ */
+export function normalizeModelsUrl(apiUrl: string): string {
+  const trimSlash = (s: string) => s.replace(/\/+$/, '');
+  let baseUrl = trimSlash(apiUrl);
+
+  // Strip known path suffixes (aligned with normalizeApiUrl logic)
+  const suffixes = ['/chat/completions', '/completions', '/responses', '/chat'];
+  for (const suffix of suffixes) {
+    if (baseUrl.endsWith(suffix)) {
+      baseUrl = baseUrl.slice(0, -suffix.length);
+      break;
+    }
+  }
+
+  // Consistent with normalizeApiUrl: only auto-append /v1 for host-only URLs
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]+$/.test(baseUrl)) {
+    baseUrl = `${baseUrl}/v1`;
+  }
+
+  return `${baseUrl}/models`;
+}

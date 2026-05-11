@@ -226,6 +226,13 @@ export const api = {
     return httpRequest('POST', '/api/spaces', input);
   },
 
+  createRemoteDir: async (input: { remoteServerId: string; remotePath: string }): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.createRemoteDir(input);
+    }
+    return httpRequest('POST', '/api/spaces/create-dir', input);
+  },
+
   deleteSpace: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
       return window.aicoBot.deleteSpace(spaceId);
