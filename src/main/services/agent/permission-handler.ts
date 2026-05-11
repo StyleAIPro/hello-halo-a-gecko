@@ -7,7 +7,11 @@
  *
  * Special case: AskUserQuestion tool pauses execution and waits for user answers
  * via IPC, then returns the answers as updatedInput.
+ *
+ * Special case: Skill tool denies calls to disabled skills (checked against SkillManager).
  */
+
+import { SkillManager } from '../skill/skill-manager';
 
 // ============================================
 // Types
@@ -123,6 +127,19 @@ export function createCanUseTool(deps?: CanUseToolDeps): CanUseToolFn {
   ): Promise<PermissionResult> => {
     // Non-AskUserQuestion tools: auto-allow
     if (toolName !== 'AskUserQuestion') {
+      // Block Skill tool calls for disabled skills
+      if (toolName === 'Skill') {
+        const disabledIds = SkillManager.getGlobalDisabledSkillIds();
+        const cmd = String(input.command || input.name || input.skill || '');
+        const skillName = cmd.replace(/^\/+/, '').trim();
+        if (skillName && disabledIds.has(skillName)) {
+          console.log(`[PermissionHandler] Blocked disabled skill: ${skillName}`);
+          return {
+            behavior: 'deny' as const,
+            updatedInput: { ...input, _blocked: true, _reason: `Skill "${skillName}" is disabled` },
+          };
+        }
+      }
       return { behavior: 'allow' as const, updatedInput: input };
     }
 

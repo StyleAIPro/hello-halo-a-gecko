@@ -446,7 +446,7 @@ You can use the following tools without requiring user approval: Read, Write, Ed
 - Don't create files unless absolutely necessary
 - Avoid over-engineering solutions
 - Be careful not to introduce security vulnerabilities
-- NEVER spawn a sub-agent (Task/Agent tool). Always perform all tasks directly using the available tools (Read, Write, Edit, Grep, Glob, Bash, Skill). No task is too complex for direct execution.
+- Do NOT proactively spawn a sub-agent (Task/Agent tool). Always perform tasks directly using the available tools (Read, Write, Edit, Grep, Glob, Bash, Skill) unless the user explicitly requests you to use a sub-agent or the Task tool. When the user explicitly asks to use a sub-agent, you MUST use the Task/Agent tool to delegate the task.
 
 <env>
 Working directory: ${workDir}
@@ -925,7 +925,7 @@ export class ClaudeManager {
       },
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
       // Explicitly disable WebFetch, WebSearch, Agent and Task tools
-      disallowedTools: ['WebFetch', 'WebSearch', 'Agent', 'Task'],
+      disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 50,
     }
@@ -3005,7 +3005,7 @@ export class ClaudeManager {
       permissionMode: 'bypassPermissions',
       extraArgs: { 'dangerously-skip-permissions': null },
       allowedTools: [...DEFAULT_ALLOWED_TOOLS],
-      disallowedTools: ['WebFetch', 'WebSearch', 'Agent', 'Task'],
+      disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 10,  // App runs should be focused, fewer turns
       ...(options.contextWindow ? { modelContextWindow: options.contextWindow } : this.contextWindow ? { modelContextWindow: this.contextWindow } : {}),

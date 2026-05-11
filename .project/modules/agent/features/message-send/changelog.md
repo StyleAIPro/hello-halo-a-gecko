@@ -9,3 +9,4 @@
 | 2026-04-16 | 初始设计 | @moonseeker1 | 新功能 |
 | 2026-04-16 | 重构：getOrCreateV2Session 参数封装为 GetOrCreateSessionOptions 对象，更新 send-message、orchestrator、app-chat 全部调用方 | @moonseeker1 | 代码审计 |
 | 2026-04-27 | bugfix: 普通对话 buildBaseSdkOptions 添加 additionalDisallowedTools: ['Agent', 'Task']，SDK 层面强制禁止子 Agent 创建 | @misakamikoto | bugfix-excessive-subagents-v4 |
+| 2026-05-10 | bugfix: 系统提示词子 Agent 规则从"NEVER"绝对禁令改为"Do NOT proactively"条件规则，用户显式请求时必须使用子 Agent — `src/main/services/agent/system-prompt.ts` | @misakamikoto | bugfix-subagent-ignored-v1 |
