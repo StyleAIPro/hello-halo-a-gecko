@@ -1282,31 +1282,31 @@ export class ClaudeManager {
         this.cleanupSession(conversationId, 'session interrupted - dead transport')
         // Fall through to create new session
       } else if (effectiveResumeId) {
-        // OPTIMIZATION: Try to reuse existing session on resume instead of always
-        // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
-        // conflict) doesn't always manifest — when reuse works, we save the full
-        // process exit wait + MCP initialization + new session creation overhead.
-        //
-        // If reuse fails (SDK throws "process aborted" or similar), fall back to rebuild.
-        console.log(`[ClaudeManager][${conversationId}] Resume requested, attempting session reuse...`)
-        existing.lastUsedAt = Date.now()
-
-        // Update stored config to reflect current request parameters
-        const storedConfig: SessionConfig = {
+        // If config changed (model/apiKey/baseUrl/contextWindow), cleanup and recreate
+        // with new config. The resume ID is preserved so the SDK restores full context
+        // from disk — only the in-memory session object is replaced.
+        const requestConfig: SessionConfig = {
           ...this.getCurrentConfig(),
           workDir: effectiveWorkDir,
           ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
           ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
           ...(credentials?.model ? { model: credentials.model } : {}),
         }
-        existing.config = storedConfig
-        existing.configGeneration = this.configGeneration
-        if (mcpToolSignature !== undefined) {
-          existing.mcpToolSignature = mcpToolSignature
+        if (needsSessionRebuild(existing, requestConfig)) {
+          console.log(`[ClaudeManager][${conversationId}] Config changed during resume (model: ${existing.config.model} -> ${requestConfig.model}), recreating with resume`)
+          this.cleanupSession(conversationId, 'config changed during resume')
+          // Fall through to create new session — effectiveResumeId is preserved,
+          // so buildSdkOptions will include `resume` option for full context restoration
+        } else {
+          console.log(`[ClaudeManager][${conversationId}] Resume requested, reusing session...`)
+          existing.lastUsedAt = Date.now()
+          existing.config = requestConfig
+          existing.configGeneration = this.configGeneration
+          if (mcpToolSignature !== undefined) {
+            existing.mcpToolSignature = mcpToolSignature
+          }
+          return existing.session
         }
-
-        console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session for resume (will rebuild on failure)`)
-        return existing.session
       } else {
         // Build expected config from current request parameters (including per-request credentials).
         // In remote proxy mode, credentials are always per-request (never set on the manager),

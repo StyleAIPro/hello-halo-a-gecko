@@ -1828,10 +1828,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { spaceId, conversationId } = data;
     console.log(`[ChatStore] handleAgentComplete [${conversationId}]`);
 
-    // Check for pending messages before completing
-    const sessionBeforeComplete = get().getSession(conversationId);
-    const pendingMessages = sessionBeforeComplete.pendingMessages || [];
-
     // Check if user is currently viewing this conversation
     const state = get();
     const currentSpaceState = state.currentSpaceId
@@ -1901,7 +1897,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
 
         // Now atomically: update cache, metadata, AND clear session state
-        // This prevents flash by doing all in one render
+        // This prevents flash by doing all in one render.
+        // IMPORTANT: Read pendingMessages from current state inside set() callback,
+        // NOT from a pre-await snapshot, to avoid race condition where user sends
+        // a message during the await api.getConversation() window.
+        let nextPendingMessage: PendingMessage | null = null;
         set((state) => {
           // Update cache with fresh data
           const newCache = new Map(state.conversationCache);
@@ -1925,13 +1925,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const newSessions = new Map(state.sessions);
           const currentSession = newSessions.get(conversationId);
           if (currentSession) {
-            // Check if there are pending messages to send
+            // Check if there are pending messages to send (read from CURRENT state)
             const remainingPending = currentSession.pendingMessages || [];
             const hasPendingMessages = remainingPending.length > 0;
 
             if (hasPendingMessages) {
-              // Get the first pending message
-              const nextMessage = remainingPending[0];
+              // Capture the first pending message for sending after set()
+              nextPendingMessage = remainingPending[0];
               const restMessages = remainingPending.slice(1);
 
               console.log(`[ChatStore] Processing pending message [${conversationId}]`);
@@ -1982,16 +1982,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.log(`[ChatStore] Conversation reloaded from backend [${conversationId}]`);
 
         // If there were pending messages, send the first one now
-        if (pendingMessages.length > 0) {
-          const nextMessage = pendingMessages[0];
-
+        // Use nextPendingMessage captured from inside set() (current state, not stale snapshot)
+        if (nextPendingMessage) {
           // Add user message to UI
           const userMessage: Message = {
             id: `msg-${Date.now()}`,
             role: 'user',
-            content: nextMessage.content,
+            content: nextPendingMessage.content,
             timestamp: new Date().toISOString(),
-            images: nextMessage.images,
+            images: nextPendingMessage.images,
           };
 
           set((state) => {
@@ -2030,12 +2029,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           await api.sendMessage({
             spaceId,
             conversationId,
-            message: nextMessage.content,
-            images: nextMessage.images,
-            aiBrowserEnabled: nextMessage.aiBrowserEnabled,
-            thinkingEnabled: nextMessage.thinkingEnabled,
+            message: nextPendingMessage.content,
+            images: nextPendingMessage.images,
+            aiBrowserEnabled: nextPendingMessage.aiBrowserEnabled,
+            thinkingEnabled: nextPendingMessage.thinkingEnabled,
             canvasContext: buildCanvasContext(),
-            agentId: nextMessage.agentId || 'leader', // Pass target agent for Hyper Space
+            agentId: nextPendingMessage.agentId || 'leader', // Pass target agent for Hyper Space
           });
         }
       }
@@ -2043,6 +2042,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.error('[ChatStore] Failed to reload conversation:', error);
       // Even on error, must clear state to avoid stale content
       // CRITICAL: Must also clear isStopping to prevent UI stuck in "stopping" state
+      // NOTE: Do NOT clear pendingMessages — preserve queued messages so user can retry
       set((state) => {
         const newSessions = new Map(state.sessions);
         const currentSession = newSessions.get(conversationId);
@@ -2053,10 +2053,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             isStopping: false, // CRITICAL: Clear stopping state (fix for remote space stop button stuck)
             isThinking: false, // Clear thinking state
             streamingContent: '',
-            thoughts: [], // Clear thoughts
-            compactInfo: null, // Clear temporary compact notification
-            pendingQuestion: null, // Clear pending question
-            pendingMessages: [], // Clear pending messages on error
+            // Preserve thoughts and pendingMessages on reload error
           });
         }
         return { sessions: newSessions };

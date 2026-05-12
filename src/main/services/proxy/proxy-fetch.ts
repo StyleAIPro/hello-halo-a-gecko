@@ -430,32 +430,52 @@ export async function proxyFetchWithUrl(
  * Fetch with automatic proxy support.
  * When a proxy is configured and enabled, routes through the proxy.
  * Otherwise, uses native fetch (direct connection).
+ *
+ * @param forceNoProxy - If true, skip proxy and use direct connection even if proxy is configured.
  */
 export async function proxyFetch(
   url: string,
   init?: RequestInit,
   timeoutMs?: number,
+  forceNoProxy = false,
 ): Promise<Response> {
   const timeout = timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
-  const effectiveProxyUrl = getEffectiveProxyUrl();
+  const effectiveProxyUrl = forceNoProxy ? undefined : getEffectiveProxyUrl();
 
   if (effectiveProxyUrl) {
     return fetchViaProxy(url, init, effectiveProxyUrl, timeout);
   }
 
-  // No proxy configured — use native fetch with timeout
+  // No proxy — use native fetch with timeout
+  // When forceNoProxy, temporarily set NO_PROXY=* to bypass any env-var proxies
+  // (equivalent to curl --noproxy "*")
+  const prevNoProxy = process.env.NO_PROXY;
+  const prevNoProxyLower = process.env.no_proxy;
+  if (forceNoProxy) {
+    process.env.NO_PROXY = '*';
+    process.env.no_proxy = '*';
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   // If external signal already aborted, bail out immediately
   if (init?.signal?.aborted) {
     clearTimeout(timer);
+    if (forceNoProxy) restoreNoProxy();
     throw new DOMException('The operation was aborted.', 'AbortError');
   }
 
   // Forward external signal to our internal controller
   const onExternalAbort = () => controller.abort();
   init?.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
+  function restoreNoProxy() {
+    if (prevNoProxy !== undefined) process.env.NO_PROXY = prevNoProxy;
+    else delete process.env.NO_PROXY;
+    if (prevNoProxyLower !== undefined) process.env.no_proxy = prevNoProxyLower;
+    else delete process.env.no_proxy;
+  }
 
   try {
     const response = await fetch(url, {
@@ -471,5 +491,6 @@ export async function proxyFetch(
   } finally {
     clearTimeout(timer);
     init?.signal?.removeEventListener('abort', onExternalAbort);
+    if (forceNoProxy) restoreNoProxy();
   }
 }

@@ -118,9 +118,11 @@ export async function createDeployPackage(
   // --force-local is only supported by GNU tar (Git Bash); Windows built-in tar (bsdtar) does not.
   // Try with --force-local first (for GNU tar), retry without it (for bsdtar).
   try {
-    execSync(`tar --force-local ${tarArgs}`, { stdio: 'pipe' });
-  } catch {
-    execSync(`tar ${tarArgs}`, { stdio: 'pipe' });
+    try {
+      execSync(`tar --force-local ${tarArgs}`, { stdio: 'pipe' });
+    } catch {
+      execSync(`tar ${tarArgs}`, { stdio: 'pipe' });
+    }
   } catch (err) {
     // Clean up staging dir on failure
     if (stagingDir) {
@@ -237,34 +239,16 @@ export async function checkRemoteDependencies(
  * - Auto restart agent to apply changes
  */
 export async function deployToServer(service: RemoteDeployService, id: string): Promise<void> {
+  // Online deploy removed — use offline deploy (deployAgentCodeOffline) instead
   const server = (service as any).servers.get(id);
-  if (!server) {
-    throw new Error(`Server not found: ${id}`);
+  const platform = server?.detectedArch as 'x64' | 'arm64' | undefined;
+  if (!platform) {
+    throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
   }
-
-  if (server.status !== 'connected') {
-    await service.connectServer(id);
+  if (!isOfflineBundleAvailable(service, platform)) {
+    throw new Error(`离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`);
   }
-
-  await service.updateServer(id, { status: 'deploying' });
-
-  try {
-    // Deploy agent SDK
-    await service.deployAgentSDK(id);
-
-    // Deploy agent code (includes system prompt sync and auto restart)
-    await service.deployAgentCode(id);
-
-    await service.updateServer(id, { status: 'connected' });
-    console.debug(`[RemoteDeployService] Deployment completed for: ${server.name}`);
-  } catch (error) {
-    const err = error as Error;
-    await service.updateServer(id, {
-      status: 'error',
-      error: err.message,
-    });
-    throw error;
-  }
+  await service.deployAgentCodeOffline(id, platform);
 }
 
 /**
@@ -272,415 +256,13 @@ export async function deployToServer(service: RemoteDeployService, id: string): 
  * Uploads the pre-built remote-agent-proxy package from packages/remote-agent-proxy/dist
  */
 export async function deployAgentCode(service: RemoteDeployService, id: string): Promise<void> {
-  const server = (service as any).servers.get(id);
-  if (!server) {
-    throw new Error(`Server not found: ${id}`);
-  }
-
-  const manager = service.getSSHManager(id);
-
-  // Ensure SSH connection is established before proceeding
-  if (!manager.isConnected()) {
-    service.emitDeployProgress(id, 'connect', `正在连接到 ${server.name}...`, 5);
-    await service.connectServer(id);
-    // Re-get the manager after connection
-    const connectedManager = service.getSSHManager(id);
-    if (!connectedManager.isConnected()) {
-      throw new Error(`Failed to establish SSH connection to ${server.name}`);
-    }
-  }
-
-  try {
-    // Create deployment directory structure
-    service.emitDeployProgress(id, 'prepare', '正在创建部署目录...', 10);
-    const deployPath = getDeployPath(server);
-    await manager.executeCommand(`mkdir -p ${deployPath}/dist`);
-    await manager.executeCommand(`mkdir -p ${deployPath}/logs`);
-    await manager.executeCommand(`mkdir -p ${deployPath}/data`);
-
-    // Create ~/.agents/skills directory for skill storage (shared with local AICO-Bot)
-    service.emitDeployProgress(id, 'prepare', '正在创建 skills 目录...', 12);
-    await manager.executeCommand(`mkdir -p ~/.agents/skills`);
-    await manager.executeCommand(`mkdir -p ~/.agents/claude-config`);
-
-    // Get the path to the remote-agent-proxy package
-    const packageDir = getRemoteAgentProxyPath();
-    const distDir = path.join(packageDir, 'dist');
-
-    // Check if dist directory exists
-    if (!fs.existsSync(distDir)) {
-      throw new Error(
-        `Remote agent proxy not built. Run 'npm run build' in packages/remote-agent-proxy first. (looked at: ${distDir})`,
-      );
-    }
-
-    // Upload package.json
-    service.emitDeployProgress(id, 'upload', '正在打包部署文件...', 15);
-    const packageJsonPath = path.join(packageDir, 'package.json');
-
-    // Package all files (dist/, patches/, scripts/, package.json) into a single tar.gz
-    const localPackagePath = await createDeployPackage(service, packageDir);
-
-    // Connection health check before upload (prevents failures after tab switch)
-    await service.ensureSshConnectionHealthy(id);
-
-    service.emitDeployProgress(id, 'upload', '正在上传部署包...', 20);
-    const remotePackageName = `agent-deploy-${Date.now()}.tar.gz`;
-    await manager.uploadFile(localPackagePath, `${deployPath}/${remotePackageName}`);
-
-    service.emitDeployProgress(id, 'upload', '正在解压部署包...', 35);
-    await manager.executeCommand(
-      `cd ${deployPath} && tar -xzf ${remotePackageName} && rm -f ${remotePackageName}`,
-      { timeoutMs: 120_000 },
-    );
-    service.emitCommandOutput(id, 'success', '✓ 部署包已上传并解压');
-
-    // Clean up local temp package
-    try {
-      fs.unlinkSync(localPackagePath);
-    } catch {}
-
-    // Check if Node.js is installed before running npm commands
-    service.emitDeployProgress(id, 'prepare', '检查 Node.js 环境...', 42);
-    const nodeCheck = await manager.executeCommandFull('node --version');
-    if (nodeCheck.exitCode !== 0 || !nodeCheck.stdout.trim()) {
-      // Node.js not installed, install it automatically
-      console.debug('[RemoteDeployService] Node.js not found, installing...');
-      service.emitDeployProgress(id, 'prepare', 'Node.js 未安装，正在自动安装...', 43);
-      service.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
-
-      // Detect OS and architecture, then install Node.js
-      // Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, EulerOS/openEuler, Amazon Linux, Alpine, Arch, SUSE
-      // For EulerOS/openEuler, use official Node.js binary tarball since NodeSource doesn't support them
-      // Detect architecture: x86_64 -> linux-x64, aarch64 -> linux-arm64
-      // Note: Check if node can actually execute (not just exists) to handle broken installations
-      // Use npmmirror (Taobao) as fallback for China network issues
-      const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
-
-      // Node.js install may download packages, allow up to 5 minutes
-      const nodeInstallResult = await manager.executeCommandFull(installNodeCmd, {
-        timeoutMs: 300_000,
-      });
-      if (nodeInstallResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim());
-      }
-      if (nodeInstallResult.exitCode !== 0) {
-        service.emitCommandOutput(
-          id,
-          'error',
-          `Failed to install Node.js: ${nodeInstallResult.stderr}`,
-        );
-        throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`);
-      }
-
-      service.emitCommandOutput(id, 'success', 'Node.js installed successfully');
-    } else {
-      service.emitCommandOutput(id, 'output', `Node.js: ${nodeCheck.stdout.trim()}`);
-    }
-
-    // Check if npm is installed (usually comes with Node.js)
-    service.emitDeployProgress(id, 'install', '检查 npm 安装...', 44);
-    service.emitCommandOutput(id, 'command', 'npm --version');
-    const npmCheck = await manager.executeCommandFull('npm --version');
-    if (npmCheck.exitCode !== 0 || !npmCheck.stdout.trim()) {
-      service.emitCommandOutput(id, 'error', 'npm is not installed');
-      throw new Error('npm is not installed on the remote server');
-    }
-    service.emitCommandOutput(id, 'output', `npm: ${npmCheck.stdout.trim()}`);
-
-    // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
-    service.emitDeployProgress(id, 'install', '检查 npx 安装...', 45);
-    service.emitCommandOutput(id, 'command', 'npx --version');
-    try {
-      const npxCheck = await manager.executeCommandFull('npx --version');
-      if (npxCheck.exitCode === 0 && npxCheck.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', `npx: ${npxCheck.stdout.trim()}`);
-      } else {
-        throw new Error('npx not found');
-      }
-    } catch {
-      // npx not found - install it using npm
-      console.debug('[RemoteDeployService] npx not found, installing...');
-      service.emitCommandOutput(id, 'command', 'npm install -g npx --force');
-      service.emitDeployProgress(id, 'install', 'npx 未安装，正在自动安装...', 46);
-      const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
-        timeoutMs: 120_000,
-      });
-      if (npxInstallResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim());
-      }
-      if (npxInstallResult.exitCode !== 0 && !npxInstallResult.stderr.includes('EEXIST')) {
-        service.emitCommandOutput(id, 'error', `Failed to install npx: ${npxInstallResult.stderr}`);
-        throw new Error(`Failed to install npx: ${npxInstallResult.stderr}`);
-      }
-      service.emitCommandOutput(id, 'success', 'npx installed successfully');
-
-      // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
-      // Modern npm (v10+) includes npx built-in, standalone npx package conflicts with it
-      console.debug('[RemoteDeployService] Checking for standalone npx package...');
-      const checkStandaloneNpx = await manager.executeCommandFull(
-        'npm list -g npx 2>/dev/null || echo "NOT_FOUND"',
-      );
-      if (
-        checkStandaloneNpx.stdout.includes('npx@') &&
-        !checkStandaloneNpx.stdout.includes('npm@')
-      ) {
-        console.debug('[RemoteDeployService] Found standalone npx package, removing...');
-        const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true';
-        await manager.executeCommandFull(removeStandaloneCmd);
-        service.emitCommandOutput(
-          id,
-          'output',
-          'Removed standalone npx package (using npm built-in npx)',
-        );
-      }
-
-      // STEP 2: Clean npm cache to prevent cb.apply errors
-      await manager.executeCommand('npm cache clean --force 2>/dev/null || true', {
-        timeoutMs: 60_000,
-      });
-
-      // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
-      try {
-        // Get npm prefix to find the correct npx location
-        const npmPrefixResult = await manager.executeCommandFull('npm config get prefix');
-        const npmPrefix = npmPrefixResult.stdout.trim() || '/usr/local';
-
-        // Find and create/fix symlink - always do this to ensure correct path
-        const findAndLinkCmd = `
-            NPX_BIN=""
-            # Try npm prefix location first (npm built-in npx)
-            if [ -f "${npmPrefix}/bin/npx" ]; then
-              NPX_BIN="${npmPrefix}/bin/npx"
-            # Try node installation directory
-            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
-              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
-            # Fallback: search for npx
-            else
-              NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
-            fi
-            if [ -n "$NPX_BIN" ] && [ -x "$NPX_BIN" ]; then
-              rm -f /usr/local/bin/npx
-              ln -sf "$NPX_BIN" /usr/local/bin/npx
-              echo "Created symlink: /usr/local/bin/npx -> $NPX_BIN"
-            else
-              echo "Could not find npx binary"
-              exit 1
-            fi
-          `;
-        const linkResult = await manager.executeCommandFull(findAndLinkCmd);
-        if (linkResult.stdout.trim()) {
-          service.emitCommandOutput(id, 'output', linkResult.stdout.trim());
-        }
-        if (linkResult.exitCode === 0) {
-          service.emitCommandOutput(id, 'success', 'npx symlink created in /usr/local/bin');
-        }
-
-        // STEP 4: Verify npx works correctly after all fixes
-        const verifyNpxCmd = await manager.executeCommandFull('npx --version 2>&1');
-        if (verifyNpxCmd.exitCode === 0 && verifyNpxCmd.stdout.trim()) {
-          service.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`);
-        } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
-          // npx still broken - try alternative approach: use npm exec instead
-          console.debug(
-            '[RemoteDeployService] npx still not working, creating alternative wrapper...',
-          );
-          const createWrapperCmd = `
-              cat > /usr/local/bin/npx << 'WRAPPER'
-#!/bin/sh
-exec node "${npmPrefix}/lib/node_modules/npm/bin/npx-cli.js" "$@"
-WRAPPER
-              chmod +x /usr/local/bin/npx
-            `;
-          await manager.executeCommandFull(createWrapperCmd);
-          service.emitCommandOutput(id, 'output', 'Created npx wrapper script');
-        }
-      } catch (linkError) {
-        console.debug('[RemoteDeployService] Failed to create npx symlink:', linkError);
-        // Don't throw - continue with deployment
-      }
-    }
-
-    // Install dependencies on remote server
-    service.emitDeployProgress(id, 'install', '正在配置 npm 镜像...', 50);
-    await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
-
-    // Verify package.json exists before installing
-    const packageJsonCheck = await manager.executeCommandFull(
-      `test -f ${deployPath}/package.json && echo "EXISTS" || echo "NOT_FOUND"`,
-    );
-    if (packageJsonCheck.stdout.includes('NOT_FOUND')) {
-      throw new Error('package.json not found on remote server - upload failed');
-    }
-
-    // Remove existing node_modules to force clean install
-    service.emitDeployProgress(id, 'install', '正在清理旧依赖...', 50);
-    await manager.executeCommand(`rm -rf ${deployPath}/node_modules`, { timeoutMs: 60_000 });
-
-    // Run npm install with streaming output
-    service.emitDeployProgress(id, 'install', '正在安装依赖 (npm install)...', 55);
-    service.emitCommandOutput(id, 'command', `$ npm install`);
-
-    // Connection health check before long-running npm install
-    await service.ensureSshConnectionHealthy(id);
-
-    const installResult = await manager.executeCommandStreaming(
-      `cd ${deployPath} && export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install --legacy-peer-deps 2>&1`,
-      (type, data) => {
-        // Send each line of output to terminal
-        const lines = data.split('\n').filter((line: string) => line.trim());
-        for (const line of lines) {
-          service.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line);
-        }
-      },
-    );
-
-    if (installResult.exitCode !== 0) {
-      service.emitDeployProgress(
-        id,
-        'error',
-        `依赖安装失败 (exit code: ${installResult.exitCode})`,
-        0,
-      );
-      throw new Error(
-        `Failed to install dependencies: ${installResult.stderr || installResult.stdout}`,
-      );
-    }
-
-    service.emitCommandOutput(id, 'success', '✓ 依赖安装完成');
-    service.emitDeployProgress(id, 'install', '依赖安装完成', 75);
-
-    // Also install SDK globally for use by other projects
-    service.emitDeployProgress(id, 'install', '正在全局安装 SDK...', 77);
-    service.emitCommandOutput(
-      id,
-      'command',
-      `$ npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`,
-    );
-    // Connection health check before SDK install
-    await service.ensureSshConnectionHealthy(id);
-    const globalSdkResult = await manager.executeCommandStreaming(
-      `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION} 2>&1`,
-      (type, data) => {
-        const lines = data.split('\n').filter((line: string) => line.trim());
-        for (const line of lines) {
-          service.emitCommandOutput(id, type === 'stderr' ? 'error' : 'output', line);
-        }
-      },
-    );
-    if (globalSdkResult.exitCode === 0) {
-      service.emitCommandOutput(id, 'success', '✓ SDK 全局安装完成');
-    } else {
-      service.emitCommandOutput(
-        id,
-        'output',
-        `! SDK 全局安装跳过: ${globalSdkResult.stderr || 'unknown error'}`,
-      );
-    }
-
-    // Verify node_modules was created
-    const nodeModulesCheck = await manager.executeCommandFull(
-      `test -d ${deployPath}/node_modules && echo "EXISTS" || echo "NOT_FOUND"`,
-    );
-    if (nodeModulesCheck.stdout.includes('NOT_FOUND')) {
-      throw new Error('node_modules directory not created after npm install');
-    }
-
-    // Upload local patched SDK to remote server
-    // Only upload sdk.mjs when a patch file exists -- uploading an unpatched sdk.mjs
-    // from a different version would cause protocol mismatch with the remote CLI.
-    service.emitDeployProgress(id, 'sdk', '正在上传本地 SDK 补丁...', 80);
-    const projectRoot = app.isPackaged ? process.resourcesPath : app.getAppPath();
-    const localSdkPath = path.join(
-      projectRoot,
-      'node_modules',
-      '@anthropic-ai',
-      'claude-agent-sdk',
-    );
-    const remoteSdkPath = `${deployPath}/node_modules/@anthropic-ai/claude-agent-sdk`;
-    const patchesDir = path.join(packageDir, 'patches');
-
-    const hasPatch =
-      fs.existsSync(patchesDir) &&
-      fs.readdirSync(patchesDir).some((f: string) => f.endsWith('.patch'));
-
-    if (hasPatch && fs.existsSync(path.join(localSdkPath, 'sdk.mjs'))) {
-      const localSdkFile = path.join(localSdkPath, 'sdk.mjs');
-      await manager.executeCommand(`mkdir -p ${remoteSdkPath}`);
-      await manager.uploadFile(localSdkFile, `${remoteSdkPath}/sdk.mjs`);
-      service.emitCommandOutput(id, 'success', '✓ SDK 补丁上传完成');
-    } else if (!hasPatch) {
-      service.emitCommandOutput(id, 'output', '无 SDK 补丁，使用远程 npm 安装版本');
-    } else {
-      service.emitCommandOutput(id, 'output', '! 本地 SDK 补丁未找到，跳过上传');
-    }
-
-    // Sync system prompt to remote server
-    service.emitDeployProgress(id, 'sync', '正在同步系统提示词...', 90);
-    await service.syncSystemPrompt(id);
-
-    // Restart agent to apply changes
-    // CRITICAL: Check if there are active sessions before restarting
-    // If a session is in-flight (e.g., long-running script, docker pull), skip restart to avoid interruption
-    service.emitDeployProgress(id, 'restart', '检查 Agent 状态...', 95);
-    try {
-      const managerRef = service.getSSHManager(id);
-      const healthPort = (server.assignedPort || 8080) + 1;
-
-      // Check if agent is running and get active session count via HTTP health endpoint
-      const checkHealthCmd = `curl --noproxy '*' -s --connect-timeout 2 http://localhost:${healthPort}/health 2>/dev/null || echo '{}'`;
-      const healthCheck = await managerRef.executeCommandFull(checkHealthCmd);
-
-      let hasActiveSessions = false;
-      let agentRunning = false;
-      let activeSessionCount = 0;
-
-      try {
-        const healthData = JSON.parse(healthCheck.stdout || '{}');
-        if (healthData.status === 'ok') {
-          agentRunning = true;
-          activeSessionCount = healthData.activeSessions || 0;
-          hasActiveSessions = activeSessionCount > 0;
-        }
-      } catch (e) {
-        agentRunning = false;
-      }
-
-      if (hasActiveSessions) {
-        service.emitCommandOutput(
-          id,
-          'output',
-          `⚠️ 检测到 ${activeSessionCount} 个活跃会话，跳过重启以避免中断`,
-        );
-        service.emitCommandOutput(id, 'output', '提示：代码已更新，将在所有会话完成后手动重启生效');
-      } else if (agentRunning) {
-        await service.stopAgent(id);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        await service.startAgent(id);
-        service.emitCommandOutput(id, 'success', '✓ Agent 重启成功');
-      } else {
-        await service.startAgent(id);
-        service.emitCommandOutput(id, 'success', '✓ Agent 已启动');
-      }
-    } catch (restartError) {
-      service.emitCommandOutput(id, 'error', `! Agent 重启失败：${restartError}`);
-      // Don't throw - the code was deployed successfully
-    }
-
-    service.emitDeployProgress(id, 'complete', '✓ 部署完成!', 100);
-    service.emitCommandOutput(id, 'success', '========================================');
-    service.emitCommandOutput(id, 'success', '部署成功完成!');
-    service.emitCommandOutput(id, 'success', '========================================');
-  } catch (error) {
-    service.emitDeployProgress(id, 'error', `部署失败: ${error}`, 0);
-    service.emitCommandOutput(id, 'error', `✗ 部署失败: ${error}`);
-    throw error;
-  }
+  // [DEPRECATED] Online deploy removed — use deployAgentCodeOffline instead
+  throw new Error('在线部署已移除，请使用离线部署');
 }
 
 /**
  * Fast update: upload all files as a single tar.gz package, skip full environment setup.
- * Falls back to full deployAgentCode() if this is the first deployment.
+ * Falls back to offline deploy if this is the first deployment.
  */
 export async function updateAgentCode(service: RemoteDeployService, id: string): Promise<void> {
   const server = (service as any).servers.get(id);
@@ -709,9 +291,16 @@ export async function updateAgentCode(service: RemoteDeployService, id: string):
   );
 
   if (!firstDeployCheck.stdout.includes('DEPLOYED')) {
-    service.emitCommandOutput(id, 'output', '首次部署或环境不完整，执行完整安装...');
+    service.emitCommandOutput(id, 'output', '首次部署或环境不完整，执行离线部署...');
     service.emitDeployProgress(id, 'prepare', '首次部署中...', 10);
-    return deployAgentCode(service, id);
+    const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+    if (!platform) {
+      throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
+    }
+    if (!isOfflineBundleAvailable(service, platform)) {
+      throw new Error(`离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`);
+    }
+    return deployAgentCodeOffline(service, id, platform);
   }
 
   // --- Incremental update path ---
@@ -733,10 +322,17 @@ export async function updateAgentCode(service: RemoteDeployService, id: string):
   const npmCmd = npmPathDetect.stdout.trim();
 
   if (!npmCmd) {
-    // npm not found -- deployment environment is broken, fall back to full install
-    service.emitCommandOutput(id, 'output', 'npm 未找到，回退到完整安装...');
-    service.emitDeployProgress(id, 'prepare', '环境不完整，执行完整安装...', 10);
-    return deployAgentCode(service, id);
+    // npm not found -- environment incomplete, fall back to offline deploy
+    service.emitCommandOutput(id, 'output', 'npm 未找到，回退到离线部署...');
+    service.emitDeployProgress(id, 'prepare', '环境不完整，执行离线部署...', 10);
+    const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+    if (!platform) {
+      throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
+    }
+    if (!isOfflineBundleAvailable(service, platform)) {
+      throw new Error(`离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`);
+    }
+    return deployAgentCodeOffline(service, id, platform);
   }
 
   const npmPathPrefix = `export PATH="/usr/local/bin:/usr/local/node-v*/bin:$PATH" && `;
@@ -1236,9 +832,8 @@ export async function deployAgentCodeOffline(service: RemoteDeployService, id: s
     service.emitDeployProgress(id, 'error', `离线部署失败: ${error}`, 0);
     service.emitCommandOutput(id, 'error', `✗ 离线部署失败: ${error}`);
 
-    // Auto-fallback to online deployment
-    service.emitCommandOutput(id, 'output', '正在回退到在线部署...');
-    return deployAgentCode(service, id);
+    // No online fallback — rethrow the error
+    throw error;
   }
 }
 

@@ -133,7 +133,7 @@ export function generateAuthToken(_service: RemoteDeployService): string {
 export async function addServer(
   service: RemoteDeployService,
   config: import('./remote-deploy.service').RemoteServerConfigInput,
-): Promise<string> {
+): Promise<{ id: string; sshConnected: boolean; error?: string }> {
   const id = generateId(service);
   console.debug('[RemoteDeployService] addServer - Input:', JSON.stringify(config));
 
@@ -315,21 +315,17 @@ export async function addServer(
     }
 
     service.emitDeployProgress(id, 'complete', 'Server added successfully', 100);
+    return { id, sshConnected: true };
   } catch (error) {
     console.error('[RemoteDeployService] Connection failed:', error);
-    service.emitDeployProgress(
-      id,
-      'error',
-      `Connection failed: ${error instanceof Error ? error.message : String(error)}`,
-      0,
-    );
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    service.emitDeployProgress(id, 'error', `Connection failed: ${errorMsg}`, 0);
     await service.updateServer(id, {
       status: 'error',
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMsg,
     });
+    return { id, sshConnected: false, error: errorMsg };
   }
-
-  return id;
 }
 
 /**
@@ -496,21 +492,23 @@ export async function removeServer(service: RemoteDeployService, id: string): Pr
   const server = (service as any).servers.get(id);
   if (!server) return;
 
-  // Best-effort cleanup: stop remote agent and remove deployment directory
-  try {
-    removePooledConnection(id);
+  removePooledConnection(id);
 
-    const manager = getSSHManager(service, id);
-    if (!manager.isConnected()) {
-      await service.connectServer(id);
+  // Only attempt remote cleanup if there is an active SSH connection
+  const manager = (service as any).sshManagers.get(id);
+  if (manager && manager.isConnected()) {
+    try {
+      const deployPath = getDeployPath(server);
+      await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
+      await manager.executeCommand(`rm -rf ${deployPath}`);
+      console.debug(`[RemoteDeployService] Cleaned up remote proxy on: ${server.name}`);
+    } catch (err) {
+      console.warn(`[RemoteDeployService] Remote cleanup failed for ${server.name}:`, err);
     }
-
-    const deployPath = getDeployPath(server);
-    await manager.executeCommand(`pkill -f "node.*${deployPath}" || true`);
-    await manager.executeCommand(`rm -rf ${deployPath}`);
-    console.debug(`[RemoteDeployService] Cleaned up remote proxy on: ${server.name}`);
-  } catch (err) {
-    console.warn(`[RemoteDeployService] Remote cleanup failed for ${server.name}:`, err);
+  } else {
+    console.debug(
+      `[RemoteDeployService] Skipping remote cleanup for ${server.name}: no active SSH connection`,
+    );
   }
 
   await service.disconnectServer(id);

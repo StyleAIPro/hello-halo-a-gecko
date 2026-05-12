@@ -592,7 +592,7 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
   // Stop agent first (regardless of what needs updating)
   await service.stopAgent(id);
 
-  // Deploy only what's needed
+  // Deploy only what's needed (offline only)
   if (needsCodeDeploy || !sdkOk) {
     const reasons: string[] = [];
     if (!deployCheck.filesOk) reasons.push('files missing');
@@ -601,14 +601,17 @@ export async function updateAgent(service: RemoteDeployService, id: string): Pro
 
     service.emitDeployProgress(id, 'update', `Deploying (${reasons.join(', ')})...`);
 
-    if (!sdkOk) {
-      console.debug(`[RemoteDeploy] SDK version mismatch, installing SDK...`);
-      await service.deployAgentSDK(id);
-    }
-
-    if (needsCodeDeploy) {
-      console.debug(`[RemoteDeploy] Deploying proxy code (${reasons.join(', ')})...`);
-      await service.deployAgentCode(id);
+    // Offline deploy handles both code and SDK — no need for separate SDK install
+    if (needsCodeDeploy || !sdkOk) {
+      const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+      if (!platform) {
+        throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
+      }
+      if (!service.isOfflineBundleAvailable(platform)) {
+        throw new Error(`离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`);
+      }
+      console.debug(`[RemoteDeploy] Deploying via offline bundle (${reasons.join(', ')})...`);
+      await service.deployAgentCodeOffline(id, platform);
     }
   } else {
     console.debug(`[RemoteDeploy] Files and SDK OK for ${server.name}, restarting agent only`);
@@ -981,9 +984,11 @@ export async function detectAgentInstalled(service: RemoteDeployService, id: str
       `[RemoteDeployService] detectAgentInstalled for ${server.name}: installed=${installed}, version=${version}, required=${REQUIRED_SDK_VERSION}, matched=${versionMatched}, proxyRunning=${proxyRunning}`,
     );
 
+    service.emitDeployProgress(id, 'complete', 'Detection complete', 100);
     return { installed: sdkOk, version };
   } catch (error) {
     console.error(`[RemoteDeployService] detectAgentInstalled failed for ${server.name}:`, error);
+    service.emitDeployProgress(id, 'error', 'Detection failed', 0);
     return { installed: false };
   }
 }
@@ -1157,315 +1162,6 @@ export async function checkAgentInstalled(
  * Deploy agent SDK to remote server via SCP
  */
 export async function deployAgentSDK(service: RemoteDeployService, id: string): Promise<void> {
-  const server = (service as any).servers.get(id);
-  if (!server) {
-    throw new Error(`Server not found: ${id}`);
-  }
-
-  console.debug(
-    `[RemoteDeployService] Starting SDK deployment for ${server.name}, current status: ${server.status}`,
-  );
-
-  // Get the SSH manager first
-  const manager = service.getSSHManager(id);
-
-  // Check if SSH connection is actually established
-  console.debug(`[RemoteDeployService] Checking SSH connection state: ${manager.isConnected()}`);
-
-  // Only connect if not already connected
-  if (!manager.isConnected()) {
-    console.debug(`[RemoteDeployService] Not connected, connecting to ${server.name}...`);
-    await service.connectServer(id);
-    // Wait for connection to stabilize
-    console.debug(`[RemoteDeployService] Waiting for SSH connection to stabilize...`);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-  }
-
-  // Verify connection is ready
-  console.debug(
-    `[RemoteDeployService] Verifying SSH connection state after connect: ${manager.isConnected()}`,
-  );
-  if (!manager.isConnected()) {
-    throw new Error(`Failed to establish SSH connection to server: ${server.name}`);
-  }
-
-  try {
-    console.debug(`[RemoteDeployService] Deploying agent SDK to ${server.name}`);
-    service.emitCommandOutput(id, 'command', 'Starting deployment of claude-agent-sdk...');
-
-    // First, test connection with a simple pwd command
-    console.debug(
-      `[RemoteDeployService] Testing SSH connection to ${server.name} with pwd command...`,
-    );
-    service.emitCommandOutput(id, 'command', 'pwd');
-    const testResult = await manager.executeCommandFull('pwd');
-    console.debug(`[RemoteDeployService] pwd result: ${testResult.stdout}`);
-    if (testResult.stdout.trim()) {
-      service.emitCommandOutput(id, 'output', testResult.stdout.trim());
-    }
-
-    // Check if Node.js is installed, install if not
-    console.debug('[RemoteDeployService] Checking Node.js installation...');
-    service.emitCommandOutput(id, 'command', 'node --version');
-    try {
-      const nodeVersion = await manager.executeCommandFull('node --version');
-      console.debug(`[RemoteDeployService] Node.js version: ${nodeVersion.stdout.trim()}`);
-      service.emitCommandOutput(id, 'output', nodeVersion.stdout.trim());
-    } catch {
-      // Node.js not installed, install it automatically
-      console.debug('[RemoteDeployService] Node.js not found, installing...');
-      service.emitCommandOutput(id, 'command', 'Installing Node.js 20.x...');
-
-      // Detect OS and architecture, then install Node.js
-      const installNodeCmd = `ARCH=$(uname -m) && NODE_ARCH=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64") && NODE_VER="v20.18.1" && if node --version > /dev/null 2>&1; then echo "Node.js already installed and working"; elif [ -f /etc/debian_version ]; then curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; elif [ -f /etc/redhat-release ]; then curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && yum install -y nodejs; elif grep -qE "EulerOS|openEuler|hce" /etc/os-release 2>/dev/null; then echo "Detected EulerOS/openEuler on $ARCH, installing Node.js $NODE_VER for $NODE_ARCH..." && rm -rf /usr/local/node-v* /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx 2>/dev/null && (curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz || curl -fsSL "https://npmmirror.com/mirrors/node/$NODE_VER/node-$NODE_VER-$NODE_ARCH.tar.xz" -o /tmp/node.tar.xz) && tar -xJf /tmp/node.tar.xz -C /usr/local && rm /tmp/node.tar.xz && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/node /usr/local/bin/node && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npm /usr/local/bin/npm && ln -sf /usr/local/node-$NODE_VER-$NODE_ARCH/bin/npx /usr/local/bin/npx; elif command -v apk > /dev/null 2>&1; then apk add nodejs npm; else echo "Unsupported OS: $(cat /etc/os-release 2>/dev/null | head -1)" && exit 1; fi`;
-
-      // Node.js install may download packages, allow up to 5 minutes
-      const nodeInstallResult = await manager.executeCommandFull(installNodeCmd, {
-        timeoutMs: 300_000,
-      });
-      if (nodeInstallResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', nodeInstallResult.stdout.trim());
-      }
-      if (nodeInstallResult.exitCode !== 0) {
-        service.emitCommandOutput(
-          id,
-          'error',
-          `Failed to install Node.js: ${nodeInstallResult.stderr}`,
-        );
-        throw new Error(`Failed to install Node.js: ${nodeInstallResult.stderr}`);
-      }
-
-      // Configure npm to use Chinese mirror after installation
-      await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
-
-      service.emitCommandOutput(id, 'success', 'Node.js installed successfully');
-    }
-
-    // Check if npm is installed (usually comes with Node.js)
-    console.debug('[RemoteDeployService] Checking npm installation...');
-    service.emitCommandOutput(id, 'command', 'npm --version');
-    try {
-      const npmVersion = await manager.executeCommandFull('npm --version');
-      console.debug(`[RemoteDeployService] npm version: ${npmVersion.stdout.trim()}`);
-      service.emitCommandOutput(id, 'output', npmVersion.stdout.trim());
-    } catch {
-      // npm not found - this shouldn't happen if Node.js was just installed
-      service.emitCommandOutput(
-        id,
-        'error',
-        'npm is not installed. This should not happen after Node.js installation.',
-      );
-      throw new Error('npm is not installed on the remote server. Please reinstall Node.js.');
-    }
-
-    // Check if npx is installed (usually comes with Node.js, but may be missing in some installations)
-    console.debug('[RemoteDeployService] Checking npx installation...');
-    service.emitCommandOutput(id, 'command', 'npx --version');
-    try {
-      const npxVersion = await manager.executeCommandFull('npx --version');
-      console.debug(`[RemoteDeployService] npx version: ${npxVersion.stdout.trim()}`);
-      service.emitCommandOutput(id, 'output', `npx: ${npxVersion.stdout.trim()}`);
-    } catch {
-      // npx not found - install it using npm
-      console.debug('[RemoteDeployService] npx not found, installing...');
-      service.emitCommandOutput(id, 'command', 'npm install -g npx --force');
-      const npxInstallResult = await manager.executeCommandFull('npm install -g npx --force', {
-        timeoutMs: 120_000,
-      });
-      if (npxInstallResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', npxInstallResult.stdout.trim());
-      }
-      if (npxInstallResult.exitCode !== 0 && !npxInstallResult.stderr.includes('EEXIST')) {
-        service.emitCommandOutput(id, 'error', `Failed to install npx: ${npxInstallResult.stderr}`);
-        throw new Error(`Failed to install npx: ${npxInstallResult.stderr}`);
-      }
-      service.emitCommandOutput(id, 'success', 'npx installed successfully');
-
-      // STEP 1: Clean up old standalone npx package FIRST (causes cb.apply errors with npm 10.x)
-      console.debug('[RemoteDeployService] Checking for standalone npx package...');
-      const checkStandaloneNpx = await manager.executeCommandFull(
-        'npm list -g npx 2>/dev/null || echo "NOT_FOUND"',
-      );
-      if (
-        checkStandaloneNpx.stdout.includes('npx@') &&
-        !checkStandaloneNpx.stdout.includes('npm@')
-      ) {
-        console.debug('[RemoteDeployService] Found standalone npx package, removing...');
-        const removeStandaloneCmd = 'npm uninstall -g npx 2>/dev/null || true';
-        await manager.executeCommandFull(removeStandaloneCmd);
-        service.emitCommandOutput(
-          id,
-          'output',
-          'Removed standalone npx package (using npm built-in npx)',
-        );
-      }
-
-      // STEP 2: Clean npm cache to prevent cb.apply errors
-      await manager.executeCommand('npm cache clean --force 2>/dev/null || true', {
-        timeoutMs: 60_000,
-      });
-
-      // STEP 3: After cleanup, verify npx is in PATH and create/fix symlink
-      try {
-        const npmPrefixResult = await manager.executeCommandFull('npm config get prefix');
-        const npmPrefix = npmPrefixResult.stdout.trim() || '/usr/local';
-
-        const findAndLinkCmd = `
-            NPX_BIN=""
-            # Try npm prefix location first (npm built-in npx)
-            if [ -f "${npmPrefix}/bin/npx" ]; then
-              NPX_BIN="${npmPrefix}/bin/npx"
-            # Try node installation directory
-            elif [ -f "/usr/local/node-v20.18.1-linux-arm64/bin/npx" ]; then
-              NPX_BIN="/usr/local/node-v20.18.1-linux-arm64/bin/npx"
-            # Fallback: search for npx
-            else
-              NPX_BIN=$(find /usr/local -name npx -type f 2>/dev/null | head -1)
-            fi
-            if [ -n "$NPX_BIN" ] && [ -x "$NPX_BIN" ]; then
-              rm -f /usr/local/bin/npx
-              ln -sf "$NPX_BIN" /usr/local/bin/npx
-              echo "Created symlink: /usr/local/bin/npx -> $NPX_BIN"
-            else
-              echo "Could not find npx binary"
-              exit 1
-            fi
-          `;
-        const linkResult = await manager.executeCommandFull(findAndLinkCmd);
-        if (linkResult.stdout.trim()) {
-          service.emitCommandOutput(id, 'output', linkResult.stdout.trim());
-        }
-        if (linkResult.exitCode === 0) {
-          service.emitCommandOutput(id, 'success', 'npx symlink created in /usr/local/bin');
-        }
-
-        // STEP 4: Verify npx works correctly after all fixes
-        const verifyNpxCmd = await manager.executeCommandFull('npx --version 2>&1');
-        if (verifyNpxCmd.exitCode === 0 && verifyNpxCmd.stdout.trim()) {
-          service.emitCommandOutput(id, 'output', `npx version: ${verifyNpxCmd.stdout.trim()}`);
-        } else if (verifyNpxCmd.stdout.includes('Error') || verifyNpxCmd.exitCode !== 0) {
-          console.debug(
-            '[RemoteDeployService] npx still not working, creating alternative wrapper...',
-          );
-          const createWrapperCmd = `
-              cat > /usr/local/bin/npx << 'WRAPPER'
-#!/bin/sh
-exec node "${npmPrefix}/lib/node_modules/npm/bin/npx-cli.js" "$@"
-WRAPPER
-              chmod +x /usr/local/bin/npx
-            `;
-          await manager.executeCommandFull(createWrapperCmd);
-          service.emitCommandOutput(id, 'output', 'Created npx wrapper script');
-        }
-      } catch (linkError) {
-        console.debug('[RemoteDeployService] Failed to create npx symlink:', linkError);
-        // Don't throw - continue with deployment
-      }
-    }
-
-    // Install Claude CLI globally (required for SDK to work)
-    console.debug('[RemoteDeployService] Checking Claude CLI installation...');
-    service.emitCommandOutput(id, 'command', 'claude --version');
-    try {
-      const claudeVersion = await manager.executeCommandFull('claude --version');
-      console.debug(`[RemoteDeployService] Claude CLI version: ${claudeVersion.stdout.trim()}`);
-      service.emitCommandOutput(id, 'output', `Claude CLI: ${claudeVersion.stdout.trim()}`);
-    } catch {
-      // Claude CLI not installed, install it
-      console.debug('[RemoteDeployService] Claude CLI not found, installing...');
-      service.emitCommandOutput(id, 'command', 'npm install -g @anthropic-ai/claude-code');
-      const claudeInstallResult = await manager.executeCommandFull(
-        'npm install -g @anthropic-ai/claude-code',
-        { timeoutMs: 180_000 },
-      );
-      if (claudeInstallResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', claudeInstallResult.stdout.trim());
-      }
-      if (claudeInstallResult.exitCode !== 0) {
-        service.emitCommandOutput(
-          id,
-          'error',
-          `Failed to install Claude CLI: ${claudeInstallResult.stderr}`,
-        );
-        throw new Error(`Failed to install Claude CLI: ${claudeInstallResult.stderr}`);
-      }
-      service.emitCommandOutput(id, 'success', 'Claude CLI installed successfully');
-    }
-
-    // Install claude-agent-sdk globally (skip if already at target version)
-    console.debug('[RemoteDeployService] Checking @anthropic-ai/claude-agent-sdk version...');
-    service.emitCommandOutput(id, 'command', AGENT_CHECK_COMMAND);
-    const sdkCheckResult = await manager.executeCommandFull(AGENT_CHECK_COMMAND);
-    const sdkCheckStdout = sdkCheckResult.stdout.trim();
-    const sdkAlreadyInstalled =
-      sdkCheckStdout.includes('@anthropic-ai/claude-agent-sdk') &&
-      !sdkCheckStdout.includes('NOT_INSTALLED');
-    let sdkNeedsInstall = true;
-
-    if (sdkAlreadyInstalled) {
-      const versionMatch = sdkCheckStdout.match(/@anthropic-ai\/claude-agent-sdk@([\d.]+)/);
-      const installedVersion = versionMatch ? versionMatch[1] : 'unknown';
-      if (installedVersion === REQUIRED_SDK_VERSION) {
-        service.emitCommandOutput(
-          id,
-          'output',
-          `SDK ${REQUIRED_SDK_VERSION} already installed, skipping.`,
-        );
-        sdkNeedsInstall = false;
-      } else {
-        service.emitCommandOutput(
-          id,
-          'output',
-          `SDK version mismatch: installed ${installedVersion}, need ${REQUIRED_SDK_VERSION}. Updating...`,
-        );
-      }
-    }
-
-    if (sdkNeedsInstall) {
-      console.debug('[RemoteDeployService] Installing @anthropic-ai/claude-agent-sdk globally...');
-
-      // Configure npm to use Chinese mirror for faster installation
-      console.debug('[RemoteDeployService] Configuring npm mirror (npmmirror)...');
-      await manager.executeCommand('npm config set registry https://registry.npmmirror.com');
-
-      const installCmd = `npm install -g @anthropic-ai/claude-agent-sdk@${REQUIRED_SDK_VERSION}`;
-      service.emitCommandOutput(id, 'command', installCmd);
-      const installResult = await manager.executeCommandFull(installCmd, { timeoutMs: 180_000 });
-      console.debug('[RemoteDeployService] npm install output:', installResult.stdout);
-      if (installResult.stdout.trim()) {
-        service.emitCommandOutput(id, 'output', installResult.stdout.trim());
-      }
-      if (installResult.stderr) {
-        console.debug('[RemoteDeployService] npm install stderr:', installResult.stderr);
-        service.emitCommandOutput(id, 'error', installResult.stderr.trim());
-      }
-
-      if (installResult.exitCode !== 0) {
-        service.emitCommandOutput(
-          id,
-          'error',
-          `npm install failed with exit code ${installResult.exitCode}`,
-        );
-        throw new Error(
-          `npm install failed with exit code ${installResult.exitCode}: ${installResult.stderr}`,
-        );
-      }
-
-      const successMsg = 'claude-agent-sdk installed successfully';
-      service.emitCommandOutput(id, 'success', successMsg);
-      console.debug(`[RemoteDeployService] Agent SDK deployment completed for ${server.name}`);
-
-      // Update SDK status after deployment
-      const sdkCheck = await service.checkAgentInstalled(id);
-      await service.updateServer(id, {
-        sdkInstalled: sdkCheck.installed,
-        sdkVersion: sdkCheck.version,
-      });
-    } // end if (sdkNeedsInstall)
-  } catch (error) {
-    const err = error as Error;
-    console.error(`[RemoteDeployService] Failed to deploy agent SDK to ${server.name}:`, error);
-    service.emitCommandOutput(id, 'error', err.message);
-    throw error;
-  }
+  // [DEPRECATED] Online SDK install removed — offline deploy handles SDK via file copy
+  throw new Error('在线 SDK 安装已移除，请使用离线部署');
 }

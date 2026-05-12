@@ -49,6 +49,7 @@ export async function validateApi(
   apiUrl: string,
   provider: string,
   model?: string,
+  useProxy?: boolean,
 ): Promise<ControllerResponse> {
   try {
     const result = await validateApiConnection({
@@ -56,6 +57,7 @@ export async function validateApi(
       apiUrl,
       provider: provider as 'anthropic' | 'openai',
       model,
+      useProxy,
     });
     return {
       success: result.valid,
@@ -74,9 +76,9 @@ export async function validateApi(
 /**
  * Fetch available models from an OpenAI-compatible API endpoint
  */
-export async function fetchModels(apiKey: string, apiUrl: string): Promise<ControllerResponse> {
+export async function fetchModels(apiKey: string, apiUrl: string, useProxy?: boolean): Promise<ControllerResponse> {
   try {
-    const result = await fetchModelsFromApi({ apiKey, apiUrl });
+    const result = await fetchModelsFromApi({ apiKey, apiUrl, useProxy });
     return { success: true, data: result };
   } catch (error: unknown) {
     const err = error as Error;

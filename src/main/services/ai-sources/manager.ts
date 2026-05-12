@@ -230,11 +230,17 @@ class AISourceManager {
       config.apiType = source.apiType;
     }
 
+    // Propagate per-source proxy toggle
+    if (source.useProxy) {
+      config.useProxy = true;
+    }
+
     console.log('[AISourceManager] getBackendConfig result:', {
       url: config.url,
       model: config.model,
       hasKey: !!config.key,
       apiType: config.apiType,
+      useProxy: config.useProxy,
     });
 
     return config;
@@ -313,6 +319,10 @@ class AISourceManager {
 
     if (!isAnthropic && source.apiType) {
       config.apiType = source.apiType;
+    }
+
+    if (source.useProxy) {
+      config.useProxy = true;
     }
 
     return config;

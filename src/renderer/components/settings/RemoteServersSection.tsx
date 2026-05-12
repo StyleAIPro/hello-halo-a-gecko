@@ -916,9 +916,14 @@ export function RemoteServersSection() {
     }
   };
 
-  const handleDeployOffline = async (serverId: string): Promise<boolean> => {
-    setUpdatingAgent(serverId);
-    pendingUpdateRef.current = serverId;
+  const handleDeployOffline = async (
+    serverId: string,
+    options?: { skipSpinner?: boolean; skipAlert?: boolean },
+  ): Promise<boolean> => {
+    if (!options?.skipSpinner) {
+      setUpdatingAgent(serverId);
+      pendingUpdateRef.current = serverId;
+    }
     expandServer(serverId);
     clearTerminal(serverId);
 
@@ -937,22 +942,30 @@ export function RemoteServersSection() {
 
       if (result.success) {
         addTerminalEntry(serverId, 'success', 'Offline deploy completed!');
-        await alertDialog(t('Agent deployed offline successfully'));
+        if (!options?.skipAlert) {
+          await alertDialog(t('Agent deployed offline successfully'));
+        }
         await loadServers();
         return true;
       } else {
         addTerminalEntry(serverId, 'error', `Offline deploy failed: ${result.error}`);
-        await alertDialog(result.error || t('Failed to deploy agent offline'));
+        if (!options?.skipAlert) {
+          await alertDialog(result.error || t('Failed to deploy agent offline'));
+        }
         return false;
       }
     } catch (error) {
       addTerminalEntry(serverId, 'error', `Error: ${error}`);
       console.error('[RemoteServersSection] Offline deploy error:', error);
-      await alertDialog(t('Failed to deploy agent offline'));
+      if (!options?.skipAlert) {
+        await alertDialog(t('Failed to deploy agent offline'));
+      }
       return false;
     } finally {
-      pendingUpdateRef.current = null;
-      setUpdatingAgent(null);
+      if (!options?.skipSpinner) {
+        pendingUpdateRef.current = null;
+        setUpdatingAgent(null);
+      }
     }
   };
 
@@ -966,12 +979,12 @@ export function RemoteServersSection() {
     setUpdatingAgent(null);
   };
 
-  // Batch update all servers
+  // Batch offline deploy all servers
   const handleBatchUpdate = async () => {
     if (servers.length === 0) return;
     if (
       !(await confirmDialog(
-        t('Batch update all servers to latest version? This will restart all agent services.'),
+        t('Batch offline deploy all servers? This will deploy the latest agent bundle to all servers.'),
       ))
     )
       return;
@@ -983,9 +996,9 @@ export function RemoteServersSection() {
     let completed = 0;
     let succeeded = 0;
 
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       servers.map((server) =>
-        handleUpdateAgent(server.id, true)
+        handleDeployOffline(server.id, { skipSpinner: true, skipAlert: true })
           .then((ok) => {
             if (ok) succeeded++;
           })
@@ -999,9 +1012,12 @@ export function RemoteServersSection() {
     const failed = total - succeeded;
     setBatchProgress(null);
     setBatchUpdating(false);
-    // Show summary alert
     await alertDialog(
-      `Batch update completed: ${succeeded}/${total} succeeded${failed > 0 ? `, ${failed} failed` : ''}`,
+      t('Batch deploy completed: {{succeeded}}/{{total}} succeeded{{failed}}', {
+        succeeded,
+        total,
+        failed: failed > 0 ? `, ${failed} failed` : '',
+      }),
     );
     await loadServers();
   };
@@ -1136,6 +1152,21 @@ export function RemoteServersSection() {
           </div>
           <div className="flex items-center gap-2">
             {/* Auto-detected architecture indicator (offline mode only) */}
+
+            {servers.length > 0 && offlineBundleReady && (
+              <button
+                onClick={handleBatchUpdate}
+                disabled={batchUpdating}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center gap-2 hover:bg-green-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+              >
+                {batchUpdating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Package className="w-4 h-4" />
+                )}
+                {t('Batch Deploy')}
+              </button>
+            )}
 
             <button
               onClick={() => {

@@ -187,6 +187,7 @@ export async function resolveCredentialsForSdk(
     apiType,
     forceStream: credentials.forceStream,
     filterContent: credentials.filterContent,
+    useProxy: credentials.useProxy,
   });
 
   console.log(
@@ -236,6 +237,7 @@ async function resolveAnthropicPassthrough(
     apiType: 'anthropic_passthrough',
     forceStream: credentials.forceStream,
     filterContent: credentials.filterContent,
+    useProxy: credentials.useProxy,
   });
 
   console.log(`[SDK Config] Anthropic passthrough: routing via ${router.baseUrl}`);

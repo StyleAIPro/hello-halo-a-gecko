@@ -230,7 +230,9 @@
   "Background tasks": "",
   "Background Tasks": "",
   "Basic Info": "",
-  "Batch update all servers to latest version? This will restart all agent services.": "",
+  "Batch Deploy": "",
+  "Batch offline deploy all servers? This will deploy the latest agent bundle to all servers.": "",
+  "Batch deploy completed: {{succeeded}}/{{total}} succeeded{{failed}}": "",
   "Before compression": "",
   "Before you start, configure your AI": "Antes de comenzar, configura tu IA",
   "blur": "",
@@ -404,7 +406,6 @@
   "Details": "",
   "Developers": "Desarrolladores",
   "Digital Human": "Humano digital",
-  "Directory \"{{path}}\" does not exist on the remote server. Create it?": "",
   "Directory where remote agent will operate": "",
   "Disable": "Desactivar",
   "Disable Deep Thinking": "Desactivar pensamiento profundo",
@@ -1185,6 +1186,7 @@
   "Use cases": "Casos de uso",
   "Use custom model ID": "Usar ID de modelo personalizado",
   "Use natural language to have it write documents, create spreadsheets, search the web, write code...": "Usa lenguaje natural para que escriba documentos, cree hojas de cálculo, busque en la web, escriba código...",
+  "Use network proxy": "",
   "Use SSH port forwarding (localhost:8080) instead of direct WebSocket connection.": "",
   "Use SSH Tunnel": "",
   "Use this for Huawei Cloud or networks that block external WebSocket connections.": "",
@@ -1194,6 +1196,7 @@
   "User requirement": "",
   "Username": "",
   "Username (optional)": "",
+  "uses global proxy from System settings": "",
   "Uses the globally selected model. Change in the header model selector.": "Usa el modelo seleccionado globalmente. Cámbialo en el selector de modelos del encabezado.",
   "Valid repository": "",
   "Validate": "",
@@ -1257,5 +1260,6 @@
   "Zoom out (-)": "Alejar (-)",
   "技能库、市场与编辑器": "",
   "技能生成器": "",
-  "技能管理": ""
+  "技能管理": "",
+  "远程服务器上不存在目录 \"{{path}}\"，是否自动创建？": ""
 }

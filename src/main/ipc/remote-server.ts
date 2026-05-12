@@ -65,9 +65,13 @@ export function registerRemoteServerHandlers(): void {
     console.log('[IPC] remote-server:add - Adding server:', input.name);
     console.log('[IPC] remote-server:add - Full input:', JSON.stringify(input));
     try {
-      const id = await deployService.addServer(input);
-      console.log('[IPC] remote-server:add - Added server ID:', id);
-      return { success: true, data: { id } };
+      const result = await deployService.addServer(input);
+      console.log('[IPC] remote-server:add - Added server ID:', result.id, 'sshConnected:', result.sshConnected);
+      if (result.sshConnected) {
+        return { success: true, data: { id: result.id } };
+      } else {
+        return { success: true, data: { id: result.id, partial: true, error: result.error } };
+      }
     } catch (error: unknown) {
       const err = error as Error;
       console.error('[IPC] remote-server:add - Failed:', err.message);
@@ -412,12 +416,20 @@ wrapIpcHandle('remote-server:check-agent', async (_event, serverId: string) => {
   }
 });
 
-// Deploy agent SDK to remote server via SCP
+// Deploy agent to remote server (offline only)
 wrapIpcHandle('remote-server:deploy-agent', async (_event, serverId: string) => {
-  console.log('[IPC] remote-server:deploy-agent - Deploying agent SDK:', serverId);
+  console.log('[IPC] remote-server:deploy-agent - Deploying agent (offline):', serverId);
   try {
-    await deployService.deployAgentSDK(serverId);
-    return { success: true, data: { message: 'Agent SDK deployment started' } };
+    const server = deployService.getServer(serverId);
+    const platform = server?.detectedArch as 'x64' | 'arm64' | undefined;
+    if (!platform) {
+      throw new Error('无法检测服务器 CPU 架构，离线部署需要 x86_64 或 aarch64');
+    }
+    if (!deployService.isOfflineBundleAvailable(platform)) {
+      throw new Error(`离线部署包不存在 (linux-${platform})。请先执行 npm run build:offline-bundle 构建。`);
+    }
+    await deployService.deployAgentCodeOffline(serverId, platform);
+    return { success: true, data: { message: 'Agent deployed successfully (offline)' } };
   } catch (error: unknown) {
     const err = error as Error;
     console.error('[IPC] remote-server:deploy-agent - Failed:', err.message);
