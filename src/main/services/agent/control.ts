@@ -10,7 +10,7 @@
 
 import { activeSessions, v2Sessions, invalidateSession, unregisterActiveSession } from './session-manager';
 import { getRemoteWsClient } from '../remote/ws/remote-ws-client';
-import { rejectAllQuestions } from './permission-handler';
+import { rejectAllQuestions, rejectAllPermissions } from './permission-handler';
 import type { Thought } from './types';
 
 // ============================================
@@ -27,8 +27,9 @@ export async function stopGeneration(conversationId?: string): Promise<void> {
     `[Agent][control.ts] stopGeneration called with conversationId=${conversationId || 'undefined'}`,
   );
 
-  // Reject all pending AskUserQuestion promises to unblock the SDK
+  // Reject all pending AskUserQuestion and tool permission promises to unblock the SDK
   rejectAllQuestions();
+  rejectAllPermissions();
 
   if (conversationId) {
     // Stop specific session

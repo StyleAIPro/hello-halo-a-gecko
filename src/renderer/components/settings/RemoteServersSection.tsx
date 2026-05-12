@@ -1230,9 +1230,13 @@ export function RemoteServersSection() {
                           {server.aiSourceId &&
                             (() => {
                               const source = aiSources.find((s) => s.id === server.aiSourceId);
-                              return source ? (
+                              const modelId = server.claudeModel || source?.model || '';
+                              const modelDisplayName = modelId && source
+                                ? source.availableModels?.find((m) => m.id === modelId)?.name || modelId
+                                : modelId;
+                              return source && modelId ? (
                                 <span className="inline-flex items-center text-xs text-muted-foreground mt-0.5">
-                                  {source.provider} / {server.claudeModel || source.model}
+                                  {source.provider} / {modelDisplayName}
                                 </span>
                               ) : null;
                             })()}

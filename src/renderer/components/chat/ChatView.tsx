@@ -49,6 +49,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     continueAfterInterrupt,
     answerQuestion,
     answerWorkerQuestion,
+    resolveToolPermission,
     clearPendingMessages,
   } = useChatStore();
 
@@ -125,6 +126,7 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     errorType,
     textBlockVersion,
     pendingQuestion,
+    pendingToolPermission,
     pendingMessages,
   } = session;
   const pendingCount = pendingMessages?.length || 0;
@@ -347,6 +349,12 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
               onAnswerQuestion={
                 currentConversation
                   ? (answers) => answerQuestion(currentConversation.id, answers)
+                  : undefined
+              }
+              pendingToolPermission={pendingToolPermission}
+              onResolveToolPermission={
+                currentConversation
+                  ? (approved) => resolveToolPermission(currentConversation.id, approved)
                   : undefined
               }
               onAtBottomStateChange={handleAtBottomStateChange}

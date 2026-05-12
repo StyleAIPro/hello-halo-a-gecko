@@ -695,9 +695,23 @@ class AISourceManager {
         newModels.map((m) => m.id).join(', '),
       );
 
+      // Preserve user-customized model names (where name differs from builtin default)
+      const existingNameMap = new Map<string, string>();
+      for (const e of existing) {
+        const def = builtin.models.find((m) => m.id === e.id);
+        if (def && def.name !== e.name) {
+          existingNameMap.set(e.id, e.name);
+        }
+      }
+
+      const mergedModels = builtin.models.map((m) => ({
+        ...m,
+        ...(existingNameMap.has(m.id) ? { name: existingNameMap.get(m.id)! } : {}),
+      }));
+
       return {
         ...source,
-        availableModels: [...builtin.models],
+        availableModels: mergedModels,
       };
     });
 

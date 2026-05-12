@@ -13,10 +13,10 @@ import os from 'os';
 // ============================================
 
 /**
- * Default allowed tools that don't require user approval.
- * Used by both send-message.ts and session-manager.ts.
+ * Tools available to the model (used in system prompt).
+ * This is the full list of tools the model knows about and can use.
  */
-export const DEFAULT_ALLOWED_TOOLS = [
+export const AVAILABLE_TOOLS = [
   'Read',
   'Write',
   'Edit',
@@ -26,7 +26,32 @@ export const DEFAULT_ALLOWED_TOOLS = [
   'Skill',
 ] as const;
 
-export type AllowedTool = (typeof DEFAULT_ALLOWED_TOOLS)[number];
+/**
+ * Tools that are pre-approved and skip the canUseTool permission callback.
+ *
+ * Risk tiers:
+ * - Pre-approved (no confirmation): Read, Glob, Grep (read-only),
+ *   Write, Edit, Create, MultiEdit, NotebookEdit (reversible via git),
+ *   TodoWrite (internal state only)
+ * - Smart-inspected (Bash only): destructive commands require confirmation
+ * - Special: Skill (disabled check), AskUserQuestion (user interaction)
+ */
+export const PRE_APPROVED_TOOLS = [
+  'Read',
+  'Glob',
+  'Grep',
+  'Write',
+  'Edit',
+  'Create',
+  'MultiEdit',
+  'NotebookEdit',
+  'TodoWrite',
+] as const;
+
+/** @deprecated Use AVAILABLE_TOOLS instead */
+export const DEFAULT_ALLOWED_TOOLS = AVAILABLE_TOOLS;
+
+export type AllowedTool = (typeof AVAILABLE_TOOLS)[number];
 
 // ============================================
 // System Prompt Context
@@ -197,6 +222,16 @@ The user will primarily request you perform software engineering tasks. This inc
 
 
 You can use the following tools without requiring user approval: \${ALLOWED_TOOLS}
+
+## Handling Denied Tool Permissions
+
+When a tool permission request is denied by the user, you MUST:
+1. Acknowledge the denial to the user — explain that the specific operation was not performed because they declined it
+2. Briefly explain why the operation may carry risk (e.g., irreversible data loss, system changes)
+3. Propose safer alternative approaches to accomplish the same goal, if alternatives exist
+4. Ask the user which alternative they prefer, or ask if they want to proceed differently
+
+Never silently skip a denied operation. Always inform the user and offer alternatives.
 
 
 IMPORTANT: Always use the TodoWrite tool to plan and track tasks throughout the conversation.

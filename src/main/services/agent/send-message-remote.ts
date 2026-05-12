@@ -629,6 +629,23 @@ export async function executeRemoteMessage(
       }
     });
 
+    // Permission request forwarding - remote Claude asks user to approve a destructive command
+    addHandler('permission:request', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        log.debug(
+          `Permission request: id=${data.data.id}, tool=${data.data.toolName}`,
+        );
+        // [DIAG-1.7] Log permission forwarding to renderer
+        console.log(`[DIAG][RemotePermission] Forwarding permission:request to renderer: id=${data.data.id}, tool=${data.data.toolName}`)
+        sendToRenderer('agent:permission-request', spaceId, conversationId, {
+          id: data.data.id,
+          toolName: data.data.toolName,
+          toolInput: data.data.toolInput,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
     // Auth retry notification from remote proxy
     addHandler('auth_retry', (data) => {
       if (data.sessionId === effectiveSessionId) {
@@ -842,6 +859,7 @@ export async function executeRemoteMessage(
           ? `http://127.0.0.1:${mcpProxyRemotePort}/mcp`
           : undefined,
         aicoBotMcpToken: mcpProxyRemotePort ? await getAccessToken() : undefined,
+        permissionMode: (config.permissions?.trustMode ?? false) ? 'full' : 'partial',
       },
     );
 

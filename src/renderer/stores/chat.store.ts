@@ -34,6 +34,7 @@ import type {
   CanvasContext,
   AgentErrorType,
   PendingQuestion,
+  ToolPermissionRequest,
   Question,
   TaskStatus,
   PulseItem,
@@ -124,6 +125,8 @@ interface SessionState {
   textBlockVersion: number;
   // Pending question from AskUserQuestion tool
   pendingQuestion: PendingQuestion | null;
+  // Pending tool permission request (high-risk tools)
+  pendingToolPermission: ToolPermissionRequest | null;
   // Pending messages queue - messages waiting for current generation to complete
   pendingMessages: PendingMessage[];
   // Hyper Space: Worker session states keyed by agentId
@@ -292,6 +295,7 @@ function createEmptySessionState(): SessionState {
     compactInfo: null,
     textBlockVersion: 0,
     pendingQuestion: null,
+    pendingToolPermission: null,
     pendingMessages: [],
     workerSessions: new Map(),
   };
@@ -1311,6 +1315,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           compactInfo: null,
           textBlockVersion: 0,
           pendingQuestion: null,
+          pendingToolPermission: null,
           pendingMessages: [],
           // Clean up completed/failed worker sessions from previous rounds.
           // Keep running workers and workers with persisted childConversationId history.
@@ -1828,6 +1833,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { spaceId, conversationId } = data;
     console.log(`[ChatStore] handleAgentComplete [${conversationId}]`);
 
+    // Check for pending messages before completing
+    const sessionBeforeComplete = get().getSession(conversationId);
+    const pendingMessages = sessionBeforeComplete.pendingMessages || [];
+
     // Check if user is currently viewing this conversation
     const state = get();
     const currentSpaceState = state.currentSpaceId
@@ -1897,11 +1906,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
 
         // Now atomically: update cache, metadata, AND clear session state
-        // This prevents flash by doing all in one render.
-        // IMPORTANT: Read pendingMessages from current state inside set() callback,
-        // NOT from a pre-await snapshot, to avoid race condition where user sends
-        // a message during the await api.getConversation() window.
-        let nextPendingMessage: PendingMessage | null = null;
+        // This prevents flash by doing all in one render
         set((state) => {
           // Update cache with fresh data
           const newCache = new Map(state.conversationCache);
@@ -1925,13 +1930,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const newSessions = new Map(state.sessions);
           const currentSession = newSessions.get(conversationId);
           if (currentSession) {
-            // Check if there are pending messages to send (read from CURRENT state)
+            // Check if there are pending messages to send
             const remainingPending = currentSession.pendingMessages || [];
             const hasPendingMessages = remainingPending.length > 0;
 
             if (hasPendingMessages) {
-              // Capture the first pending message for sending after set()
-              nextPendingMessage = remainingPending[0];
+              // Get the first pending message
+              const nextMessage = remainingPending[0];
               const restMessages = remainingPending.slice(1);
 
               console.log(`[ChatStore] Processing pending message [${conversationId}]`);
@@ -1945,6 +1950,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 thoughts: [],
                 compactInfo: null,
                 pendingQuestion: null,
+                pendingToolPermission: null,
                 error: null,
                 errorType: null,
                 pendingMessages: restMessages,
@@ -1967,6 +1973,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isThinking: false, // Clear thinking status
                 compactInfo: null, // Clear temporary compact notification
                 pendingQuestion: null, // Clear pending question
+                pendingToolPermission: null, // Clear pending tool permission
                 error: null, // Clear session error — now persisted in message.error
                 errorType: null,
               });
@@ -1982,15 +1989,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.log(`[ChatStore] Conversation reloaded from backend [${conversationId}]`);
 
         // If there were pending messages, send the first one now
-        // Use nextPendingMessage captured from inside set() (current state, not stale snapshot)
-        if (nextPendingMessage) {
+        if (pendingMessages.length > 0) {
+          const nextMessage = pendingMessages[0];
+
           // Add user message to UI
           const userMessage: Message = {
             id: `msg-${Date.now()}`,
             role: 'user',
-            content: nextPendingMessage.content,
+            content: nextMessage.content,
             timestamp: new Date().toISOString(),
-            images: nextPendingMessage.images,
+            images: nextMessage.images,
           };
 
           set((state) => {
@@ -2029,12 +2037,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           await api.sendMessage({
             spaceId,
             conversationId,
-            message: nextPendingMessage.content,
-            images: nextPendingMessage.images,
-            aiBrowserEnabled: nextPendingMessage.aiBrowserEnabled,
-            thinkingEnabled: nextPendingMessage.thinkingEnabled,
+            message: nextMessage.content,
+            images: nextMessage.images,
+            aiBrowserEnabled: nextMessage.aiBrowserEnabled,
+            thinkingEnabled: nextMessage.thinkingEnabled,
             canvasContext: buildCanvasContext(),
-            agentId: nextPendingMessage.agentId || 'leader', // Pass target agent for Hyper Space
+            agentId: nextMessage.agentId || 'leader', // Pass target agent for Hyper Space
           });
         }
       }
@@ -2042,7 +2050,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.error('[ChatStore] Failed to reload conversation:', error);
       // Even on error, must clear state to avoid stale content
       // CRITICAL: Must also clear isStopping to prevent UI stuck in "stopping" state
-      // NOTE: Do NOT clear pendingMessages — preserve queued messages so user can retry
       set((state) => {
         const newSessions = new Map(state.sessions);
         const currentSession = newSessions.get(conversationId);
@@ -2053,7 +2060,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
             isStopping: false, // CRITICAL: Clear stopping state (fix for remote space stop button stuck)
             isThinking: false, // Clear thinking state
             streamingContent: '',
-            // Preserve thoughts and pendingMessages on reload error
+            thoughts: [], // Clear thoughts
+            compactInfo: null, // Clear temporary compact notification
+            pendingQuestion: null, // Clear pending question
+            pendingToolPermission: null, // Clear pending tool permission
+            pendingMessages: [], // Clear pending messages on error
           });
         }
         return { sessions: newSessions };
@@ -2480,6 +2491,86 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
     } catch (error) {
       console.error('[ChatStore] Failed to answer worker question:', error);
+    }
+  },
+
+  // Handle tool permission request from main agent
+  handlePermissionRequest: (data) => {
+    const { conversationId, id, toolName, toolInput, timestamp } = data;
+    console.log(
+      `[ChatStore] handlePermissionRequest [${conversationId}]: id=${id}, tool=${toolName}`,
+    );
+
+    let rejected = false;
+    let rejectReason = '';
+
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+
+      if (!session) {
+        console.warn(`[ChatStore] No session for permission request: ${conversationId}`);
+        rejected = true;
+        rejectReason = 'Session not found';
+        return state;
+      }
+
+      if (session.isStopping) {
+        console.log(`[ChatStore] Rejecting permission - stopping: ${conversationId}`);
+        rejected = true;
+        rejectReason = 'Generation stopping';
+        return state;
+      }
+
+      newSessions.set(conversationId, {
+        ...session,
+        pendingToolPermission: {
+          id,
+          toolName,
+          toolInput: toolInput || {},
+          status: 'active',
+          timestamp: timestamp || Date.now(),
+        },
+      });
+      return { sessions: newSessions };
+    });
+
+    if (rejected) {
+      api.resolveAgentPermission({ id, approved: false }).catch((err) => {
+        console.error('[ChatStore] Failed to reject permission:', err);
+      });
+    }
+  },
+
+  // Resolve a pending tool permission request (approve/deny from UI)
+  resolveToolPermission: async (conversationId: string, approved: boolean) => {
+    const session = get().sessions.get(conversationId);
+    if (!session?.pendingToolPermission) {
+      console.warn(`[ChatStore] No pending tool permission for conversation: ${conversationId}`);
+      return;
+    }
+
+    const { id } = session.pendingToolPermission;
+
+    try {
+      await api.resolveAgentPermission({ id, approved, conversationId });
+
+      set((state) => {
+        const newSessions = new Map(state.sessions);
+        const currentSession = newSessions.get(conversationId);
+        if (currentSession?.pendingToolPermission) {
+          newSessions.set(conversationId, {
+            ...currentSession,
+            pendingToolPermission: {
+              ...currentSession.pendingToolPermission,
+              status: approved ? 'approved' : 'denied',
+            },
+          });
+        }
+        return { sessions: newSessions };
+      });
+    } catch (error) {
+      console.error('[ChatStore] Failed to resolve tool permission:', error);
     }
   },
 

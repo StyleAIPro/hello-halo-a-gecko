@@ -159,6 +159,18 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
     }
   };
 
+  // Handle permission mode change
+  const handlePermissionModeChange = async (trustMode: boolean) => {
+    try {
+      const updatedPermissions = { ...config?.permissions, trustMode };
+      const updatedConfig = { ...config, permissions: updatedPermissions } as AicoBotConfig;
+      await api.setConfig({ permissions: updatedPermissions });
+      setConfig(updatedConfig);
+    } catch (error) {
+      console.error('[SystemSection] Failed to update permission mode:', error);
+    }
+  };
+
   // Handle proxy test
   const handleProxyTest = async () => {
     const trimmed = (proxyUrlDraft.trim() || proxyUrl).trim();
@@ -287,28 +299,52 @@ export function SystemSection({ config, setConfig }: SystemSectionProps) {
       <section id="permissions" className="bg-card rounded-xl border border-border p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium">{t('Permissions')}</h2>
-          <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-500">
-            {t('Full Permission Mode')}
+          <span className={`text-xs px-2 py-1 rounded-full ${
+            config?.permissions?.trustMode
+              ? 'bg-green-500/20 text-green-500'
+              : 'bg-amber-500/20 text-amber-500'
+          }`}>
+            {config?.permissions?.trustMode ? t('Full Permission Mode') : t('Partial Permission Mode')}
           </span>
         </div>
 
-        {/* Info banner */}
+        {/* Mode description */}
         <div className="bg-muted/50 rounded-lg p-3 mb-4 text-sm text-muted-foreground">
-          {t('We recommend full trust mode - use natural language to control AICO-Bot.')}
+          {config?.permissions?.trustMode
+            ? t('All operations execute automatically without confirmation.')
+            : t('Destructive operations require manual confirmation.')}
         </div>
 
-        {/* Trust Mode - always on */}
-        <div className="flex items-center justify-between opacity-50">
-          <div>
-            <p className="font-medium">{t('Trust Mode')}</p>
-            <p className="text-sm text-muted-foreground">
-              {t('Automatically execute all operations')}
-            </p>
-          </div>
-          <label className="relative inline-flex items-center cursor-not-allowed">
-            <input type="checkbox" checked={true} disabled className="sr-only peer" />
-            <div className="w-11 h-6 bg-primary rounded-full">
-              <div className="w-5 h-5 bg-white rounded-full shadow-md transform translate-x-5 mt-0.5" />
+        {/* Mode selection */}
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input
+              type="radio"
+              name="permissionMode"
+              checked={!!config?.permissions?.trustMode}
+              onChange={() => handlePermissionModeChange(true)}
+              className="mt-1 accent-primary"
+            />
+            <div>
+              <p className="font-medium group-hover:text-primary transition-colors">{t('Full Permission Mode')}</p>
+              <p className="text-sm text-muted-foreground">
+                {t('Automatically execute all operations, including destructive commands.')}
+              </p>
+            </div>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input
+              type="radio"
+              name="permissionMode"
+              checked={!config?.permissions?.trustMode}
+              onChange={() => handlePermissionModeChange(false)}
+              className="mt-1 accent-primary"
+            />
+            <div>
+              <p className="font-medium group-hover:text-primary transition-colors">{t('Partial Permission Mode')}</p>
+              <p className="text-sm text-muted-foreground">
+                {t('Destructive commands (rm, sudo, git push --force, etc.) require manual approval.')}
+              </p>
             </div>
           </label>
         </div>

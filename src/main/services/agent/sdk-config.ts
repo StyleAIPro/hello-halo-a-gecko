@@ -29,7 +29,7 @@ import {
 } from '../../openai-compat-router';
 import type { ApiCredentials } from './types';
 import { inferOpenAIWireApi } from './helpers';
-import { buildSystemPrompt, DEFAULT_ALLOWED_TOOLS } from './system-prompt';
+import { buildSystemPrompt, AVAILABLE_TOOLS, PRE_APPROVED_TOOLS } from './system-prompt';
 import { createCanUseTool } from './permission-handler';
 import { sendToRenderer } from './helpers';
 import { SkillManager } from '../skill/skill-manager';
@@ -117,6 +117,8 @@ export interface BaseSdkOptionsParams {
   agentName?: string;
   /** Additional tools to disallow (merged with the default disallowedTools list) */
   additionalDisallowedTools?: string[];
+  /** Permission trust mode: true = full permissions (skip destructive checks) */
+  trustMode?: boolean;
   /** GitHub search environment status for dynamic system prompt */
   ghSearchStatus?: {
     patConfigured: boolean;
@@ -681,6 +683,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     contextWindow,
     agentId,
     agentName,
+    trustMode,
   } = params;
 
   console.log(
@@ -702,9 +705,6 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     cwd: workDir,
     abortController,
     env,
-    extraArgs: {
-      'dangerously-skip-permissions': null,
-    },
     stderr:
       stderrHandler ||
       ((data: string) => {
@@ -716,7 +716,7 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
       append: buildDisabledSkillsPrompt() + buildSystemPrompt({ workDir, modelInfo: credentials.displayModel, ghSearchStatus: params.ghSearchStatus }),
     },
     maxTurns: params.maxTurns ?? 50,
-    allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+    allowedTools: [...PRE_APPROVED_TOOLS],
     // Explicitly disable WebFetch and WebSearch - use ai-browser and gh-search instead
     disallowedTools: ['WebFetch', 'WebSearch', ...(params.additionalDisallowedTools ?? [])],
     // Enable both 'user' and 'project' setting sources for skill loading.
@@ -725,13 +725,14 @@ export function buildBaseSdkOptions(params: BaseSdkOptionsParams): Record<string
     // additionalDirectory and create a .claude/skills junction inside it.
     settingSources: ['user', 'project'],
     additionalDirectories: [String(env.CLAUDE_CONFIG_DIR)],
-    permissionMode: 'bypassPermissions' as const,
+    permissionMode: 'default' as const,
     canUseTool: createCanUseTool({
       sendToRenderer,
       spaceId,
       conversationId,
       agentId,
       agentName,
+      trustMode,
     }),
     // Requires SDK patch: enable token-level streaming (stream_event)
     includePartialMessages: true,

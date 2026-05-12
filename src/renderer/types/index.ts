@@ -676,6 +676,16 @@ export interface PendingQuestion {
   answers?: Record<string, string>; // User answers {"0": "JWT Tokens", "1": "PostgreSQL"}
 }
 
+export type ToolPermissionStatus = 'active' | 'approved' | 'denied' | 'cancelled';
+
+export interface ToolPermissionRequest {
+  id: string; // Unique permission ID
+  toolName: string; // Tool name (e.g. Bash, Write, Edit)
+  toolInput: Record<string, unknown>; // Tool input parameters
+  status: ToolPermissionStatus;
+  timestamp: number;
+}
+
 export interface AgentCompactEvent extends AgentEventBase {
   type: 'compact';
   trigger: 'manual' | 'auto';

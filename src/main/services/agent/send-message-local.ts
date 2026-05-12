@@ -332,6 +332,7 @@ export async function sendMessage(
         patConfigured: !!getGitHubToken(),
         proxyEnabled: !!getEffectiveProxyUrl(),
       },
+      trustMode: config.permissions?.trustMode ?? false,
     });
 
     // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
@@ -632,6 +633,7 @@ export async function sendMessage(
             mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : null,
             maxTurns: config.agent?.maxTurns,
             contextWindow: freshResolved.contextWindow,
+            trustMode: config.permissions?.trustMode ?? false,
           });
 
           // Apply dynamic configurations (AI Browser system prompt, Thinking mode)

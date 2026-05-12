@@ -32,6 +32,7 @@ export interface ClientMessage {
     | 'mcp:tool:response'
     | 'mcp:tool:error'
     | 'ask:answer'
+    | 'permission:response'
     | 'task:list'
     | 'task:cancel'
     | 'task:spawn';
@@ -71,7 +72,8 @@ export interface ServerMessage {
     | 'task:spawn'
     | 'worker:started'
     | 'worker:completed'
-    | 'ask:question';
+    | 'ask:question'
+    | 'permission:request';
   sessionId?: string;
   data?: any;
 }

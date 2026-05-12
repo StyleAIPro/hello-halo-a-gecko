@@ -47,6 +47,12 @@ export class RemoteAgentServer {
     reject: (error: Error) => void
   }>()
 
+  // Pending tool permission requests: permissionId -> { resolve, reject }
+  private pendingPermissions = new Map<string, {
+    resolve: (approved: boolean) => void
+    reject: (error: Error) => void
+  }>()
+
   // Pending MCP tool calls: callId -> { resolve, reject }
   private pendingMcpToolCalls = new Map<string, {
     resolve: (result: any) => void
@@ -521,7 +527,17 @@ export class RemoteAgentServer {
           pending.reject(new Error(message.payload?.reason || 'Tool rejected by client'))
         }
       } else {
-        console.log(`[${message.type}] No pending tool found for ID: ${toolId}`)
+        // Check if this is a tool permission request response
+        const permissionPending = this.pendingPermissions.get(toolId)
+        if (permissionPending) {
+          this.pendingPermissions.delete(toolId)
+          const approved = (message.payload as any)?.approved !== false
+          // [DIAG-1.6] Log tool:approve for permission
+          console.log(`[DIAG][PermissionHandler] Received tool:approve for permission ${toolId}, approved=${approved}`)
+          permissionPending.resolve(approved)
+        } else {
+          console.log(`[${message.type}] No pending tool or permission found for ID: ${toolId}`)
+        }
       }
     } else if (message.type === 'ask:answer') {
       // User answered an AskUserQuestion from the remote Claude
@@ -807,6 +823,28 @@ export class RemoteAgentServer {
           })
         }
 
+        // Permission request handler — forward to AICO-Bot client, wait for user approval/deny
+        const onPermissionRequest = (id: string, toolName: string, toolInput: Record<string, unknown>) => {
+          return new Promise<boolean>((resolve, reject) => {
+            this.pendingPermissions.set(id, { resolve, reject })
+            // [DIAG-1.6] Log permission:request send
+            console.log(`[DIAG][PermissionHandler] Sending permission:request to client: id=${id}, tool=${toolName}, sessionId=${sessionId}`)
+            // Send permission request to AICO-Bot client
+            this.sendMessage(ws, {
+              type: 'permission:request',
+              sessionId,
+              data: { id, toolName, toolInput }
+            })
+            // 10 minute timeout for user response
+            setTimeout(() => {
+              if (this.pendingPermissions.has(id)) {
+                this.pendingPermissions.delete(id)
+                reject(new Error('Permission request timeout'))
+              }
+            }, 10 * 60 * 1000)
+          })
+        }
+
         let needsClosedSessionRetry = false
 
         try {
@@ -855,7 +893,8 @@ export class RemoteAgentServer {
             hyperSpaceToolExecutor,
             aicoBotMcpToolExecutor,
             aicoBotMcpToolDefs,
-            onAskUserQuestion
+            onAskUserQuestion,
+            onPermissionRequest
           )) {
             // Auth retry detected — signal for session rebuild after stream ends
             if (chunk.type === 'auth_retry_required') {
@@ -995,6 +1034,12 @@ export class RemoteAgentServer {
         for (const [id, pending] of this.pendingAskQuestions) {
           pending.reject(new Error('Stream ended'))
           this.pendingAskQuestions.delete(id)
+        }
+
+        // Reject any pending permission requests when stream ends
+        for (const [id, pending] of this.pendingPermissions) {
+          pending.reject(new Error('Stream ended'))
+          this.pendingPermissions.delete(id)
         }
 
         // Only send claude:complete if not interrupted

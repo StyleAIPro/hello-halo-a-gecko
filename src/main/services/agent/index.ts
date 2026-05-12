@@ -87,6 +87,8 @@ export {
   resolveQuestion,
   rejectQuestion,
   rejectAllQuestions,
+  resolvePermission,
+  rejectAllPermissions,
 } from './permission-handler';
 export { getWorkingDir, getApiCredentials, sendToRenderer } from './helpers';
 export { parseSDKMessage, buildMessageContent, formatCanvasContext } from './message-utils';

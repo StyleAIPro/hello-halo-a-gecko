@@ -693,21 +693,29 @@ export async function deployAgentCodeOffline(service: RemoteDeployService, id: s
       `cat ${deployPath}/dist/version.json 2>/dev/null || echo ""`,
     );
     let skipUpload = false;
+    let remoteTimestamp = '';
+    let localTimestamp = '';
     try {
       const remoteVersion = JSON.parse(remoteVersionResult.stdout);
-      const remoteTimestamp = remoteVersion.buildTimestamp || '';
+      remoteTimestamp = remoteVersion.buildTimestamp || '';
       const localVersionContent = fs.readFileSync(
         path.join(getRemoteAgentProxyPath(), 'dist', 'version.json'),
         'utf-8',
       );
       const localVersion = JSON.parse(localVersionContent);
-      const localTimestamp = localVersion.buildTimestamp || '';
+      localTimestamp = localVersion.buildTimestamp || '';
       if (remoteTimestamp && remoteTimestamp === localTimestamp) {
         skipUpload = true;
-        service.emitCommandOutput(id, 'output', `远端版本与本地一致 (${localTimestamp})，跳过上传`);
+        // [DIAG-1.8] Improve deployment log with version comparison context
+        service.emitCommandOutput(id, 'output', `远端版本: ${remoteTimestamp}, 本地版本: ${localTimestamp} — 版本一致，跳过上传`);
+        service.emitCommandOutput(id, 'output', `如需强制更新，请先执行 npm run build:offline-bundle 重新构建`);
+      } else if (remoteTimestamp || localTimestamp) {
+        // [DIAG-1.8] Version mismatch
+        service.emitCommandOutput(id, 'output', `远端版本: ${remoteTimestamp || '(无)'}, 本地版本: ${localTimestamp || '(无)'} — 版本不一致，开始上传`);
       }
     } catch {
       // version.json missing or unparseable -- proceed with upload
+      service.emitCommandOutput(id, 'output', `远端版本: (无或解析失败), 本地版本: ${localTimestamp || '(无)'} — 开始上传`);
     }
 
     if (!skipUpload) {
@@ -901,8 +909,13 @@ export async function updateAgentCodeOffline(service: RemoteDeployService, id: s
   }
 
   if (remoteTimestamp && remoteTimestamp === localTimestamp) {
-    service.emitCommandOutput(id, 'output', '版本一致，无需更新');
+    // [DIAG-1.8] Improve update log with version comparison context
+    service.emitCommandOutput(id, 'output', `远端版本: ${remoteTimestamp}, 本地版本: ${localTimestamp} — 版本一致，无需更新`);
+    service.emitCommandOutput(id, 'output', `如需强制更新，请先执行 npm run build:offline-bundle 重新构建`);
     return;
+  } else if (remoteTimestamp || localTimestamp) {
+    // [DIAG-1.8] Version mismatch in update
+    service.emitCommandOutput(id, 'output', `远端版本: ${remoteTimestamp || '(无)'}, 本地版本: ${localTimestamp || '(无)'} — 版本不一致，开始增量更新`);
   }
 
   // Stop agent before updating

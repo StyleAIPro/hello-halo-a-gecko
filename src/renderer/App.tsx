@@ -116,6 +116,8 @@ export default function App() {
     handleAgentThoughtDelta,
     handleAgentCompact,
     handleAskQuestion,
+    handlePermissionRequest,
+    resolveToolPermission,
     handleHyperSpaceProgress,
     handleAgentTeamMessage,
     handleWorkerStarted,
@@ -321,6 +323,19 @@ export default function App() {
       );
     });
 
+    // Tool permission request - AI needs user approval for high-risk operations
+    const unsubPermissionRequest = api.onAgentPermissionRequest((data) => {
+      console.log('[App] Received agent:permission-request event:', data);
+      handlePermissionRequest(
+        data as AgentEventBase & {
+          id: string;
+          toolName: string;
+          toolInput: Record<string, unknown>;
+          timestamp: number;
+        },
+      );
+    });
+
     // MCP status updates (global - not per-conversation)
     const unsubMcpStatus = api.onAgentMcpStatus((data) => {
       console.log('[App] Received agent:mcp-status event:', data);
@@ -418,6 +433,7 @@ export default function App() {
       unsubComplete();
       unsubCompact();
       unsubAskQuestion();
+      unsubPermissionRequest();
       unsubMcpStatus();
       unsubHyperProgress();
       unsubTeamMessage();
@@ -435,6 +451,8 @@ export default function App() {
     handleAgentThoughtDelta,
     handleAgentCompact,
     handleAskQuestion,
+    handlePermissionRequest,
+    resolveToolPermission,
     handleHyperSpaceProgress,
     handleAgentTeamMessage,
     handleWorkerStarted,

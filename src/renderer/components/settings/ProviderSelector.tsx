@@ -21,6 +21,8 @@ import {
   ExternalLink,
   X,
   Star,
+  Pencil,
+  Plus,
 } from 'lucide-react';
 import type {
   AISource,
@@ -72,8 +74,8 @@ export function ProviderSelector({
   const [apiKey, setApiKey] = useState(editingSource?.apiKey || '');
   const [apiUrl, setApiUrl] = useState(editingSource?.apiUrl || '');
   const [selectedModel, setSelectedModel] = useState(editingSource?.model || '');
-  const [customModelInput, setCustomModelInput] = useState('');
-  const [showCustomModel, setShowCustomModel] = useState(false);
+  const [isAddingCustomModel, setIsAddingCustomModel] = useState(false);
+  const [newCustomModelId, setNewCustomModelId] = useState('');
   const [sourceName, setSourceName] = useState(editingSource?.name || '');
 
   const [showApiKey, setShowApiKey] = useState(false);
@@ -89,10 +91,11 @@ export function ProviderSelector({
   );
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [editingModelName, setEditingModelName] = useState('');
   const [contextWindow, setContextWindow] = useState<number | undefined>(
     editingSource?.contextWindow,
   );
-  const [useProxy, setUseProxy] = useState(editingSource?.useProxy ?? false);
 
   // Get current provider config
   const currentProvider = useMemo(() => getBuiltinProvider(selectedProvider), [selectedProvider]);
@@ -155,13 +158,10 @@ export function ProviderSelector({
     setApiKey('');
     setValidationResult(null);
     setFetchedModels([]);
-    setShowCustomModel(false);
-    setCustomModelInput('');
+    setIsAddingCustomModel(false);
+    setNewCustomModelId('');
     setShowProviderDropdown(false);
     setProviderSearchQuery('');
-    if (!editingSource) {
-      setUseProxy(false);
-    }
   };
 
   // Handle delete model from list
@@ -185,6 +185,56 @@ export function ProviderSelector({
     return fetchedModels.length > 1;
   };
 
+  const handleStartEditModelName = (model: ModelOption, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingModelId(model.id);
+    setEditingModelName(model.name);
+  };
+
+  const handleConfirmEditModelName = () => {
+    if (!editingModelId || !editingModelName.trim()) {
+      setEditingModelId(null);
+      return;
+    }
+    const newId = editingModelName.trim();
+
+    if (fetchedModels.some((m) => m.id === newId && m.id !== editingModelId)) {
+      setValidationResult({ valid: false, message: t('Model ID already exists') });
+      setEditingModelId(null);
+      return;
+    }
+
+    setFetchedModels(prev =>
+      prev.map(m => m.id === editingModelId ? { ...m, id: newId, name: newId } : m),
+    );
+
+    if (selectedModel === editingModelId) {
+      setSelectedModel(newId);
+    }
+
+    setEditingModelId(null);
+  };
+
+  const handleCancelEditModelName = () => {
+    setEditingModelId(null);
+  };
+
+  const handleAddCustomModel = () => {
+    const trimmed = newCustomModelId.trim();
+    if (!trimmed) return;
+
+    if (fetchedModels.some((m) => m.id === trimmed)) {
+      setValidationResult({ valid: false, message: t('Model ID already exists') });
+      return;
+    }
+
+    setFetchedModels(prev => [...prev, { id: trimmed, name: trimmed }]);
+    setSelectedModel(trimmed);
+    setNewCustomModelId('');
+    setIsAddingCustomModel(false);
+    setValidationResult(null);
+  };
+
   // Fetch models from API
   const handleFetchModels = async () => {
     if (!apiKey || !apiUrl) {
@@ -196,7 +246,7 @@ export function ProviderSelector({
     setValidationResult(null);
 
     try {
-      const response = await api.fetchModels(apiKey, apiUrl, useProxy);
+      const response = await api.fetchModels(apiKey, apiUrl);
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to fetch models');
@@ -229,9 +279,7 @@ export function ProviderSelector({
       return;
     }
 
-    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel;
-
-    if (!finalModel) {
+    if (!selectedModel) {
       setValidationResult({ valid: false, message: t('Please select a model') });
       return;
     }
@@ -240,14 +288,18 @@ export function ProviderSelector({
     setValidationResult(null);
 
     try {
-      const availableModels: ModelOption[] =
+      let availableModels: ModelOption[] =
         fetchedModels.length > 0
-          ? fetchedModels
-          : currentProvider?.models || [{ id: finalModel, name: finalModel }];
+          ? [...fetchedModels]
+          : currentProvider?.models ? [...currentProvider.models] : [];
 
-      if (!availableModels.some((m) => m.id === finalModel)) {
-        availableModels.unshift({ id: finalModel, name: finalModel });
-      }
+      // Deduplicate by id (defensive)
+      const seen = new Set<string>();
+      availableModels = availableModels.filter((m) => {
+        if (seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      });
 
       const now = new Date().toISOString();
 
@@ -259,10 +311,9 @@ export function ProviderSelector({
         apiUrl: apiUrl || currentProvider?.apiUrl || 'https://api.openai.com',
         apiType: editingSource?.apiType || currentProvider?.apiType,
         apiKey,
-        model: finalModel,
+        model: selectedModel,
         availableModels,
         contextWindow: contextWindow || undefined,
-        useProxy: useProxy || undefined,
         createdAt: editingSource?.createdAt || now,
         updatedAt: now,
       };
@@ -285,8 +336,6 @@ export function ProviderSelector({
       return;
     }
 
-    const finalModel = showCustomModel && customModelInput ? customModelInput : selectedModel;
-
     setIsValidating(true);
     setValidationResult(null);
 
@@ -295,8 +344,7 @@ export function ProviderSelector({
         apiKey,
         apiUrl,
         isAnthropicProvider(selectedProvider) ? 'anthropic' : 'openai',
-        finalModel,
-        useProxy,
+        selectedModel,
       );
 
       if (!validationResponse.success || !validationResponse.data?.valid) {
@@ -525,45 +573,66 @@ export function ProviderSelector({
               <label className="block text-sm font-medium text-muted-foreground">
                 {t('Model')}
               </label>
-              <button
-                onClick={handleFetchModels}
-                disabled={isFetchingModels || !apiKey}
-                className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 disabled:opacity-50"
-              >
-                {isFetchingModels ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Search size={14} />
-                )}
-                {t('Fetch Models')}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsAddingCustomModel(prev => !prev)}
+                  className="flex items-center gap-1 text-sm text-primary hover:text-primary/80"
+                >
+                  <Plus size={14} />
+                  {t('Add Model')}
+                </button>
+                <button
+                  onClick={handleFetchModels}
+                  disabled={isFetchingModels || !apiKey}
+                  className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 disabled:opacity-50"
+                >
+                  {isFetchingModels ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Search size={14} />
+                  )}
+                  {t('Fetch Models')}
+                </button>
+              </div>
             </div>
 
-            {/* Custom model toggle */}
-            <div className="flex items-center gap-2 mb-2">
-              <input
-                type="checkbox"
-                id="customModel"
-                checked={showCustomModel}
-                onChange={(e) => setShowCustomModel(e.target.checked)}
-                className="rounded border-border"
-              />
-              <label htmlFor="customModel" className="text-sm text-muted-foreground">
-                {t('Use custom model ID')}
-              </label>
-            </div>
+            {/* Add custom model inline input */}
+            {isAddingCustomModel && (
+              <div className="flex items-center gap-1.5 mb-2">
+                <input
+                  type="text"
+                  value={newCustomModelId}
+                  onChange={(e) => setNewCustomModelId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddCustomModel();
+                    if (e.key === 'Escape') {
+                      setIsAddingCustomModel(false);
+                      setNewCustomModelId('');
+                    }
+                  }}
+                  placeholder={t('Enter new model ID')}
+                  className="flex-1 px-3 py-2 text-sm bg-input border border-border rounded-lg
+                           text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  autoFocus
+                />
+                <button
+                  onClick={handleAddCustomModel}
+                  className="flex items-center justify-center px-2.5 py-2 text-primary hover:bg-primary/10 rounded-lg transition-colors shrink-0"
+                  title={t('Confirm')}
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  onClick={() => { setIsAddingCustomModel(false); setNewCustomModelId(''); }}
+                  className="flex items-center justify-center px-2.5 py-2 text-muted-foreground hover:bg-secondary rounded-lg transition-colors shrink-0"
+                  title={t('Cancel')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
 
-            {showCustomModel ? (
-              <input
-                type="text"
-                value={customModelInput}
-                onChange={(e) => setCustomModelInput(e.target.value)}
-                placeholder={t('Enter model ID')}
-                className="w-full px-3 py-2 bg-input border border-border rounded-lg
-                         text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-            ) : (
-              <div className="relative">
+            <div className="relative">
                 <button
                   onClick={() => setShowModelDropdown(!showModelDropdown)}
                   className="w-full flex items-center justify-between px-3 py-2 bg-input
@@ -605,14 +674,17 @@ export function ProviderSelector({
                       {filteredModels.map((model) => {
                         const isSelected = selectedModel === model.id;
                         const showDelete = canDeleteModel() && !isSelected;
+                        const isEditing = editingModelId === model.id;
 
                         return (
                           <div
                             key={model.id}
                             onClick={() => {
-                              setSelectedModel(model.id);
-                              setShowModelDropdown(false);
-                              setModelSearchQuery('');
+                              if (!isEditing) {
+                                setSelectedModel(model.id);
+                                setShowModelDropdown(false);
+                                setModelSearchQuery('');
+                              }
                             }}
                             className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/80 cursor-pointer ${
                               isSelected ? 'bg-primary/10' : ''
@@ -623,14 +695,40 @@ export function ProviderSelector({
                             ) : (
                               <span className="w-[14px] shrink-0" />
                             )}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm text-foreground truncate">{model.name}</div>
-                              {model.name !== model.id && (
-                                <div className="text-xs text-muted-foreground truncate">
-                                  {model.id}
-                                </div>
-                              )}
-                            </div>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingModelName}
+                                onChange={(e) => setEditingModelName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleConfirmEditModelName();
+                                  if (e.key === 'Escape') handleCancelEditModelName();
+                                }}
+                                onBlur={handleConfirmEditModelName}
+                                className="flex-1 px-1 py-0 text-sm bg-input border border-border rounded
+                                         text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm text-foreground truncate">{model.name}</div>
+                                {model.name !== model.id && (
+                                  <div className="text-xs text-muted-foreground truncate">
+                                    {model.id}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {!isEditing && (
+                              <button
+                                onClick={(e) => handleStartEditModelName(model, e)}
+                                className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors shrink-0"
+                                title={t('Rename model')}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
                             {showDelete && (
                               <button
                                 onClick={(e) => handleDeleteModel(model.id, e)}
@@ -652,7 +750,6 @@ export function ProviderSelector({
                   </div>
                 )}
               </div>
-            )}
           </div>
 
           {/* Context Window */}
@@ -677,23 +774,6 @@ export function ProviderSelector({
                 'Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.',
               )}
             </p>
-          </div>
-
-          {/* Use Network Proxy */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="useProxy"
-              checked={useProxy}
-              onChange={(e) => setUseProxy(e.target.checked)}
-              className="rounded border-border"
-            />
-            <label htmlFor="useProxy" className="text-sm text-muted-foreground">
-              {t('Use network proxy')}
-            </label>
-            <span className="text-xs text-muted-foreground">
-              ({t('uses global proxy from System settings')})
-            </span>
           </div>
 
           {/* Notes */}

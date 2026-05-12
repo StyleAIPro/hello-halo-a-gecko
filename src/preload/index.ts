@@ -157,6 +157,7 @@ export interface AicoBotAPI {
     answers: Record<string, string>;
   }) => Promise<IpcResponse>;
   rejectQuestion: (data: { id: string; reason?: string }) => Promise<IpcResponse>;
+  resolveAgentPermission: (data: { id: string; approved: boolean; conversationId?: string }) => Promise<IpcResponse>;
   compactContext: (conversationId: string) => Promise<IpcResponse>;
 
   // Event listeners
@@ -171,6 +172,7 @@ export interface AicoBotAPI {
   onAgentMcpStatus: (callback: (data: unknown) => void) => () => void;
   onAgentCompact: (callback: (data: unknown) => void) => () => void;
   onAgentAskQuestion: (callback: (data: unknown) => void) => () => void;
+  onAgentPermissionRequest: (callback: (data: unknown) => void) => () => void;
   onAgentTerminal: (callback: (data: unknown) => void) => () => void;
   onAgentTurnBoundary: (callback: (data: unknown) => void) => () => void;
   onAgentInjectionStart: (callback: (data: unknown) => void) => () => void;
@@ -833,6 +835,7 @@ const api: AicoBotAPI = {
   testMcpConnections: () => ipcRenderer.invoke('agent:test-mcp'),
   answerQuestion: (data) => ipcRenderer.invoke('agent:answer-question', data),
   rejectQuestion: (data) => ipcRenderer.invoke('agent:reject-question', data),
+  resolveAgentPermission: (data) => ipcRenderer.invoke('agent:resolve-permission', data),
   compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
 
   // Event listeners
@@ -847,6 +850,7 @@ const api: AicoBotAPI = {
   onAgentMcpStatus: (callback) => createEventListener('agent:mcp-status', callback),
   onAgentCompact: (callback) => createEventListener('agent:compact', callback),
   onAgentAskQuestion: (callback) => createEventListener('agent:ask-question', callback),
+  onAgentPermissionRequest: (callback) => createEventListener('agent:permission-request', callback),
   onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),
   onAgentTurnBoundary: (callback) => createEventListener('agent:turn-boundary', callback),
   onAgentInjectionStart: (callback) => createEventListener('agent:injection-start', callback),
