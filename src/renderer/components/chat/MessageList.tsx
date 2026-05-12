@@ -36,7 +36,8 @@ import { BrowserTaskCard, isBrowserTool } from '../tool/BrowserTaskCard';
 import { TaskMonitorCard, filterStreamingTaskMonitors } from '../tool/TaskMonitorCard';
 import type { TaskMonitorInfo } from '../tool/TaskMonitorCard';
 import { AskUserQuestionCard } from './AskUserQuestionCard';
-import type { Message, Thought, CompactInfo, AgentErrorType, PendingQuestion } from '../../types';
+import { ToolPermissionCard } from './ToolPermissionCard';
+import type { Message, Thought, CompactInfo, AgentErrorType, PendingQuestion, ToolPermissionRequest } from '../../types';
 import type { WorkerSessionState } from '../../stores/chat.store';
 import { useTranslation } from '../../i18n';
 import { useChatStore } from '../../stores/chat.store';
@@ -56,6 +57,8 @@ export interface MessageListProps {
   textBlockVersion?: number; // Increments on each new text block (for StreamingBubble reset)
   pendingQuestion?: PendingQuestion | null; // Active question from AskUserQuestion tool
   onAnswerQuestion?: (answers: Record<string, string>) => void; // Callback when user answers
+  pendingToolPermission?: ToolPermissionRequest | null; // Active tool permission request
+  onResolveToolPermission?: (approved: boolean) => void; // Callback when user approves/denies
   onAtBottomStateChange?: (atBottom: boolean) => void; // Callback when at-bottom state changes
   workerSessions?: Map<string, WorkerSessionState>; // Active SubAgent worker sessions
   onAnswerWorkerQuestion?: (agentId: string, answers: Record<string, string>) => void; // Callback for worker questions
@@ -313,6 +316,8 @@ interface StreamingRevision {
   streamingTaskMonitors: TaskMonitorInfo[];
   pendingQuestion: PendingQuestion | null;
   onAnswerQuestion?: (answers: Record<string, string>) => void;
+  pendingToolPermission: ToolPermissionRequest | null;
+  onResolveToolPermission?: (approved: boolean) => void;
   workerSessions?: Map<string, WorkerSessionState>;
   onAnswerWorkerQuestion?: (agentId: string, answers: Record<string, string>) => void;
 }
@@ -373,6 +378,14 @@ function StreamingFooterContent({
             onAnswer={rev.onAnswerQuestion}
           />
         )}
+
+        {/* Tool Permission card - shown when AI needs approval for high-risk operations */}
+        {rev.pendingToolPermission && rev.pendingToolPermission.status === 'active' && rev.onResolveToolPermission && (
+          <ToolPermissionCard
+            permission={rev.pendingToolPermission}
+            onResolve={rev.onResolveToolPermission}
+          />
+        )}
       </div>
     </div>
   );
@@ -394,6 +407,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     textBlockVersion = 0,
     pendingQuestion = null,
     onAnswerQuestion,
+    pendingToolPermission = null,
+    onResolveToolPermission,
     onAtBottomStateChange,
     workerSessions,
     onAnswerWorkerQuestion,
@@ -611,6 +626,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       streamingTaskMonitors,
       pendingQuestion,
       onAnswerQuestion,
+      pendingToolPermission,
+      onResolveToolPermission,
       workerSessions,
       onAnswerWorkerQuestion,
     };
@@ -624,6 +641,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     streamingTaskMonitors,
     pendingQuestion,
     onAnswerQuestion,
+    pendingToolPermission,
+    onResolveToolPermission,
     workerSessions,
     onAnswerWorkerQuestion,
   ]);

@@ -13,6 +13,8 @@ import {
   resolveQuestion,
   rejectQuestion,
   rejectAllQuestions,
+  resolvePermission,
+  rejectAllPermissions,
   compactContext,
 } from '../services/agent';
 import { getMainWindow } from '../services/window.service';
@@ -181,6 +183,37 @@ export function registerAgentHandlers(): void {
         const resolved = resolveQuestion(data.id, data.answers);
         if (!resolved) {
           return { success: false, error: 'No pending question found for this ID' };
+        }
+        return { success: true };
+      } catch (error: unknown) {
+        const err = error as Error;
+        return { success: false, error: err.message };
+      }
+    },
+  );
+
+  // Resolve a pending tool permission request (approve/deny from UI)
+  wrapIpcHandle(
+    'agent:resolve-permission',
+    async (_event, data: { id: string; approved: boolean; conversationId?: string }) => {
+      try {
+        // Check if this is a remote session — forward via WebSocket
+        if (data.conversationId) {
+          const remoteClient = getRemoteWsClient(data.conversationId);
+          if (remoteClient && remoteClient.isConnected()) {
+            remoteClient.send({
+              type: data.approved ? 'tool:approve' : 'tool:reject',
+              sessionId: data.conversationId,
+              payload: { toolId: data.id, approved: data.approved },
+            });
+            return { success: true };
+          }
+        }
+
+        // Local session — resolve directly
+        const resolved = resolvePermission(data.id, data.approved);
+        if (!resolved) {
+          return { success: false, error: 'No pending permission found for this ID' };
         }
         return { success: true };
       } catch (error: unknown) {

@@ -76,14 +76,26 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
 
   const data = await response.json();
 
+  // Check for error responses in body (some providers return HTTP 200 with error payload)
+  if (data && (data.success === false || data.error || data.code)) {
+    const errMsg = data.msg || data.message || data.error?.message || data.error || `Error ${data.code || 'unknown'}`;
+    throw new Error(String(errMsg));
+  }
+
   // Support multiple response formats from different providers
-  let models: Array<{ id: string; name: string }>;
+  let models: Array<{ id: string; name: string }> | undefined;
 
   // Format 1: OpenAI standard { data: [...] }
   if (data.data && Array.isArray(data.data)) {
     models = data.data
       .filter((m: any) => typeof m.id === 'string')
-      .map((m: any) => ({ id: m.id, name: m.owned_by || m.id }));
+      .map((m: any) => ({ id: m.id, name: m.name || m.owned_by || m.id }));
+  }
+  // Format 1b: { data: { data: [...] } } (nested/paginated wrapper)
+  else if (data.data && typeof data.data === 'object' && !Array.isArray(data.data) && Array.isArray(data.data.data)) {
+    models = data.data.data
+      .filter((m: any) => typeof m.id === 'string')
+      .map((m: any) => ({ id: m.id, name: m.name || m.owned_by || m.id }));
   }
   // Format 2: { models: [...] } (Ollama /api/tags, some Chinese providers)
   else if (data.models && Array.isArray(data.models)) {
@@ -95,8 +107,24 @@ export async function fetchModelsFromApi(params: FetchModelsParams): Promise<Fet
   else if (Array.isArray(data)) {
     models = data
       .filter((m: any) => typeof m.id === 'string')
-      .map((m: any) => ({ id: m.id, name: m.owned_by || m.id }));
-  } else {
+      .map((m: any) => ({ id: m.id, name: m.name || m.owned_by || m.id }));
+  }
+  // Format 4: Fallback — scan all top-level array fields for {id: string} objects
+  else if (typeof data === 'object' && data !== null) {
+    for (const key of Object.keys(data)) {
+      const value = (data as any)[key];
+      if (Array.isArray(value) && value.length > 0 && typeof value[0].id === 'string') {
+        models = value
+          .filter((m: any) => typeof m.id === 'string')
+          .map((m: any) => ({ id: m.id, name: m.name || m.owned_by || m.id }));
+        break;
+      }
+    }
+  }
+
+  if (!models) {
+    const preview = JSON.stringify(data).substring(0, 200);
+    console.warn('[API Validator] Unrecognized model response format:', preview);
     throw new Error('Invalid API response format');
   }
 

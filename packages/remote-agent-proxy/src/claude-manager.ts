@@ -190,6 +190,7 @@ export interface ChatOptions {
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
   contextWindow?: number   // Context window size for compression threshold and usage display
   isWorkerTask?: boolean   // When true, suppress worker:started/completed for SDK internal subagents
+  permissionMode?: 'full' | 'partial'  // Permission mode: full = skip all checks, partial = check destructive commands
 }
 
 export interface ToolCall {
@@ -303,6 +304,7 @@ export interface SessionConfig {
   apiKey?: string
   baseUrl?: string
   contextWindow?: number  // Context window affects autocompact threshold, rebuild on change
+  permissionMode?: string  // Permission mode change must trigger session rebuild
 }
 
 /**
@@ -332,18 +334,76 @@ export interface ActiveSessionState {
 // ============================================
 
 /**
- * Default allowed tools that don't require user approval.
+ * Pre-approved tools that skip the canUseTool permission callback.
+ * Only safe/read-only tools + reversible file operations.
  */
-const DEFAULT_ALLOWED_TOOLS = [
+const PRE_APPROVED_TOOLS = [
   'Read',
+  'Glob',
+  'Grep',
   'Write',
   'Edit',
-  'Grep',
-  'Glob',
-  'Bash',
+  'Create',
+  'MultiEdit',
+  'NotebookEdit',
+  'TodoWrite',
   'Skill',
-  'Task'
+  'Task',
 ]
+
+/** @deprecated Use PRE_APPROVED_TOOLS for SDK allowedTools */
+const DEFAULT_ALLOWED_TOOLS = PRE_APPROVED_TOOLS
+
+// ============================================
+// Bash Destructive Command Detection
+// (Mirrors local permission-handler.ts — keep in sync)
+// ============================================
+
+const DESTRUCTIVE_COMMANDS = new Set([
+  'rm', 'rmdir', 'shred', 'truncate',
+  'mv', 'cp',
+  'chmod', 'chown', 'chgrp',
+  'kill', 'pkill', 'killall',
+  'sudo', 'su', 'shutdown', 'reboot', 'halt', 'poweroff',
+  'dd', 'mkfs', 'fdisk', 'parted', 'mkswap', 'swapon', 'swapoff',
+  'apt-get', 'apt', 'yum', 'dnf', 'pacman', 'brew',
+])
+
+const DESTRUCTIVE_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
+  npm: new Set(['uninstall', 'publish']),
+  yarn: new Set(['remove']),
+  pnpm: new Set(['remove', 'uninstall']),
+  git: new Set(['push --force', 'push -f', 'clean', 'reset --hard']),
+  docker: new Set(['rm', 'rmi', 'system prune', 'volume rm']),
+  kubectl: new Set(['delete', 'cordon', 'drain']),
+}
+
+function isDestructiveBashCommand(command: string): boolean {
+  const trimmed = command.trim()
+  if (!trimmed) return false
+  const segments = trimmed.split(/\s*[;&|]\s*/).filter(Boolean)
+  for (const segment of segments) {
+    const tokens = segment.trim().split(/\s+/)
+    if (tokens.length === 0) continue
+    let cmdIndex = 0
+    while (cmdIndex < tokens.length && ['env', 'sudo'].includes(tokens[cmdIndex])) {
+      cmdIndex++
+      while (cmdIndex < tokens.length && tokens[cmdIndex].startsWith('-')) cmdIndex++
+    }
+    if (cmdIndex >= tokens.length) continue
+    const baseCmd = tokens[cmdIndex]
+    const restOfCommand = tokens.slice(cmdIndex + 1).join(' ')
+    if (DESTRUCTIVE_COMMANDS.has(baseCmd)) return true
+    const subCmds = DESTRUCTIVE_SUBCOMMANDS[baseCmd]
+    if (subCmds && restOfCommand) {
+      for (const pattern of subCmds) {
+        if (restOfCommand.startsWith(pattern)) return true
+      }
+    }
+  }
+  if (/>/.test(trimmed) && /\/(etc|usr|bin|sbin|boot|var|sys|proc)/.test(trimmed)) return true
+  return false
+}
 
 /**
  * Session idle timeout in milliseconds (2 hours - for long-running tasks like docker pulls)
@@ -601,7 +661,8 @@ function needsSessionRebuild(existing: V2SessionInfo, newConfig: SessionConfig):
     existing.config.workDir !== newConfig.workDir ||
     existing.config.apiKey !== newConfig.apiKey ||
     existing.config.baseUrl !== newConfig.baseUrl ||
-    existing.config.contextWindow !== newConfig.contextWindow
+    existing.config.contextWindow !== newConfig.contextWindow ||
+    existing.config.permissionMode !== newConfig.permissionMode
   )
 }
 
@@ -919,11 +980,9 @@ export class ClaudeManager {
         type: 'preset',
         append: systemPrompt,
       },
-      permissionMode: 'bypassPermissions',
-      extraArgs: {
-        'dangerously-skip-permissions': null
-      },
-      allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+      permissionMode: 'default',
+      extraArgs: {},
+      allowedTools: [...PRE_APPROVED_TOOLS],
       // Explicitly disable WebFetch, WebSearch, Agent and Task tools
       disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
@@ -1282,29 +1341,44 @@ export class ClaudeManager {
         this.cleanupSession(conversationId, 'session interrupted - dead transport')
         // Fall through to create new session
       } else if (effectiveResumeId) {
-        // If config changed (model/apiKey/baseUrl/contextWindow), cleanup and recreate
-        // with new config. The resume ID is preserved so the SDK restores full context
-        // from disk — only the in-memory session object is replaced.
-        const requestConfig: SessionConfig = {
-          ...this.getCurrentConfig(),
-          workDir: effectiveWorkDir,
-          ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
-          ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
-          ...(credentials?.model ? { model: credentials.model } : {}),
-        }
-        if (needsSessionRebuild(existing, requestConfig)) {
-          console.log(`[ClaudeManager][${conversationId}] Config changed during resume (model: ${existing.config.model} -> ${requestConfig.model}), recreating with resume`)
-          this.cleanupSession(conversationId, 'config changed during resume')
-          // Fall through to create new session — effectiveResumeId is preserved,
-          // so buildSdkOptions will include `resume` option for full context restoration
+        // OPTIMIZATION: Try to reuse existing session on resume instead of always
+        // destroying and rebuilding. The SDK state corruption issue (streamInput iterator
+        // conflict) doesn't always manifest — when reuse works, we save the full
+        // process exit wait + MCP initialization + new session creation overhead.
+        //
+        // If reuse fails (SDK throws "process aborted" or similar), fall back to rebuild.
+        console.log(`[ClaudeManager][${conversationId}] Resume requested, attempting session reuse...`)
+
+        // Check if canUseTool needs injection — SDK V2 Session doesn't support
+        // dynamically updating canUseTool after creation.
+        if (canUseTool) {
+          if (this.activeSessions.has(conversationId)) {
+            console.log(`[ClaudeManager][${conversationId}] Resume: canUseTool provided but request in flight, deferring rebuild`)
+            existing.lastUsedAt = Date.now()
+            return existing.session
+          }
+          console.log(`[ClaudeManager][${conversationId}] Resume: canUseTool provided, rebuilding session to inject permission callback`)
+          this.cleanupSession(conversationId, 'canUseTool injection needed (resume)')
+          // Fall through to create new session (without resume — old session is destroyed)
         } else {
-          console.log(`[ClaudeManager][${conversationId}] Resume requested, reusing session...`)
           existing.lastUsedAt = Date.now()
-          existing.config = requestConfig
+
+          // Update stored config to reflect current request parameters
+          const storedConfig: SessionConfig = {
+            ...this.getCurrentConfig(),
+            workDir: effectiveWorkDir,
+            ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
+            ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
+            ...(credentials?.model ? { model: credentials.model } : {}),
+            permissionMode: 'default',
+          }
+          existing.config = storedConfig
           existing.configGeneration = this.configGeneration
           if (mcpToolSignature !== undefined) {
             existing.mcpToolSignature = mcpToolSignature
           }
+
+          console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session for resume (will rebuild on failure)`)
           return existing.session
         }
       } else {
@@ -1319,6 +1393,7 @@ export class ClaudeManager {
           ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
           ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
           ...(credentials?.model ? { model: credentials.model } : {}),
+          permissionMode: 'default',
         }
         const needsRebuild = needsSessionRebuild(existing, requestConfig)
         const configChanged = existing.configGeneration !== this.configGeneration
@@ -1343,18 +1418,34 @@ export class ClaudeManager {
           this.cleanupSession(conversationId, 'config changed')
           // Fall through to create new session
         } else {
-          // Session is healthy and config matches, reuse it
-          // Update stored config to reflect current request parameters
-          existing.config = requestConfig
-          existing.configGeneration = this.configGeneration
-          console.log(`[ClaudeManager][${conversationId}] Reusing existing V2 session`)
-          existing.lastUsedAt = Date.now()
-          return existing.session
+          // Session is healthy and config matches, but check if canUseTool needs injection.
+          // SDK V2 Session doesn't support dynamically updating canUseTool after creation —
+          // the callback is serialized and passed to the CLI subprocess at session start.
+          // If canUseTool is provided now but wasn't when the session was created (or vice versa),
+          // we MUST rebuild to ensure the permission callback is active.
+          if (canUseTool) {
+            if (this.activeSessions.has(conversationId)) {
+              console.log(`[ClaudeManager][${conversationId}] canUseTool provided but request in flight, deferring rebuild`)
+              existing.lastUsedAt = Date.now()
+              return existing.session
+            }
+            console.log(`[ClaudeManager][${conversationId}] canUseTool provided, rebuilding session to inject permission callback`)
+            this.cleanupSession(conversationId, 'canUseTool injection needed')
+            // Fall through to create new session (with canUseTool)
+          } else {
+            existing.config = requestConfig
+            existing.configGeneration = this.configGeneration
+            console.log(`[DIAG][${conversationId}] REUSING existing session (no canUseTool)`)
+            existing.lastUsedAt = Date.now()
+            return existing.session
+          }
         }
       }
     }
 
     // Create new session
+    // [DIAG-1.3] Log new session creation
+    console.log(`[DIAG][${conversationId}] Creating NEW session, permissionMode will be set by buildSdkOptions, canUseTool=${!!canUseTool}`)
     console.log(`[ClaudeManager][${conversationId}] Creating new V2 session with workDir=${effectiveWorkDir}...`)
     // Sync contextWindow to instance field so getCurrentConfig() and needsSessionRebuild
     // can detect changes when the user switches models with different context windows.
@@ -1370,6 +1461,11 @@ export class ClaudeManager {
     // Add canUseTool for AskUserQuestion support (forwarded from streamChat)
     if (canUseTool) {
       sdkOptions.canUseTool = canUseTool
+      // [DIAG-1.2] Log canUseTool set on sdkOptions
+      console.log(`[DIAG][${conversationId}] canUseTool SET on sdkOptions (type=${typeof canUseTool})`)
+    } else {
+      // [DIAG-1.2] Log canUseTool is UNDEFINED — permission checks DISABLED
+      console.log(`[DIAG][${conversationId}] canUseTool is UNDEFINED — permission checks DISABLED`)
     }
 
     // Add hyper-space MCP proxy server if provided
@@ -1470,6 +1566,8 @@ export class ClaudeManager {
       resume: !!effectiveResumeId,
       maxThinkingTokens: maxThinkingTokens
     })
+    // [DIAG-1.4] Log full SDK options for permission debugging
+    console.log(`[DIAG][${conversationId}] SDK options: permissionMode=${sdkOptions.permissionMode}, canUseTool=${typeof sdkOptions.canUseTool}, allowedTools=[${(sdkOptions.allowedTools || []).join(', ')}]`)
 
     const session = unstable_v2_createSession(sdkOptions as any) as unknown as SDKSession
     const pid = (session as any).pid
@@ -1494,6 +1592,7 @@ export class ClaudeManager {
       ...(credentials?.apiKey ? { apiKey: credentials.apiKey } : {}),
       ...(credentials?.baseUrl ? { baseUrl: credentials.baseUrl } : {}),
       ...(credentials?.model ? { model: credentials.model } : {}),
+      permissionMode: sdkOptions.permissionMode,
     }
     this.sessions.set(conversationId, {
       session,
@@ -1669,7 +1768,8 @@ export class ClaudeManager {
     hyperSpaceToolExecutor?: (toolId: string, toolName: string, toolInput: Record<string, unknown>) => Promise<string>,
     aicoBotMcpToolExecutor?: (callId: string, toolName: string, args: Record<string, unknown>) => Promise<any>,
     aicoBotMcpToolDefs?: AicoBotMcpToolDef[],
-    onAskUserQuestion?: (id: string, questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect: boolean }>) => Promise<Record<string, string>>
+    onAskUserQuestion?: (id: string, questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect: boolean }>) => Promise<Record<string, string>>,
+    onPermissionRequest?: (id: string, toolName: string, toolInput: Record<string, unknown>) => Promise<boolean>
   ): AsyncGenerator<{ type: string; data?: any }> {
     // Use async session creation with workDir from options
     console.log(`[ClaudeManager] streamChat called with options.workDir=${options.workDir || 'undefined'}, this.workDir=${this.workDir || 'undefined'}`)
@@ -1725,41 +1825,74 @@ export class ClaudeManager {
       ? { apiKey: options.apiKey, baseUrl: options.baseUrl, model: options.model }
       : undefined
 
-    // Build canUseTool for AskUserQuestion support
-    const askUserQuestionCanUseTool = onAskUserQuestion ? async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
-      if (toolName !== 'AskUserQuestion') {
-        return { behavior: 'allow' as const, updatedInput: input }
-      }
-      const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const questions = input.questions as Array<{
-        question: string
-        header: string
-        options: Array<{ label: string; description: string }>
-        multiSelect: boolean
-      }>
-      console.log(`[ClaudeManager] AskUserQuestion: id=${id}, questions=${questions?.length || 0}`)
+    // Build canUseTool for AskUserQuestion + destructive Bash permission support
+    const isFullPermission = options.permissionMode === 'full'
+    const canUseTool = (onAskUserQuestion || onPermissionRequest) ? async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
+      // [DIAG-1.5] Log every canUseTool invocation
+      console.log(`[DIAG] canUseTool INVOKED: toolName=${toolName}, input=${JSON.stringify(input).substring(0, 200)}`)
 
-      const answerPromise = onAskUserQuestion(id, questions || [])
-
-      // Support abort
-      if (opts.signal) {
-        if (opts.signal.aborted) {
-          return { behavior: 'deny' as const, updatedInput: input }
+      // AskUserQuestion: forward to AICO-Bot client
+      if (toolName === 'AskUserQuestion' && onAskUserQuestion) {
+        const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const questions = input.questions as Array<{
+          question: string; header: string
+          options: Array<{ label: string; description: string }>; multiSelect: boolean
+        }>
+        console.log(`[ClaudeManager] AskUserQuestion: id=${id}, questions=${questions?.length || 0}`)
+        const answerPromise = onAskUserQuestion(id, questions || [])
+        if (opts.signal) {
+          if (opts.signal.aborted) return { behavior: 'deny' as const, message: 'This operation was interrupted. Continue with a safe alternative approach.' }
+          opts.signal.addEventListener('abort', () => answerPromise.catch(() => {}), { once: true })
         }
-        opts.signal.addEventListener('abort', () => answerPromise.catch(() => {}), { once: true })
+        try {
+          const answers = await answerPromise
+          console.log(`[ClaudeManager] AskUserQuestion answered: id=${id}`, answers)
+          return { behavior: 'allow' as const, updatedInput: { ...input, answers } }
+        } catch (error) {
+          console.log(`[ClaudeManager] AskUserQuestion cancelled: id=${id}`, (error as Error).message)
+          return { behavior: 'deny' as const, message: 'The user cancelled this question. Do not retry the same question. Continue with the best reasonable assumption or ask a different way.' }
+        }
       }
 
-      try {
-        const answers = await answerPromise
-        console.log(`[ClaudeManager] AskUserQuestion answered: id=${id}`, answers)
-        return { behavior: 'allow' as const, updatedInput: { ...input, answers } }
-      } catch (error) {
-        console.log(`[ClaudeManager] AskUserQuestion cancelled: id=${id}`, (error as Error).message)
-        return { behavior: 'deny' as const, updatedInput: input }
+      // Bash: smart destructive command detection
+      if (toolName === 'Bash') {
+        // Full permission mode: skip all destructive checks
+        if (isFullPermission) {
+          return { behavior: 'allow' as const, updatedInput: input }
+        }
+        if (onPermissionRequest) {
+          const command = String(input.command || '')
+          if (!isDestructiveBashCommand(command)) {
+            return { behavior: 'allow' as const, updatedInput: input }
+          }
+          const id = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+          console.log(`[ClaudeManager] Destructive Bash detected: ${command.substring(0, 100)}, requesting permission`)
+          const approvalPromise = onPermissionRequest(id, toolName, input)
+          if (opts.signal) {
+            if (opts.signal.aborted) return { behavior: 'deny' as const, message: `The permission request for this ${toolName} command was interrupted: ${command.substring(0, 200)}. The operation was not performed. Suggest safer alternatives and ask the user how to proceed.` }
+            opts.signal.addEventListener('abort', () => approvalPromise.catch(() => {}), { once: true })
+          }
+          try {
+            const approved = await approvalPromise
+            console.log(`[ClaudeManager] Permission ${id}: ${approved ? 'APPROVED' : 'DENIED'}`)
+            return approved
+              ? { behavior: 'allow' as const, updatedInput: input }
+              : { behavior: 'deny' as const, message: `The user denied permission to execute this ${toolName} command: ${command.substring(0, 200)}. Explain that the operation was not performed because they declined it. Briefly explain why it may carry risk, then suggest safer alternative approaches. Ask the user which alternative they prefer.` }
+          } catch (error) {
+            console.log(`[ClaudeManager] Permission ${id}: cancelled`, (error as Error).message)
+            return { behavior: 'deny' as const, message: `The permission request for this ${toolName} command was cancelled or timed out: ${command.substring(0, 200)}. The operation was not performed. Suggest safer alternative approaches and ask the user how they would like to proceed.` }
+          }
+        }
       }
+
+      // All other tools: auto-allow
+      return { behavior: 'allow' as const, updatedInput: input }
     } : undefined
 
-    let session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, askUserQuestionCanUseTool, newMcpToolSignature)
+    // [DIAG-1.1] Log canUseTool creation and type
+    console.log(`[DIAG][${sessionId}] canUseTool callback: ${typeof canUseTool}, hasPermissionRequest=${!!onPermissionRequest}, hasAskUserQuestion=${!!onAskUserQuestion}`)
+
+    let session = await this.getOrCreateSession(sessionId, options.workDir, resumeSessionId, options.maxThinkingTokens, hyperSpaceMcpServer, options.system, aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials, canUseTool, newMcpToolSignature)
 
     // [PATCHED] Set thinking tokens dynamically on reused session
     // This is critical: when session is reused, the maxThinkingTokens from session creation
@@ -1892,7 +2025,7 @@ export class ClaudeManager {
           sessionId, options.workDir, undefined,
           options.maxThinkingTokens, hyperSpaceMcpServer, options.system,
           aicoBotBuiltinMcpServer, options.contextWindow, clientCredentials,
-          askUserQuestionCanUseTool, newMcpToolSignature
+          undefined, newMcpToolSignature
         )
         // Replace the closed session reference with the fresh one
         session = freshSession
@@ -3004,7 +3137,7 @@ export class ClaudeManager {
       systemPrompt: options.system || '',
       permissionMode: 'bypassPermissions',
       extraArgs: { 'dangerously-skip-permissions': null },
-      allowedTools: [...DEFAULT_ALLOWED_TOOLS],
+      allowedTools: [...PRE_APPROVED_TOOLS],
       disallowedTools: ['WebFetch', 'WebSearch'],
       includePartialMessages: true,
       maxTurns: 10,  // App runs should be focused, fewer turns

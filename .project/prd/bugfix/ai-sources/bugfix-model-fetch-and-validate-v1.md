@@ -3,7 +3,7 @@
 > 版本：bugfix-model-fetch-and-validate-v1
 > 日期：2026-05-10
 > 状态：done
-> 指令人：@moonseeker
+> 指令人：@mi-saka
 > 归属模块：modules/ai-sources
 > 严重程度：Major
 > 所属功能：features/source-provider

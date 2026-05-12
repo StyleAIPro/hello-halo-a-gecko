@@ -46,8 +46,11 @@ export function RemoteModelSelector({ space }: RemoteModelSelectorProps) {
     ? aiSources.sources.find((s) => s.id === serverSourceId)
     : undefined;
 
-  // Current model display name — prioritize server's overridden model over source default
-  const currentModelName = server?.claudeModel || serverSource?.model || t('Not configured');
+  // Current model display name — look up availableModels for a user-friendly name, fallback to raw ID
+  const currentModelId = server?.claudeModel || serverSource?.model || '';
+  const currentModelName = currentModelId && serverSource
+    ? serverSource.availableModels?.find((m) => m.id === currentModelId)?.name || currentModelId
+    : t('Not configured');
 
   // Initialize expanded section to server's source when opening
   useEffect(() => {

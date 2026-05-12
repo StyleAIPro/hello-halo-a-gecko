@@ -597,6 +597,16 @@ export const api = {
     return httpRequest('POST', '/api/agent/reject-question', data);
   },
 
+  // Resolve a pending main agent tool permission request (approve/deny)
+  resolveAgentPermission: async (
+    data: { id: string; approved: boolean; conversationId?: string },
+  ): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.resolveAgentPermission(data);
+    }
+    return httpRequest('POST', '/api/agent/resolve-permission', data);
+  },
+
   // Test MCP server connections
   testMcpConnections: async (): Promise<{
     success: boolean;
@@ -956,6 +966,8 @@ export const api = {
   onAgentCompact: (callback: (data: unknown) => void) => onEvent('agent:compact', callback),
   onAgentAskQuestion: (callback: (data: unknown) => void) =>
     onEvent('agent:ask-question', callback),
+  onAgentPermissionRequest: (callback: (data: unknown) => void) =>
+    onEvent('agent:permission-request', callback),
   onAgentTerminal: (callback: (data: unknown) => void) => onEvent('agent:terminal', callback),
   onAgentTurnBoundary: (callback: (data: unknown) => void) =>
     onEvent('agent:turn-boundary', callback),

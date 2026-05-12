@@ -59,6 +59,7 @@ export interface ChatOptions {
   hyperSpaceTools?: HyperSpaceToolsConfig  // Enable Hyper Space MCP tools for remote workers
   aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
+  permissionMode?: 'full' | 'partial'  // Permission mode from client settings
 }
 
 /**
@@ -90,6 +91,7 @@ export interface ServerMessage {
          'mcp:tool:response' |  // WebSocket MCP Bridge: AICO-Bot returns tool result
          'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background task management
          'ask:question' |  // AskUserQuestion forwarding to client
+         'permission:request' |  // Destructive command permission request to client
          'auth_retry'  // Auth retry notification (401 auto-recovery)
   sessionId?: string
   data?: any
