@@ -319,12 +319,18 @@ export async function addServer(
   } catch (error) {
     console.error('[RemoteDeployService] Connection failed:', error);
     const errorMsg = error instanceof Error ? error.message : String(error);
-    service.emitDeployProgress(id, 'error', `Connection failed: ${errorMsg}`, 0);
+    const isAuthError = /authentication|auth|password|permission denied|keyboard-interactive/i.test(errorMsg);
+    service.emitDeployProgress(
+      id,
+      'error',
+      isAuthError ? `Authentication failed: ${errorMsg}` : `Connection failed: ${errorMsg}`,
+      0,
+    );
     await service.updateServer(id, {
       status: 'error',
       error: errorMsg,
     });
-    return { id, sshConnected: false, error: errorMsg };
+    return { id, sshConnected: false, error: errorMsg, authError: isAuthError };
   }
 }
 
@@ -413,6 +419,21 @@ export async function updateServer(
   }
 
   (service as any).servers.set(id, { ...server, ...processedUpdates });
+
+  // When SSH credentials change, destroy the cached SSHManager so the next
+  // connect() creates a fresh connection with the new password.  Without this,
+  // a previously-failed manager can leave _operationLock / _forceDisconnected
+  // in a stale state that blocks subsequent commands (e.g. "Checking proxy").
+  const newPassword = processedUpdates.ssh?.password ?? updates.ssh?.password;
+  if (newPassword && originalPassword !== undefined && newPassword !== originalPassword) {
+    const manager = (service as any).sshManagers.get(id);
+    if (manager) {
+      console.debug(`[RemoteDeployService] Password changed, destroying old SSH manager for ${server.name}`);
+      manager.disconnect();
+      (service as any).sshManagers.delete(id);
+    }
+  }
+
   await saveServers(service);
   (service as any).notifyStatusChange(id, (service as any).servers.get(id)!);
 }
