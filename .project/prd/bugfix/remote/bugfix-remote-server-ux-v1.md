@@ -239,6 +239,7 @@ this.client.on('close', (reason) => {
 | `src/main/services/remote/deploy/server-manager.ts` | 修改 | Bug 2: addServer 识别认证错误; Bug 3: updateServer 清理 SSH Manager |
 | `src/main/services/remote/ssh/ssh-manager.ts` | 修改 | Bug 3: error/close 事件中清理 _forceDisconnected 和 _operationLock |
 | `src/renderer/pages/RemoteServersPage.tsx` | 修改 | Bug 2: 根据 authError 显示不同的错误提示 |
+| `src/renderer/components/settings/RemoteServersSection.tsx` | 修改 | Bug 2: 设置页 partial 不重连 + error 状态不自动重连 |
 
 ## 验收标准
 
