@@ -623,6 +623,65 @@ export async function ensureSshConnectionHealthy(service: RemoteDeployService, i
 }
 
 /**
+ * Ensure the remote agent is fully ready: deployed, SDK matched, and proxy running.
+ * If agent files are missing, outdated, or SDK version mismatches, auto-deploys.
+ * If SDK is OK but proxy is stopped, starts it.
+ * Errors are caught and logged — never throws to avoid breaking the caller.
+ */
+async function ensureAgentReady(service: RemoteDeployService, id: string): Promise<void> {
+  const server = (service as any).servers.get(id);
+  if (!server?.assignedPort) return;
+
+  try {
+    const deployCheck = await service.checkDeployFilesIntegrity(id);
+    const sdkOk = await (service as any).checkRemoteSdkVersion(id);
+
+    if (!deployCheck.filesOk || deployCheck.needsUpdate || !sdkOk) {
+      const platform = server.detectedArch as 'x64' | 'arm64' | undefined;
+      if (!platform || !(service as any).isOfflineBundleAvailable(platform)) {
+        console.debug(
+          `[RemoteDeployService] ensureAgentReady: skipping deploy for ${server.name} (no platform or bundle)`,
+        );
+        return;
+      }
+
+      console.debug(`[RemoteDeployService] ensureAgentReady: deploying agent on ${server.name}`);
+      service.emitDeployProgress(id, 'deploy', 'Auto-deploying agent...', 60);
+      await service.updateServer(id, { status: 'deploying' });
+
+      try {
+        await service.deployAgentCodeOffline(id, platform);
+        await service.updateServer(id, { status: 'connected' });
+        await (service as any).verifyProxyHealth(id);
+        console.debug(`[RemoteDeployService] ensureAgentReady: deploy complete for ${server.name}`);
+      } catch (deployErr) {
+        console.error(`[RemoteDeployService] ensureAgentReady: deploy failed for ${server.name}:`, deployErr);
+        await service.updateServer(id, {
+          status: 'connected',
+          error: `Auto-deploy failed: ${(deployErr as Error).message}`,
+        });
+      }
+    } else {
+      // Files and SDK OK — start proxy if not running
+      if (!server.proxyRunning) {
+        try {
+          await service.startAgent(id);
+          await (service as any).verifyProxyHealth(id);
+          console.debug(`[RemoteDeployService] ensureAgentReady: proxy started for ${server.name}`);
+        } catch (startErr) {
+          console.debug(
+            `[RemoteDeployService] ensureAgentReady: failed to start proxy for ${server.name}:`,
+            startErr,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[RemoteDeployService] ensureAgentReady failed for ${server?.name}:`, err);
+  }
+}
+
+/**
  * Connect to a server
  */
 export async function connectServer(service: RemoteDeployService, id: string): Promise<void> {
@@ -744,6 +803,9 @@ export async function connectServer(service: RemoteDeployService, id: string): P
         detectError,
       );
     }
+
+    // Auto-deploy if agent is not ready (files missing, SDK mismatch, proxy stopped)
+    await ensureAgentReady(service, id);
 
     // Reset auto-recover failure count on successful (re)connection
 
