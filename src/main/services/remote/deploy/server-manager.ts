@@ -432,6 +432,11 @@ export async function updateServer(
       manager.disconnect();
       (service as any).sshManagers.delete(id);
     }
+    // Reset error status so loadServers() auto-reconnect picks this server up
+    const currentServer = (service as any).servers.get(id);
+    if (currentServer?.status === 'error') {
+      (service as any).servers.set(id, { ...currentServer, status: 'disconnected', error: undefined });
+    }
   }
 
   await saveServers(service);

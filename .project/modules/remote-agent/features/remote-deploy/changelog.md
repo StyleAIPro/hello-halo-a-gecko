@@ -2,7 +2,7 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
-| 2026-05-13 | 修复远程服务器管理 UX bug：1) 删除服务器后 IPC handler 未 await removeServer 导致列表不刷新；2) SSH 认证错误无明确提示，新增 authError 标记和 error 级别通知；3) 密码修改后旧 SSHManager 缓存导致操作锁死锁，updateServer 检测密码变更时销毁旧 manager；4) 设置页 addServer 返回 partial 时仍自动重连导致循环卡住，loadServers 不再自动重连 error 状态服务器 | @mi-saka | bugfix-remote-server-ux-v1 |
+| 2026-05-13 | 修复密码修改后服务器 error 状态未重置导致无法重连：updateServer 检测密码变更时，若当前状态为 error 则重置为 disconnected，使 loadServers 自动重连逻辑正常触发 | @mi-saka | bugfix-remote-server-ux-v2 |
 | 2026-05-10 | 修复 SSH 断连后 UI 状态不更新：`SSHManager` 新增 `onDisconnect` 回调，`connectServer` 注册回调在断开时立即清理 `proxyRunning`/`apiReachable` 并通知 UI；`saveServers`/`loadServers` 不再持久化运行时状态字段 | @moonseeker | bugfix-remote-status-stale-v1 |
 | 2026-04-27 | 修复 SSH 命令执行无超时导致部署/更新卡死：`SSHManager` 三个执行方法添加默认超时（30s/600s），`disconnect()` 改为强制断开不排队，部署流程关键调用（npm install 5min、Node.js 安装 5min、tar 解压 2-5min）添加显式超时覆盖 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
 | 2026-04-27 | 修复端口分配无总超时：`resolvePort()` 添加 2 分钟累积超时保护 | @MoonSeeker | bugfix-deploy-timeout-hang-v1 |
