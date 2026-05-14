@@ -99,6 +99,7 @@ export interface ServerMessage {
          'auth_retry' |  // Auth retry notification (401 auto-recovery)
          'stream:alive'  // Stream alive heartbeat
   sessionId?: string
+  generationId?: string
   data?: any
 }
 

@@ -147,6 +147,19 @@ export async function executeRemoteMessage(
   // WebSocket MCP Bridge — initialized early so it's accessible in catch block for cleanup
   let mcpBridge: AicoBotMcpBridge | null = null;
 
+  // Generation ID — unique per message turn, used to filter events on shared WebSocket.
+  // Without this, events from previous turns' handlers leak into the current turn
+  // because all turns share the same sessionId (= conversationId) on the pooled connection.
+  const generationId = `gen-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  log.info(`[${conversationId}] Generation ID: ${generationId}`);
+
+  // Match helper — compatible with old servers that don't echo generationId.
+  // Uses a getter to avoid referencing effectiveSessionId before it's declared.
+  let effectiveSessionId: string;
+  const matchesGeneration = (data: any) =>
+    data.sessionId === effectiveSessionId &&
+    (data.generationId === undefined || data.generationId === generationId);
+
   try {
     // ── Phase 1: SSH tunnel establishment ──
 
@@ -181,7 +194,7 @@ export async function executeRemoteMessage(
     // CRITICAL: effectiveSessionId always equals conversationId for consistent session
     // lookup on remote server. sdkSessionId (SDK's internal session ID) is only used
     // for the --resume parameter. This prevents session key mismatch across turns.
-    const effectiveSessionId = conversationId;
+    effectiveSessionId = conversationId;
 
     // Establish reverse SSH tunnel for MCP proxy (remote -> AICO-Bot)
     // NOTE: This is the legacy fallback path. The preferred path is WebSocket MCP Bridge
@@ -295,7 +308,7 @@ export async function executeRemoteMessage(
 
     // Handle incoming MCP tool calls from remote proxy
     addHandler('mcp:tool:call', async (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const { callId, toolName, arguments: toolArgs } = data.data;
         log.debug(`MCP tool call received: ${toolName} (callId=${callId})`);
         try {
@@ -314,7 +327,7 @@ export async function executeRemoteMessage(
 
     // SDK session ID event - capture for session resumption
     addHandler('claude:session', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const receivedSdkSessionId = data.data?.sdkSessionId;
         if (receivedSdkSessionId) {
           sdkSessionId = receivedSdkSessionId;
@@ -343,7 +356,7 @@ export async function executeRemoteMessage(
     };
 
     addHandler('tool:call', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const toolData = data.data;
         log.debug(`Tool call received:`, {
           name: toolData.name,
@@ -394,7 +407,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('tool:delta', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         // Handle tool delta for streaming tool input
         log.debug(`Tool delta received`);
         // Tool deltas are handled via thought events
@@ -402,7 +415,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('tool:result', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const toolData = data.data;
         // Try to get tool name from toolData, or look it up from remoteToolCommands map
         // The name field may be empty in some SDK responses, but we can infer it from the tool ID
@@ -461,7 +474,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('tool:error', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const toolData = data.data;
         log.error(`Tool error:`, toolData);
         sendToRenderer('agent:tool-result', spaceId, conversationId, {
@@ -474,7 +487,7 @@ export async function executeRemoteMessage(
 
     // Terminal output events
     addHandler('terminal:output', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const output = data.data;
         log.debug(
           `terminal:output received: content.length=${output.content?.length || 0}, activeBashCommandId=${activeBashCommandId}`,
@@ -503,7 +516,7 @@ export async function executeRemoteMessage(
 
     // Streaming text events - use agent:message format expected by frontend
     addHandler('claude:stream', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const text = data.data?.text || data.data?.content || '';
         streamChunks.push(text);
         streamingContent = streamChunks.join('');
@@ -530,7 +543,7 @@ export async function executeRemoteMessage(
 
     // Thought events - for thinking process display (aligned with local agent:thought)
     addHandler('thought', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const thoughtData = data.data;
         log.debug(`Thought received: type=${thoughtData.type}, id=${thoughtData.id}`);
 
@@ -550,7 +563,7 @@ export async function executeRemoteMessage(
 
     // Thought delta events - for streaming updates (aligned with local agent:thought-delta)
     addHandler('thought:delta', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const deltaData = data.data;
 
         // Debug: Log tool result deltas
@@ -592,7 +605,7 @@ export async function executeRemoteMessage(
 
     // MCP status events - forward to renderer (aligned with local agent:mcp-status)
     addHandler('mcp:status', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.debug(`MCP status received:`, data.data);
         // Import broadcastMcpStatus from mcp-manager
         import('./mcp-manager')
@@ -605,7 +618,7 @@ export async function executeRemoteMessage(
 
     // Compact boundary events - context compression notification
     addHandler('compact:boundary', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.debug(`Compact boundary received:`, data.data);
         sendToRenderer('agent:compact', spaceId, conversationId, {
           type: 'compact',
@@ -617,14 +630,14 @@ export async function executeRemoteMessage(
 
     // Subagent worker lifecycle events (from SDK Agent tool usage)
     addHandler('worker:started', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.debug(`Worker started: ${data.data.agentId} - ${data.data.agentName}`);
         sendToRenderer('worker:started', spaceId, conversationId, data.data);
       }
     });
 
     addHandler('worker:completed', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.debug(`Worker completed: ${data.data.agentId}`);
         sendToRenderer('worker:completed', spaceId, conversationId, data.data);
       }
@@ -632,7 +645,7 @@ export async function executeRemoteMessage(
 
     // AskUserQuestion forwarding - remote Claude asks user a question
     addHandler('ask:question', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.debug(
           `AskUserQuestion: id=${data.data.id}, questions=${data.data.questions?.length || 0}`,
         );
@@ -659,7 +672,7 @@ export async function executeRemoteMessage(
 
     // Auth retry notification from remote proxy
     addHandler('auth_retry', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         log.info(`Auth retry in progress (remote): ${data.data?.attempt}/${data.data?.maxRetries}`);
         sendToRenderer('agent:auth-retry', spaceId, conversationId, data.data);
       }
@@ -667,7 +680,7 @@ export async function executeRemoteMessage(
 
     // Text block start signal - for proper text block reset in frontend
     addHandler('text:block-start', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         sendToRenderer('agent:message', spaceId, conversationId, {
           type: 'message',
           content: '',
@@ -702,7 +715,7 @@ export async function executeRemoteMessage(
     // ============================================
 
     addHandler('proxy:report', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const eventData = data.data;
         log.debug(`Proxy report: from=${eventData.workerName}, type=${eventData.reportType}`);
         // Forward to local orchestrator for injection into the leader's session
@@ -716,7 +729,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('proxy:announce', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const eventData = data.data;
         log.debug(`Proxy announce: worker=${eventData.workerName}, status=${eventData.status}`);
         import('./orchestrator')
@@ -729,7 +742,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('proxy:question', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const eventData = data.data;
         log.debug(`Proxy question: from=${eventData.workerName}, target=${eventData.target}`);
         import('./orchestrator')
@@ -742,7 +755,7 @@ export async function executeRemoteMessage(
     });
 
     addHandler('proxy:message', (data) => {
-      if (data.sessionId === effectiveSessionId) {
+      if (matchesGeneration(data)) {
         const eventData = data.data;
         log.debug(`Proxy message: from=${eventData.workerName}, to=${eventData.recipient}`);
         import('./orchestrator')
@@ -874,6 +887,7 @@ export async function executeRemoteMessage(
       effectiveSessionId, // Conversation ID for WebSocket routing
       messagesToSend,
       {
+        generationId, // Unique per turn — server echoes in all events
         apiKey,
         baseUrl: baseUrl || undefined,
         model,

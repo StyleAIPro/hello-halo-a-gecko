@@ -306,11 +306,11 @@ export class RemoteWsClient extends EventEmitter {
           break;
 
         case 'claude:stream':
-          this.emit('claude:stream', { sessionId: message.sessionId, data: message.data });
+          this.emit('claude:stream', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'claude:usage':
-          this.emit('claude:usage', { sessionId: message.sessionId, data: message.data });
+          this.emit('claude:usage', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'claude:context-usage':
@@ -318,12 +318,12 @@ export class RemoteWsClient extends EventEmitter {
           break;
 
         case 'claude:complete':
-          this.emit('claude:complete', { sessionId: message.sessionId, data: message.data });
+          this.emit('claude:complete', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'claude:error':
           log.error(`[${this.config.serverId}] Claude error:`, message.data);
-          this.emit('claude:error', { sessionId: message.sessionId, data: message.data });
+          this.emit('claude:error', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'claude:session':
@@ -331,36 +331,36 @@ export class RemoteWsClient extends EventEmitter {
             `[${this.config.serverId}] Received SDK session_id:`,
             message.data?.sdkSessionId,
           );
-          this.emit('claude:session', { sessionId: message.sessionId, data: message.data });
+          this.emit('claude:session', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'tool:call':
-          this.emit('tool:call', { sessionId: message.sessionId, data: message.data });
+          this.emit('tool:call', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'tool:delta':
-          this.emit('tool:delta', { sessionId: message.sessionId, data: message.data });
+          this.emit('tool:delta', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'tool:result':
-          this.emit('tool:result', { sessionId: message.sessionId, data: message.data });
+          this.emit('tool:result', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'tool:error':
           log.error(`[${this.config.serverId}] Tool error:`, message.data);
-          this.emit('tool:error', { sessionId: message.sessionId, data: message.data });
+          this.emit('tool:error', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'terminal:output':
-          this.emit('terminal:output', { sessionId: message.sessionId, data: message.data });
+          this.emit('terminal:output', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'thought':
-          this.emit('thought', { sessionId: message.sessionId, data: message.data });
+          this.emit('thought', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'thought:delta':
-          this.emit('thought:delta', { sessionId: message.sessionId, data: message.data });
+          this.emit('thought:delta', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'stream:alive':
@@ -368,11 +368,11 @@ export class RemoteWsClient extends EventEmitter {
           break;
 
         case 'mcp:status':
-          this.emit('mcp:status', { sessionId: message.sessionId, data: message.data });
+          this.emit('mcp:status', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'mcp:tool:call':
-          this.emit('mcp:tool:call', { sessionId: message.sessionId, data: message.data });
+          this.emit('mcp:tool:call', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'mcp:tool:response':
@@ -380,20 +380,20 @@ export class RemoteWsClient extends EventEmitter {
           break;
 
         case 'compact:boundary':
-          this.emit('compact:boundary', { sessionId: message.sessionId, data: message.data });
+          this.emit('compact:boundary', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'text:block-start':
-          this.emit('text:block-start', { sessionId: message.sessionId, data: message.data });
+          this.emit('text:block-start', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'fs:result':
-          this.emit('fs:result', { sessionId: message.sessionId, data: message.data });
+          this.emit('fs:result', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'fs:error':
           log.error(`[${this.config.serverId}] FS error:`, message.data);
-          this.emit('fs:error', { sessionId: message.sessionId, data: message.data });
+          this.emit('fs:error', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'pong':
@@ -426,15 +426,15 @@ export class RemoteWsClient extends EventEmitter {
           break;
 
         case 'worker:started':
-          this.emit('worker:started', { sessionId: message.sessionId, data: message.data });
+          this.emit('worker:started', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'worker:completed':
-          this.emit('worker:completed', { sessionId: message.sessionId, data: message.data });
+          this.emit('worker:completed', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'ask:question':
-          this.emit('ask:question', { sessionId: message.sessionId, data: message.data });
+          this.emit('ask:question', { sessionId: message.sessionId, generationId: message.generationId, data: message.data });
           break;
 
         case 'permission:request':
@@ -486,6 +486,7 @@ export class RemoteWsClient extends EventEmitter {
       let fullContent = '';
       let tokenUsage: any = null;
       let isComplete = false;
+      const genId = options.generationId;
 
       const IDLE_TIMEOUT_MS = options.timeoutMs || 60 * 60 * 1000;
       const CHECK_INTERVAL_MS = 60 * 1000;
@@ -545,18 +546,27 @@ export class RemoteWsClient extends EventEmitter {
         timeoutTimer = setTimeout(checkTimeout, CHECK_INTERVAL_MS);
       };
 
+      const matchesGeneration = (data: any) => {
+        if (data.sessionId !== sessionId) return false;
+        // Old server doesn't echo generationId — accept for backward compat
+        if (data.generationId === undefined) return true;
+        // Client didn't request generationId — accept all
+        if (!genId) return true;
+        return data.generationId === genId;
+      };
+
       const streamHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
+        if (matchesGeneration(data)) {
           resetTimeout();
           const text = data.data?.text || data.data?.content || '';
           chunks.push(text);
           fullContent = chunks.join('');
-          this.emit('stream', { sessionId, content: fullContent, delta: text });
+          this.emit('stream', { sessionId, generationId: genId, content: fullContent, delta: text });
         }
       };
 
       const usageHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
+        if (matchesGeneration(data)) {
           resetTimeout();
           tokenUsage = data.data;
           log.debug(`[${this.config.serverId}] Received token usage:`, tokenUsage);
@@ -564,7 +574,7 @@ export class RemoteWsClient extends EventEmitter {
       };
 
       const completeHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
+        if (matchesGeneration(data)) {
           isComplete = true;
           if (timeoutTimer) {
             clearTimeout(timeoutTimer);
@@ -588,7 +598,7 @@ export class RemoteWsClient extends EventEmitter {
       };
 
       const errorHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
+        if (matchesGeneration(data)) {
           isComplete = true;
           if (timeoutTimer) {
             clearTimeout(timeoutTimer);
@@ -611,7 +621,7 @@ export class RemoteWsClient extends EventEmitter {
       };
 
       const activityHandler = (data: any) => {
-        if (data.sessionId === sessionId) {
+        if (matchesGeneration(data)) {
           resetTimeout();
           if (data.type === 'stream:alive') {
             this.emit('stream:alive', data);
@@ -636,6 +646,7 @@ export class RemoteWsClient extends EventEmitter {
         type: 'claude:chat',
         sessionId,
         payload: {
+          generationId: genId,
           messages,
           options: { ...options, stream: true },
         },

@@ -662,16 +662,18 @@ export class RemoteAgentServer {
     let resolveLock: (() => void) | undefined
     let globalTimer: ReturnType<typeof setTimeout> | undefined
     let aliveTimer: ReturnType<typeof setInterval> | undefined
+    // Generation ID helper — declared here so catch block can access it
+    let generationId: string | undefined = payload?.generationId
+    const sendEvent = (type: string, data?: any) => {
+      const msg: any = { type, sessionId, generationId, data };
+      this.sendMessage(ws, msg)
+    }
     try {
       const { messages, options, stream = true } = payload
       const client = this.clients.get(ws)
 
       if (!messages || !Array.isArray(messages)) {
-        this.sendMessage(ws, {
-          type: 'claude:error',
-          sessionId,
-          data: { error: 'Invalid messages format' }
-        })
+        sendEvent('claude:error', { error: 'Invalid messages format' })
         return
       }
 
@@ -707,6 +709,10 @@ export class RemoteAgentServer {
       })
 
       console.log(`[RemoteAgentServer] Processing chat with ${chatMessages.length} messages for session ${sessionId}`)
+
+      if (generationId) {
+        console.log(`[RemoteAgentServer] Generation ID: ${generationId}`)
+      }
 
       // Per-session lock: prevent concurrent streamChat calls for the same session.
       // Without this, the gap between isActive() check and registerActiveSession()
@@ -760,55 +766,31 @@ export class RemoteAgentServer {
           } else {
             messageType = 'tool:call'
           }
-          this.sendMessage(ws, {
-            type: messageType,
-            sessionId,
-            data: tool
-          })
+          sendEvent(messageType, tool)
         }
 
         const onTerminalOutput = (output: TerminalOutput) => {
-          this.sendMessage(ws, {
-            type: 'terminal:output',
-            sessionId,
-            data: output
-          })
+          sendEvent('terminal:output', output)
         }
 
         // Callback for thought events (thinking, tool_use, etc.)
         const onThought = (thought: ThoughtEvent) => {
-          this.sendMessage(ws, {
-            type: 'thought',
-            sessionId,
-            data: thought
-          })
+          sendEvent('thought', thought)
         }
 
         // Callback for thought delta events (streaming updates)
         const onThoughtDelta = (delta: ThoughtDeltaEvent) => {
-          this.sendMessage(ws, {
-            type: 'thought:delta',
-            sessionId,
-            data: delta
-          })
+          sendEvent('thought:delta', delta)
         }
 
         // Callback for MCP status events
         const onMcpStatus = (data: { servers: Array<{ name: string; status: string }> }) => {
-          this.sendMessage(ws, {
-            type: 'mcp:status',
-            sessionId,
-            data: data
-          })
+          sendEvent('mcp:status', data)
         }
 
         // Callback for compact boundary events
         const onCompact = (data: { trigger: 'manual' | 'auto'; preTokens: number }) => {
-          this.sendMessage(ws, {
-            type: 'compact:boundary',
-            sessionId,
-            data: data
-          })
+          sendEvent('compact:boundary', data)
         }
 
         console.log(`[RemoteAgentServer] Starting stream for session ${sessionId}`)
@@ -833,11 +815,7 @@ export class RemoteAgentServer {
           return new Promise<Record<string, string>>((resolve, reject) => {
             this.pendingAskQuestions.set(id, { resolve, reject })
             // Send question to AICO-Bot client
-            this.sendMessage(ws, {
-              type: 'ask:question',
-              sessionId,
-              data: { id, questions }
-            })
+            sendEvent('ask:question', { id, questions })
             // 10 minute timeout for user response
             setTimeout(() => {
               if (this.pendingAskQuestions.has(id)) {
@@ -958,27 +936,15 @@ export class RemoteAgentServer {
             }
             if (chunk.type === 'text') {
               // Send text delta in format expected by client
-              this.sendMessage(ws, {
-                type: 'claude:stream',
-                sessionId,
-                data: { text: chunk.data?.text || '' }
-              })
+              sendEvent('claude:stream', { text: chunk.data?.text || '' })
             } else if (chunk.type === 'text_block_start') {
               // Send text block start signal
-              this.sendMessage(ws, {
-                type: 'text:block-start',
-                sessionId,
-                data: {}
-              })
+              sendEvent('text:block-start', {})
             } else if (chunk.type === 'session_id') {
               // Send SDK session_id to client for session resumption
               const newSdkSessionId = chunk.data?.sessionId
               console.log(`[RemoteAgentServer] Forwarding SDK session_id: ${newSdkSessionId}`)
-              this.sendMessage(ws, {
-                type: 'claude:session',
-                sessionId,
-                data: { sdkSessionId: newSdkSessionId }
-              })
+              sendEvent('claude:session', { sdkSessionId: newSdkSessionId })
               // Update client's SDK session ID for next request
               if (client && newSdkSessionId) {
                 client.sdkSessionId = newSdkSessionId
@@ -986,32 +952,16 @@ export class RemoteAgentServer {
               }
             } else if (chunk.type === 'usage') {
               // Send token usage to client
-              this.sendMessage(ws, {
-                type: 'claude:usage',
-                sessionId,
-                data: chunk.data
-              })
+              sendEvent('claude:usage', chunk.data)
             } else if (chunk.type === 'context-usage') {
               // Send real-time context usage to client
-              this.sendMessage(ws, {
-                type: 'claude:context-usage',
-                sessionId,
-                data: chunk.data
-              })
+              sendEvent('claude:context-usage', chunk.data)
             } else if (chunk.type === 'worker:started') {
               // Forward subagent worker started event
-              this.sendMessage(ws, {
-                type: 'worker:started',
-                sessionId,
-                data: chunk.data
-              })
+              sendEvent('worker:started', chunk.data)
             } else if (chunk.type === 'worker:completed') {
               // Forward subagent worker completed event
-              this.sendMessage(ws, {
-                type: 'worker:completed',
-                sessionId,
-                data: chunk.data
-              })
+              sendEvent('worker:completed', chunk.data)
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
@@ -1025,11 +975,7 @@ export class RemoteAgentServer {
             console.warn(`[RemoteAgentServer] Auth retry #${authRetries} for session ${sessionId}: rebuilding session`)
 
             // Notify client about auth recovery
-            this.sendMessage(ws, {
-              type: 'auth_retry',
-              sessionId,
-              data: { attempt: authRetries, maxRetries: MAX_AUTH_RETRIES }
-            })
+            sendEvent('auth_retry', { attempt: authRetries, maxRetries: MAX_AUTH_RETRIES })
 
             // Force session rebuild — next streamChat call creates fresh session
             this.claudeManager.forceSessionRebuild(sessionId)
@@ -1112,21 +1058,14 @@ export class RemoteAgentServer {
         // Only send claude:complete if not interrupted
         if (!wasInterrupted) {
           console.log(`[RemoteAgentServer] Chat completed for session ${sessionId}`)
-          this.sendMessage(ws, {
-            type: 'claude:complete',
-            sessionId
-          })
+          sendEvent('claude:complete')
         } else {
           console.log(`[RemoteAgentServer] Chat interrupted for session ${sessionId}`)
         }
       } else {
         // Non-streaming mode
         const response = await this.claudeManager.chat(sessionId, chatMessages, options)
-        this.sendMessage(ws, {
-          type: 'claude:complete',
-          sessionId,
-          data: { content: response }
-        })
+        sendEvent('claude:complete', { content: response })
       }
     } catch (error) {
       // Clear pending messages on error to prevent stale queue
@@ -1136,11 +1075,7 @@ export class RemoteAgentServer {
         message: error.message,
         stack: error.stack
       } : String(error))
-      this.sendMessage(ws, {
-        type: 'claude:error',
-        sessionId,
-        data: { error: error instanceof Error ? error.message : String(error) }
-      })
+      sendEvent('claude:error', { error: error instanceof Error ? error.message : String(error) })
     } finally {
       if (globalTimer) clearTimeout(globalTimer)
       if (aliveTimer) clearInterval(aliveTimer)

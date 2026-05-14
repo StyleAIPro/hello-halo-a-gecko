@@ -1327,19 +1327,15 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${conversationId}] Session closed flag set, recreating...`)
         this.cleanupSession(conversationId, 'session closed')
         // Fall through to create new session (without resume — closed sessions can't resume)
-      } else if (existing.interrupted && !(existing.session as any).closed && isSessionTransportReady(existing.session)) {
-        // Session was interrupted but transport is alive — try reuse with first-event timeout.
-        // If session.stream() is corrupted (mid-tool-call), the timeout in streamChat
-        // will abort and trigger a rebuild. This preserves context when the session is healthy.
-        console.log(`[ClaudeManager][${conversationId}] Session was interrupted but transport alive, attempting reuse with safety timeout...`)
-        existing.lastUsedAt = Date.now()
-        // Clear the interrupted flag so next getOrCreateSession doesn't see stale state
-        existing.interrupted = false
-        return existing.session
       } else if (existing.interrupted) {
-        // Session interrupted AND transport dead — must rebuild
-        console.log(`[ClaudeManager][${conversationId}] Session interrupted with dead transport, rebuilding...`)
-        this.cleanupSession(conversationId, 'session interrupted - dead transport')
+        // Session was interrupted — always rebuild.
+        // Reuse after interrupt is unsafe: the SDK subprocess may still hold an
+        // incomplete response from the previous turn. session.send() queues the
+        // new message, but the SDK emits the stale tail of the old response first,
+        // causing the client to receive wrong content.
+        // resumeSessionId (from disk) restores conversation context in the new session.
+        console.log(`[ClaudeManager][${conversationId}] Session interrupted, rebuilding (reuse is unsafe — stale response risk)`)
+        this.cleanupSession(conversationId, 'session interrupted - rebuilding')
         // Fall through to create new session
       } else if (effectiveResumeId) {
         // OPTIMIZATION: Try to reuse existing session on resume instead of always
