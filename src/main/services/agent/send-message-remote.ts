@@ -45,6 +45,7 @@ import {
 } from './session-manager';
 import { AicoBotMcpBridge } from '../remote/ws/aico-bot-mcp-bridge';
 import { terminalGateway } from '../terminal/terminal-gateway';
+import { SkillManager } from '../skill/skill-manager';
 
 const log = createLogger('agent:remote');
 
@@ -860,6 +861,9 @@ export async function executeRemoteMessage(
           : undefined,
         aicoBotMcpToken: mcpProxyRemotePort ? await getAccessToken() : undefined,
         permissionMode: (config.permissions?.trustMode ?? false) ? 'full' : 'partial',
+        allowSubAgentSkills: SkillManager.getInstance().getInstalledSkills()
+          .filter(s => s.spec.allow_sub_agents)
+          .map(s => s.spec.name),
       },
     );
 

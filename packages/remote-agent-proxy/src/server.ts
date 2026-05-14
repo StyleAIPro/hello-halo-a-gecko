@@ -660,6 +660,7 @@ export class RemoteAgentServer {
   private async handleClaudeChat(ws: WebSocket, sessionId: string, payload: any): Promise<void> {
     // Per-session lock variables — declared here so finally block can access them
     let resolveLock: (() => void) | undefined
+    let globalTimer: ReturnType<typeof setTimeout> | undefined
     try {
       const { messages, options, stream = true } = payload
       const client = this.clients.get(ws)
@@ -879,6 +880,13 @@ export class RemoteAgentServer {
           isFirstIteration = false
           }
 
+          // Global stream timeout — absolute upper bound for a single stream iteration
+          const STREAM_GLOBAL_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+          globalTimer = setTimeout(() => {
+            console.error(`[RemoteAgentServer] Stream global timeout (${STREAM_GLOBAL_TIMEOUT_MS / 60000}min) for session ${sessionId}`)
+            this.claudeManager.forceAbortStreamIterator(sessionId)
+          }, STREAM_GLOBAL_TIMEOUT_MS)
+
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
             currentChatMessages,
@@ -954,6 +962,8 @@ export class RemoteAgentServer {
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
 
+          if (globalTimer) clearTimeout(globalTimer)
+
           // Check if auth retry is needed (after stream completes)
           if (needsAuthRetry && authRetries < MAX_AUTH_RETRIES) {
             authRetries++
@@ -998,6 +1008,7 @@ export class RemoteAgentServer {
           console.log(`[RemoteAgentServer] Processing ${pending.length} pending message(s) for session ${sessionId}`)
           } // end while (pending messages loop)
         } catch (streamError) {
+          if (globalTimer) clearTimeout(globalTimer)
           // Check if this is an expected interrupt
           const errorMessage = streamError instanceof Error ? streamError.message : String(streamError)
           if (errorMessage === 'Stream interrupted' || errorMessage === 'Stream aborted') {
@@ -1075,6 +1086,7 @@ export class RemoteAgentServer {
         data: { error: error instanceof Error ? error.message : String(error) }
       })
     } finally {
+      if (globalTimer) clearTimeout(globalTimer)
       // Release per-session lock to allow next message to be processed
       if (resolveLock) {
         this.sessionProcessingLocks.delete(sessionId)

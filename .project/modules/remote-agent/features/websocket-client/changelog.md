@@ -2,6 +2,8 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-05-13 | 修复远程子 agent 未经确认自动启动：`PRE_APPROVED_TOOLS` 移除 Task；`canUseTool` 对 Agent/Task 按规则控制（用户明确要求或 Skill 配置 `allow_sub_agents` 时放行，其他直接拒绝）；`AppSpec` 新增 `allow_sub_agents` 字段；子 agent 思考事件双写主 session.thoughts（主思考流中可见） — PRD: `.project/prd/bugfix/remote/bugfix-remote-unauthorized-subagents-v1.md` | @mi-saka | bugfix-remote-unauthorized-subagents-v1 |
+| 2026-05-13 | 修复远程会话长任务超时：客户端 `sendChatWithStream()` 增加 `tool:call`/`tool:result` 事件重置空闲计时器，默认超时从 30 分钟提高到 60 分钟；服务端 `handleClaudeChat()` 增加 2 小时 stream 全局超时保护；前端 `handleAgentError()` 超时错误 i18n 化 — PRD: `.project/prd/bugfix/remote/bugfix-remote-session-timeout-v1.md` | @mi-saka | bugfix-remote-session-timeout-v1 |
 | 2026-05-10 | 新增 session-less fs:stat 和 fs:mkdir 消息类型：Proxy 端 `types.ts`/`server.ts` 新增 `fs:stat`（检查路径存在性）和 `fs:mkdir`（递归创建目录），无需 SDK session 即可调用；客户端 `ws-types.ts` 同步新增类型，`remote-ws-client.ts` 新增 Promise 化的 `statPath()`/`mkdir()` 方法 — PRD: `.project/prd/bugfix/space/bugfix-remote-space-dir-check-v1.md` | @moonseeker | bugfix-remote-space-dir-check-v1 |
 | 2026-05-09 | 双向心跳检测：服务端每 15s 检查客户端活跃时间，30s 无活动发 ping 催促，90s 超时关闭(4002)；客户端响应服务端 ping（case 'ping' → pong）；断连时清理所有 pending promise（McpToolCalls/HyperSpaceTools/AskQuestions），保留 SDK session 供断点续传 — `server.ts`、`remote-ws-client.ts`、`ws-types.ts` — PRD: `prd/feature/remote-agent/feature-bidirectional-heartbeat-v1` | @moonseeker | feature-bidirectional-heartbeat-v1 |
 | 2026-05-08 | SSH 隧道断开时联动失效连接池：acquireConnection 添加隧道存活检查（isServerTunnelAlive），隧道已死时跳过 waitForReconnect 直接创建新连接；`close` handler 中增加 client.destroy() 彻底停止旧 client 重连 — `ws-connection-pool.ts` — PRD: `prd/bugfix/remote/bugfix-tunnel-pool-invalidation-v1` | @moonseeker | bugfix-tunnel-pool-invalidation-v1 |

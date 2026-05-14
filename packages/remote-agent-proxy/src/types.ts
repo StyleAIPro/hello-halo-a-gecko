@@ -60,6 +60,8 @@ export interface ChatOptions {
   aicoBotMcpUrl?: string   // AICO-Bot MCP proxy base URL (e.g., http://127.0.0.1:3848/mcp)
   aicoBotMcpToken?: string // Auth token for AICO-Bot MCP proxy
   permissionMode?: 'full' | 'partial'  // Permission mode from client settings
+  /** Skill names that are allowed to create sub-agents */
+  allowSubAgentSkills?: string[]
 }
 
 /**

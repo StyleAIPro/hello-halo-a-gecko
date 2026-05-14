@@ -474,7 +474,7 @@ export class RemoteWsClient extends EventEmitter {
       let tokenUsage: any = null;
       let isComplete = false;
 
-      const IDLE_TIMEOUT_MS = options.timeoutMs || 30 * 60 * 1000;
+      const IDLE_TIMEOUT_MS = options.timeoutMs || 60 * 60 * 1000;
       const CHECK_INTERVAL_MS = 60 * 1000;
 
       let timeoutTimer: NodeJS.Timeout | null = null;
@@ -499,6 +499,8 @@ export class RemoteWsClient extends EventEmitter {
             this.off('thought', activityHandler);
             this.off('thought:delta', activityHandler);
             this.off('terminal:output', activityHandler);
+            this.off('tool:call', activityHandler);
+            this.off('tool:result', activityHandler);
             this.activeStreamSessions.delete(sessionId);
             reject(
               new Error(
@@ -544,6 +546,8 @@ export class RemoteWsClient extends EventEmitter {
           this.off('thought', activityHandler);
           this.off('thought:delta', activityHandler);
           this.off('terminal:output', activityHandler);
+          this.off('tool:call', activityHandler);
+          this.off('tool:result', activityHandler);
           this.activeStreamSessions.delete(sessionId);
           const finalContent = fullContent || data.data?.content || '';
           resolve({ content: finalContent, tokenUsage });
@@ -564,6 +568,8 @@ export class RemoteWsClient extends EventEmitter {
           this.off('thought', activityHandler);
           this.off('thought:delta', activityHandler);
           this.off('terminal:output', activityHandler);
+          this.off('tool:call', activityHandler);
+          this.off('tool:result', activityHandler);
           this.activeStreamSessions.delete(sessionId);
           reject(new Error(data.data?.error || 'Chat failed'));
         }
@@ -582,6 +588,8 @@ export class RemoteWsClient extends EventEmitter {
       this.on('thought', activityHandler);
       this.on('thought:delta', activityHandler);
       this.on('terminal:output', activityHandler);
+      this.on('tool:call', activityHandler);
+      this.on('tool:result', activityHandler);
 
       this.activeStreamSessions.set(sessionId, { resolve, reject });
 
