@@ -44,6 +44,7 @@ import { useCanvasStore } from './canvas.store';
 import { getActionSummary, getStepCounts } from '../components/chat/thought-utils';
 import { useTerminalStore } from './terminal.store';
 import { useSpaceStore } from './space.store';
+import i18n from '../i18n';
 
 // LRU cache size limit
 const CONVERSATION_CACHE_SIZE = 10;
@@ -1756,12 +1757,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       errorType ? `(type: ${errorType})` : '',
     );
 
+    // i18n for timeout errors
+    const isTimeout = /timeout/i.test(error);
+    const displayError = isTimeout
+      ? i18n.t('Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.')
+      : error;
+
     // Add error thought to session (only for non-interrupted errors)
     // Interrupted errors get special UI treatment, not shown as error thought
     const errorThought: Thought = {
       id: `thought-error-${Date.now()}`,
       type: 'error',
-      content: error,
+      content: displayError,
       timestamp: new Date().toISOString(),
       isError: true,
     };
@@ -1777,7 +1784,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (ws) {
           newWorkerSessions.set(agentId, {
             ...ws,
-            error,
+            error: displayError,
             status: 'failed' as const,
             isRunning: false,
             isThinking: false,
@@ -1806,7 +1813,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       newSessions.set(conversationId, {
         ...session,
-        error,
+        error: displayError,
         errorType: errorType || null,
         isGenerating: false,
         isThinking: false,
@@ -2137,7 +2144,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         return { sessions: newSessions };
       });
-      return;
+      // Fall through to also write to main session.thoughts (dual-write for sub-agent visibility)
     }
 
     set((state) => {
@@ -2249,7 +2256,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         return { sessions: newSessions };
       });
-      return;
+      // Fall through to also update main session.thoughts (dual-write for sub-agent visibility)
     }
 
     set((state) => {

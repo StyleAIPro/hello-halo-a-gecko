@@ -681,6 +681,7 @@
   "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.": "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.",
   "Model ID already exists": "Model ID already exists",
   "Model response interrupted": "Model response interrupted",
+  "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.": "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.",
   "Modified": "Modified",
   "Modify": "Modify",
   "Modify selected content": "Modify selected content",
