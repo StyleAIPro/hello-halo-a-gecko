@@ -40,6 +40,7 @@ import type {
   PulseItem,
 } from '../types';
 import { PULSE_READ_GRACE_PERIOD_MS } from '../types';
+import { useSkillStore } from './skill/skill.store';
 import { useCanvasStore } from './canvas.store';
 import { getActionSummary, getStepCounts } from '../components/chat/thought-utils';
 import { useTerminalStore } from './terminal.store';
@@ -1251,6 +1252,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Supports queuing: if already generating, adds message to pendingMessages queue
   // agentId: target agent for Hyper Space ('leader' for default, or specific agent ID)
   sendMessage: async (content, images, aiBrowserEnabled, thinkingEnabled, agentId) => {
+    // Detect skill invocation from message content
+    const trimmedContent = content.trim();
+    const { installedSkills } = useSkillStore.getState();
+    const matchedSkill = installedSkills.find((s) => {
+      if (!s.enabled || !s.spec.trigger_command) return false;
+      const trigger = s.spec.trigger_command;
+      if (!trimmedContent.startsWith(trigger)) return false;
+      // Must be exact match or followed by a space
+      return trimmedContent.length === trigger.length || trimmedContent[trigger.length] === ' ';
+    });
+    const skillMetadata = matchedSkill
+      ? {
+          skillId: matchedSkill.appId,
+          skillName: matchedSkill.spec.name,
+          skillTrigger: matchedSkill.spec.trigger_command,
+          skillDescription: matchedSkill.spec.description,
+        }
+      : undefined;
+
     const conversation = get().getCurrentConversation();
     const conversationMeta = get().getCurrentConversationMeta();
     const { currentSpaceId } = get();
@@ -1284,7 +1304,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content,
         timestamp: new Date().toISOString(),
         images: images,
-      };
+        metadata: skillMetadata,
 
       set((state) => {
         const newSessions = new Map(state.sessions);
