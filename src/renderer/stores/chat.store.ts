@@ -1305,6 +1305,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date().toISOString(),
         images: images,
         metadata: skillMetadata,
+      };
 
       set((state) => {
         const newSessions = new Map(state.sessions);
