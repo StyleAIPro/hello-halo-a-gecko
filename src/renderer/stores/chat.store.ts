@@ -40,6 +40,7 @@ import type {
   PulseItem,
 } from '../types';
 import { PULSE_READ_GRACE_PERIOD_MS } from '../types';
+import { useSkillStore } from './skill/skill.store';
 import { useCanvasStore } from './canvas.store';
 import { getActionSummary, getStepCounts } from '../components/chat/thought-utils';
 import { useTerminalStore } from './terminal.store';
@@ -120,8 +121,20 @@ interface SessionState {
   pendingToolApproval: ToolCall | null;
   error: string | null;
   errorType: AgentErrorType | null; // Special error type for custom UI handling
+  // Agent elapsed time and idle timeout
+  agentElapsedTime: number | null;
+  agentCurrentTool: string | null;
+  idleTimeout: { idleMinutes: number; triggeredAt: number } | null;
   // Compact notification
   compactInfo: CompactInfo | null;
+  // Current context usage (real-time update from agent:context-usage and agent:complete)
+  currentContextUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    contextWindow: number;
+  } | null;
   // Text block version - increments on each new text block (for StreamingBubble reset)
   textBlockVersion: number;
   // Pending question from AskUserQuestion tool
@@ -293,7 +306,11 @@ function createEmptySessionState(): SessionState {
     pendingToolApproval: null,
     error: null,
     errorType: null,
+    agentElapsedTime: null,
+    agentCurrentTool: null,
+    idleTimeout: null,
     compactInfo: null,
+    currentContextUsage: null,
     textBlockVersion: 0,
     pendingQuestion: null,
     pendingToolPermission: null,
@@ -408,7 +425,11 @@ interface ChatState {
     data: AgentEventBase & { toolId: string; result: string; isError: boolean },
   ) => void;
   handleAgentError: (data: AgentEventBase & { error: string; errorType?: AgentErrorType }) => void;
-  handleAgentComplete: (data: AgentEventBase) => void;
+  handleAgentStreamAlive: (data: AgentEventBase & { elapsedMs: number; currentToolName?: string; currentToolElapsedMs?: number }) => void;
+  handleAgentIdleTimeout: (data: AgentEventBase & { idleMinutes: number }) => void;
+  resolveIdleTimeout: (conversationId: string) => Promise<void>;
+  forceIdleTimeout: (conversationId: string) => Promise<void>;
+  handleAgentComplete: (data: AgentEventBase & { tokenUsage?: TokenUsage | null }) => void;
   handleAgentThought: (data: AgentEventBase & { thought: Thought }) => void;
   handleAgentThoughtDelta: (
     data: AgentEventBase & {
@@ -425,6 +446,15 @@ interface ChatState {
   ) => void;
   handleAgentCompact: (
     data: AgentEventBase & { trigger: 'manual' | 'auto'; preTokens: number },
+  ) => void;
+  handleAgentContextUsage: (
+    data: AgentEventBase & {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      contextWindow?: number;
+    },
   ) => void;
 
   // AskUserQuestion handlers
@@ -1222,6 +1252,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Supports queuing: if already generating, adds message to pendingMessages queue
   // agentId: target agent for Hyper Space ('leader' for default, or specific agent ID)
   sendMessage: async (content, images, aiBrowserEnabled, thinkingEnabled, agentId) => {
+    // Detect skill invocation from message content
+    const trimmedContent = content.trim();
+    const { installedSkills } = useSkillStore.getState();
+    const matchedSkill = installedSkills.find((s) => {
+      if (!s.enabled || !s.spec.trigger_command) return false;
+      const trigger = s.spec.trigger_command;
+      if (!trimmedContent.startsWith(trigger)) return false;
+      // Must be exact match or followed by a space
+      return trimmedContent.length === trigger.length || trimmedContent[trigger.length] === ' ';
+    });
+    const skillMetadata = matchedSkill
+      ? {
+          skillId: matchedSkill.appId,
+          skillName: matchedSkill.spec.name,
+          skillTrigger: matchedSkill.spec.trigger_command,
+          skillDescription: matchedSkill.spec.description,
+        }
+      : undefined;
+
     const conversation = get().getCurrentConversation();
     const conversationMeta = get().getCurrentConversationMeta();
     const { currentSpaceId } = get();
@@ -1255,7 +1304,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content,
         timestamp: new Date().toISOString(),
         images: images,
-      };
+        metadata: skillMetadata,
 
       set((state) => {
         const newSessions = new Map(state.sessions);
@@ -1314,6 +1363,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           error: null,
           errorType: null,
           compactInfo: null,
+          currentContextUsage: null,
           textBlockVersion: 0,
           pendingQuestion: null,
           pendingToolPermission: null,
@@ -1338,6 +1388,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content,
         timestamp: new Date().toISOString(),
         images: images, // Include images in message for display
+        metadata: skillMetadata,
       };
 
       set((state) => {
@@ -1833,12 +1884,95 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
+  handleAgentStreamAlive: (data) => {
+    const { conversationId, elapsedMs, currentToolName } = data;
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, {
+        ...session,
+        agentElapsedTime: elapsedMs,
+        agentCurrentTool: currentToolName || null,
+      });
+      return { sessions: newSessions };
+    });
+  },
+
+  handleAgentIdleTimeout: (data) => {
+    const { conversationId, idleMinutes } = data;
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, {
+        ...session,
+        idleTimeout: { idleMinutes, triggeredAt: Date.now() },
+      });
+      return { sessions: newSessions };
+    });
+  },
+
+  resolveIdleTimeout: async (conversationId: string) => {
+    const { api } = await import('../api');
+    await api.continueIdleTimeout(conversationId);
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, { ...session, idleTimeout: null });
+      return { sessions: newSessions };
+    });
+  },
+
+  forceIdleTimeout: async (conversationId: string) => {
+    const { api } = await import('../api');
+    await api.forceIdleTimeout(conversationId);
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, { ...session, idleTimeout: null });
+      return { sessions: newSessions };
+    });
+  },
+
   // Handle complete - reload conversation from backend (Single Source of Truth)
   // Key: Only set isGenerating=false AFTER backend data is loaded to prevent flash
   // Also processes pending messages queue if any
   handleAgentComplete: async (data) => {
-    const { spaceId, conversationId } = data;
+    const { spaceId, conversationId, tokenUsage } = data;
     console.log(`[ChatStore] handleAgentComplete [${conversationId}]`);
+
+    // Update context usage with final tokenUsage
+    // Only update contextWindow if tokenUsage has a non-default value (> 0 and != 200K fallback)
+    // Otherwise preserve the value from agent:context-usage (which carries params.contextWindow)
+    if (tokenUsage) {
+      set((state) => {
+        const newSessions = new Map(state.sessions);
+        const session = newSessions.get(conversationId);
+        if (!session) return state;
+
+        // Preserve contextWindow from agent:context-usage events (which carry params.contextWindow)
+        // Only use tokenUsage.contextWindow if SDK reported a non-default value
+        const newContextWindow =
+          tokenUsage.contextWindow !== 200000
+            ? tokenUsage.contextWindow
+            : (session.currentContextUsage?.contextWindow ?? tokenUsage.contextWindow);
+
+        newSessions.set(conversationId, {
+          ...session,
+          currentContextUsage: {
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            cacheReadTokens: tokenUsage.cacheReadTokens,
+            cacheCreationTokens: tokenUsage.cacheCreationTokens,
+            contextWindow: newContextWindow,
+          },
+        });
+        return { sessions: newSessions };
+      });
+    }
 
     // Check for pending messages before completing
     const sessionBeforeComplete = get().getSession(conversationId);
@@ -1956,6 +2090,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 streamingContent: '',
                 thoughts: [],
                 compactInfo: null,
+                currentContextUsage: null,
                 pendingQuestion: null,
                 pendingToolPermission: null,
                 error: null,
@@ -2069,6 +2204,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamingContent: '',
             thoughts: [], // Clear thoughts
             compactInfo: null, // Clear temporary compact notification
+            currentContextUsage: null,
             pendingQuestion: null, // Clear pending question
             pendingToolPermission: null, // Clear pending tool permission
             pendingMessages: [], // Clear pending messages on error
@@ -2341,6 +2477,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       newSessions.set(conversationId, {
         ...session,
         compactInfo: { trigger, preTokens },
+      });
+      return { sessions: newSessions };
+    });
+  },
+
+  handleAgentContextUsage: (data) => {
+    const {
+      conversationId,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      contextWindow: passedContextWindow,
+    } = data;
+
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+
+      newSessions.set(conversationId, {
+        ...session,
+        currentContextUsage: {
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          contextWindow: passedContextWindow ?? session.currentContextUsage?.contextWindow ?? 200000,
+        },
       });
       return { sessions: newSessions };
     });

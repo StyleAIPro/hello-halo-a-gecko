@@ -62,6 +62,8 @@ export interface ChatOptions {
   permissionMode?: 'full' | 'partial'  // Permission mode from client settings
   /** Skill names that are allowed to create sub-agents */
   allowSubAgentSkills?: string[]
+  /** Server-side stream global timeout (ms), 0 = unlimited, default 2h */
+  globalTimeoutMs?: number
 }
 
 /**
@@ -79,7 +81,7 @@ export interface HyperSpaceToolsConfig {
 
 export interface ServerMessage {
   type: 'auth:success' | 'auth:failed' |
-         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' | 'claude:usage' |
+         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' | 'claude:usage' | 'claude:context-usage' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
          'terminal:output' |
@@ -94,7 +96,8 @@ export interface ServerMessage {
          'task:update' | 'task:list' | 'task:get' | 'task:cancel' | 'task:spawn' |  // Background task management
          'ask:question' |  // AskUserQuestion forwarding to client
          'permission:request' |  // Destructive command permission request to client
-         'auth_retry'  // Auth retry notification (401 auto-recovery)
+         'auth_retry' |  // Auth retry notification (401 auto-recovery)
+         'stream:alive'  // Stream alive heartbeat
   sessionId?: string
   data?: any
 }
@@ -176,6 +179,15 @@ export interface ToolCallData {
 export interface TerminalOutputData {
   content: string
   type: 'stdout' | 'stderr'
+}
+
+export interface StreamAliveData {
+  /** Stream elapsed time (ms) */
+  elapsedMs: number
+  /** Currently executing tool name (if any) */
+  currentToolName?: string
+  /** Current tool elapsed time (ms, if any) */
+  currentToolElapsedMs?: number
 }
 
 // Thought data structures (aligned with local Thought type)

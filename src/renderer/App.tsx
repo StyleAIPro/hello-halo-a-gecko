@@ -29,6 +29,7 @@ import type {
   AicoBotConfig,
   AgentErrorType,
   Question,
+  TokenUsage,
 } from './types';
 import { hasAnyAISource } from './types';
 
@@ -111,10 +112,13 @@ export default function App() {
     handleAgentToolCall,
     handleAgentToolResult,
     handleAgentError,
+    handleAgentStreamAlive,
+    handleAgentIdleTimeout,
     handleAgentComplete,
     handleAgentThought,
     handleAgentThoughtDelta,
     handleAgentCompact,
+    handleAgentContextUsage,
     handleAskQuestion,
     handlePermissionRequest,
     resolveToolPermission,
@@ -300,7 +304,7 @@ export default function App() {
 
     const unsubComplete = api.onAgentComplete((data) => {
       console.log('[App] Received agent:complete event:', data);
-      handleAgentComplete(data as AgentEventBase);
+      handleAgentComplete(data as AgentEventBase & { tokenUsage?: TokenUsage | null });
     });
 
     const unsubCompact = api.onAgentCompact((data) => {
@@ -308,6 +312,26 @@ export default function App() {
       handleAgentCompact(
         data as AgentEventBase & { trigger: 'manual' | 'auto'; preTokens: number },
       );
+    });
+
+    const unsubContextUsage = api.onAgentContextUsage((data) => {
+      handleAgentContextUsage(
+        data as AgentEventBase & {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheCreationTokens: number;
+          contextWindow?: number;
+        },
+      );
+    });
+
+    const unsubStreamAlive = api.onAgentStreamAlive((data) => {
+      handleAgentStreamAlive(data as AgentEventBase & { elapsedMs: number; currentToolName?: string; currentToolElapsedMs?: number });
+    });
+
+    const unsubIdleTimeout = api.onAgentIdleTimeout((data) => {
+      handleAgentIdleTimeout(data as AgentEventBase & { idleMinutes: number });
     });
 
     // AskUserQuestion - AI needs user input to continue
@@ -432,6 +456,9 @@ export default function App() {
       unsubError();
       unsubComplete();
       unsubCompact();
+      unsubContextUsage();
+      unsubStreamAlive();
+      unsubIdleTimeout();
       unsubAskQuestion();
       unsubPermissionRequest();
       unsubMcpStatus();
@@ -446,10 +473,13 @@ export default function App() {
     handleAgentToolCall,
     handleAgentToolResult,
     handleAgentError,
+    handleAgentStreamAlive,
+    handleAgentIdleTimeout,
     handleAgentComplete,
     handleAgentThought,
     handleAgentThoughtDelta,
     handleAgentCompact,
+    handleAgentContextUsage,
     handleAskQuestion,
     handlePermissionRequest,
     resolveToolPermission,

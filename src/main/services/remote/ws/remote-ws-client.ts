@@ -59,6 +59,10 @@ export class RemoteWsClient extends EventEmitter {
     string,
     { resolve: (value: string) => void; reject: (reason: Error) => void }
   >();
+  private pendingIdleTimeouts = new Map<string, {
+    continueWaiting: () => void;
+    forceDisconnect: () => void;
+  }>();
 
   constructor(config: RemoteWsClientConfig, sessionId?: string) {
     super();
@@ -269,6 +273,7 @@ export class RemoteWsClient extends EventEmitter {
         const blockedTypes = [
           'claude:stream',
           'claude:usage',
+          'claude:context-usage',
           'thought',
           'thought:delta',
           'tool:call',
@@ -306,6 +311,10 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'claude:usage':
           this.emit('claude:usage', { sessionId: message.sessionId, data: message.data });
+          break;
+
+        case 'claude:context-usage':
+          this.emit('claude:context-usage', { sessionId: message.sessionId, data: message.data });
           break;
 
         case 'claude:complete':
@@ -352,6 +361,10 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'thought:delta':
           this.emit('thought:delta', { sessionId: message.sessionId, data: message.data });
+          break;
+
+        case 'stream:alive':
+          this.emit('stream:alive', { sessionId: message.sessionId, data: message.data });
           break;
 
         case 'mcp:status':
@@ -492,21 +505,39 @@ export class RemoteWsClient extends EventEmitter {
               clearTimeout(timeoutTimer);
               timeoutTimer = null;
             }
-            this.off('claude:stream', streamHandler);
-            this.off('claude:usage', usageHandler);
-            this.off('claude:complete', completeHandler);
-            this.off('claude:error', errorHandler);
-            this.off('thought', activityHandler);
-            this.off('thought:delta', activityHandler);
-            this.off('terminal:output', activityHandler);
-            this.off('tool:call', activityHandler);
-            this.off('tool:result', activityHandler);
-            this.activeStreamSessions.delete(sessionId);
-            reject(
-              new Error(
-                `Chat timeout - no activity for ${Math.round(IDLE_TIMEOUT_MS / 60000)} minutes`,
-              ),
-            );
+            // Emit idle:timeout event instead of immediately rejecting
+            // Let the user decide whether to continue waiting or force disconnect
+            const doForceDisconnect = () => {
+              this.off('claude:stream', streamHandler);
+              this.off('claude:usage', usageHandler);
+              this.off('claude:complete', completeHandler);
+              this.off('claude:error', errorHandler);
+              this.off('thought', activityHandler);
+              this.off('thought:delta', activityHandler);
+              this.off('terminal:output', activityHandler);
+              this.off('tool:call', activityHandler);
+              this.off('tool:result', activityHandler);
+              this.off('stream:alive', activityHandler);
+              this.activeStreamSessions.delete(sessionId);
+              this.pendingIdleTimeouts.delete(sessionId);
+              reject(
+                new Error(
+                  `Chat timeout - no activity for ${Math.round(IDLE_TIMEOUT_MS / 60000)} minutes (user forced)`,
+                ),
+              );
+            };
+            const doContinueWaiting = () => {
+              resetTimeout();
+              this.pendingIdleTimeouts.delete(sessionId);
+            };
+            this.pendingIdleTimeouts.set(sessionId, {
+              continueWaiting: doContinueWaiting,
+              forceDisconnect: doForceDisconnect,
+            });
+            this.emit('idle:timeout', {
+              sessionId,
+              idleMinutes: Math.round(IDLE_TIMEOUT_MS / 60000),
+            });
           } else if (!isComplete) {
             timeoutTimer = setTimeout(checkTimeout, CHECK_INTERVAL_MS);
           }
@@ -548,7 +579,9 @@ export class RemoteWsClient extends EventEmitter {
           this.off('terminal:output', activityHandler);
           this.off('tool:call', activityHandler);
           this.off('tool:result', activityHandler);
+          this.off('stream:alive', activityHandler);
           this.activeStreamSessions.delete(sessionId);
+          this.pendingIdleTimeouts.delete(sessionId);
           const finalContent = fullContent || data.data?.content || '';
           resolve({ content: finalContent, tokenUsage });
         }
@@ -570,7 +603,9 @@ export class RemoteWsClient extends EventEmitter {
           this.off('terminal:output', activityHandler);
           this.off('tool:call', activityHandler);
           this.off('tool:result', activityHandler);
+          this.off('stream:alive', activityHandler);
           this.activeStreamSessions.delete(sessionId);
+          this.pendingIdleTimeouts.delete(sessionId);
           reject(new Error(data.data?.error || 'Chat failed'));
         }
       };
@@ -578,6 +613,9 @@ export class RemoteWsClient extends EventEmitter {
       const activityHandler = (data: any) => {
         if (data.sessionId === sessionId) {
           resetTimeout();
+          if (data.type === 'stream:alive') {
+            this.emit('stream:alive', data);
+          }
         }
       };
 
@@ -590,6 +628,7 @@ export class RemoteWsClient extends EventEmitter {
       this.on('terminal:output', activityHandler);
       this.on('tool:call', activityHandler);
       this.on('tool:result', activityHandler);
+      this.on('stream:alive', activityHandler);
 
       this.activeStreamSessions.set(sessionId, { resolve, reject });
 
@@ -610,6 +649,20 @@ export class RemoteWsClient extends EventEmitter {
 
       resetTimeout();
     });
+  }
+
+  continueIdleTimeout(sessionId: string): void {
+    const pending = this.pendingIdleTimeouts.get(sessionId);
+    if (pending) {
+      pending.continueWaiting();
+    }
+  }
+
+  forceIdleTimeoutDisconnect(sessionId: string): void {
+    const pending = this.pendingIdleTimeouts.get(sessionId);
+    if (pending) {
+      pending.forceDisconnect();
+    }
   }
 
   listFs(path?: string): boolean {

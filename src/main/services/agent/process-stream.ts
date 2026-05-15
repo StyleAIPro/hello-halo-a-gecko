@@ -769,6 +769,47 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
         }
       }
 
+      // ========== Extract token usage from stream events ==========
+      // message_start provides early input_tokens; message_delta provides final usage
+      if (event.type === 'message_start' && event.message?.usage) {
+        const usage = event.message.usage;
+        if (usage.input_tokens > 0) {
+          lastSingleUsage = {
+            inputTokens: usage.input_tokens || 0,
+            outputTokens: usage.output_tokens || 0,
+            cacheReadTokens: usage.cache_read_input_tokens || 0,
+            cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+          };
+          emit('agent:context-usage', {
+            type: 'context-usage',
+            inputTokens: lastSingleUsage.inputTokens,
+            outputTokens: lastSingleUsage.outputTokens,
+            cacheReadTokens: lastSingleUsage.cacheReadTokens,
+            cacheCreationTokens: lastSingleUsage.cacheCreationTokens,
+            contextWindow: params.contextWindow,
+          });
+        }
+      }
+      if (event.type === 'message_delta' && event.usage) {
+        const usage = event.usage;
+        if (usage.input_tokens > 0) {
+          lastSingleUsage = {
+            inputTokens: usage.input_tokens || 0,
+            outputTokens: usage.output_tokens || 0,
+            cacheReadTokens: usage.cache_read_input_tokens || 0,
+            cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+          };
+          emit('agent:context-usage', {
+            type: 'context-usage',
+            inputTokens: lastSingleUsage.inputTokens,
+            outputTokens: lastSingleUsage.outputTokens,
+            cacheReadTokens: lastSingleUsage.cacheReadTokens,
+            cacheCreationTokens: lastSingleUsage.cacheCreationTokens,
+            contextWindow: params.contextWindow,
+          });
+        }
+      }
+
       continue; // stream_event handled, skip normal processing
     }
 
@@ -793,6 +834,14 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
       const usage = extractSingleUsage(sdkMessage);
       if (usage) {
         lastSingleUsage = usage;
+        emit('agent:context-usage', {
+          type: 'context-usage',
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheCreationTokens: usage.cacheCreationTokens,
+          contextWindow: params.contextWindow,
+        });
       }
     }
 

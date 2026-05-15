@@ -629,6 +629,20 @@ export const api = {
     return httpRequest('POST', '/api/agent/compact', { conversationId });
   },
 
+  continueIdleTimeout: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.continueIdleTimeout(conversationId);
+    }
+    return httpRequest('POST', '/api/agent/continue-idle-timeout', { conversationId });
+  },
+
+  forceIdleTimeout: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.forceIdleTimeout(conversationId);
+    }
+    return httpRequest('POST', '/api/agent/force-idle-timeout', { conversationId });
+  },
+
   // ===== Artifact =====
   listArtifacts: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
@@ -964,6 +978,9 @@ export const api = {
     onEvent('agent:thought-delta', callback),
   onAgentMcpStatus: (callback: (data: unknown) => void) => onEvent('agent:mcp-status', callback),
   onAgentCompact: (callback: (data: unknown) => void) => onEvent('agent:compact', callback),
+  onAgentContextUsage: (callback: (data: unknown) => void) => onEvent('agent:context-usage', callback),
+  onAgentStreamAlive: (callback: (data: unknown) => void) => onEvent('agent:stream-alive', callback),
+  onAgentIdleTimeout: (callback: (data: unknown) => void) => onEvent('agent:idle-timeout', callback),
   onAgentAskQuestion: (callback: (data: unknown) => void) =>
     onEvent('agent:ask-question', callback),
   onAgentPermissionRequest: (callback: (data: unknown) => void) =>
