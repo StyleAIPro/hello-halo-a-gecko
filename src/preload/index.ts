@@ -159,6 +159,8 @@ export interface AicoBotAPI {
   rejectQuestion: (data: { id: string; reason?: string }) => Promise<IpcResponse>;
   resolveAgentPermission: (data: { id: string; approved: boolean; conversationId?: string }) => Promise<IpcResponse>;
   compactContext: (conversationId: string) => Promise<IpcResponse>;
+  continueIdleTimeout: (conversationId: string) => Promise<IpcResponse>;
+  forceIdleTimeout: (conversationId: string) => Promise<IpcResponse>;
 
   // Event listeners
   onAgentMessage: (callback: (data: unknown) => void) => () => void;
@@ -837,6 +839,8 @@ const api: AicoBotAPI = {
   rejectQuestion: (data) => ipcRenderer.invoke('agent:reject-question', data),
   resolveAgentPermission: (data) => ipcRenderer.invoke('agent:resolve-permission', data),
   compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
+  continueIdleTimeout: (conversationId) => ipcRenderer.invoke('agent:continue-idle-timeout', conversationId),
+  forceIdleTimeout: (conversationId) => ipcRenderer.invoke('agent:force-idle-timeout', conversationId),
 
   // Event listeners
   onAgentMessage: (callback) => createEventListener('agent:message', callback),

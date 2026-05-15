@@ -111,6 +111,8 @@ export default function App() {
     handleAgentToolCall,
     handleAgentToolResult,
     handleAgentError,
+    handleAgentStreamAlive,
+    handleAgentIdleTimeout,
     handleAgentComplete,
     handleAgentThought,
     handleAgentThoughtDelta,
@@ -310,6 +312,14 @@ export default function App() {
       );
     });
 
+    const unsubStreamAlive = api.onAgentStreamAlive((data) => {
+      handleAgentStreamAlive(data as AgentEventBase & { elapsedMs: number; currentToolName?: string; currentToolElapsedMs?: number });
+    });
+
+    const unsubIdleTimeout = api.onAgentIdleTimeout((data) => {
+      handleAgentIdleTimeout(data as AgentEventBase & { idleMinutes: number });
+    });
+
     // AskUserQuestion - AI needs user input to continue
     const unsubAskQuestion = api.onAgentAskQuestion((data) => {
       console.log('[App] Received agent:ask-question event:', data);
@@ -432,6 +442,8 @@ export default function App() {
       unsubError();
       unsubComplete();
       unsubCompact();
+      unsubStreamAlive();
+      unsubIdleTimeout();
       unsubAskQuestion();
       unsubPermissionRequest();
       unsubMcpStatus();
@@ -446,6 +458,8 @@ export default function App() {
     handleAgentToolCall,
     handleAgentToolResult,
     handleAgentError,
+    handleAgentStreamAlive,
+    handleAgentIdleTimeout,
     handleAgentComplete,
     handleAgentThought,
     handleAgentThoughtDelta,

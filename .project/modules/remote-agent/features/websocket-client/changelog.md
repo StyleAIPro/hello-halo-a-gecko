@@ -2,6 +2,7 @@
 
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
+| 2026-05-14 | 远程 Agent 智能超时机制三层改造：1) 服务端每 5 分钟发送 `stream:alive` 心跳（附工具名/执行时长），客户端收到后重置空闲计时器，前端显示执行时长；2) SDK 进程崩溃时秒级通知客户端（`sessionExitCallbacks`），不等 60 分钟超时；3) 空闲超时触发时改为警告弹窗（继续等待/强制中断），不再直接断开；全局超时改为可配置（`globalTimeoutMs`），设 0 无限 | @mi-saka | feature-remote-smart-timeout-v1 |
 | 2026-05-13 | 修复远程子 agent 未经确认自动启动：`PRE_APPROVED_TOOLS` 移除 Task；`canUseTool` 对 Agent/Task 按规则控制（用户明确要求或 Skill 配置 `allow_sub_agents` 时放行，其他直接拒绝）；`AppSpec` 新增 `allow_sub_agents` 字段；子 agent 思考事件双写主 session.thoughts（主思考流中可见） — PRD: `.project/prd/bugfix/remote/bugfix-remote-unauthorized-subagents-v1.md` | @mi-saka | bugfix-remote-unauthorized-subagents-v1 |
 | 2026-05-13 | 修复远程会话长任务超时：客户端 `sendChatWithStream()` 增加 `tool:call`/`tool:result` 事件重置空闲计时器，默认超时从 30 分钟提高到 60 分钟；服务端 `handleClaudeChat()` 增加 2 小时 stream 全局超时保护；前端 `handleAgentError()` 超时错误 i18n 化 — PRD: `.project/prd/bugfix/remote/bugfix-remote-session-timeout-v1.md` | @mi-saka | bugfix-remote-session-timeout-v1 |
 | 2026-05-10 | 新增 session-less fs:stat 和 fs:mkdir 消息类型：Proxy 端 `types.ts`/`server.ts` 新增 `fs:stat`（检查路径存在性）和 `fs:mkdir`（递归创建目录），无需 SDK session 即可调用；客户端 `ws-types.ts` 同步新增类型，`remote-ws-client.ts` 新增 Promise 化的 `statPath()`/`mkdir()` 方法 — PRD: `.project/prd/bugfix/space/bugfix-remote-space-dir-check-v1.md` | @moonseeker | bugfix-remote-space-dir-check-v1 |

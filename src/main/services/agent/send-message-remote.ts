@@ -663,7 +663,24 @@ export async function executeRemoteMessage(
           content: '',
           isComplete: false,
           isStreaming: false,
-          isNewTextBlock: true, // Signal: new text block started
+          isNewTextBlock: true,
+        });
+      }
+    });
+
+    // Stream alive heartbeat from server — forward to renderer
+    addHandler('stream:alive', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        sendToRenderer('agent:stream-alive', spaceId, conversationId, data.data);
+      }
+    });
+
+    // Idle timeout — forward to renderer for user decision
+    addHandler('idle:timeout', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        log.warn(`Idle timeout for session ${effectiveSessionId}: ${data.idleMinutes}min`);
+        sendToRenderer('agent:idle-timeout', spaceId, conversationId, {
+          idleMinutes: data.idleMinutes,
         });
       }
     });

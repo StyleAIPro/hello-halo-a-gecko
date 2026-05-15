@@ -73,7 +73,8 @@ export interface ServerMessage {
     | 'worker:started'
     | 'worker:completed'
     | 'ask:question'
-    | 'permission:request';
+    | 'permission:request'
+    | 'stream:alive';
   sessionId?: string;
   data?: any;
 }

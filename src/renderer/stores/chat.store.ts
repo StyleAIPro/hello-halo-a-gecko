@@ -120,6 +120,10 @@ interface SessionState {
   pendingToolApproval: ToolCall | null;
   error: string | null;
   errorType: AgentErrorType | null; // Special error type for custom UI handling
+  // Agent elapsed time and idle timeout
+  agentElapsedTime: number | null;
+  agentCurrentTool: string | null;
+  idleTimeout: { idleMinutes: number; triggeredAt: number } | null;
   // Compact notification
   compactInfo: CompactInfo | null;
   // Text block version - increments on each new text block (for StreamingBubble reset)
@@ -293,6 +297,9 @@ function createEmptySessionState(): SessionState {
     pendingToolApproval: null,
     error: null,
     errorType: null,
+    agentElapsedTime: null,
+    agentCurrentTool: null,
+    idleTimeout: null,
     compactInfo: null,
     textBlockVersion: 0,
     pendingQuestion: null,
@@ -408,6 +415,10 @@ interface ChatState {
     data: AgentEventBase & { toolId: string; result: string; isError: boolean },
   ) => void;
   handleAgentError: (data: AgentEventBase & { error: string; errorType?: AgentErrorType }) => void;
+  handleAgentStreamAlive: (data: AgentEventBase & { elapsedMs: number; currentToolName?: string; currentToolElapsedMs?: number }) => void;
+  handleAgentIdleTimeout: (data: AgentEventBase & { idleMinutes: number }) => void;
+  resolveIdleTimeout: (conversationId: string) => Promise<void>;
+  forceIdleTimeout: (conversationId: string) => Promise<void>;
   handleAgentComplete: (data: AgentEventBase) => void;
   handleAgentThought: (data: AgentEventBase & { thought: Thought }) => void;
   handleAgentThoughtDelta: (
@@ -1829,6 +1840,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
             : session.pendingQuestion,
         workerSessions: updatedWorkerSessions,
       });
+      return { sessions: newSessions };
+    });
+  },
+
+  handleAgentStreamAlive: (data) => {
+    const { conversationId, elapsedMs, currentToolName } = data;
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, {
+        ...session,
+        agentElapsedTime: elapsedMs,
+        agentCurrentTool: currentToolName || null,
+      });
+      return { sessions: newSessions };
+    });
+  },
+
+  handleAgentIdleTimeout: (data) => {
+    const { conversationId, idleMinutes } = data;
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, {
+        ...session,
+        idleTimeout: { idleMinutes, triggeredAt: Date.now() },
+      });
+      return { sessions: newSessions };
+    });
+  },
+
+  resolveIdleTimeout: async (conversationId: string) => {
+    const { api } = await import('../api');
+    await api.continueIdleTimeout(conversationId);
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, { ...session, idleTimeout: null });
+      return { sessions: newSessions };
+    });
+  },
+
+  forceIdleTimeout: async (conversationId: string) => {
+    const { api } = await import('../api');
+    await api.forceIdleTimeout(conversationId);
+    set((state) => {
+      const newSessions = new Map(state.sessions);
+      const session = newSessions.get(conversationId);
+      if (!session) return state;
+      newSessions.set(conversationId, { ...session, idleTimeout: null });
       return { sessions: newSessions };
     });
   },

@@ -296,6 +296,8 @@ export function onEvent(channel: string, callback: (data: unknown) => void): () 
       'agent:thought-delta': 'onAgentThoughtDelta',
       'agent:mcp-status': 'onAgentMcpStatus',
       'agent:compact': 'onAgentCompact',
+      'agent:stream-alive': 'onAgentStreamAlive',
+      'agent:idle-timeout': 'onAgentIdleTimeout',
       'agent:ask-question': 'onAgentAskQuestion',
       'agent:permission-request': 'onAgentPermissionRequest',
       'agent:turn-boundary': 'onAgentTurnBoundary',

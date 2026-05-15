@@ -702,6 +702,8 @@ export class ClaudeManager {
   private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
   // Pending messages queue — stores messages for sessions with active streams
   private pendingMessages: Map<string, Array<{content: string, options?: any}>> = new Map()
+  // External callbacks for process exit notification
+  private sessionExitCallbacks: Map<string, (reason: string) => void> = new Map()
   // Timeout for first event from stream — detects corrupted sessions that hang
   private static readonly FIRST_EVENT_TIMEOUT_MS = 30_000
 
@@ -1579,6 +1581,12 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
         return
       }
+      // Notify external listeners (e.g. server.ts) before cleanup
+      const exitCallback = this.sessionExitCallbacks.get(id)
+      if (exitCallback) {
+        exitCallback('SDK process exited unexpectedly')
+        this.sessionExitCallbacks.delete(id)
+      }
       this.cleanupSession(id, 'process exited')
     })
 
@@ -1622,6 +1630,11 @@ export class ClaudeManager {
         if (this.sessions.get(id)?.session !== session) {
           console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
           return
+        }
+        const exitCallback = this.sessionExitCallbacks.get(id)
+        if (exitCallback) {
+          exitCallback('SDK process exited unexpectedly')
+          this.sessionExitCallbacks.delete(id)
         }
         this.cleanupSession(id, 'process exited')
       })
@@ -1719,6 +1732,11 @@ export class ClaudeManager {
         if (this.sessions.get(id)?.session !== session) {
           console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
           return
+        }
+        const exitCallback = this.sessionExitCallbacks.get(id)
+        if (exitCallback) {
+          exitCallback('SDK process exited unexpectedly')
+          this.sessionExitCallbacks.delete(id)
         }
         this.cleanupSession(id, 'process exited')
       })
@@ -3361,5 +3379,13 @@ export class ClaudeManager {
     } catch (error) {
       throw new Error(`Command execution failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  registerSessionExitCallback(conversationId: string, callback: (reason: string) => void): void {
+    this.sessionExitCallbacks.set(conversationId, callback)
+  }
+
+  unregisterSessionExitCallback(conversationId: string): void {
+    this.sessionExitCallbacks.delete(conversationId)
   }
 }

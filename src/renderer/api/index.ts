@@ -629,6 +629,20 @@ export const api = {
     return httpRequest('POST', '/api/agent/compact', { conversationId });
   },
 
+  continueIdleTimeout: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.continueIdleTimeout(conversationId);
+    }
+    return httpRequest('POST', '/api/agent/continue-idle-timeout', { conversationId });
+  },
+
+  forceIdleTimeout: async (conversationId: string): Promise<ApiResponse> => {
+    if (isElectron()) {
+      return window.aicoBot.forceIdleTimeout(conversationId);
+    }
+    return httpRequest('POST', '/api/agent/force-idle-timeout', { conversationId });
+  },
+
   // ===== Artifact =====
   listArtifacts: async (spaceId: string): Promise<ApiResponse> => {
     if (isElectron()) {
