@@ -29,6 +29,7 @@ import type {
   AicoBotConfig,
   AgentErrorType,
   Question,
+  TokenUsage,
 } from './types';
 import { hasAnyAISource } from './types';
 
@@ -117,6 +118,7 @@ export default function App() {
     handleAgentThought,
     handleAgentThoughtDelta,
     handleAgentCompact,
+    handleAgentContextUsage,
     handleAskQuestion,
     handlePermissionRequest,
     resolveToolPermission,
@@ -302,13 +304,25 @@ export default function App() {
 
     const unsubComplete = api.onAgentComplete((data) => {
       console.log('[App] Received agent:complete event:', data);
-      handleAgentComplete(data as AgentEventBase);
+      handleAgentComplete(data as AgentEventBase & { tokenUsage?: TokenUsage | null });
     });
 
     const unsubCompact = api.onAgentCompact((data) => {
       console.log('[App] Received agent:compact event:', data);
       handleAgentCompact(
         data as AgentEventBase & { trigger: 'manual' | 'auto'; preTokens: number },
+      );
+    });
+
+    const unsubContextUsage = api.onAgentContextUsage((data) => {
+      handleAgentContextUsage(
+        data as AgentEventBase & {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheCreationTokens: number;
+          contextWindow?: number;
+        },
       );
     });
 
@@ -442,6 +456,7 @@ export default function App() {
       unsubError();
       unsubComplete();
       unsubCompact();
+      unsubContextUsage();
       unsubStreamAlive();
       unsubIdleTimeout();
       unsubAskQuestion();
@@ -464,6 +479,7 @@ export default function App() {
     handleAgentThought,
     handleAgentThoughtDelta,
     handleAgentCompact,
+    handleAgentContextUsage,
     handleAskQuestion,
     handlePermissionRequest,
     resolveToolPermission,

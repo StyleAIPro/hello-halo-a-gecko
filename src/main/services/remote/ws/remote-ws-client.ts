@@ -273,6 +273,7 @@ export class RemoteWsClient extends EventEmitter {
         const blockedTypes = [
           'claude:stream',
           'claude:usage',
+          'claude:context-usage',
           'thought',
           'thought:delta',
           'tool:call',
@@ -310,6 +311,10 @@ export class RemoteWsClient extends EventEmitter {
 
         case 'claude:usage':
           this.emit('claude:usage', { sessionId: message.sessionId, data: message.data });
+          break;
+
+        case 'claude:context-usage':
+          this.emit('claude:context-usage', { sessionId: message.sessionId, data: message.data });
           break;
 
         case 'claude:complete':

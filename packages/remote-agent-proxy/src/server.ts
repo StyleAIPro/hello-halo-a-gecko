@@ -991,6 +991,13 @@ export class RemoteAgentServer {
                 sessionId,
                 data: chunk.data
               })
+            } else if (chunk.type === 'context-usage') {
+              // Send real-time context usage to client
+              this.sendMessage(ws, {
+                type: 'claude:context-usage',
+                sessionId,
+                data: chunk.data
+              })
             } else if (chunk.type === 'worker:started') {
               // Forward subagent worker started event
               this.sendMessage(ws, {

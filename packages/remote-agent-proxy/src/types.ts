@@ -81,7 +81,7 @@ export interface HyperSpaceToolsConfig {
 
 export interface ServerMessage {
   type: 'auth:success' | 'auth:failed' |
-         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' | 'claude:usage' |
+         'claude:stream' | 'claude:complete' | 'claude:error' | 'claude:session' | 'claude:usage' | 'claude:context-usage' |
          'fs:result' | 'fs:error' | 'pong' |
          'tool:call' | 'tool:delta' | 'tool:result' | 'tool:error' |
          'terminal:output' |

@@ -2354,6 +2354,41 @@ export class ClaudeManager {
           }
 
           // Skip other stream_event types - they don't need yield
+
+          // ========== Extract token usage from stream events ==========
+          if (streamEvent.type === 'message_start' && streamEvent.message?.usage) {
+            const usage = streamEvent.message.usage
+            if (usage.input_tokens > 0) {
+              const effectiveContextWindow = options.contextWindow ?? this.contextWindow ?? 200000
+              yield {
+                type: 'context-usage',
+                data: {
+                  inputTokens: usage.input_tokens || 0,
+                  outputTokens: usage.output_tokens || 0,
+                  cacheReadTokens: usage.cache_read_input_tokens || 0,
+                  cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+                  contextWindow: effectiveContextWindow,
+                }
+              }
+            }
+          }
+          if (streamEvent.type === 'message_delta' && streamEvent.usage) {
+            const usage = streamEvent.usage
+            if (usage.input_tokens > 0) {
+              const effectiveContextWindow = options.contextWindow ?? this.contextWindow ?? 200000
+              yield {
+                type: 'context-usage',
+                data: {
+                  inputTokens: usage.input_tokens || 0,
+                  outputTokens: usage.output_tokens || 0,
+                  cacheReadTokens: usage.cache_read_input_tokens || 0,
+                  cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+                  contextWindow: effectiveContextWindow,
+                }
+              }
+            }
+          }
+
           continue
         }
 

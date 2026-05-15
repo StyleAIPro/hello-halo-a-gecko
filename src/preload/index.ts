@@ -173,6 +173,7 @@ export interface AicoBotAPI {
   onAgentThoughtDelta: (callback: (data: unknown) => void) => () => void;
   onAgentMcpStatus: (callback: (data: unknown) => void) => () => void;
   onAgentCompact: (callback: (data: unknown) => void) => () => void;
+  onAgentContextUsage: (callback: (data: unknown) => void) => () => void;
   onAgentAskQuestion: (callback: (data: unknown) => void) => () => void;
   onAgentPermissionRequest: (callback: (data: unknown) => void) => () => void;
   onAgentTerminal: (callback: (data: unknown) => void) => () => void;
@@ -853,6 +854,7 @@ const api: AicoBotAPI = {
   onAgentThoughtDelta: (callback) => createEventListener('agent:thought-delta', callback),
   onAgentMcpStatus: (callback) => createEventListener('agent:mcp-status', callback),
   onAgentCompact: (callback) => createEventListener('agent:compact', callback),
+  onAgentContextUsage: (callback) => createEventListener('agent:context-usage', callback),
   onAgentAskQuestion: (callback) => createEventListener('agent:ask-question', callback),
   onAgentPermissionRequest: (callback) => createEventListener('agent:permission-request', callback),
   onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),

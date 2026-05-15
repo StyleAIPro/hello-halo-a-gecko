@@ -49,6 +49,7 @@ export interface ServerMessage {
     | 'claude:error'
     | 'claude:session'
     | 'claude:usage'
+    | 'claude:context-usage'
     | 'fs:result'
     | 'fs:error'
     | 'pong'

@@ -518,6 +518,16 @@ export async function executeRemoteMessage(
       }
     });
 
+    // Context usage events - real-time token usage updates during streaming
+    addHandler('claude:context-usage', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        sendToRenderer('agent:context-usage', spaceId, conversationId, {
+          type: 'context-usage',
+          ...data.data,
+        });
+      }
+    });
+
     // Thought events - for thinking process display (aligned with local agent:thought)
     addHandler('thought', (data) => {
       if (data.sessionId === effectiveSessionId) {
@@ -894,8 +904,10 @@ export async function executeRemoteMessage(
       isStreaming: false,
     });
 
-    // Send completion event
-    sendToRenderer('agent:complete', spaceId, conversationId, {});
+    // Send completion event with tokenUsage
+    sendToRenderer('agent:complete', spaceId, conversationId, {
+      tokenUsage: response.tokenUsage,
+    });
 
     // Extract file changes summary for immediate display (aligned with local conversation)
     let metadata: { fileChanges?: FileChangesSummary } | undefined;

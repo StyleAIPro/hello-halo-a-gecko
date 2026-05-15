@@ -978,6 +978,9 @@ export const api = {
     onEvent('agent:thought-delta', callback),
   onAgentMcpStatus: (callback: (data: unknown) => void) => onEvent('agent:mcp-status', callback),
   onAgentCompact: (callback: (data: unknown) => void) => onEvent('agent:compact', callback),
+  onAgentContextUsage: (callback: (data: unknown) => void) => onEvent('agent:context-usage', callback),
+  onAgentStreamAlive: (callback: (data: unknown) => void) => onEvent('agent:stream-alive', callback),
+  onAgentIdleTimeout: (callback: (data: unknown) => void) => onEvent('agent:idle-timeout', callback),
   onAgentAskQuestion: (callback: (data: unknown) => void) =>
     onEvent('agent:ask-question', callback),
   onAgentPermissionRequest: (callback: (data: unknown) => void) =>
