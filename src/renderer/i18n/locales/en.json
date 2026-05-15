@@ -678,7 +678,7 @@
   "Missing required argument: {{arg}}": "Missing required argument: {{arg}}",
   "Model": "Model",
   "Model Context Protocol": "Model Context Protocol",
-  "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.": "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.",
+  "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.": "Model context window size. Leave empty for auto-detection. Used for automatic compression threshold.",
   "Model ID already exists": "Model ID already exists",
   "Model response interrupted": "Model response interrupted",
   "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.": "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.",
