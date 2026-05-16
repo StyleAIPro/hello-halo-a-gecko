@@ -44,6 +44,7 @@ import {
 import { AicoBotMcpBridge } from '../remote/ws/aico-bot-mcp-bridge';
 import { terminalGateway } from '../terminal/terminal-gateway';
 import { SkillManager } from '../skill/skill-manager';
+import { evaluate as evaluateTaskOutcome } from '../task-outcome';
 
 const log = createLogger('agent:remote');
 
@@ -927,7 +928,7 @@ export async function executeRemoteMessage(
     });
 
     // Extract file changes summary for immediate display (aligned with local conversation)
-    let metadata: { fileChanges?: FileChangesSummary } | undefined;
+    let metadata: { fileChanges?: FileChangesSummary; taskOutcome?: import('@shared/types/task-outcome').TaskOutcome } | undefined;
     if (thoughts.length > 0) {
       try {
         const fileChangesSummary = extractFileChangesSummaryFromThoughts(thoughts);
@@ -940,6 +941,36 @@ export async function executeRemoteMessage(
       } catch (error) {
         log.error(`Failed to extract file changes:`, error);
       }
+    }
+
+    // Task Outcome: evaluate success/failure for remote execution
+    try {
+      const remoteStreamResult = {
+        finalContent: streamingContent || response.content || '',
+        thoughts,
+        tokenUsage: response.tokenUsage || null,
+        isInterrupted: false,
+        wasAborted: false,
+        hasErrorThought: false,
+        errorThought: undefined,
+        reachedMaxTurns: false,
+        hasPendingInjection: false,
+        needsAuthRetry: false,
+      };
+      const taskOutcome = evaluateTaskOutcome({
+        streamResult: remoteStreamResult,
+        userMessage: message,
+        spaceId,
+        conversationId,
+        t0: Date.now(), // remote doesn't track t0, use approximate
+      });
+      if (taskOutcome) {
+        if (!metadata) metadata = {};
+        metadata.taskOutcome = taskOutcome;
+        log.info(`Task outcome: ${taskOutcome.verdict} (${taskOutcome.source}, confidence=${taskOutcome.confidence})`);
+      }
+    } catch (error) {
+      log.warn(`Task outcome evaluation failed:`, error);
     }
 
     // Update the assistant message with the response
@@ -1028,11 +1059,19 @@ export async function executeRemoteMessage(
     }
 
     // Clean up event handlers and release pooled connection on error too
+    for (const cleanup of eventCleanups) {
+      try {
+        cleanup();
+      } catch (err) {
+        log.error('Cleanup error:', err);
+      }
+    }
+    unregisterActiveClient(conversationId);
     try {
-      for (const cleanup of eventCleanups) cleanup();
-      unregisterActiveClient(conversationId);
       releaseConnection(serverId, conversationId);
-    } catch {}
+    } catch (err) {
+      log.error('Release connection error:', err);
+    }
 
     // CRITICAL: Unregister active session on error too
     // This ensures that getSessionState returns isActive: false after error,
