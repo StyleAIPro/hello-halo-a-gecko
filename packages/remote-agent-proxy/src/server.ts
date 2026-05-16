@@ -50,8 +50,9 @@ export class RemoteAgentServer {
     reject: (error: Error) => void
   }>()
 
-  // Pending tool permission requests: permissionId -> { resolve, reject }
+  // Pending tool permission requests: permissionId -> { sessionId, resolve, reject }
   private pendingPermissions = new Map<string, {
+    sessionId: string
     resolve: (approved: boolean) => void
     reject: (error: Error) => void
   }>()
@@ -833,7 +834,7 @@ export class RemoteAgentServer {
         // Permission request handler — forward to AICO-Bot client, wait for user approval/deny
         const onPermissionRequest = (id: string, toolName: string, toolInput: Record<string, unknown>) => {
           return new Promise<boolean>((resolve, reject) => {
-            this.pendingPermissions.set(id, { resolve, reject })
+            this.pendingPermissions.set(id, { sessionId, resolve, reject })
             // [DIAG-1.6] Log permission:request send
             console.log(`[DIAG][PermissionHandler] Sending permission:request to client: id=${id}, tool=${toolName}, sessionId=${sessionId}`)
             // Send permission request to AICO-Bot client
@@ -1055,10 +1056,12 @@ export class RemoteAgentServer {
           }
         }
 
-        // Reject any pending permission requests when stream ends
+        // Reject pending permission requests for THIS session only when stream ends
         for (const [id, pending] of this.pendingPermissions) {
-          pending.reject(new Error('Stream ended'))
-          this.pendingPermissions.delete(id)
+          if (pending.sessionId === sessionId) {
+            pending.reject(new Error('Stream ended'))
+            this.pendingPermissions.delete(id)
+          }
         }
 
         // Only send claude:complete if not interrupted
