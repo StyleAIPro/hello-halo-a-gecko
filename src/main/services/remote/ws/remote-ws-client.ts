@@ -810,8 +810,12 @@ export class RemoteWsClient extends EventEmitter {
 
   private enqueueSessionlessFsRequest<T>(operation: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      const GLOBAL_TIMEOUT_MS = 15 * 1000; // 15 秒全局超时
+      let globalTimeout: NodeJS.Timeout | null = null;
+
       const run = () => {
         this.sessionlessFsBusy = true;
+        if (globalTimeout) clearTimeout(globalTimeout);
         operation()
           .then(resolve, reject)
           .finally(() => {
@@ -823,6 +827,16 @@ export class RemoteWsClient extends EventEmitter {
             }
           });
       };
+
+      // 设置全局超时
+      globalTimeout = setTimeout(() => {
+        if (!this.sessionlessFsBusy) {
+          // 如果还没开始执行，直接 reject
+          reject(new Error('Sessionless FS request queue timed out (15s)'));
+          return;
+        }
+        // 如果正在执行，已过超时时间，无需额外操作（单个请求已有 10s 超时）
+      }, GLOBAL_TIMEOUT_MS);
 
       if (this.sessionlessFsBusy) {
         this.sessionlessFsQueue.push(run);
