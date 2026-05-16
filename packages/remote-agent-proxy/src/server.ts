@@ -328,19 +328,18 @@ export class RemoteAgentServer {
   private handleHealthApiCheck(req: http.IncomingMessage, res: http.ServerResponse): void {
     let responseSent = false; // 防止双写响应
 
+    let timeout: NodeJS.Timeout;
     const sendResponse = (statusCode: number, data: any) => {
       if (responseSent) return;
       responseSent = true;
-      const timeout = (global as any).healthApiCheckTimeout;
-      if (timeout) clearTimeout(timeout);
+      clearTimeout(timeout);
       res.writeHead(statusCode, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(data))
     }
 
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       sendResponse(504, { status: 'error', error: 'API check timed out' })
     }, 15000)
-    (global as any).healthApiCheckTimeout = timeout
 
     let body = ''
     req.on('data', (chunk: Buffer) => { body += chunk.toString() })
