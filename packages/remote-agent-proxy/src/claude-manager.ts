@@ -1,6 +1,5 @@
 import {
   unstable_v2_createSession,
-  unstable_v2_resumeSession,
   createSdkMcpServer,
   tool,
   type SDKSessionOptions,
@@ -63,8 +62,10 @@ function reconstructZod(val: any): any {
         return reconstructZod(val._def.innerType).optional()
       case 'ZodNullable':
         return reconstructZod(val._def.innerType).nullable()
-      case 'ZodDefault':
-        return reconstructZod(val._def.innerType).default(val._def.defaultValue())
+      case 'ZodDefault': {
+        const defaultVal = typeof val._def.defaultValue === 'function' ? val._def.defaultValue() : val._def.defaultValue
+        return reconstructZod(val._def.innerType).default(defaultVal)
+      }
       case 'ZodArray':
         return z.array(reconstructZod(val._def.type))
       case 'ZodObject': {
@@ -1305,9 +1306,6 @@ export class ClaudeManager {
     const workDirChanged = existing && existing.config.workDir !== effectiveWorkDir
     const effectiveResumeId = workDirChanged ? undefined : resumeSessionId
 
-    // Pre-declared for resume path (options built in parallel) — visible to session creation below
-    const prebuiltOptions: any = undefined
-
     if (existing) {
       // CRITICAL: Check if workDir changed - if so, need to recreate session
       if (workDirChanged) {
@@ -1453,7 +1451,7 @@ export class ClaudeManager {
 
     // options may already be built (resume path: parallelized with process exit wait)
     // or need to be built now (workDir changed, config changed, or no existing session)
-    const sdkOptions = prebuiltOptions ?? await this.buildSdkOptions(effectiveWorkDir, customSystemPrompt, contextWindow, credentials)
+    const sdkOptions = await this.buildSdkOptions(effectiveWorkDir, customSystemPrompt, contextWindow, credentials)
 
     // Add canUseTool for AskUserQuestion support (forwarded from streamChat)
     if (canUseTool) {
@@ -1611,43 +1609,6 @@ export class ClaudeManager {
   }
 
   /**
-   * Legacy method for backward compatibility
-   * @deprecated Use getOrCreateSession instead
-   */
-  async getSessionLegacy(sessionId: string): Promise<SDKSession> {
-    // Synchronous wrapper for backward compatibility
-    let session = this.sessions.get(sessionId)?.session
-    if (!session) {
-      // Create synchronously (for legacy compatibility)
-      const options = await this.buildSdkOptions()
-      session = unstable_v2_createSession(options as any) as unknown as SDKSession
-
-      registerProcessExitListener(session, sessionId, (id) => {
-        if (this.sessions.get(id)?.session !== session) {
-          console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
-          return
-        }
-        const exitCallback = this.sessionExitCallbacks.get(id)
-        if (exitCallback) {
-          exitCallback('SDK process exited unexpectedly')
-          this.sessionExitCallbacks.delete(id)
-        }
-        this.cleanupSession(id, 'process exited')
-      })
-
-      this.sessions.set(sessionId, {
-        session,
-        conversationId: sessionId,
-        createdAt: Date.now(),
-        lastUsedAt: Date.now(),
-        config: this.getCurrentConfig(),
-        configGeneration: this.configGeneration
-      })
-    }
-    return session
-  }
-
-  /**
    * Register an active session (for in-flight request tracking)
    */
   registerActiveSession(conversationId: string, abortController: AbortController): void {
@@ -1714,40 +1675,6 @@ export class ClaudeManager {
    */
   clearPendingMessages(conversationId: string): void {
     this.pendingMessages.delete(conversationId)
-  }
-
-  /**
-   * Resume an existing V2 session by session ID
-   */
-  async resumeSession(sessionId: string): Promise<SDKSession> {
-    if (!this.sessions.has(sessionId)) {
-      const options = await this.buildSdkOptions()
-      const session = await unstable_v2_resumeSession(sessionId, options as any)
-
-      registerProcessExitListener(session, sessionId, (id) => {
-        if (this.sessions.get(id)?.session !== session) {
-          console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
-          return
-        }
-        const exitCallback = this.sessionExitCallbacks.get(id)
-        if (exitCallback) {
-          exitCallback('SDK process exited unexpectedly')
-          this.sessionExitCallbacks.delete(id)
-        }
-        this.cleanupSession(id, 'process exited')
-      })
-
-      this.sessions.set(sessionId, {
-        session,
-        conversationId: sessionId,
-        createdAt: Date.now(),
-        lastUsedAt: Date.now(),
-        config: this.getCurrentConfig(),
-        configGeneration: this.configGeneration
-      })
-      console.log(`[ClaudeManager] Resumed V2 session: ${sessionId}`)
-    }
-    return this.sessions.get(sessionId)!.session
   }
 
   /**
@@ -2118,6 +2045,13 @@ export class ClaudeManager {
         }
 
         eventCount++
+
+        // Clear first-event safety timer once we receive any event
+        if (eventCount === 1 && firstEventTimer) {
+          clearTimeout(firstEventTimer)
+          firstEventTimer = undefined
+        }
+
         const evt = event as any
 
         // Log ALL events for debugging (first 50 events)

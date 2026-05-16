@@ -37,12 +37,15 @@ export class RemoteAgentServer {
 
   // Pending hyper-space tool approvals: toolId -> { resolve, reject }
   private pendingHyperSpaceTools = new Map<string, {
+    ws: WebSocket
     resolve: (result: string) => void
     reject: (error: Error) => void
   }>()
 
-  // Pending AskUserQuestion answers: questionId -> { resolve, reject }
+  // Pending AskUserQuestion answers: questionId -> { sessionId, resolve, reject }
   private pendingAskQuestions = new Map<string, {
+    ws: WebSocket
+    sessionId: string
     resolve: (answers: Record<string, string>) => void
     reject: (error: Error) => void
   }>()
@@ -55,6 +58,7 @@ export class RemoteAgentServer {
 
   // Pending MCP tool calls: callId -> { resolve, reject }
   private pendingMcpToolCalls = new Map<string, {
+    ws: WebSocket
     resolve: (result: any) => void
     reject: (error: Error) => void
   }>()
@@ -436,23 +440,20 @@ export class RemoteAgentServer {
       }
     } else if ((message.type as string) === 'claude:interrupt') {
       // Interrupt an active conversation
-      const sid = sessionId || client.sessionId
-      if (sid) {
-        console.log(`[RemoteAgentServer] Interrupt request for session: ${sid}`)
-        await this.handleClaudeInterrupt(sid)
+      if (sessionId) {
+        console.log(`[RemoteAgentServer] Interrupt request for session: ${sessionId}`)
+        await this.handleClaudeInterrupt(sessionId)
       }
     } else if (message.type === 'close:session') {
       // Clean up SDK session - called when client disconnects after stop
-      const sid = sessionId || client.sessionId
-      if (sid) {
-        console.log(`[RemoteAgentServer] Close session request for: ${sid}`)
-        this.claudeManager.removeSession(sid)
-        console.log(`[RemoteAgentServer] SDK session removed: ${sid}`)
+      if (sessionId) {
+        console.log(`[RemoteAgentServer] Close session request for: ${sessionId}`)
+        this.claudeManager.removeSession(sessionId)
+        console.log(`[RemoteAgentServer] SDK session removed: ${sessionId}`)
       }
     } else if (message.type === 'claude:chat') {
       // API credentials are always provided per-request by the AICO-Bot client
-      const sid = sessionId || client.sessionId
-      if (!sid) {
+      if (!sessionId) {
         this.sendMessage(ws, {
           type: 'claude:error',
           sessionId,
@@ -460,7 +461,7 @@ export class RemoteAgentServer {
         })
         return
       }
-      await this.handleClaudeChat(ws, sid, message.payload)
+      await this.handleClaudeChat(ws, sessionId, message.payload)
     } else if (message.type === 'fs:stat') {
       // Session-less path stat — check if path exists and is a directory
       const path = message.payload?.path
@@ -492,8 +493,7 @@ export class RemoteAgentServer {
         this.sendMessage(ws, { type: 'fs:result', data: { success: false, error: err.message } })
       }
     } else if (['fs:list', 'fs:read', 'fs:write', 'fs:delete', 'fs:upload', 'fs:download'].includes(message.type)) {
-      const sid = sessionId || client.sessionId
-      if (!sid) {
+      if (!sessionId) {
         this.sendMessage(ws, {
           type: 'fs:error',
           sessionId,
@@ -501,7 +501,7 @@ export class RemoteAgentServer {
         })
         return
       }
-      await this.handleFileOperation(ws, sid, message.type, message.payload)
+      await this.handleFileOperation(ws, sessionId, message.type, message.payload)
     } else if (message.type === 'ping') {
       this.sendMessage(ws, { type: 'pong', sessionId })
     } else if (message.type === 'pong') {
@@ -557,12 +557,16 @@ export class RemoteAgentServer {
       }
     } else if (message.type === 'mcp:tools:register') {
       // WebSocket MCP Bridge: AICO-Bot client registers its available MCP tools
-      const client = this.clients.get(ws)
-      if (client) {
-        client.aicoBotMcpTools = message.payload?.tools
-        client.aicoBotMcpCapabilities = message.payload?.aicoBotMcpCapabilities
-        console.log(`[MCP Bridge] AICO-Bot client registered ${client.aicoBotMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.aicoBotMcpCapabilities)}`)
-      }
+      client.aicoBotMcpTools = message.payload?.tools
+      const maybeCapabilities = message.payload?.aicoBotMcpCapabilities
+      client.aicoBotMcpCapabilities =
+        maybeCapabilities &&
+        typeof maybeCapabilities === 'object' &&
+        'aiBrowser' in maybeCapabilities &&
+        'ghSearch' in maybeCapabilities
+          ? maybeCapabilities
+          : undefined
+      console.log(`[MCP Bridge] AICO-Bot client registered ${client.aicoBotMcpTools?.length || 0} MCP tools, capabilities: ${JSON.stringify(client.aicoBotMcpCapabilities)}`)
     } else if (message.type === 'mcp:tool:response') {
       // WebSocket MCP Bridge: AICO-Bot client returns tool execution result
       const callId = message.payload?.callId
@@ -813,7 +817,7 @@ export class RemoteAgentServer {
         // AskUserQuestion handler — forward question to AICO-Bot client, wait for answer
         const onAskUserQuestion = (id: string, questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect: boolean }>) => {
           return new Promise<Record<string, string>>((resolve, reject) => {
-            this.pendingAskQuestions.set(id, { resolve, reject })
+            this.pendingAskQuestions.set(id, { ws, sessionId, resolve, reject })
             // Send question to AICO-Bot client
             sendEvent('ask:question', { id, questions })
             // 10 minute timeout for user response
@@ -1043,10 +1047,12 @@ export class RemoteAgentServer {
           console.log(`[RemoteAgentServer] Interrupt detected after streamChat for session ${sessionId}`)
         }
 
-        // Reject any pending AskUserQuestion when stream ends
+        // Reject pending AskUserQuestion for THIS session only when stream ends
         for (const [id, pending] of this.pendingAskQuestions) {
-          pending.reject(new Error('Stream ended'))
-          this.pendingAskQuestions.delete(id)
+          if (pending.sessionId === sessionId) {
+            pending.reject(new Error('Stream ended'))
+            this.pendingAskQuestions.delete(id)
+          }
         }
 
         // Reject any pending permission requests when stream ends
@@ -1170,6 +1176,7 @@ export class RemoteAgentServer {
       }, timeoutMs)
 
       this.pendingHyperSpaceTools.set(toolId, {
+        ws,
         resolve: (result: string) => {
           clearTimeout(timer)
           resolve(result)
@@ -1225,6 +1232,7 @@ export class RemoteAgentServer {
       }, timeoutMs)
 
       this.pendingMcpToolCalls.set(callId, {
+        ws,
         resolve: (result: any) => {
           clearTimeout(timer)
           resolve(result)
@@ -1308,14 +1316,17 @@ export class RemoteAgentServer {
     // Reject all pending promises that were waiting on this WebSocket
     const disconnectError = new Error('WebSocket disconnected')
     for (const [callId, pending] of this.pendingMcpToolCalls) {
+      if (pending.ws !== ws) continue
       pending.reject(disconnectError)
       this.pendingMcpToolCalls.delete(callId)
     }
     for (const [toolId, pending] of this.pendingHyperSpaceTools) {
+      if (pending.ws !== ws) continue
       pending.reject(disconnectError)
       this.pendingHyperSpaceTools.delete(toolId)
     }
     for (const [questionId, pending] of this.pendingAskQuestions) {
+      if (pending.ws !== ws) continue
       pending.reject(disconnectError)
       this.pendingAskQuestions.delete(questionId)
     }
