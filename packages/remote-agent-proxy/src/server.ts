@@ -326,10 +326,21 @@ export class RemoteAgentServer {
    * API call with the provided credentials. Returns quickly with success/failure.
    */
   private handleHealthApiCheck(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let responseSent = false; // 防止双写响应
+
+    const sendResponse = (statusCode: number, data: any) => {
+      if (responseSent) return;
+      responseSent = true;
+      const timeout = (global as any).healthApiCheckTimeout;
+      if (timeout) clearTimeout(timeout);
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(data))
+    }
+
     const timeout = setTimeout(() => {
-      res.writeHead(504, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'error', error: 'API check timed out' }))
+      sendResponse(504, { status: 'error', error: 'API check timed out' })
     }, 15000)
+    (global as any).healthApiCheckTimeout = timeout
 
     let body = ''
     req.on('data', (chunk: Buffer) => { body += chunk.toString() })
@@ -338,8 +349,7 @@ export class RemoteAgentServer {
       try {
         const { apiKey, baseUrl, model } = JSON.parse(body)
         if (!apiKey) {
-          res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ status: 'error', error: 'Missing apiKey' }))
+          sendResponse(400, { status: 'error', error: 'Missing apiKey' })
           return
         }
 
@@ -368,28 +378,24 @@ export class RemoteAgentServer {
           apiRes.on('end', () => {
             const latency = Date.now() - start
             if (apiRes.statusCode && apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
-              res.writeHead(200, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ status: 'ok', model, latency }))
+              sendResponse(200, { status: 'ok', model, latency })
             } else {
               let errorMsg = `HTTP ${apiRes.statusCode}`
               try {
                 const parsed = JSON.parse(data)
                 errorMsg = parsed.error?.message || parsed.message || errorMsg
               } catch { /* use default */ }
-              res.writeHead(200, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ status: 'error', error: errorMsg, latency }))
+              sendResponse(200, { status: 'error', error: errorMsg, latency })
             }
           })
         })
 
         apiReq.on('timeout', () => {
           apiReq.destroy()
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ status: 'error', error: 'API request timed out', latency: Date.now() - start }))
+          sendResponse(200, { status: 'error', error: 'API request timed out', latency: Date.now() - start })
         })
         apiReq.on('error', (err) => {
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ status: 'error', error: err.message, latency: Date.now() - start }))
+          sendResponse(200, { status: 'error', error: err.message, latency: Date.now() - start })
         })
 
         // Send a minimal messages request (max_tokens:1 to minimize token usage)
@@ -400,14 +406,11 @@ export class RemoteAgentServer {
         }))
         apiReq.end()
       } catch (err: any) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ status: 'error', error: err.message || 'Invalid request' }))
+        sendResponse(200, { status: 'error', error: err.message || 'Invalid request' })
       }
     })
     req.on('error', () => {
-      clearTimeout(timeout)
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'error', error: 'Request body read error' }))
+      sendResponse(400, { status: 'error', error: 'Request body read error' })
     })
   }
 
