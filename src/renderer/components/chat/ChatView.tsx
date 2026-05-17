@@ -15,6 +15,7 @@ import { useChatStore } from '../../stores/chat.store';
 import type { WorkerSessionState } from '../../stores/chat.store';
 import { useOnboardingStore } from '../../stores/onboarding.store';
 import { useAIBrowserStore } from '../../stores/ai-browser.store';
+import { useKnowledgeBaseStore } from '../../stores/knowledge-base.store';
 import { MessageList } from './MessageList';
 import type { MessageListHandle } from './MessageList';
 import { InputArea, type InputAreaRef } from './InputArea';
@@ -230,8 +231,10 @@ export function ChatView({ isCompact = false }: ChatViewProps) {
     const useAiBrowser = aiBrowserEnabledFromInput ?? aiBrowserEnabled;
     // If no explicit agentId from @mention, use the activeAgentId from AgentPanel
     const effectiveAgentId = agentId ?? useChatStore.getState().activeAgentId ?? undefined;
-    // Pass both AI Browser and thinking state to sendMessage
-    await sendMessage(content, images, useAiBrowser, thinkingEnabled, effectiveAgentId);
+    // Get active knowledge base IDs from store
+    const activeKnowledgeBases = useKnowledgeBaseStore.getState().activeKnowledgeBaseIds;
+    // Pass both AI Browser, thinking state, and knowledge base IDs to sendMessage
+    await sendMessage(content, images, useAiBrowser, thinkingEnabled, effectiveAgentId, activeKnowledgeBases.length > 0 ? activeKnowledgeBases : undefined);
   };
 
   // Handle stop - stops the current conversation's generation

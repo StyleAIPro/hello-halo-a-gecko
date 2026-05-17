@@ -49,6 +49,9 @@ const RemoteServersPage = lazy(() =>
 const RemoteAgentChatPage = lazy(() =>
   import('./pages/RemoteAgentChatPage').then((m) => ({ default: m.RemoteAgentChatPage })),
 );
+const KnowledgePage = lazy(() =>
+  import('./pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })),
+);
 
 // Page loading fallback - minimal spinner that matches app style
 function PageLoader() {
@@ -768,6 +771,12 @@ export default function App() {
         return (
           <Suspense fallback={<PageLoader />}>
             <RemoteServersPage />
+          </Suspense>
+        );
+      case 'knowledgeBase':
+        return (
+          <Suspense fallback={<PageLoader />}>
+            <KnowledgePage />
           </Suspense>
         );
       case 'remoteChat':

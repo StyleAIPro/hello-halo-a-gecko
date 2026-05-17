@@ -335,22 +335,49 @@ export async function sendMessage(
       trustMode: config.permissions?.trustMode ?? false,
     });
 
-    // Apply dynamic configurations (AI Browser system prompt, Thinking mode)
+    // Apply dynamic configurations (Knowledge Base context, AI Browser system prompt, Thinking mode)
     // These are specific to sendMessage and not part of base options
+    const kbContextParts: string[] = [];
+    if (request.activeKnowledgeBases && request.activeKnowledgeBases.length > 0) {
+      try {
+        const { getKnowledgeBaseService } = await import('../knowledge-base');
+        const kbService = getKnowledgeBaseService();
+        for (const kbId of request.activeKnowledgeBases) {
+          const context = await kbService.retrieveForChat(kbId, message);
+          if (context) {
+            const kbInfo = kbService.getKnowledgeBase(kbId);
+            const kbName = kbInfo?.name || kbId;
+            kbContextParts.push(`### ${kbName}\n${context}`);
+          }
+        }
+      } catch (err) {
+        console.error('[Agent] Failed to retrieve knowledge base context:', err);
+      }
+    }
+
+    let systemPromptAppend = '';
+    if (kbContextParts.length > 0) {
+      systemPromptAppend += `[Knowledge Base Context]\nThe following knowledge base content is relevant to the user's question. Use it to provide accurate answers. If the answer cannot be found in the knowledge base, say so clearly.\n\n${kbContextParts.join('\n\n---\n\n')}\n\n[End Knowledge Base Context]\n\n`;
+    }
+
     if (aiBrowserEnabled) {
+      systemPromptAppend += buildSystemPromptWithAIBrowser(
+        {
+          workDir,
+          modelInfo: resolvedCredentials.displayModel,
+          ghSearchStatus: {
+            patConfigured: !!getGitHubToken(),
+            proxyEnabled: !!getEffectiveProxyUrl(),
+          },
+        },
+        AI_BROWSER_SYSTEM_PROMPT,
+      );
+    }
+
+    if (systemPromptAppend) {
       sdkOptions.systemPrompt = {
         type: 'preset' as const,
-        append: buildSystemPromptWithAIBrowser(
-          {
-            workDir,
-            modelInfo: resolvedCredentials.displayModel,
-            ghSearchStatus: {
-              patConfigured: !!getGitHubToken(),
-              proxyEnabled: !!getEffectiveProxyUrl(),
-            },
-          },
-          AI_BROWSER_SYSTEM_PROMPT,
-        ),
+        append: systemPromptAppend,
       };
     }
     if (thinkingEnabled) {

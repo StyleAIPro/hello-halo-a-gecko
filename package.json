@@ -7,7 +7,7 @@
   "author": "AICO-Bot Team",
   "license": "MIT",
   "scripts": {
-    "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
+    "dev": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev NODE_OPTIONS=--max-old-space-size=4096 electron-vite dev",
     "dev:win": "cross-env AICO_BOT_DATA_DIR=~/.aico-bot-dev electron-vite dev",
     "build:proxy": "cd packages/remote-agent-proxy && npm run build",
     "build:patch-sdk": "node scripts/patch-sdk.mjs",

@@ -714,7 +714,8 @@ export type AppView =
   | 'apps'
   | 'skill'
   | 'remoteServers'
-  | 'remoteChat';
+  | 'remoteChat'
+  | 'knowledgeBase';
 
 export interface AppState {
   view: AppView;

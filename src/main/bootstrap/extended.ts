@@ -34,6 +34,8 @@ import { registerGitBashHandlers, initializeGitBashOnStartup } from '../ipc/git-
 import { registerGitHubHandlers } from '../ipc/github';
 import { registerGitCodeHandlers } from '../ipc/gitcode';
 import { cleanupAllCaches } from '../services/file-watcher/artifact-cache.service';
+import { registerKnowledgeBaseHandlers } from '../ipc/knowledge-base';
+import { setKnowledgeBaseService } from '../services/knowledge-base';
 import { markExtendedServicesReady } from './state';
 import { getMainWindow, sendToRenderer } from '../services/window.service';
 import { initializeHealthSystem, setSessionCleanupFn } from '../services/health';
@@ -112,6 +114,9 @@ async function initPlatformAndApps(): Promise<void> {
   // ── Phase 0: Store ──────────────────────────────────────────────────────
   const db = await initStore();
   platformDb = db;
+
+  // Knowledge Base: Wire database connection
+  setKnowledgeBaseService(db);
 
   // ── Phase 1: Platform services (parallel) ───────────────────────────────
   const [scheduler, eventBus, memory, terminalHistory] = await Promise.all([
@@ -217,6 +222,9 @@ export function initializeExtendedServices(): void {
 
   // Hyper Space: Multi-agent collaboration IPC handlers
   registerHyperSpaceHandlers();
+
+  // Knowledge Base: Personal wiki management
+  registerKnowledgeBaseHandlers();
 
   // Skill: IPC handlers for Skill management
   // Requires only ConversationService
