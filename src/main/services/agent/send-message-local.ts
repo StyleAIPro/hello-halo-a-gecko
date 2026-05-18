@@ -777,6 +777,27 @@ export async function sendMessage(
       }
     }
 
+    // Enhance proxy-related errors with user-friendly messages
+    const proxyErrorPatterns: Array<[RegExp, string]> = [
+      [/Proxy CONNECT failed/i, 'Network proxy connection failed: unable to connect to the proxy server. Please check your proxy settings.'],
+      [/Proxy connection timed out/i, 'Proxy connection timed out: the proxy server did not respond within the timeout period. Please check your proxy settings.'],
+    ];
+    for (const [pattern, friendlyMessage] of proxyErrorPatterns) {
+      if (pattern.test(errorMessage)) {
+        errorMessage = `${friendlyMessage}\n\nTechnical details: ${err.message}`;
+        break;
+      }
+    }
+
+    // If proxy is configured and error is a common network failure, hint about proxy
+    if (!proxyErrorPatterns.some(([p]) => p.test(errorMessage))) {
+      const isNetworkError = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET|EPIPE|UNABLE_TO_VERIFY_LEAF_SIGNATURE/.test(errorMessage);
+      const proxyUrl = getEffectiveProxyUrl();
+      if (isNetworkError && proxyUrl) {
+        errorMessage = `Network proxy connection failed: unable to connect to the proxy server. Please check your proxy settings.\n\nTechnical details: ${err.message}`;
+      }
+    }
+
     sendToRenderer('agent:error', spaceId, conversationId, {
       type: 'error',
       error: errorMessage,

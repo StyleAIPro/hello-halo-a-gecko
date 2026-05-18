@@ -19,8 +19,30 @@ import { URL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { getEffectiveProxyUrl } from './proxy-agent';
 
+/**
+ * Custom error for proxy CONNECT handshake failures.
+ * Distinguished from transient network errors so the router can return
+ * a non-retryable HTTP status (400) instead of 500, preventing the SDK
+ * from entering a retry loop that wastes ~250 seconds.
+ */
+export class ProxyConnectError extends Error {
+  readonly name = 'ProxyConnectError';
+
+  constructor(
+    public readonly statusCode: number | null,
+    public readonly targetUrl: string,
+    public readonly proxyHost: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /** Default timeout for fetch calls (ms). */
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
+
+/** Timeout for the CONNECT handshake phase with the proxy (ms). */
+const CONNECT_PHASE_TIMEOUT_MS = 10_000;
 
 /**
  * In-memory cache of proxy origins that require Negotiate/NTLM auth.
@@ -260,10 +282,26 @@ function fetchViaProxy(
       headers: proxyHeaders,
     });
 
+    const req = proxyReq;
+
+    // Shorter timeout for the CONNECT handshake phase
+    const connectTimer = setTimeout(() => {
+      req.destroy();
+      reject(
+        new ProxyConnectError(
+          null,
+          targetUrl,
+          `${proxy.hostname}:${proxy.port || 80}`,
+          `Proxy connection timed out after ${CONNECT_PHASE_TIMEOUT_MS / 1000}s: ${proxy.hostname}:${proxy.port || 80}`,
+        ),
+      );
+    }, CONNECT_PHASE_TIMEOUT_MS);
+
     proxyReq.on('connect', (res: http.IncomingMessage, socket: net.Socket, _head: Buffer) => {
       // Check CONNECT response — proxy must return 200 to establish tunnel
       if (res.statusCode !== 200) {
         clearTimeout(timeout);
+        clearTimeout(connectTimer);
 
         // Detect Negotiate/NTLM auth challenge and fall back to curl
         if (res.statusCode === 407) {
@@ -285,11 +323,18 @@ function fetchViaProxy(
         res.on('data', (chunk: Buffer) => (body += chunk.toString()));
         res.on('end', () => {
           reject(
-            new Error(`Proxy CONNECT failed (${res.statusCode}): ${body.trim() || targetUrl}`),
+            new ProxyConnectError(
+              res.statusCode ?? null,
+              targetUrl,
+              `${proxy.hostname}:${proxy.port || 80}`,
+              `Proxy CONNECT failed (${res.statusCode}): ${body.trim() || targetUrl}`,
+            ),
           );
         });
         return;
       }
+
+      clearTimeout(connectTimer);
 
       if (isHttps) {
         // Merge any early data from the tunnel into the TLS socket
@@ -356,21 +401,30 @@ function fetchViaProxy(
 
     proxyReq.on('error', (err: Error) => {
       clearTimeout(timeout);
-      reject(err);
+      clearTimeout(connectTimer);
+      reject(
+        new ProxyConnectError(
+          null,
+          targetUrl,
+          `${proxy.hostname}:${proxy.port || 80}`,
+          err.message,
+        ),
+      );
     });
-
-    const req = proxyReq;
 
     // Forward external AbortSignal
     const onExternalAbort = () => {
       clearTimeout(timeout);
+      clearTimeout(connectTimer);
       req.destroy();
       reject(new DOMException('The operation was aborted.', 'AbortError'));
     };
     init?.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
-    // Clean up external signal listener when the request settles
+    // Clean up timers and external signal listener when the request settles
     proxyReq.on('close', () => {
+      clearTimeout(timeout);
+      clearTimeout(connectTimer);
       init?.signal?.removeEventListener('abort', onExternalAbort);
     });
 
