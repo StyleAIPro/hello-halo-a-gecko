@@ -682,6 +682,7 @@
   "Model ID already exists": "Model ID already exists",
   "Model response interrupted": "Model response interrupted",
   "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.": "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.",
+  "AI response timed out: no response received for a long time. This may be a network connection issue. Please check your network proxy settings and try again.": "AI response timed out: no response received for a long time. This may be a network connection issue. Please check your network proxy settings and try again.",
   "Agent has been inactive for {{idleMinutes}} minutes. The Agent may be stuck.": "Agent has been inactive for {{idleMinutes}} minutes. The Agent may be stuck.",
   "Continue Waiting": "Continue Waiting",
   "Force Stop": "Force Stop",

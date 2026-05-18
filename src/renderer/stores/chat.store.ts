@@ -53,6 +53,41 @@ const CONVERSATION_CACHE_SIZE = 10;
 // Store-level timer for pulseReadAt cleanup (independent of UI components)
 let _pulseCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Inactivity timeout: if no backend events for this long, show error to user
+const INACTIVITY_TIMEOUT_MS = 30_000;
+const INACTIVITY_CHECK_INTERVAL_MS = 5_000;
+let inactivityTimerId: ReturnType<typeof setInterval> | null = null;
+
+function clearInactivityTimer() {
+  if (inactivityTimerId) {
+    clearInterval(inactivityTimerId);
+    inactivityTimerId = null;
+  }
+}
+
+function startInactivityTimer(conversationId: string) {
+  clearInactivityTimer();
+  inactivityTimerId = setInterval(() => {
+    const session = useChatStore.getState().sessions.get(conversationId);
+    if (!session?.isGenerating || !session.lastActivityAt) {
+      clearInactivityTimer();
+      return;
+    }
+    if (Date.now() - session.lastActivityAt > INACTIVITY_TIMEOUT_MS) {
+      clearInactivityTimer();
+      useChatStore.getState().handleAgentError({
+        conversationId,
+        spaceId: '',
+        error: i18n.t(
+          'AI response timed out: no response received for a long time. This may be a network connection issue. Please check your network proxy settings and try again.',
+        ),
+        errorType: undefined,
+      });
+      api.stopGeneration(conversationId).catch(() => {});
+    }
+  }, INACTIVITY_CHECK_INTERVAL_MS);
+}
+
 // Extract canvas context for AI awareness (single definition, used in sendMessage paths)
 function buildCanvasContext(): CanvasContext | undefined {
   const cs = useCanvasStore.getState();
@@ -145,6 +180,8 @@ interface SessionState {
   pendingMessages: PendingMessage[];
   // Hyper Space: Worker session states keyed by agentId
   workerSessions: Map<string, WorkerSessionState>;
+  // Inactivity detection: last time a backend event was received
+  lastActivityAt: number | null;
 }
 
 // Worker session state — isolated streaming state for each active worker
@@ -316,6 +353,7 @@ function createEmptySessionState(): SessionState {
     pendingToolPermission: null,
     pendingMessages: [],
     workerSessions: new Map(),
+    lastActivityAt: null,
   };
 }
 
@@ -1378,6 +1416,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ),
               )
             : new Map(),
+          lastActivityAt: Date.now(),
         });
         return { sessions: newSessions };
       });
@@ -1478,6 +1517,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           agentId: agentId || 'leader', // Pass target agent for Hyper Space
         });
       }
+
+      // Start inactivity watchdog — fires error if no backend events for 30s
+      startInactivityTimer(conversationId);
     } catch (error) {
       console.error('Failed to send message:', error);
       // Update session error state
@@ -1497,6 +1539,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Stop generation for a specific conversation
   stopGeneration: async (conversationId?: string) => {
+    clearInactivityTimer();
     const targetId = conversationId || get().getCurrentSpaceState().currentConversationId;
     if (!targetId) return;
 
@@ -1803,6 +1846,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Handle error for a specific conversation
   handleAgentError: (data) => {
     const { conversationId, agentId, error, errorType } = data;
+    clearInactivityTimer();
     console.log(
       `[ChatStore] handleAgentError [${conversationId}]${agentId ? ` agent=${agentId}` : ''}:`,
       error,
@@ -1895,6 +1939,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...session,
         agentElapsedTime: elapsedMs,
         agentCurrentTool: currentToolName || null,
+        lastActivityAt: Date.now(),
       });
       return { sessions: newSessions };
     });
@@ -1943,6 +1988,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Also processes pending messages queue if any
   handleAgentComplete: async (data) => {
     const { spaceId, conversationId, tokenUsage } = data;
+    clearInactivityTimer();
     console.log(`[ChatStore] handleAgentComplete [${conversationId}]`);
 
     // Update context usage with final tokenUsage
@@ -2309,6 +2355,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         thoughts: [...session.thoughts, thought],
         isThinking: true,
         isGenerating: true, // Ensure generating state is set
+        lastActivityAt: Date.now(),
       });
       return { sessions: newSessions };
     });
@@ -2450,6 +2497,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       newSessions.set(conversationId, {
         ...session,
         thoughts: newThoughts,
+        lastActivityAt: Date.now(),
       });
       return { sessions: newSessions };
     });
@@ -2507,6 +2555,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           cacheCreationTokens,
           contextWindow: passedContextWindow ?? session.currentContextUsage?.contextWindow ?? 200000,
         },
+        lastActivityAt: Date.now(),
       });
       return { sessions: newSessions };
     });

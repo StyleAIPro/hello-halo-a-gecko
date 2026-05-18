@@ -30,6 +30,7 @@ import { withRequestQueue, generateQueueKey } from './request-queue';
 import { runInterceptors } from '../interceptors';
 import { applyProviderAdapter } from './provider-adapters';
 import { proxyFetch, getEffectiveProxyUrl } from '../../services/proxy';
+import { ProxyConnectError } from '../../services/proxy/proxy-fetch';
 
 export interface RequestHandlerOptions {
   debug?: boolean;
@@ -124,7 +125,10 @@ function sendError(res: ExpressResponse, errorType: string, message: string): vo
   res.status(status);
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('request-id', `req_${Date.now()}`);
-  res.setHeader('retry-after', '3');
+  // Only set retry-after for 5xx (server/overload) errors — 4xx are non-retryable
+  if (status >= 500) {
+    res.setHeader('retry-after', '3');
+  }
   res.json({
     type: 'error',
     error: { type: errorType, message },
@@ -420,6 +424,11 @@ async function handleAnthropicPassthrough(
       );
       return sendError(res, 'timeout_error', 'Request timed out');
     }
+    // Proxy CONNECT failure — non-retryable (HTTP 400) so SDK surfaces error immediately
+    if (error instanceof ProxyConnectError) {
+      console.error('[RequestHandler] Proxy CONNECT failed:', error.message);
+      return sendError(res, 'invalid_request_error', `Proxy connection failed: ${error.message}`);
+    }
     console.error('[RequestHandler] Anthropic passthrough error:', error?.message || error);
     return sendError(res, 'api_error', error?.message || 'Internal error');
   }
@@ -610,6 +619,12 @@ async function handleOpenAIConversion(
       if (error?.name === 'AbortError') {
         console.error('[RequestHandler] AbortError (timeout or client disconnect)');
         return sendError(res, 'timeout_error', 'Request timed out');
+      }
+
+      // Proxy CONNECT failure — non-retryable (HTTP 400) so SDK surfaces error immediately
+      if (error instanceof ProxyConnectError) {
+        console.error('[RequestHandler] Proxy CONNECT failed:', error.message);
+        return sendError(res, 'invalid_request_error', `Proxy connection failed: ${error.message}`);
       }
 
       console.error('[RequestHandler] Internal error:', error?.message || error);

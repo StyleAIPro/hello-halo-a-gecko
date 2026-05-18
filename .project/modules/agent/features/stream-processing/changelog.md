@@ -3,6 +3,7 @@
 | 日期 | 内容 | 指令人 | 触发来源 |
 |------|------|--------|---------|
 | 2026-04-22 | bugfix: Worker 内部 SDK 子 agent 不再发送 worker:started/completed 事件到前端，避免产生多余 Worker Tab（task_started/task_notification 处理增加 workerTag 判断） | @misakamikoto | bugfix-excessive-subagents-v2 |
+| 2026-05-18 | 新增 `ProxyConnectError` 自定义错误类（`proxy-fetch.ts`），代理 CONNECT 握手失败/超时时抛出该类，使路由器可区分代理配置错误与临时网络错误 | @misakamikoto | bugfix-proxy-connect-failed-v1 |
 | 2026-05-14 | 修复上下文用量永远为 0：从 SDK stream_event 的 `message_start` 和 `message_delta` 事件提取 token usage（`inputTokens > 0` guard），修复 handleAgentComplete 中 contextWindow 保护逻辑 | @misakamikoto | bugfix-context-usage-zero-v1 |
 | 2026-05-14 | 修复 contextWindow 优先级逻辑：严格三级优先级（用户配置 > SDK modelUsage > 200K 兜底），移除"取较大值"覆盖用户配置的逻辑；UI 帮助文本改为"留空自动检测" | @misakamikoto | bugfix-context-window-priority-v1 |
 | 2026-04-29 | extractNetworkErrorHint 网络错误消息更新：引导到应用内"设置 > 网络"配置代理 | 用户 | bugfix-intranet-proxy-guidance-v1 |

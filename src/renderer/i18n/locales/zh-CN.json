@@ -592,6 +592,7 @@
   "Model context window size. Leave empty to use default (200K). Used for automatic compression threshold.": "模型上下文窗口大小。留空自动检测。用于自动压缩阈值计算。",
   "Model response interrupted": "模型响应已中断",
   "Remote task timed out due to inactivity. The remote server may still be processing. Please check the server status and try sending a new message.": "远程任务因长时间无活动已超时。远程服务器可能仍在处理中，请检查服务器状态后尝试发送新消息。",
+  "AI response timed out: no response received for a long time. This may be a network connection issue. Please check your network proxy settings and try again.": "AI 响应超时：长时间未收到回复，可能是网络连接问题。请检查网络代理设置后重试。",
   "Agent has been inactive for {{idleMinutes}} minutes. The Agent may be stuck.": "Agent 已有 {{idleMinutes}} 分钟无活动。Agent 可能卡死。",
   "Continue Waiting": "继续等待",
   "Force Stop": "强制中断",
