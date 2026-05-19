@@ -94,18 +94,19 @@ export async function executeRemoteMessage(
   );
 
   // Get API key and model config
-  // Priority: server card config (resolved via aiSourceId) > global AI source > legacy config
-  // Each PC can configure different model services for the same remote server
+  // Server card credentials (claudeApiKey/claudeBaseUrl/claudeModel) are redundant when
+  // aiSourceId is not set — they become stale after global AI source switches and silently
+  // override the current config. Always resolve from AI source directly.
   const config = getConfig();
   const sourceId = server.aiSourceId || config.aiSources?.currentId;
   const currentSource = sourceId
     ? config.aiSources?.sources?.find((s) => s.id === sourceId)
     : undefined;
-  const apiKeyRaw = server.claudeApiKey || currentSource?.apiKey || config.api?.apiKey;
+  const apiKeyRaw = currentSource?.apiKey || config.api?.apiKey;
   const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined;
-  const baseUrl = server.claudeBaseUrl || currentSource?.apiUrl;
+  const baseUrl = currentSource?.apiUrl;
   const model =
-    server.claudeModel || currentSource?.model || config.api?.model || 'claude-sonnet-4-6';
+    currentSource?.model || config.api?.model || 'claude-sonnet-4-6';
   log.info(`Using model: ${model}`);
 
   // Get conversation for message history and session ID

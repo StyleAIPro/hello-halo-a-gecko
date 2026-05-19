@@ -933,11 +933,11 @@ export async function getOrCreateWsClient(
     ? config.aiSources?.sources?.find((s: any) => s.id === sourceId)
     : undefined;
 
-  // Decrypt apiKey (handles both encrypted aiSources and plaintext server card values)
-  const apiKeyRaw = server.claudeApiKey || currentSource?.apiKey || config.api?.apiKey;
+  // Resolve from AI source directly (server card values are stale after global switches)
+  const apiKeyRaw = currentSource?.apiKey || config.api?.apiKey;
   const apiKey = apiKeyRaw ? decryptString(apiKeyRaw) : undefined;
-  const baseUrl = server.claudeBaseUrl || currentSource?.apiUrl;
-  const model = server.claudeModel || currentSource?.model || config.api?.model;
+  const baseUrl = currentSource?.apiUrl;
+  const model = currentSource?.model || config.api?.model;
 
   // Create new WebSocket client
   const wsConfig = {
