@@ -1321,10 +1321,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conversationId = conversationMeta?.id || conversation?.id;
     if (!conversationId) return;
 
-    // Check if currently generating - if so, queue the message instead
+    // Check if currently generating - if so, queue the message and auto-stop
+    // the current generation so the model can process the new message immediately.
+    // Without auto-stop, responses appear one message late (off-by-one),
+    // confusing users into thinking the model ignored their new instruction.
     const currentSession = get().getSession(conversationId);
     if (currentSession.isGenerating) {
-      console.log('[ChatStore] Currently generating, queueing message');
+      console.log('[ChatStore] Currently generating, queueing message + auto-stopping');
       const pendingMsg: PendingMessage = {
         id: `pending-${Date.now()}`,
         content,
@@ -1381,8 +1384,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return { spaceStates: newSpaceStates, conversationCache: newCache, sessions: newSessions };
       });
 
-      // Message queued — wait for current task to complete naturally.
-      // handleAgentComplete will detect pendingMessages and send the next one.
+      // Auto-stop current generation so the queued message is processed next.
+      // The stop triggers abort → interrupt → agent:complete → handleAgentComplete
+      // picks up the pending message and sends it to the model.
+      api.stopGeneration(conversationId).catch(() => {});
       return;
     }
 
@@ -2178,51 +2183,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.log(`[ChatStore] Conversation reloaded from backend [${conversationId}]`);
 
         // If there were pending messages, send the first one now
-        if (pendingMessages.length > 0) {
-          const nextMessage = pendingMessages[0];
-
-          // Add user message to UI
-          const userMessage: Message = {
-            id: `msg-${Date.now()}`,
-            role: 'user',
-            content: nextMessage.content,
-            timestamp: new Date().toISOString(),
-            images: nextMessage.images,
-          };
-
-          set((state) => {
-            const newCache = new Map(state.conversationCache);
-            const cached = newCache.get(conversationId);
-            if (cached) {
-              newCache.set(conversationId, {
-                ...cached,
-                messages: [...cached.messages, userMessage],
-                updatedAt: new Date().toISOString(),
-              });
-            }
-
-            const newSpaceStates = new Map(state.spaceStates);
-            const ss = newSpaceStates.get(spaceId);
-            if (ss) {
-              newSpaceStates.set(spaceId, {
-                ...ss,
-                conversations: ss.conversations.map((c) =>
-                  c.id === conversationId
-                    ? {
-                        ...c,
-                        messageCount: c.messageCount + 1,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : c,
-                ),
-              });
-            }
-            return { spaceStates: newSpaceStates, conversationCache: newCache };
-          });
-
+        // Use nextPendingMessage captured from inside set() (current state, not stale snapshot)
+        if (nextPendingMessage) {
           // Build canvas context (uses module-level buildCanvasContext)
 
-          // Send the pending message
+          // Send the pending message — backend addMessage() writes to DB,
+          // next handleAgentComplete reload brings correct ordering.
+          // Do NOT add to cache here — that caused off-by-one display bug
+          // where the user message appeared under the previous response.
           await api.sendMessage({
             spaceId,
             conversationId,

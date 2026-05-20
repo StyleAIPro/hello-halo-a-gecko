@@ -394,6 +394,10 @@ export default function App() {
     });
 
     // Turn boundary - check for pending messages and inject if any
+    // NOTE: We do NOT remove from pendingMessages here — that's done in the
+    // agent:injection-start handler (reliable backend confirmation). If injection
+    // fails (IPC too slow for 300ms window), handleAgentComplete will pick up
+    // the message from pendingMessages as fallback.
     const unsubTurnBoundary = api.onAgentTurnBoundary((data) => {
       console.log('[App] Received agent:turn-boundary event:', data);
       const event = data as AgentEventBase & {
@@ -412,7 +416,7 @@ export default function App() {
           `[App] Found ${pendingMessages.length} pending message(s), injecting first one`,
         );
 
-        // Inject the message to backend
+        // Inject the message to backend (fire-and-forget — removal happens in injection-start handler)
         api
           .injectMessage({
             conversationId: event.conversationId,
@@ -421,18 +425,27 @@ export default function App() {
             thinkingEnabled: firstMessage.thinkingEnabled,
             aiBrowserEnabled: firstMessage.aiBrowserEnabled,
           })
-          .then((result) => {
-            if (result.success) {
-              console.log('[App] Message injected successfully');
-              // Remove the injected message from frontend queue
-              state.removePendingMessage(event.conversationId, firstMessage.id);
-            } else {
-              console.error('[App] Failed to inject message:', result.error);
-            }
-          })
           .catch((err) => {
             console.error('[App] Error injecting message:', err);
           });
+      }
+    });
+
+    // Injection start - reliable confirmation that backend picked up the injection.
+    // Only at this point do we remove from pendingMessages, avoiding the race condition
+    // where removePendingMessage runs before handleAgentComplete checks.
+    const unsubInjectionStart = api.onAgentInjectionStart((data) => {
+      const event = data as AgentEventBase & { content: string };
+      console.log('[App] Received agent:injection-start event:', event.conversationId);
+      const state = useChatStore.getState();
+      const session = state.getSession(event.conversationId);
+      const pendingMessages = session?.pendingMessages || [];
+
+      // Find and remove the matching pending message by content
+      const matchIdx = pendingMessages.findIndex((m) => m.content === event.content);
+      if (matchIdx !== -1) {
+        console.log('[App] Removing injected message from pending queue (confirmed by backend)');
+        state.removePendingMessage(event.conversationId, pendingMessages[matchIdx].id);
       }
     });
 
@@ -465,6 +478,7 @@ export default function App() {
       unsubHyperProgress();
       unsubTeamMessage();
       unsubTurnBoundary();
+      unsubInjectionStart();
       unsubWorkerStarted();
       unsubWorkerCompleted();
     };

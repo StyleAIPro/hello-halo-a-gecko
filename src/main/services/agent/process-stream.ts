@@ -310,7 +310,6 @@ export async function processStream(params: ProcessStreamParams): Promise<Stream
   // Token-level streaming state
   let currentStreamingText = ''; // Accumulates text_delta tokens
   let isStreamingTextBlock = false; // True when inside a text content block
-  const STREAM_THROTTLE_MS = 30; // Throttle updates to ~33fps
 
   // Track if SDK reported error_during_execution (for interrupted detection)
   let hadErrorDuringExecution = false;

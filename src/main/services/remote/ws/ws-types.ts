@@ -77,6 +77,7 @@ export interface ServerMessage {
     | 'permission:request'
     | 'stream:alive';
   sessionId?: string;
+  generationId?: string;
   data?: any;
 }
 

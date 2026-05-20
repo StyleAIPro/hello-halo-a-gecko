@@ -947,7 +947,7 @@ export function RemoteServersSection() {
     const server = servers.find((s) => s.id === serverId);
     const archDisplay = server?.detectedArch ?? 'auto';
 
-    addTerminalEntry(serverId, 'command', `=== Offline deploying (arch: ${archDisplay}) ===`);
+    addTerminalEntry(serverId, 'command', t('=== Offline deploying (arch: {{arch}}) ===', { arch: archDisplay }));
 
     try {
       const result = await api.remoteServerDeployOffline(serverId);
@@ -957,14 +957,14 @@ export function RemoteServersSection() {
       } catch {}
 
       if (result.success) {
-        addTerminalEntry(serverId, 'success', 'Offline deploy completed!');
+        addTerminalEntry(serverId, 'success', t('Offline deploy completed!'));
         if (!options?.skipAlert) {
           await alertDialog(t('Agent deployed offline successfully'));
         }
         await loadServers();
         return true;
       } else {
-        addTerminalEntry(serverId, 'error', `Offline deploy failed: ${result.error}`);
+        addTerminalEntry(serverId, 'error', t('Offline deploy failed: {{error}}', { error: result.error }));
         if (!options?.skipAlert) {
           await alertDialog(result.error || t('Failed to deploy agent offline'));
         }
@@ -1032,7 +1032,7 @@ export function RemoteServersSection() {
       t('Batch deploy completed: {{succeeded}}/{{total}} succeeded{{failed}}', {
         succeeded,
         total,
-        failed: failed > 0 ? `, ${failed} failed` : '',
+        failed: failed > 0 ? t(', {{count}} failed', { count: failed }) : '',
       }),
     );
     await loadServers();
