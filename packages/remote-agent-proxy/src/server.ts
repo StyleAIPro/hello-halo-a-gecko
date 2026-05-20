@@ -660,6 +660,8 @@ export class RemoteAgentServer {
   private async handleClaudeChat(ws: WebSocket, sessionId: string, payload: any): Promise<void> {
     // Per-session lock variables — declared here so finally block can access them
     let resolveLock: (() => void) | undefined
+    let globalTimer: ReturnType<typeof setTimeout> | undefined
+    let aliveTimer: ReturnType<typeof setInterval> | undefined
     try {
       const { messages, options, stream = true } = payload
       const client = this.clients.get(ws)
@@ -723,9 +725,32 @@ export class RemoteAgentServer {
       this.sessionProcessingLocks.set(sessionId, lockPromise)
 
       if (stream) {
+        // Track current tool for stream:alive heartbeat
+        let currentToolName: string | undefined
+        let currentToolStartTime: number | undefined
+        const streamStartTime = Date.now()
+
+        // Register process exit callback — notify client immediately when SDK dies
+        this.claudeManager.registerSessionExitCallback(sessionId, (reason: string) => {
+          console.error(`[RemoteAgentServer] SDK process died for session ${sessionId}: ${reason}`)
+          this.sendMessage(ws, {
+            type: 'claude:error',
+            sessionId,
+            data: { error: `SDK process crashed: ${reason}`, isProcessDeath: true }
+          })
+        })
+
         // Callbacks for tool and terminal events
         const onToolCall = (tool: ToolCall) => {
           console.log(`[RemoteAgentServer] Tool ${tool.status}: ${tool.name || 'unknown'}`)
+          // Update tool tracking for stream:alive
+          if (tool.status === 'running' || tool.status === 'started') {
+            currentToolName = tool.name
+            currentToolStartTime = Date.now()
+          } else if (tool.status === 'result' || tool.status === 'error') {
+            currentToolName = undefined
+            currentToolStartTime = undefined
+          }
           // Determine message type based on tool status
           let messageType: 'tool:call' | 'tool:result' | 'tool:error'
           if (tool.status === 'error') {
@@ -879,6 +904,36 @@ export class RemoteAgentServer {
           isFirstIteration = false
           }
 
+          // Global stream timeout — absolute upper bound for a single stream iteration
+          const STREAM_GLOBAL_TIMEOUT_MS = currentOptions?.globalTimeoutMs ?? 2 * 60 * 60 * 1000; // default 2 hours
+          if (STREAM_GLOBAL_TIMEOUT_MS > 0) {
+            globalTimer = setTimeout(() => {
+              console.error(`[RemoteAgentServer] Stream global timeout (${STREAM_GLOBAL_TIMEOUT_MS / 60000}min) for session ${sessionId}`)
+              this.sendMessage(ws, {
+                type: 'claude:error',
+                sessionId,
+                data: { error: `Stream global timeout (${Math.round(STREAM_GLOBAL_TIMEOUT_MS / 60000)} minutes)`, isGlobalTimeout: true }
+              })
+              this.claudeManager.forceAbortStreamIterator(sessionId)
+            }, STREAM_GLOBAL_TIMEOUT_MS)
+          }
+
+          // Stream alive heartbeat — every 5 minutes, proves Agent is still working
+          const ALIVE_INTERVAL_MS = 5 * 60 * 1000
+          aliveTimer = setInterval(() => {
+            const elapsed = Date.now() - streamStartTime
+            this.sendMessage(ws, {
+              type: 'stream:alive',
+              sessionId,
+              data: {
+                elapsedMs: elapsed,
+                currentToolName,
+                currentToolElapsedMs: currentToolStartTime ? Date.now() - currentToolStartTime : undefined,
+              } satisfies import('./types').StreamAliveData
+            })
+            console.log(`[RemoteAgentServer] stream:alive for ${sessionId} — ${Math.round(elapsed / 60000)}min, tool=${currentToolName || 'none'}`)
+          }, ALIVE_INTERVAL_MS)
+
           for await (const chunk of this.claudeManager.streamChat(
             sessionId,
             currentChatMessages,
@@ -936,6 +991,13 @@ export class RemoteAgentServer {
                 sessionId,
                 data: chunk.data
               })
+            } else if (chunk.type === 'context-usage') {
+              // Send real-time context usage to client
+              this.sendMessage(ws, {
+                type: 'claude:context-usage',
+                sessionId,
+                data: chunk.data
+              })
             } else if (chunk.type === 'worker:started') {
               // Forward subagent worker started event
               this.sendMessage(ws, {
@@ -953,6 +1015,9 @@ export class RemoteAgentServer {
             }
             // Other event types (tool_call, tool_result, terminal, thought) are sent via callbacks
           }
+
+          if (globalTimer) clearTimeout(globalTimer)
+          if (aliveTimer) clearInterval(aliveTimer)
 
           // Check if auth retry is needed (after stream completes)
           if (needsAuthRetry && authRetries < MAX_AUTH_RETRIES) {
@@ -998,6 +1063,8 @@ export class RemoteAgentServer {
           console.log(`[RemoteAgentServer] Processing ${pending.length} pending message(s) for session ${sessionId}`)
           } // end while (pending messages loop)
         } catch (streamError) {
+          if (globalTimer) clearTimeout(globalTimer)
+          if (aliveTimer) clearInterval(aliveTimer)
           // Check if this is an expected interrupt
           const errorMessage = streamError instanceof Error ? streamError.message : String(streamError)
           if (errorMessage === 'Stream interrupted' || errorMessage === 'Stream aborted') {
@@ -1075,6 +1142,9 @@ export class RemoteAgentServer {
         data: { error: error instanceof Error ? error.message : String(error) }
       })
     } finally {
+      if (globalTimer) clearTimeout(globalTimer)
+      if (aliveTimer) clearInterval(aliveTimer)
+      this.claudeManager.unregisterSessionExitCallback(sessionId)
       // Release per-session lock to allow next message to be processed
       if (resolveLock) {
         this.sessionProcessingLocks.delete(sessionId)

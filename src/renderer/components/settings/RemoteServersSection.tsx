@@ -444,10 +444,11 @@ export function RemoteServersSection() {
       if (result.success && result.data) {
         setServers(result.data);
 
-        // Auto-connect disconnected servers (except those manually disconnected by user)
+        // Auto-connect disconnected servers (except those manually disconnected by user,
+        // and those with auth/connection errors that would just fail again)
         setManuallyDisconnected((prev) => {
           const serversToAutoConnect = result.data.filter(
-            (s: any) => s.status !== 'connected' && !prev.has(s.id),
+            (s: any) => s.status === 'disconnected' && !prev.has(s.id),
           );
 
           if (serversToAutoConnect.length > 0) {
@@ -568,6 +569,21 @@ export function RemoteServersSection() {
       if (result.success && result.data) {
         // Reload servers to get full server data (including detection results)
         await loadServers();
+
+        // If add was partial (SSH connection failed), show error and stop — do NOT retry
+        if (result.data.partial) {
+          const isAuthError = result.data.authError === true;
+          addTerminalEntry(
+            result.data.id,
+            'error',
+            isAuthError
+              ? t('Authentication failed: {{error}}. Please check your password and retry.', {
+                  error: result.data.error || '',
+                })
+              : t('Connection failed: {{error}}', { error: result.data.error || '' }),
+          );
+          return;
+        }
 
         // Auto-connect the newly added server
         console.log('[RemoteServersSection] Auto-connecting newly added server:', result.data.id);

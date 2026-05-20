@@ -193,6 +193,8 @@ export interface AicoBotAPI {
   onKbIngestProgress: (callback: (data: { current: number; total: number; fileName: string; sourceId?: string; completedSourceId?: string }) => void) => (() => void);
 
   compactContext: (conversationId: string) => Promise<IpcResponse>;
+  continueIdleTimeout: (conversationId: string) => Promise<IpcResponse>;
+  forceIdleTimeout: (conversationId: string) => Promise<IpcResponse>;
 
   // Event listeners
   onAgentMessage: (callback: (data: unknown) => void) => () => void;
@@ -205,6 +207,7 @@ export interface AicoBotAPI {
   onAgentThoughtDelta: (callback: (data: unknown) => void) => () => void;
   onAgentMcpStatus: (callback: (data: unknown) => void) => () => void;
   onAgentCompact: (callback: (data: unknown) => void) => () => void;
+  onAgentContextUsage: (callback: (data: unknown) => void) => () => void;
   onAgentAskQuestion: (callback: (data: unknown) => void) => () => void;
   onAgentPermissionRequest: (callback: (data: unknown) => void) => () => void;
   onAgentTerminal: (callback: (data: unknown) => void) => () => void;
@@ -931,6 +934,8 @@ const api: AicoBotAPI = {
     createEventListener('knowledge-base:ingest-progress', callback),
 
   compactContext: (conversationId) => ipcRenderer.invoke('agent:compact-context', conversationId),
+  continueIdleTimeout: (conversationId) => ipcRenderer.invoke('agent:continue-idle-timeout', conversationId),
+  forceIdleTimeout: (conversationId) => ipcRenderer.invoke('agent:force-idle-timeout', conversationId),
 
   // Event listeners
   onAgentMessage: (callback) => createEventListener('agent:message', callback),
@@ -943,6 +948,7 @@ const api: AicoBotAPI = {
   onAgentThoughtDelta: (callback) => createEventListener('agent:thought-delta', callback),
   onAgentMcpStatus: (callback) => createEventListener('agent:mcp-status', callback),
   onAgentCompact: (callback) => createEventListener('agent:compact', callback),
+  onAgentContextUsage: (callback) => createEventListener('agent:context-usage', callback),
   onAgentAskQuestion: (callback) => createEventListener('agent:ask-question', callback),
   onAgentPermissionRequest: (callback) => createEventListener('agent:permission-request', callback),
   onAgentTerminal: (callback) => createEventListener('agent:terminal', callback),

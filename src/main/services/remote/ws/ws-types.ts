@@ -49,6 +49,7 @@ export interface ServerMessage {
     | 'claude:error'
     | 'claude:session'
     | 'claude:usage'
+    | 'claude:context-usage'
     | 'fs:result'
     | 'fs:error'
     | 'pong'
@@ -73,7 +74,8 @@ export interface ServerMessage {
     | 'worker:started'
     | 'worker:completed'
     | 'ask:question'
-    | 'permission:request';
+    | 'permission:request'
+    | 'stream:alive';
   sessionId?: string;
   data?: any;
 }

@@ -158,7 +158,14 @@ async function installSkillFromSource(
   onOutput?.({ type: 'stdout', content: `  Downloaded ${files.length} file(s)\n` });
 
   try {
-    // Step 3: Create skill directory and write all files
+    // Step 3: Remove old skill directory if exists, then create fresh and write all files
+    try {
+      await nodeFs.access(skillDir);
+      onOutput?.({ type: 'stdout', content: `  Removing existing skill directory...\n` });
+      await nodeFs.rm(skillDir, { recursive: true, force: true });
+    } catch {
+      // directory does not exist, proceed
+    }
     await nodeFs.mkdir(skillDir, { recursive: true });
 
     for (const file of files) {

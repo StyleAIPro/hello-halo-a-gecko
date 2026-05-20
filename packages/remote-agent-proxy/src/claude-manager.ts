@@ -348,7 +348,6 @@ const PRE_APPROVED_TOOLS = [
   'NotebookEdit',
   'TodoWrite',
   'Skill',
-  'Task',
 ]
 
 /** @deprecated Use PRE_APPROVED_TOOLS for SDK allowedTools */
@@ -703,6 +702,8 @@ export class ClaudeManager {
   private activeStreamIterators: Map<string, { abortController: AbortController }> = new Map()
   // Pending messages queue — stores messages for sessions with active streams
   private pendingMessages: Map<string, Array<{content: string, options?: any}>> = new Map()
+  // External callbacks for process exit notification
+  private sessionExitCallbacks: Map<string, (reason: string) => void> = new Map()
   // Timeout for first event from stream — detects corrupted sessions that hang
   private static readonly FIRST_EVENT_TIMEOUT_MS = 30_000
 
@@ -1580,6 +1581,12 @@ export class ClaudeManager {
         console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
         return
       }
+      // Notify external listeners (e.g. server.ts) before cleanup
+      const exitCallback = this.sessionExitCallbacks.get(id)
+      if (exitCallback) {
+        exitCallback('SDK process exited unexpectedly')
+        this.sessionExitCallbacks.delete(id)
+      }
       this.cleanupSession(id, 'process exited')
     })
 
@@ -1623,6 +1630,11 @@ export class ClaudeManager {
         if (this.sessions.get(id)?.session !== session) {
           console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
           return
+        }
+        const exitCallback = this.sessionExitCallbacks.get(id)
+        if (exitCallback) {
+          exitCallback('SDK process exited unexpectedly')
+          this.sessionExitCallbacks.delete(id)
         }
         this.cleanupSession(id, 'process exited')
       })
@@ -1720,6 +1732,11 @@ export class ClaudeManager {
         if (this.sessions.get(id)?.session !== session) {
           console.log(`[ClaudeManager][${id}] Process exited but session was replaced, skipping cleanup`)
           return
+        }
+        const exitCallback = this.sessionExitCallbacks.get(id)
+        if (exitCallback) {
+          exitCallback('SDK process exited unexpectedly')
+          this.sessionExitCallbacks.delete(id)
         }
         this.cleanupSession(id, 'process exited')
       })
@@ -1827,6 +1844,21 @@ export class ClaudeManager {
 
     // Build canUseTool for AskUserQuestion + destructive Bash permission support
     const isFullPermission = options.permissionMode === 'full'
+
+    // Sub-agent control: detect user intent and skill permissions
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user') as any
+    const userRequestedSubAgent = lastUserMessage
+      ? /子\s*agent|sub[\s-]?agent|子\s*代理|创建.*任务|spawn.*agent|create.*task|用.*agent|开.*子.*agent|parallel.*task/i.test(
+          typeof lastUserMessage.content === 'string'
+            ? lastUserMessage.content
+            : Array.isArray(lastUserMessage.content)
+              ? (lastUserMessage.content as any[]).map((c: any) => c.text || '').join('')
+              : ''
+        )
+      : false
+    const subAgentAllowedSkills = new Set((options as any).allowSubAgentSkills || [])
+    let activeSkillAllowsSubAgents = false
+
     const canUseTool = (onAskUserQuestion || onPermissionRequest) ? async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
       // [DIAG-1.5] Log every canUseTool invocation
       console.log(`[DIAG] canUseTool INVOKED: toolName=${toolName}, input=${JSON.stringify(input).substring(0, 200)}`)
@@ -1882,6 +1914,33 @@ export class ClaudeManager {
             console.log(`[ClaudeManager] Permission ${id}: cancelled`, (error as Error).message)
             return { behavior: 'deny' as const, message: `The permission request for this ${toolName} command was cancelled or timed out: ${command.substring(0, 200)}. The operation was not performed. Suggest safer alternative approaches and ask the user how they would like to proceed.` }
           }
+        }
+      }
+
+      // Skill: track if the invoked skill allows sub-agents
+      if (toolName === 'Skill') {
+        const cmd = String(input.command || input.name || input.skill || '')
+        const skillName = cmd.replace(/^\/+/, '').trim()
+        if (skillName && subAgentAllowedSkills.has(skillName)) {
+          activeSkillAllowsSubAgents = true
+          console.log(`[ClaudeManager] Skill "${skillName}" allows sub-agents`)
+        }
+      }
+
+      // Agent/Task: only allow if user explicitly requested or active skill requires it
+      if (toolName === 'Agent' || toolName === 'Task') {
+        if (userRequestedSubAgent) {
+          console.log(`[ClaudeManager] ${toolName} auto-allowed: user explicitly requested sub-agent`)
+          return { behavior: 'allow' as const, updatedInput: input }
+        }
+        if (activeSkillAllowsSubAgents) {
+          console.log(`[ClaudeManager] ${toolName} auto-allowed: active skill requires sub-agents`)
+          return { behavior: 'allow' as const, updatedInput: input }
+        }
+        console.log(`[ClaudeManager] ${toolName} denied: user did not request and no skill requires it`)
+        return {
+          behavior: 'deny' as const,
+          message: 'Sub-agent creation is not allowed unless explicitly requested by the user or the current skill requires it. Please complete the task directly using available tools.',
         }
       }
 
@@ -2295,6 +2354,41 @@ export class ClaudeManager {
           }
 
           // Skip other stream_event types - they don't need yield
+
+          // ========== Extract token usage from stream events ==========
+          if (streamEvent.type === 'message_start' && streamEvent.message?.usage) {
+            const usage = streamEvent.message.usage
+            if (usage.input_tokens > 0) {
+              const effectiveContextWindow = options.contextWindow ?? this.contextWindow ?? 200000
+              yield {
+                type: 'context-usage',
+                data: {
+                  inputTokens: usage.input_tokens || 0,
+                  outputTokens: usage.output_tokens || 0,
+                  cacheReadTokens: usage.cache_read_input_tokens || 0,
+                  cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+                  contextWindow: effectiveContextWindow,
+                }
+              }
+            }
+          }
+          if (streamEvent.type === 'message_delta' && streamEvent.usage) {
+            const usage = streamEvent.usage
+            if (usage.input_tokens > 0) {
+              const effectiveContextWindow = options.contextWindow ?? this.contextWindow ?? 200000
+              yield {
+                type: 'context-usage',
+                data: {
+                  inputTokens: usage.input_tokens || 0,
+                  outputTokens: usage.output_tokens || 0,
+                  cacheReadTokens: usage.cache_read_input_tokens || 0,
+                  cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+                  contextWindow: effectiveContextWindow,
+                }
+              }
+            }
+          }
+
           continue
         }
 
@@ -3320,5 +3414,13 @@ export class ClaudeManager {
     } catch (error) {
       throw new Error(`Command execution failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  registerSessionExitCallback(conversationId: string, callback: (reason: string) => void): void {
+    this.sessionExitCallbacks.set(conversationId, callback)
+  }
+
+  unregisterSessionExitCallback(conversationId: string): void {
+    this.sessionExitCallbacks.delete(conversationId)
   }
 }

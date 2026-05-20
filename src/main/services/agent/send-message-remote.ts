@@ -45,6 +45,7 @@ import {
 } from './session-manager';
 import { AicoBotMcpBridge } from '../remote/ws/aico-bot-mcp-bridge';
 import { terminalGateway } from '../terminal/terminal-gateway';
+import { SkillManager } from '../skill/skill-manager';
 
 const log = createLogger('agent:remote');
 
@@ -517,6 +518,16 @@ export async function executeRemoteMessage(
       }
     });
 
+    // Context usage events - real-time token usage updates during streaming
+    addHandler('claude:context-usage', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        sendToRenderer('agent:context-usage', spaceId, conversationId, {
+          type: 'context-usage',
+          ...data.data,
+        });
+      }
+    });
+
     // Thought events - for thinking process display (aligned with local agent:thought)
     addHandler('thought', (data) => {
       if (data.sessionId === effectiveSessionId) {
@@ -662,7 +673,24 @@ export async function executeRemoteMessage(
           content: '',
           isComplete: false,
           isStreaming: false,
-          isNewTextBlock: true, // Signal: new text block started
+          isNewTextBlock: true,
+        });
+      }
+    });
+
+    // Stream alive heartbeat from server — forward to renderer
+    addHandler('stream:alive', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        sendToRenderer('agent:stream-alive', spaceId, conversationId, data.data);
+      }
+    });
+
+    // Idle timeout — forward to renderer for user decision
+    addHandler('idle:timeout', (data) => {
+      if (data.sessionId === effectiveSessionId) {
+        log.warn(`Idle timeout for session ${effectiveSessionId}: ${data.idleMinutes}min`);
+        sendToRenderer('agent:idle-timeout', spaceId, conversationId, {
+          idleMinutes: data.idleMinutes,
         });
       }
     });
@@ -860,6 +888,9 @@ export async function executeRemoteMessage(
           : undefined,
         aicoBotMcpToken: mcpProxyRemotePort ? await getAccessToken() : undefined,
         permissionMode: (config.permissions?.trustMode ?? false) ? 'full' : 'partial',
+        allowSubAgentSkills: SkillManager.getInstance().getInstalledSkills()
+          .filter(s => s.spec.allow_sub_agents)
+          .map(s => s.spec.name),
       },
     );
 
@@ -873,8 +904,10 @@ export async function executeRemoteMessage(
       isStreaming: false,
     });
 
-    // Send completion event
-    sendToRenderer('agent:complete', spaceId, conversationId, {});
+    // Send completion event with tokenUsage
+    sendToRenderer('agent:complete', spaceId, conversationId, {
+      tokenUsage: response.tokenUsage,
+    });
 
     // Extract file changes summary for immediate display (aligned with local conversation)
     let metadata: { fileChanges?: FileChangesSummary } | undefined;
