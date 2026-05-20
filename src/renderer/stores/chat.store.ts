@@ -851,6 +851,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           console.error('[ChatStore] Failed to trigger session warm up:', error);
         }
 
+        // Reset knowledge base selection to all enabled KBs for new conversation
+        const { useKnowledgeBaseStore } = await import('./knowledge-base.store');
+        useKnowledgeBaseStore.getState().onConversationCreated(newConversation.id);
+
         return newConversation;
       }
 
@@ -889,6 +893,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Reset agent view to main when switching conversations
     set({ activeAgentId: null });
+
+    // Restore per-conversation knowledge base selection
+    const { useKnowledgeBaseStore } = await import('./knowledge-base.store');
+    useKnowledgeBaseStore.getState().onConversationSwitched(conversationId);
 
     // Update the pointer + move unseen/error items to readAt grace period
     set((state) => {
@@ -2226,7 +2234,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           // Build canvas context (uses module-level buildCanvasContext)
 
-          // Send the pending message
+          // Send the pending message with CURRENT KB selection (not stale snapshot)
+          const { useKnowledgeBaseStore } = await import('./knowledge-base.store');
+          const currentKbIds = useKnowledgeBaseStore.getState().activeKnowledgeBaseIds;
           await api.sendMessage({
             spaceId,
             conversationId,
@@ -2235,7 +2245,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             aiBrowserEnabled: nextMessage.aiBrowserEnabled,
             thinkingEnabled: nextMessage.thinkingEnabled,
             canvasContext: buildCanvasContext(),
-            agentId: nextMessage.agentId || 'leader', // Pass target agent for Hyper Space
+            agentId: nextMessage.agentId || 'leader',
+            activeKnowledgeBases: currentKbIds.length > 0 ? currentKbIds : undefined,
           });
         }
       }
